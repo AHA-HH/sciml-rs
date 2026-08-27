@@ -6,7 +6,6 @@
 debug/
 .idea/
 outputs/
-datasets/
 tmp/
 .DS_Store
 
