@@ -6,10 +6,10 @@
 // pub mod base_config;
 // pub mod batch;
 // pub mod batcher;
-// pub mod dataset;
+pub mod dataset;
+pub mod dataitem;
 // pub mod datasets;
 pub mod grids;
 // pub mod io;
-// pub mod item;
 // pub mod split;
 // pub mod transforms;
