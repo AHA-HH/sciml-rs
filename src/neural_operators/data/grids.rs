@@ -415,7 +415,7 @@ mod tests {
                         assert!((out[[b, i, j, k, 0]] - xx[[i, j, k]]).abs() < 1e-9, "channel 0 should be xx");
                         assert!((out[[b, i, j, k, 1]] - yy[[i, j, k]]).abs() < 1e-9, "channel 1 should be yy");
                         assert!((out[[b, i, j, k, 2]] - tt[[i, j, k]]).abs() < 1e-9, "channel 2 should be tt");
-                        // data channel last (3), and correctly broadcast per-batch
+                        // data channel last (3) and correctly broadcast per-batch
                         assert!(
                             (out[[b, i, j, k, 3]] - data[[b, i, j, k, 0]]).abs() < 1e-9,
                             "channel 3 should be original data, batch {}",
