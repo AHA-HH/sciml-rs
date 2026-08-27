@@ -1,0 +1,46 @@
+[package]
+name = "sciml-rs"
+version = "0.1.0-dev"
+authors = ["The sciml-rs developers"]
+edition = "2024"
+description = "Scientific machine learning tools in Rust"
+license = "MIT / Apache-2.0"
+homepage = "https://codeberg.com.com/sciml-rs/sciml-rs"
+repository = "https://codeberg.org/sciml-rs/sciml-rs.git"
+readme = "README.md"
+keywords = ["numerics"]
+categories = ["mathematics", "science"]
+
+[lib]
+name = "sciml_rs"
+
+[dependencies]
+itertools = "0.14"
+# burn = { version = "0.21.0", features = ["autodiff", "ndarray", "train"] }
+burn = { git = "https://github.com/cofinite/burn", branch = "main", features = ["autodiff", "flex", "train"] }
+# rlst = { version = "0.6.1" }
+rlst = { git = "https://codeberg.org/rlst/rlst.git", branch = "main" }
+ndarray = "0.17"
+ndarray-npy = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+anyhow = "1.0"
+nalgebra = "0.34.1"
+matfile = "0.5"
+ndarray-npz = "0.4.2"
+burn-backend = "0.21.0"
+gnuplot = "0.0.46"
+# wandb-rs = { git = "https://github.com/NousResearch/wandb-rs", branch = "main" }
+
+[dev-dependencies]
+approx = { version = "0.5", features = ["num-complex"] }
+gnuplot = "0.0.46"
+
+[target.'cfg(target_os= "macos")'.dev-dependencies]
+# rlst = { version = "0.6.1", features = ["fftw", "fftw_source", "burn"]}
+rlst = { git = "https://codeberg.org/rlst/rlst.git", branch = "main", features = ["fftw", "fftw_source", "burn"] }
+blas-src = {version="0.14", features = ["accelerate"]}
+lapack-src = {version="0.13", features = ["accelerate"]}
+
+[target.'cfg(target_os= "linux")'.dev-dependencies]
+# rlst = { version = "0.6.1", features = ["fftw", "fftw_system", "burn"]}
+rlst = { git = "https://codeberg.org/rlst/rlst.git", branch = "main", features = ["fftw", "fftw_source", "burn"] }

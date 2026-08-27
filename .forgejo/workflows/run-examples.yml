@@ -1,0 +1,24 @@
+name: 🧪 run-examples
+
+on:
+  workflow_dispatch:
+  schedule:
+  - cron: "1 0 * * FRI"
+
+jobs:
+  run-examples:
+    name: run-examples
+    runs-on: codeberg-small-lazy
+    steps:
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: "true"
+
+      - name: Install cargo-templated-examples
+        run: cargo install cargo-templated-examples
+
+      - name: Check if dependencies are up-to-date
+        run: cargo templated-examples NPROCESSES 3
