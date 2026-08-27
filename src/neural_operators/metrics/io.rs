@@ -1,0 +1,39 @@
+//! CSV persistence for per-epoch training metrics.
+
+use crate::neural_operators::training::metrics::EpochMetrics;
+use std::io::BufRead;
+use std::fs::File;
+use std::io::Write;
+
+/// Reads a metrics CSV written by `write_metrics_csv` back into `EpochMetrics`.
+/// Panics on missing/malformed fields — no partial-row recovery.
+pub fn read_metrics_csv(path: &str) -> Vec<EpochMetrics> {
+    let file = std::fs::File::open(path).expect("failed to open csv");
+    let reader = std::io::BufReader::new(file);
+    let mut metrics = Vec::new();
+
+    for line in reader.lines().skip(1) {
+        let line = line.expect("failed to read line");
+        let fields: Vec<&str> = line.split(',').collect();
+        metrics.push(EpochMetrics {
+            epoch: fields[0].parse().unwrap(),
+            train_mse: fields[1].parse().unwrap(),
+            train_l2: fields[2].parse().unwrap(),
+            test_l2: fields[3].parse().unwrap(),
+            current_lr: fields[4].parse().unwrap(),
+        });
+    }
+    metrics
+}
+
+/// Writes per-epoch metrics to CSV, one row per epoch, with a header row.
+pub fn write_metrics_csv(path: &str, metrics: &[EpochMetrics]) {
+    let mut file = File::create(path).expect("failed to create metrics csv");
+    writeln!(file, "epoch,train_mse,train_l2,test_l2,current_lr")
+        .expect("failed to write header");
+    for m in metrics {
+        writeln!(file, "{},{},{},{},{}",
+            m.epoch, m.train_mse, m.train_l2, m.test_l2, m.current_lr)
+            .expect("failed to write row");
+    }
+}
