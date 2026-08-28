@@ -2,8 +2,9 @@
 //! input/target tensor pair and hands out individual [`DataItem`]s by index.
 
 use crate::neural_operators::data::dataitem::DataItem;
-use burn::data::dataset::Dataset;
+use burn::data::dataset::{Dataset, DatasetError};
 use ndarray::{ArrayD, Axis};
+use std::io::{Error, ErrorKind};
 
 /// Holds the entire preprocessed dataset in memory and hands out
 /// individual [`DataItem`]s on demand via [`Dataset::get`].
@@ -25,16 +26,19 @@ impl OperatorDataset {
 }
 
 impl Dataset<DataItem> for OperatorDataset {
-    fn get(&self, index: usize) -> Option<DataItem> {
+    fn get(&self, index: usize) -> Result<DataItem, DatasetError> {
         if index >= self.len() {
-            return None;
+            return Err(DatasetError::new(Error::new(
+                ErrorKind::InvalidInput,
+                format!("index {index} out of bounds (len {})", self.len()),
+            )));
         }
 
         // slice the i-th example from inputs and targets
         let input = self.inputs.index_axis(Axis(0), index).to_owned();
         let target = self.targets.index_axis(Axis(0), index).to_owned();
 
-        Some(DataItem { input, target })
+        Ok(DataItem { input, target })
     }
 
     fn len(&self) -> usize {

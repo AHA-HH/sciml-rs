@@ -15,7 +15,7 @@ categories = ["mathematics", "science"]
 name = "sciml_rs"
 
 [dependencies]
-burn = { git = "https://github.com/cofinite/burn", branch = "main", features = ["autodiff", "flex", "train"] }
+burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "train"] }
 rlst = { git = "https://codeberg.org/rlst/rlst.git", branch = "main" }
 ndarray = "0.17"
 ndarray-npy = "0.10"
