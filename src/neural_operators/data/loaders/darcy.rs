@@ -24,7 +24,7 @@ use crate::neural_operators::data::{
 };
 use burn::config::Config;
 use ndarray::{Axis, IxDyn};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Darcy-specific config: subsample rate and the resolution it implies.
 #[derive(Config, Debug)]
@@ -51,8 +51,8 @@ impl HasBaseConfig for DarcyConfig {
 /// Returns `(train_dataset, test_dataset, y_normalizer)` — the normaliser is
 /// needed by the caller to decode predictions back to physical scale.
 pub fn load_darcy_uniform(
-    train_path: &str,
-    test_path: &str,
+    train_path: &PathBuf,
+    test_path: &PathBuf,
     config: &DarcyConfig,
 ) -> (OperatorDataset, OperatorDataset, UnitGaussianNormaliser) {
     // read input ('coeff') and target ('sol') fields from separate train/test .mat files

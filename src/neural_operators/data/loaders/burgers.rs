@@ -18,7 +18,7 @@ use crate::neural_operators::data::{
 };
 use burn::config::Config;
 use ndarray::IxDyn;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Config, Debug)]
 pub struct BurgersConfig {
@@ -49,7 +49,7 @@ impl HasBaseConfig for BurgersConfig {
 /// Inputs end up `[n, s, 1 + 1]` and targets `[n, s]` — the rank difference
 /// the batcher's `RM1 = R - 1` invariant expects.
 pub fn load_burgers_uniform(
-    path: &str,
+    path: &PathBuf,
     config: &BurgersConfig,
 ) -> (OperatorDataset, OperatorDataset) {
     // 1. Read raw data from .mat file
