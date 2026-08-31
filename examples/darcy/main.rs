@@ -37,7 +37,7 @@ fn main() {
     };
 
     let train_cfg = TrainingConfig::new()
-        .with_epochs(3)
+        .with_epochs(500)
         .with_batch_size(20)
         .with_learning_rate(1e-3)
         .with_weight_decay(1e-4)
