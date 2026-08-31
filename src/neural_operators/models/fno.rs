@@ -1,32 +1,47 @@
+//! Generic template for FNO for n dimensions
+
+use burn::{
+    Tensor,
+    config::Config,
+    module::Module,
+    nn::{
+        Linear, LinearConfig,
+        conv::{Conv1d, Conv1dConfig},
+    },
+    tensor::{Device, activation::relu},
+};
+
+use crate::neural_operators::layers::spectral_convolution::SpectralConv;
+
 // FNO Architecture
 #[derive(Config, Debug)]
-pub struct FNOndConfig {
+pub struct FNOConfig {
     pub modes: Vec<usize>,  // length D = R - 2
+    #[config(default = 32)]
     pub width: usize,
     pub data_channels: usize, // problem specific, 1 (coefficients), 10 (3d problem, stacked timesteps)
-    pub out_channels: usize,  // hardcoded 1
+    pub out_channels: usize,  
     #[config(default = 4)]
     pub n_layers: usize,
-
 }
 
 #[derive(Module, Debug)]
-pub struct FNOnd<const R: usize> {
+pub struct FNO<const R: usize> {
     fc0: Linear,
-    conv: Vec<SpectralConvNd<R>>,
+    conv: Vec<SpectralConv<R>>,
     w: Vec<Conv1d>,
     fc1: Linear,
     fc2: Linear,
 }
 
-impl FNOndConfig {
-    pub fn init<const R: usize>(&self, device: &Device) -> FNOnd<R> {
+impl FNOConfig {
+    pub fn init<const R: usize>(&self, device: &Device) -> FNO<R> {
         let coord_channels = self.modes.len(); // D = R - 2, need to derive and input into layer
     
-        FNOnd {
+        FNO {
             fc0: LinearConfig::new(self.data_channels + coord_channels, self.width).init(device),
 
-            conv: (0..self.n_layers).map(|_| SpectralConvNd::<R>::new(device, self.width, self.width, &self.modes))
+            conv: (0..self.n_layers).map(|_| SpectralConv::<R>::new(device, self.width, self.width, &self.modes))
                     .collect(),
 
             w: (0..self.n_layers)
@@ -39,7 +54,7 @@ impl FNOndConfig {
     }
 }
 
-impl<const R: usize> FNOnd<R> {
+impl<const R: usize> FNO<R> {
     fn apply_pointwise(conv: &Conv1d, x: Tensor<R>) -> Tensor<R> {
         let dims = x.dims();
         let (b, width) = (dims[0], dims[1]);
