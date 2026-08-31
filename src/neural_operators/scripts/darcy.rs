@@ -1,59 +1,44 @@
-//! FNO experiment on 2D Darcy Flow dataset
+//! FNO experiment on the 2D Darcy flow dataset.
 
-use crate::neural_operators::{
-    data::{
-        dataset::{DarcyFlowConfig, load_darcy_flow_uniform},
-        pipeline::DatasetConfig,
-        visual::{write_metrics_csv_nd, plot_metrics_nd},
-    },
-    train_fno::{FNOConfig, train_darcy_flow_fno},
-};
 use burn::tensor::Device;
+use crate::neural_operators::{
+    data::datasets::{
+        base_dataset::DatasetConfig,
+        darcy::{DarcyConfig, load_darcy_uniform},
+    },
+    metrics::io::write_run_artifacts,
+    models::fno::FNOConfig,
+    training::{trainer::TrainingConfig, trainers::darcy::train_darcy},
+};
 
-pub fn run_darcy_flow_fno() {
+pub fn run_darcy() {
     let device = Device::default().autodiff();
 
-    let dataset_config = DarcyFlowConfig::new(
-        DatasetConfig { n_train: 1000, n_test: 100 },
-        28, // subsample_rate -> s=16, matches the Python reference run
-    );
+    let data_cfg = DatasetConfig { n_train: 1000, n_test: 100 };
+    let dataset_cfg = DarcyConfig::new(data_cfg.clone(), 28);
 
-    let (train_data, test_data, y_normalizer) = load_darcy_flow_uniform(
-        "/Users/aneeshussain/Code/Datasets/piececonst_r421_N1024_smooth1.mat",
-        "/Users/aneeshussain/Code/Datasets/piececonst_r421_N1024_smooth2.mat",
-        &dataset_config,
-    );
+    let (train_data, test_data, y_normaliser) =
+        load_darcy_uniform("<path>/piececonst_r421_N1024_smooth1.mat", "<path>/piececonst_r421_N1024_smooth2.mat", &dataset_cfg);
 
-    let config = FNOConfig {
-        modes: vec![4, 4], 
-        width: 32, 
-        data_channels: 1, 
+    let model_cfg = FNOConfig {
+        modes: vec![4, 4],
+        width: 32,
+        data_channels: 1,
         out_channels: 1,
         n_layers: 4,
-        epochs: 3, // 500
-        batch_size: 20, 
-        learning_rate: 1e-3,
-        weight_decay: 1e-4,
-        min_lr: 1e-5,
-        n_train: 1000,
-        n_test: 100,
-        seed: 42,
     };
 
-    let (_model, metrics) = train_darcy_flow_fno(train_data, test_data, &y_normalizer, &config, &device);
+    let train_cfg = TrainingConfig::new()
+        .with_epochs(500)
+        .with_batch_size(20)
+        .with_learning_rate(1e-3)
+        .with_weight_decay(1e-4)
+        .with_min_lr(1e-5);
 
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let csv_path = format!("darcy_2nd_fno_{}.csv", timestamp);
-    let png_path = format!("darcy_2nd_fno_{}.png", timestamp);
-    write_metrics_csv_nd(&csv_path, &metrics);
-    plot_metrics_nd(&metrics, &png_path);
-    println!("csv written, png saved");
+    let (_model, metrics) = train_darcy(
+        train_data, test_data, &y_normaliser, &model_cfg, &train_cfg, &data_cfg, &device,
+    );
 
-    let final_test_l2 = metrics.last().unwrap().test_l2;
-    println!("final test_l2: {:.6}", final_test_l2);
-    // Python reference run (this project, s=16, modes=4, cosine LR, epoch 499)
-    println!("python reference test_l2: 0.0345");
+    let dir = write_run_artifacts("darcy_fno", &metrics);
+    println!("run written to {}", dir.display());
 }
