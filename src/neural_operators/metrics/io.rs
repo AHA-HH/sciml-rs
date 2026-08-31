@@ -2,8 +2,10 @@
 
 use crate::neural_operators::{
     metrics::plots::plot_metrics,
-    training::metrics::EpochMetrics,
+    models::fno::FNOConfig,
+    training::{metrics::EpochMetrics, trainer::TrainingConfig},
 };
+use burn::config::Config;
 use std::io::BufRead;
 use std::fs::File;
 use std::io::Write;
@@ -44,7 +46,7 @@ pub fn write_metrics_csv(path: &PathBuf, metrics: &[EpochMetrics]) {
 
 /// Writes `metrics.csv` and `metrics.png` into a fresh timestamped run
 /// directory under `runs/`, and returns the directory.
-pub fn write_run_artifacts(name: &str, metrics: &[EpochMetrics]) -> PathBuf {
+pub fn write_run_artifacts<D: Config>(name: &str, metrics: &[EpochMetrics], model_cfg: &FNOConfig, train_cfg: &TrainingConfig, data_cfg: &D,) -> PathBuf {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock before unix epoch")
@@ -55,8 +57,12 @@ pub fn write_run_artifacts(name: &str, metrics: &[EpochMetrics]) -> PathBuf {
         .join(format!("{name}_{stamp}"));
     std::fs::create_dir_all(&dir).expect("could not create run directory");
 
+    model_cfg.save(dir.join("model_cfg.json")).expect("could not save model config");
+    train_cfg.save(dir.join("train_cfg.json")).expect("could not save training config");
+    data_cfg.save(dir.join("data_cfg.json")).expect("could not save dataset config");
+
     write_metrics_csv(&dir.join("metrics.csv"), metrics);
-    plot_metrics(&dir.join("metrics.png"), metrics);
+    plot_metrics(&dir.join("plots.png"), metrics);
 
     dir
 }
