@@ -1,6 +1,6 @@
 //! Darcy flow dataset: config and constructor.
 //!
-//! `DarcyFlowConfig` holds Darcy-specific settings (subsample rate, derived
+//! `DarcyConfig` holds Darcy-specific settings (subsample rate, derived
 //! resolution) on top of the shared `DatasetConfig`. `load_darcy_flow_uniform`
 //! builds train/test `OperatorDataset`s from separate `.mat` files: reading,
 //! truncating to configured sizes, subsampling both spatial axes, fitting and
@@ -26,24 +26,24 @@ use ndarray::{Axis, IxDyn};
 use std::path::Path;
 
 /// Darcy-specific config: subsample rate and the resolution it implies.
-pub struct DarcyFlowConfig {
+pub struct DarcyConfig {
     pub base: DatasetConfig,
     pub subsample_rate: usize,
 }
 
-impl DarcyFlowConfig {
+impl DarcyConfig {
     pub fn new(base: DatasetConfig, subsample_rate: usize) -> Self {
         Self { base, subsample_rate }
     }
 
     /// Resolution after subsampling, assuming a raw resolution of 421.
-    /// Checked against the actually-read resolution in `load_darcy_flow_uniform`.
+    /// Checked against the actually-read resolution in `load_darcy_uniform`.
     pub fn s(&self) -> usize {
         (421 - 1) / self.subsample_rate + 1
     }
 }
 
-impl HasBaseConfig for DarcyFlowConfig {
+impl HasBaseConfig for DarcyConfig {
     fn base(&self) -> &DatasetConfig {
         &self.base
     }
@@ -52,10 +52,10 @@ impl HasBaseConfig for DarcyFlowConfig {
 /// Builds the Darcy flow dataset with a uniform 2D grid channel appended.
 /// Returns `(train_dataset, test_dataset, y_normalizer)` — the normaliser is
 /// needed by the caller to decode predictions back to physical scale.
-pub fn load_darcy_flow_uniform(
+pub fn load_darcy_uniform(
     train_path: &str,
     test_path: &str,
-    config: &DarcyFlowConfig,
+    config: &DarcyConfig,
 ) -> (OperatorDataset, OperatorDataset, UnitGaussianNormaliser) {
     // read input ('coeff') and target ('sol') fields from separate train/test .mat files
     println!("step 1: reading .mat files...");
