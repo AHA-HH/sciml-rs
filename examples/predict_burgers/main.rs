@@ -1,6 +1,6 @@
 //! Loads a saved Burgers run and re-evaluates it on the test split.
 //!
-//! Run with: cargo run --release --example predict -- runs/burgers_fno_<stamp>
+//! Run with: cargo run --release --example predict_burgers -- runs/burgers_fno_<stamp>
 
 use std::path::PathBuf;
 
@@ -11,21 +11,30 @@ use sciml_rs::neural_operators::{
     models::fno::FNOConfig,
     training::trainer::{eval_epoch, identity},
 };
+use std::path::Path;
 
 fn main() {
     let dir = PathBuf::from(std::env::args().nth(1).expect("usage: predict <run_dir>"));
     let device = Device::default().autodiff();
 
     // Architecture from the saved config, weights from the saved record.
-    let model_cfg = FNOConfig::load(dir.join("model_config.json")).expect("load model config");
+    let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
     let mut model = model_cfg.init::<3>(&device);
-    let mut store = BurnpackStore::from_file(dir.join("model.bpk"));
+    let mut store = BurnpackStore::from_file(dir.join("model_weights.bpk"));
     model.load_from(&mut store).expect("load model weights");
 
     // Same test split the run was evaluated on.
-    let dataset_cfg = BurgersConfig::load(dir.join("dataset.json")).expect("load dataset config");
+    let dataset_cfg = BurgersConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
     // let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");
-    let (_, test_data) = load_burgers_uniform("/Users/aneeshussain/Code/Datasets/burgers_data_R10.mat", &dataset_cfg);
+    let data_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("datasets/burgers_data_R10.mat");
+    assert!(
+        data_path.exists(),
+        "Burgers dataset not found at {}\nSee datasets/README.md for the download link.",
+        data_path.display()
+    );
+    
+    let (_, test_data) = load_burgers_uniform(&data_path, &dataset_cfg);
 
     let test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new(device.clone()))
         .batch_size(20)

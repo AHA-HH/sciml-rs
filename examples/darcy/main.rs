@@ -10,6 +10,7 @@ use sciml_rs::neural_operators::{
     training::{trainer::TrainingConfig, trainers::darcy::train_darcy},
 };
 use burn::{tensor::Device, store::{BurnpackStore, ModuleSnapshot}};
+use std::path::Path;
 
 fn main() {
     let device = Device::default().autodiff();
@@ -17,9 +18,15 @@ fn main() {
     let data_cfg = DatasetConfig { n_train: 1000, n_test: 100 };
     let dataset_cfg = DarcyConfig::new(data_cfg.clone(), 28);
 
+    let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
+    let train_path = datasets.join("piececonst_r421_N1024_smooth1.mat");
+    let test_path = datasets.join("piececonst_r421_N1024_smooth2.mat");
+    for p in [&train_path, &test_path] {
+        assert!(p.exists(), "Darcy dataset not found at {}\nSee datasets/README.md", p.display());
+    }
+
     let (train_data, test_data, y_normaliser) =
-        // load_darcy_uniform("<path>/piececonst_r421_N1024_smooth1.mat", "<path>/piececonst_r421_N1024_smooth2.mat", &dataset_cfg);
-        load_darcy_uniform("/Users/aneeshussain/Code/Datasets/piececonst_r421_N1024_smooth1.mat", "/Users/aneeshussain/Code/Datasets/piececonst_r421_N1024_smooth2.mat", &dataset_cfg);
+        load_darcy_uniform(&train_path, &test_path, &dataset_cfg);
 
     let model_cfg = FNOConfig {
         modes: vec![4, 4],
@@ -30,7 +37,7 @@ fn main() {
     };
 
     let train_cfg = TrainingConfig::new()
-        .with_epochs(500)
+        .with_epochs(3)
         .with_batch_size(20)
         .with_learning_rate(1e-3)
         .with_weight_decay(1e-4)

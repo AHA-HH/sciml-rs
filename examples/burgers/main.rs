@@ -9,6 +9,7 @@ use sciml_rs::neural_operators::{
     training::{trainer::TrainingConfig, trainers::burgers::train_burgers},
 };
 use burn::{tensor::Device, store::{BurnpackStore, ModuleSnapshot}};
+use std::path::Path;
 
 fn main() {
     let device = Device::default().autodiff();
@@ -16,9 +17,16 @@ fn main() {
     let data_cfg = DatasetConfig { n_train: 1024, n_test: 100 };
     let dataset_cfg = BurgersConfig::new(data_cfg.clone(), 32);
 
+    let data_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("datasets/burgers_data_R10.mat");
+    assert!(
+        data_path.exists(),
+        "Burgers dataset not found at {}\nSee datasets/README.md for the download link.",
+        data_path.display()
+    );
+
     let (train_data, test_data) =
-        // load_burgers_uniform("<path>/burgers_data_R10.mat", &dataset_cfg);
-        load_burgers_uniform("/Users/aneeshussain/Code/Datasets/burgers_data_R10.mat", &dataset_cfg);
+        load_burgers_uniform(&data_path, &dataset_cfg);
 
     let model_cfg = FNOConfig {
         modes: vec![16],
