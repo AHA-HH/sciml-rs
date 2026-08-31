@@ -36,7 +36,7 @@ impl UnitGaussianNormaliser {
 
     // Exposes fitted statistics for bridging into Burn's autodiff Tensor
     // world inside the training loop. encode/decode above stay ndarray-based
-    // and are used during data loading (load_darcy_flow_uniform), where no
+    // and are used during data loading (load_darcy_uniform), where no
     // gradient tracking is needed.
     pub fn mean_ref(&self) -> &ArrayD<f64> {
         &self.mean
