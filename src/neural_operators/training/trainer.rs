@@ -243,3 +243,58 @@ pub fn training_loop<const R: usize, const RM1: usize>(
 
     (model, metrics)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::neural_operators::data::transforms::normalisers::Normaliser;
+
+    #[test]
+    fn tensor_reshape_matches_ndarray_ordering() {
+        let device = Device::default();
+
+        // 0..12 in a [3, 4] ndarray — row-major, so element (i,j) = i*4 + j.
+        let arr = ndarray::Array2::from_shape_fn((3, 4), |(i, j)| (i * 4 + j) as f64);
+        let flat_nd: Vec<f64> = arr.iter().copied().collect();
+
+        // Same values as a [1, 3, 4] tensor, reshaped to [1, 12].
+        let t = Tensor::<3>::from_data(
+            TensorData::new(flat_nd.clone(), vec![1, 3, 4]),
+            &device,
+        );
+        let flat_t: Vec<f64> = t.reshape([1, 12]).into_data().iter::<f64>().collect();
+
+        assert_eq!(flat_nd, flat_t, "ndarray and Tensor flatten in different orders");
+    }
+
+    #[test]
+    fn decode_flat_matches_ndarray_decode() {
+        let device = Device::default();
+
+        // Non-square spatial dims — a transpose bug is invisible on square shapes.
+        let (n, s1, s2) = (2, 3, 4);
+        let raw = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, s1, s2]), |idx| {
+            (idx[0] * 100 + idx[1] * 10 + idx[2]) as f64
+        });
+
+        let normaliser = UnitGaussianNormaliser::fit(&raw);
+        let encoded = normaliser.encode(raw.clone());
+
+        // Path A: ndarray decode, the reference implementation.
+        let decoded_nd = normaliser.decode(encoded.clone());
+
+        // Path B: Tensor-native decode on the flattened pair, as training uses.
+        let (mean, std) = normaliser_to_flat_tensors(&normaliser, &device);
+        let flat: Vec<f64> = encoded.iter().copied().collect();
+        let t = Tensor::<2>::from_data(TensorData::new(flat, vec![n, s1 * s2]), &device);
+        let decoded_flat = decode_flat(t, &mean, &std, normaliser.eps_val());
+
+        let a: Vec<f64> = decoded_nd.iter().copied().collect();
+        let b: Vec<f64> = decoded_flat.into_data().iter::<f64>().collect();
+
+        assert_eq!(a.len(), b.len());
+        for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+            assert!((x - y).abs() < 1e-4, "element {i}: ndarray {x} != flat {y}");
+        }
+    }
+}
