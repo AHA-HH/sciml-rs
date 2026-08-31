@@ -1,7 +1,2 @@
-//! Experiment scripts
-//!
-//! End-to-end runnable experiments that wire a dataset, model and training
-//! configuration together and report metrics against reference benchmarks.
+//! Scripts for various experiments or demos
 
-pub mod burgers;
-pub mod darcy;
