@@ -5,6 +5,7 @@
 # will have compiled files and executables
 debug/
 .idea/
+runs/
 outputs/
 tmp/
 .DS_Store
