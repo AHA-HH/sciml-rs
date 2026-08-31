@@ -56,7 +56,6 @@ pub fn load_darcy_uniform(
     config: &DarcyConfig,
 ) -> (OperatorDataset, OperatorDataset, UnitGaussianNormaliser) {
     // read input ('coeff') and target ('sol') fields from separate train/test .mat files
-    println!("step 1: reading .mat files...");
     let train_reader = MatFileReader::new(Path::new(train_path));
     let x_train = train_reader.read_field("coeff").expect("failed to read 'coeff'");
     let y_train = train_reader.read_field("sol").expect("failed to read 'sol'");
@@ -67,15 +66,12 @@ pub fn load_darcy_uniform(
 
     // truncate to configured n_train/n_test along the sample axis — without this,
     // dataset size is whatever the file happens to contain
-    println!("step 1a: truncating to n_train/n_test...");
     let x_train = x_train.slice_axis(Axis(0), (0..config.n_train()).into()).to_owned();
     let y_train = y_train.slice_axis(Axis(0), (0..config.n_train()).into()).to_owned();
     let x_test = x_test.slice_axis(Axis(0), (0..config.n_test()).into()).to_owned();
     let y_test = y_test.slice_axis(Axis(0), (0..config.n_test()).into()).to_owned();
-    println!("x_train shape after truncation: {:?}", x_train.shape());
 
     // downsample both spatial axes (1 and 2) by config.subsample_rate
-    println!("step 2: subsampling...");
     let x_train = subsample(subsample(x_train, 1, config.subsample_rate), 2, config.subsample_rate);
     let y_train = subsample(subsample(y_train, 1, config.subsample_rate), 2, config.subsample_rate);
     let x_test = subsample(subsample(x_test, 1, config.subsample_rate), 2, config.subsample_rate);
@@ -90,12 +86,9 @@ pub fn load_darcy_uniform(
     assert_eq!(n_train, config.n_train(), "n_train mismatch after truncation");
     assert_eq!(n_test, config.n_test(), "n_test mismatch after truncation");
 
-    println!("x_test raw coeff sum (pre-normalize): {}", x_test.iter().sum::<f64>());
-
     // fit x-normaliser on x_train, encode both x_train and x_test;
     // fit y-normaliser on y_train, encode y_train only — y_test stays raw,
     // decoded against at eval time via the returned y_normalizer
-    println!("step 3: normalizing...");
     let x_normalizer = UnitGaussianNormaliser::fit(&x_train);
     let x_train = x_normalizer.encode(x_train);
     let x_test = x_normalizer.encode(x_test);
@@ -105,20 +98,19 @@ pub fn load_darcy_uniform(
     // y_test intentionally NOT encoded
 
     // add a trailing channel axis to inputs: [n, s, s] -> [n, s, s, 1]
-    println!("step 4: reshaping inputs...");
     let x_train = x_train.into_shape_with_order(IxDyn(&[n_train, s, s, 1])).expect("reshape x_train");
     let x_test = x_test.into_shape_with_order(IxDyn(&[n_test, s, s, 1])).expect("reshape x_test");
 
     // append 2D grid coordinates as two more channels: [n, s, s, 1] -> [n, s, s, 3]
-    println!("step 5: appending grid...");
     let (xx, yy) = uniform_grid_2d(0.0, 1.0, s);
     let x_train = append_grid_2d(x_train, xx.clone(), yy.clone());
     let x_test = append_grid_2d(x_test, xx, yy);
 
     // package into OperatorDataset
-    println!("step 6: wrapping in OperatorDataset...");
     let train_dataset = OperatorDataset::new(x_train, y_train);
     let test_dataset = OperatorDataset::new(x_test, y_test);
+
+    println!("darcy: {n_train} train / {n_test} test at s={s}");
 
     (train_dataset, test_dataset, y_normalizer)
 }
