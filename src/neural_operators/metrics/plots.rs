@@ -2,9 +2,10 @@
 
 use crate::neural_operators::training::metrics::EpochMetrics;
 use gnuplot::{Figure, Caption, Color, LineWidth, AxesCommon};
+use std::path::PathBuf;
 
 /// Two-panel plot: relative L2 loss (train/test) and learning rate schedule.
-pub fn plot_metrics(metrics: &[EpochMetrics], path: &str) {
+pub fn plot_metrics(path: &PathBuf, metrics: &[EpochMetrics]) {
     let epochs: Vec<f32> = metrics.iter().map(|m| m.epoch as f32).collect();
     let train_l2: Vec<f32> = metrics.iter().map(|m| m.train_l2).collect();
     let test_l2: Vec<f32> = metrics.iter().map(|m| m.test_l2).collect();

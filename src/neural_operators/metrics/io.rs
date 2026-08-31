@@ -1,9 +1,13 @@
 //! CSV persistence for per-epoch training metrics.
 
-use crate::neural_operators::training::metrics::EpochMetrics;
+use crate::neural_operators::{
+    metrics::plots::plot_metrics,
+    training::metrics::EpochMetrics,
+};
 use std::io::BufRead;
 use std::fs::File;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 
 /// Reads a metrics CSV written by `write_metrics_csv` back into `EpochMetrics`.
 /// Panics on missing/malformed fields — no partial-row recovery.
@@ -27,7 +31,7 @@ pub fn read_metrics_csv(path: &str) -> Vec<EpochMetrics> {
 }
 
 /// Writes per-epoch metrics to CSV, one row per epoch, with a header row.
-pub fn write_metrics_csv(path: &str, metrics: &[EpochMetrics]) {
+pub fn write_metrics_csv(path: &PathBuf, metrics: &[EpochMetrics]) {
     let mut file = File::create(path).expect("failed to create metrics csv");
     writeln!(file, "epoch,train_mse,train_l2,test_l2,current_lr")
         .expect("failed to write header");
@@ -36,4 +40,23 @@ pub fn write_metrics_csv(path: &str, metrics: &[EpochMetrics]) {
             m.epoch, m.train_mse, m.train_l2, m.test_l2, m.current_lr)
             .expect("failed to write row");
     }
+}
+
+/// Writes `metrics.csv` and `metrics.png` into a fresh timestamped run
+/// directory under `runs/`, and returns the directory.
+pub fn write_run_artifacts(name: &str, metrics: &[EpochMetrics]) -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock before unix epoch")
+        .as_secs();
+
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("runs")
+        .join(format!("{name}_{stamp}"));
+    std::fs::create_dir_all(&dir).expect("could not create run directory");
+
+    write_metrics_csv(&dir.join("metrics.csv"), metrics);
+    plot_metrics(&dir.join("metrics.png"), metrics);
+
+    dir
 }
