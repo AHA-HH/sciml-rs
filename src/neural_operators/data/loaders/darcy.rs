@@ -14,7 +14,7 @@
 
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
-    datasets::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
+    loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     io::{traits::FieldReader, readers::mat::MatFileReader},
     transforms::{
         normalisers::{Normaliser, UnitGaussianNormaliser},
@@ -22,20 +22,18 @@ use crate::neural_operators::data::{
     },
     grids::{append_grid_2d, uniform_grid_2d},
 };
+use burn::config::Config;
 use ndarray::{Axis, IxDyn};
 use std::path::Path;
 
 /// Darcy-specific config: subsample rate and the resolution it implies.
+#[derive(Config, Debug)]
 pub struct DarcyConfig {
     pub base: DatasetConfig,
     pub subsample_rate: usize,
 }
 
 impl DarcyConfig {
-    pub fn new(base: DatasetConfig, subsample_rate: usize) -> Self {
-        Self { base, subsample_rate }
-    }
-
     /// Resolution after subsampling, assuming a raw resolution of 421.
     /// Checked against the actually-read resolution in `load_darcy_uniform`.
     pub fn s(&self) -> usize {

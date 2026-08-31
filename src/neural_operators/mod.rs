@@ -1,6 +1,5 @@
 //! Modules for use in Neural Operator implementations
 
-pub mod configs;
 pub mod data;
 pub mod layers;
 pub mod losses;

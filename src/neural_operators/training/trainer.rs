@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use crate::neural_operators::{
     data::{
-        datasets::{base_dataset::DatasetConfig},
+        loaders::{base_dataset::DatasetConfig},
         batcher::{Batch, OperatorBatcher},
         dataset::OperatorDataset,
         transforms::normalisers::UnitGaussianNormaliser,
@@ -209,6 +209,7 @@ pub fn training_loop<const R: usize, const RM1: usize>(
     train_post: &Postprocess,
     eval_post: &Postprocess,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
+    let start = std::time::Instant::now();
     let steps_per_epoch = data_cfg.n_train.div_ceil(train_cfg.batch_size);
     let mut model = components.model;
     let mut metrics = Vec::with_capacity(train_cfg.epochs);
@@ -237,6 +238,8 @@ pub fn training_loop<const R: usize, const RM1: usize>(
         println!("{record:?}");
         metrics.push(record);
     }
+
+    println!("total training time: {:.2?}", start.elapsed());
 
     (model, metrics)
 }

@@ -4,7 +4,7 @@ use burn::prelude::*;
 
 use crate::neural_operators::{
     data::{
-        datasets::base_dataset::DatasetConfig,
+        loaders::base_dataset::DatasetConfig,
         dataset::OperatorDataset,
         transforms::normalisers::UnitGaussianNormaliser,
     },

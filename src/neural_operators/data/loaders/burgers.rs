@@ -7,7 +7,7 @@
 
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
-    datasets::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
+    loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     io::{
         traits::FieldReader,
         readers::mat::MatFileReader,
@@ -16,19 +16,17 @@ use crate::neural_operators::data::{
     grids::{append_grid_1d, uniform_grid_1d},
     split::train_test_split,
 };
+use burn::config::Config;
 use ndarray::IxDyn;
 use std::path::Path;
 
+#[derive(Config, Debug)]
 pub struct BurgersConfig {
     pub base: DatasetConfig,
     pub subsample_rate: usize,
 }
 
 impl BurgersConfig {
-    pub fn new(base: DatasetConfig, subsample_rate: usize) -> Self {
-        Self { base, subsample_rate }
-    }
-
     pub fn s(&self) -> usize {
         2usize.pow(13) / self.subsample_rate
     }
@@ -40,7 +38,16 @@ impl HasBaseConfig for BurgersConfig {
     }
 }
 
-// Load the Burgers 1D dataset with a uniform grid, returns (train_dataset, test_dataset)
+/// Loads the 1D Burgers dataset from a `.mat` file into train/test
+/// `OperatorDataset`s.
+///
+/// Reads fields `a` (initial condition) and `u` (solution at t=1),
+/// subsamples the spatial axis by `config.subsample_rate`, splits off
+/// `n_train`/`n_test` samples, and appends a uniform grid on [0, 1] as a
+/// second input channel.
+///
+/// Inputs end up `[n, s, 1 + 1]` and targets `[n, s]` — the rank difference
+/// the batcher's `RM1 = R - 1` invariant expects.
 pub fn load_burgers_uniform(
     path: &str,
     config: &BurgersConfig,
