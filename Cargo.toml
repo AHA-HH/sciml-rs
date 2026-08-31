@@ -22,6 +22,10 @@ path = "examples/burgers/main.rs"
 name = "darcy"
 path = "examples/darcy/main.rs"
 
+[[example]]
+name = "predict_burgers"
+path = "examples/predict_burgers/main.rs"
+
 [dependencies]
 burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
 rlst = { git = "https://codeberg.org/rlst/rlst.git", branch = "main" }
