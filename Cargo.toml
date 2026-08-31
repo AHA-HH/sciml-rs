@@ -14,8 +14,16 @@ categories = ["mathematics", "science"]
 [lib]
 name = "sciml_rs"
 
+[[example]]
+name = "burgers"
+path = "examples/burgers/main.rs"
+
+[[example]]
+name = "darcy"
+path = "examples/darcy/main.rs"
+
 [dependencies]
-burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "train"] }
+burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
 rlst = { git = "https://codeberg.org/rlst/rlst.git", branch = "main" }
 ndarray = "0.17"
 ndarray-npy = "0.10"
