@@ -19,14 +19,13 @@ use crate::neural_operators::{
         batcher::{Batch, OperatorBatcher},
         dataset::OperatorDataset,
         loaders::base_dataset::DatasetConfig,
-        transforms::normalizers::UnitGaussianNormalizer,
     },
     losses::data_losses::LpLoss,
     models::fno::{FNO, FNOConfig},
     training::metrics::EpochMetrics,
 };
 
-/// Training hyperparameters, wrapping the model's own architecture config.
+/// Training config
 #[derive(Config, Debug)]
 pub struct TrainingConfig {
     #[config(default = 100)]
@@ -37,6 +36,7 @@ pub struct TrainingConfig {
     pub test_batch_size: usize,
     #[config(default = 1e-3)]
     pub learning_rate: f64,
+    /// f32 to match `WeightDecayConfig::penalty`, unlike the f64 types above.
     #[config(default = 1e-4)]
     pub weight_decay: f32,
     #[config(default = 1e-7)]
@@ -53,9 +53,9 @@ pub fn identity(out: Tensor<2>, target: Tensor<2>) -> (Tensor<2>, Tensor<2>) {
 }
 
 /// Collapse model output (rank `IR`, trailing channel axis) and target
-/// (rank `TR = IR - 1`) to the rank-2 pair `LpLoss` requires.
+/// (rank `RM1 = R - 1`) to the rank-2 pair `LpLoss` requires.
 ///
-/// For `IR = 3`: `[b, s, 1]` and `[b, s]` both become `[b, s]`.
+/// For `R = 3`: `[b, s, 1]` and `[b, s]` both become `[b, s]`.
 pub fn flatten_pair<const R: usize, const RM1: usize>(
     out: Tensor<R>,
     target: Tensor<RM1>,
@@ -75,28 +75,6 @@ pub fn flatten_pair<const R: usize, const RM1: usize>(
     let b = dims[0];
     let n_points: usize = dims[1..].iter().product();
     (out.reshape([b, n_points]), target.reshape([b, n_points]))
-}
-
-/// Rank-independent decode: (x * (std + eps)) + mean, on flattened
-/// [batch, n_points] tensors. Tensor-native so autodiff traces through it
-/// into the model, unlike UnitGaussiannormalizer::decode's ndarray version.
-pub fn decode_flat(x: Tensor<2>, mean: &Tensor<1>, std: &Tensor<1>, eps: f64) -> Tensor<2> {
-    x * (std.clone().unsqueeze::<2>() + eps) + mean.clone().unsqueeze::<2>()
-}
-
-/// Converts a fitted UnitGaussiannormalizer's mean/std into flat rank-1
-/// Tensors, once, before training starts - not called per-batch.
-pub fn normalizer_to_flat_tensors(
-    normalizer: &UnitGaussianNormalizer,
-    device: &Device,
-) -> (Tensor<1>, Tensor<1>) {
-    let mean_data: Vec<f64> = normalizer.mean_ref().iter().copied().collect();
-    let std_data: Vec<f64> = normalizer.std_ref().iter().copied().collect();
-    let n = mean_data.len();
-    (
-        Tensor::<1>::from_data(TensorData::new(mean_data, vec![n]), device),
-        Tensor::<1>::from_data(TensorData::new(std_data, vec![n]), device),
-    )
 }
 
 /// Runs one evaluation pass. Returns the summed relative L2 across all
@@ -283,54 +261,23 @@ pub fn training_loop<const R: usize, const RM1: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::data::transforms::normalizers::Normalizer;
 
     #[test]
-    fn tensor_reshape_matches_ndarray_ordering() {
+    fn flatten_pair_collapses_to_rank_two() {
         let device = Device::default();
-
-        // 0..12 in a [3, 4] ndarray - row-major, so element (i,j) = i*4 + j.
-        let arr = ndarray::Array2::from_shape_fn((3, 4), |(i, j)| (i * 4 + j) as f64);
-        let flat_nd: Vec<f64> = arr.iter().copied().collect();
-
-        // Same values as a [1, 3, 4] tensor, reshaped to [1, 12].
-        let t = Tensor::<3>::from_data(TensorData::new(flat_nd.clone(), vec![1, 3, 4]), &device);
-        let flat_t: Vec<f64> = t.reshape([1, 12]).into_data().iter::<f64>().collect();
-
-        assert_eq!(
-            flat_nd, flat_t,
-            "ndarray and Tensor flatten in different orders"
-        );
+        let out = Tensor::<4>::zeros([2, 5, 6, 1], &device);
+        let target = Tensor::<3>::zeros([2, 5, 6], &device);
+        let (o, t) = flatten_pair::<4, 3>(out, target);
+        assert_eq!(o.dims(), [2, 30]);
+        assert_eq!(t.dims(), [2, 30]);
     }
 
     #[test]
-    fn decode_flat_matches_ndarray_decode() {
+    #[should_panic(expected = "out_channels == 1")]
+    fn flatten_pair_rejects_multichannel_output() {
         let device = Device::default();
-
-        // Non-square spatial dims - a transpose bug is invisible on square shapes.
-        let (n, s1, s2) = (2, 3, 4);
-        let raw = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, s1, s2]), |idx| {
-            (idx[0] * 100 + idx[1] * 10 + idx[2]) as f64
-        });
-
-        let normalizer = UnitGaussianNormalizer::fit(&raw);
-        let encoded = normalizer.encode(raw.clone());
-
-        // Path A: ndarray decode, the reference implementation.
-        let decoded_nd = normalizer.decode(encoded.clone());
-
-        // Path B: Tensor-native decode on the flattened pair, as training uses.
-        let (mean, std) = normalizer_to_flat_tensors(&normalizer, &device);
-        let flat: Vec<f64> = encoded.iter().copied().collect();
-        let t = Tensor::<2>::from_data(TensorData::new(flat, vec![n, s1 * s2]), &device);
-        let decoded_flat = decode_flat(t, &mean, &std, normalizer.eps_val());
-
-        let a: Vec<f64> = decoded_nd.iter().copied().collect();
-        let b: Vec<f64> = decoded_flat.into_data().iter::<f64>().collect();
-
-        assert_eq!(a.len(), b.len());
-        for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
-            assert!((x - y).abs() < 1e-4, "element {i}: ndarray {x} != flat {y}");
-        }
+        let out = Tensor::<3>::zeros([2, 5, 2], &device);
+        let target = Tensor::<2>::zeros([2, 5], &device);
+        let _ = flatten_pair::<3, 2>(out, target);
     }
 }

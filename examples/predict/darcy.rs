@@ -22,11 +22,13 @@ use sciml_rs::neural_operators::{
             base_dataset::HasBaseConfig,
             darcy::{DarcyConfig, load_darcy_uniform},
         },
-        transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
+        transforms::normalizers::{
+            NormalizerRecord, UnitGaussianNormalizer, decode_flat, normalizer_to_flat_tensors,
+        },
     },
     losses::data_losses::LpLoss,
     models::fno::FNOConfig,
-    training::trainer::{decode_flat, eval_epoch, normalizer_to_flat_tensors},
+    training::trainer::eval_epoch,
 };
 
 fn main() {

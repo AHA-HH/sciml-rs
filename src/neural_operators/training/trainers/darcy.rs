@@ -4,16 +4,16 @@ use burn::prelude::*;
 
 use crate::neural_operators::{
     data::{
-        dataset::OperatorDataset, loaders::base_dataset::DatasetConfig,
-        transforms::normalizers::UnitGaussianNormalizer,
+        dataset::OperatorDataset,
+        loaders::base_dataset::DatasetConfig,
+        transforms::normalizers::{
+            UnitGaussianNormalizer, decode_flat, normalizer_to_flat_tensors,
+        },
     },
     models::fno::{FNO, FNOConfig},
     training::{
         metrics::EpochMetrics,
-        trainer::{
-            TrainingConfig, build_training_components, decode_flat, normalizer_to_flat_tensors,
-            training_loop,
-        },
+        trainer::{TrainingConfig, build_training_components, training_loop},
     },
 };
 
