@@ -1,4 +1,11 @@
-//! FNO experiment on the 2D Darcy flow dataset.
+//! FNO on 2D Darcy flow
+//!
+//! Run with: cargo run --release --example darcy
+//!
+//! Structurally identical to `examples/burgers` — see that file for the
+//! annotated version. The differences: `modes` has two entries instead of
+//! one and the targets are normalised which the trainer has to undo before 
+//! computing the loss.
 
 use burn::{
     store::{BurnpackStore, ModuleSnapshot},
@@ -22,6 +29,10 @@ fn main() {
         n_train: 1000,
         n_test: 100,
     };
+    
+    // subsample rate is 28 -> s = (421-1)/28 + 1 = 16 grid points per axis
+    // The paper uses r=5 (s=85) but Burn's FFT is radix-2 only, so s must
+    // be a power of two
     let dataset_cfg = DarcyConfig::new(data_cfg.clone(), 28);
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
@@ -39,8 +50,9 @@ fn main() {
         load_darcy_uniform(&train_path, &test_path, &dataset_cfg);
 
     let model_cfg = FNOConfig {
+        // Two entries so a 2D FNO model. Same code path as Burgers' vec![16]
         modes: vec![4, 4],
-        width: 32,
+        hidden_channels: 32,
         data_channels: 1,
         out_channels: 1,
         n_layers: 4,
@@ -53,6 +65,9 @@ fn main() {
         .with_weight_decay(1e-4)
         .with_min_lr(1e-5);
 
+    // y_normaliser is fitted on y_train during loading. train_darcy uses it
+    // to decode both prediction and target during training, but only the
+    // prediction during evaluation — y_test was never encoded
     let (model, metrics) = train_darcy(
         train_data,
         test_data,
