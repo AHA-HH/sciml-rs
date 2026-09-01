@@ -1,6 +1,5 @@
 //! Uniform coordinate grid generation for N-dimensional spatial data.
 
-// TODO: confirm if generic nd uniform grid breaks for 2d uniform_grid, append_grid
 use ndarray::{Array1, Array2, Array3, ArrayD, Axis, IxDyn, concatenate, s};
 
 /// Generate n independent coordinate axes as broadcast-expanded ArrayD grids.
@@ -33,7 +32,7 @@ pub fn uniform_grid(bounds: &[(f64, f64)], sizes: &[usize]) -> Vec<ArrayD<f64>> 
 /// Append n grid coordinate channels to `data` along the last axis.
 /// `data` is [batch, *spatial, channels]. `grid_first` controls channel order
 /// (grids-then-data vs data-then-grids) - TEMPORARY until the 2D/3D convention
-/// mismatch in the current codebase is resolved; do not leave this public.
+/// mismatch in the current codebase is resolved.
 pub fn append_grid(data: ArrayD<f64>, grids: Vec<ArrayD<f64>>, grid_first: bool) -> ArrayD<f64> {
     let batch_size = data.shape()[0];
     let last_axis = data.ndim() - 1;
@@ -215,20 +214,20 @@ mod tests {
     use ndarray::{Array, IxDyn};
 
     #[test]
-    fn test_uniform_grid_1d_correct_length() {
+    fn uniform_grid_1d_correct_length() {
         let grid = uniform_grid_1d(0.0, 1.0, 10);
         assert_eq!(grid.len(), 10);
     }
 
     #[test]
-    fn test_uniform_grid_1d_start_end() {
+    fn uniform_grid_1d_start_end() {
         let grid = uniform_grid_1d(0.0, 1.0, 10);
         assert_relative_eq!(grid[0], 0.0, epsilon = 1e-10);
         assert_relative_eq!(grid[9], 1.0, epsilon = 1e-10);
     }
 
     #[test]
-    fn test_uniform_grid_1d_uniform_spacing() {
+    fn uniform_grid_1d_uniform_spacing() {
         let grid = uniform_grid_1d(0.0, 1.0, 5);
         // spacing should be 0.25
         assert_relative_eq!(grid[1] - grid[0], 0.25, epsilon = 1e-10);
@@ -237,14 +236,14 @@ mod tests {
     }
 
     #[test]
-    fn test_uniform_grid_1d_custom_range() {
+    fn uniform_grid_1d_custom_range() {
         let grid = uniform_grid_1d(0.0, 2.0 * std::f64::consts::PI, 5);
         assert_relative_eq!(grid[0], 0.0, epsilon = 1e-10);
         assert_relative_eq!(grid[4], 2.0 * std::f64::consts::PI, epsilon = 1e-10);
     }
 
     #[test]
-    fn test_append_grid_output_shape() {
+    fn append_grid_output_shape() {
         // [batch=2, s=4, 1] + grid[4] -> [2, 4, 2]
         let data = Array::from_shape_vec(
             IxDyn(&[2, 4, 1]),
@@ -257,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn test_append_grid_preserves_data() {
+    fn append_grid_preserves_data() {
         // original data values should be unchanged in first channel
         let data = Array::from_shape_vec(
             IxDyn(&[2, 4, 1]),
@@ -273,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn test_append_grid_correct_grid_values() {
+    fn append_grid_correct_grid_values() {
         // grid values should appear in second channel, same for all batch examples
         let data = Array::from_shape_vec(
             IxDyn(&[2, 4, 1]),
@@ -290,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn test_uniform_grid_2d_matches_numpy_meshgrid() {
+    fn uniform_grid_2d_matches_numpy_meshgrid() {
         let (xx, yy) = uniform_grid_2d(0.0, 1.0, 3);
 
         // Pinned against: np.meshgrid(np.linspace(0,1,3), np.linspace(0,1,3))
@@ -320,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_append_grid_2d_channel_placement() {
+    fn append_grid_2d_channel_placement() {
         // data: [batch=1, s=2, s=2, channels=1], all 9.0 so it's distinguishable from grid values
         let data = ArrayD::from_elem(IxDyn(&[1, 2, 2, 1]), 9.0);
 
@@ -338,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn test_uniform_grid_3d_axis_assignment() {
+    fn uniform_grid_3d_axis_assignment() {
         let s = 4;
         let t_out = 3;
         let (xx, yy, tt) = uniform_grid_3d(0.0, 1.0, s, t_out);
@@ -395,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn test_uniform_grid_3d_time_excludes_zero() {
+    fn uniform_grid_3d_time_excludes_zero() {
         let s = 4;
         let t_out = 4;
         let (xx, _yy, tt) = uniform_grid_3d(0.0, 1.0, s, t_out);
@@ -425,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn test_append_grid_3d_channel_order_and_broadcast() {
+    fn append_grid_3d_channel_order_and_broadcast() {
         let s = 2;
         let t_out = 2;
         let batch_size = 2;
@@ -465,6 +464,21 @@ mod tests {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn uniform_grid_matches_2d_specific_up_to_convention() {
+        let generic = uniform_grid(&[(0.0, 1.0), (0.0, 1.0)], &[3, 3]);
+        let (xx, yy) = uniform_grid_2d(0.0, 1.0, 3);
+
+        // uniform_grid is 'ij'-indexed, uniform_grid_2d is 'xy' — so the
+        // generic axis-0 grid should equal yy, and axis-1 should equal xx.
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!((generic[0][[i, j]] - yy[[i, j]]).abs() < 1e-9);
+                assert!((generic[1][[i, j]] - xx[[i, j]]).abs() < 1e-9);
             }
         }
     }

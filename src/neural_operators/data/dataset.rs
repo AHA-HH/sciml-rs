@@ -45,3 +45,28 @@ impl Dataset<DataItem> for OperatorDataset {
         self.inputs.shape()[0]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::IxDyn;
+
+    #[test]
+    fn get_returns_the_indexed_example() {
+        let inputs = ArrayD::from_shape_fn(IxDyn(&[3, 4, 2]), |i| {
+            (i[0] * 100 + i[1] * 10 + i[2]) as f64
+        });
+        let targets = ArrayD::from_shape_fn(IxDyn(&[3, 4]), |i| (i[0] * 100 + i[1]) as f64);
+        let dataset = OperatorDataset::new(inputs, targets);
+
+        assert_eq!(dataset.len(), 3);
+
+        let item = dataset.get(1).expect("index 1 in range");
+        assert_eq!(item.input.shape(), &[4, 2]); // batch axis dropped
+        assert_eq!(item.target.shape(), &[4]);
+        assert_eq!(item.input[[0, 0]], 100.0); // from example 1, not 0 or 2
+        assert_eq!(item.target[[3]], 103.0);
+
+        assert!(dataset.get(3).is_err());
+    }
+}
