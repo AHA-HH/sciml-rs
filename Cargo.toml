@@ -15,16 +15,20 @@ categories = ["scientific machine learning"]
 name = "sciml_rs"
 
 [[example]]
-name = "burgers"
-path = "examples/burgers/main.rs"
+name = "train_burgers"
+path = "examples/train/burgers.rs"
 
 [[example]]
-name = "darcy"
-path = "examples/darcy/main.rs"
+name = "train_darcy"
+path = "examples/train/darcy.rs"
 
 [[example]]
 name = "predict_burgers"
-path = "examples/predict_burgers/main.rs"
+path = "examples/predict/burgers.rs"
+
+[[example]]
+name = "predict_darcy"
+path = "examples/predict/darcy.rs"
 
 [dependencies]
 burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
