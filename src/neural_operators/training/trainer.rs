@@ -56,7 +56,7 @@ pub fn identity(out: Tensor<2>, target: Tensor<2>) -> (Tensor<2>, Tensor<2>) {
 /// (rank `TR = IR - 1`) to the rank-2 pair `LpLoss` requires.
 ///
 /// For `IR = 3`: `[b, s, 1]` and `[b, s]` both become `[b, s]`.
-fn flatten_pair<const R: usize, const RM1: usize>(
+pub fn flatten_pair<const R: usize, const RM1: usize>(
     out: Tensor<R>,
     target: Tensor<RM1>,
 ) -> (Tensor<2>, Tensor<2>) {
