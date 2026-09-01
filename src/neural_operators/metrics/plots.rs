@@ -5,7 +5,7 @@ use gnuplot::{AxesCommon, Caption, Color, Figure, LineWidth};
 use std::path::PathBuf;
 
 /// Two-panel plot: relative L2 loss (train/test) and learning rate schedule.
-pub fn plot_metrics(path: &PathBuf, metrics: &[EpochMetrics]) {
+pub fn plot_metrics(path: &PathBuf, metrics: &[EpochMetrics], title: &str) {
     let epochs: Vec<f32> = metrics.iter().map(|m| m.epoch as f32).collect();
     let train_l2: Vec<f32> = metrics.iter().map(|m| m.train_l2).collect();
     let test_l2: Vec<f32> = metrics.iter().map(|m| m.test_l2).collect();
@@ -14,8 +14,7 @@ pub fn plot_metrics(path: &PathBuf, metrics: &[EpochMetrics]) {
     let mut fig = Figure::new();
 
     // Plot 1: loss curves
-    fig.set_multiplot_layout(2, 1)
-        .set_title("FNO1d Burgers Training"); // TODO: parameterize, this is wrong for non-Burgers runs
+    fig.set_multiplot_layout(2, 1).set_title(title);
 
     fig.axes2d()
         .set_title("Relative L2 Loss", &[])

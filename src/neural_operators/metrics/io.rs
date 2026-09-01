@@ -46,7 +46,7 @@ pub fn write_metrics_csv(path: &PathBuf, metrics: &[EpochMetrics]) {
     }
 }
 
-/// Writes `metrics.csv` and `metrics.png` into a fresh timestamped run
+/// Writes `metrics.csv` and `plots.png` into a fresh timestamped run
 /// directory under `runs/` and returns the directory.
 pub fn write_run_artifacts<D: Config>(
     name: &str,
@@ -76,7 +76,42 @@ pub fn write_run_artifacts<D: Config>(
         .expect("could not save dataset config");
 
     write_metrics_csv(&dir.join("metrics.csv"), metrics);
-    plot_metrics(&dir.join("plots.png"), metrics);
+    plot_metrics(&dir.join("plots.png"), metrics, name);
 
     dir
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_round_trips() {
+        let metrics = vec![
+            EpochMetrics {
+                epoch: 0,
+                train_mse: 0.5,
+                train_l2: 0.3,
+                test_l2: 0.4,
+                current_lr: 1e-3,
+            },
+            EpochMetrics {
+                epoch: 1,
+                train_mse: 0.25,
+                train_l2: 0.15,
+                test_l2: 0.2,
+                current_lr: 5e-4,
+            },
+        ];
+
+        let path = std::env::temp_dir().join("sciml_rs_metrics_round_trip.csv");
+        write_metrics_csv(&path, &metrics);
+        let read = read_metrics_csv(path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(read.len(), 2);
+        assert_eq!(read[1].epoch, 1);
+        assert!((read[0].train_mse - 0.5).abs() < 1e-9);
+        assert!((read[1].current_lr - 5e-4).abs() < 1e-12);
+    }
 }
