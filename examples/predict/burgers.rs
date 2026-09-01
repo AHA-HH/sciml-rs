@@ -1,6 +1,9 @@
-//! Loads a saved Burgers run and re-evaluates it on the test split.
+//! Re-evaluates a saved Burgers run on the test split.
 //!
-//! Run with: cargo run --release --example predict_burgers -- runs/burgers_fno_<stamp>
+//! Run with: cargo run --release --example predict_burgers -- runs/burgers_fno_<timestamp>
+//!
+//! Loads the architecture from model_config.json, the weights from
+//! model_weights.bpk and reconstructs the model.
 
 use std::path::PathBuf;
 
@@ -28,15 +31,14 @@ fn main() {
     let dir = PathBuf::from(std::env::args().nth(1).expect("usage: predict <run_dir>"));
     let device = Device::default().autodiff();
 
-    // Architecture from the saved config, weights from the saved record.
+    // Architecture from the saved config, weights from the saved record
     let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
     let mut model = model_cfg.init::<3>(&device);
     let mut store = BurnpackStore::from_file(dir.join("model_weights.bpk"));
     model.load_from(&mut store).expect("load model weights");
 
-    // Same test split the run was evaluated on.
+    // Same test split the run was evaluated on
     let dataset_cfg = BurgersConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
-    // let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");
     let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");
     assert!(
         data_path.exists(),
@@ -50,6 +52,8 @@ fn main() {
         .batch_size(20)
         .build(test_data);
 
+    // Burgers has no normalizer, so predictions need no postprocessing - hence `identity`
+    // Compare examples/predict/darcy.rs, which decodes
     let loss_fn = LpLoss::new(1, 2, false, true);
     let l2 = eval_epoch::<3, 2>(&model, &test_loader, &loss_fn, &identity);
 

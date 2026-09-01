@@ -1,7 +1,7 @@
 //! FNO on 1D Burgers
 //!
 //! We train a Fourier Neural Operator (FNO) on a Burgers dataset.
-//! Run with: cargo run --release --example burgers
+//! Run with: cargo run --release --example train_burgers
 //!
 //! This example demonstrates the complete workflow of training a neural operator:
 //! 1. Loading and preprocessing the Burgers dataset

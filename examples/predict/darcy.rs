@@ -3,7 +3,7 @@
 //! Run with: cargo run --release --example predict_darcy -- runs/darcy_fno_<timestamp>
 //!
 //! Loads the architecture from model_config.json, the weights from
-//! model_weights.bpk, and the y normalizer from y_normalizer.json — all three
+//! model_weights.bpk, and the y normalizer from y_normalizer.json - all three
 //! are needed, since weights alone can't reconstruct the model and predictions
 //! come out in normalized units.
 
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use burn::{
     data::dataloader::DataLoaderBuilder,
-    prelude::{Config, *},
+    prelude::*,
     store::{BurnpackStore, ModuleSnapshot},
     tensor::Device,
 };
@@ -37,14 +37,14 @@ fn main() {
     );
     let device = Device::default().autodiff();
 
-    // Architecture from config, weights from the burnpack record.
-    let model_cfg = FNOConfig::load(dir.join("model_config.json")).expect("load model config");
+    // Architecture from config, weights from the burnpack record
+    let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
     let mut model = model_cfg.init::<4>(&device);
-    let mut store = BurnpackStore::from_file(dir.join("model_weights"));
+    let mut store = BurnpackStore::from_file(dir.join("model_weights.bpk"));
     model.load_from(&mut store).expect("load model weights");
 
-    // Same test split the run was evaluated on.
-    let dataset_cfg = DarcyConfig::load(dir.join("dataset.json")).expect("load dataset config");
+    // Same test split the run was evaluated on
+    let dataset_cfg = DarcyConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let (_, test_data, _) = load_darcy_uniform(
         &datasets.join("piececonst_r421_N1024_smooth1.mat"),
@@ -56,7 +56,7 @@ fn main() {
         .batch_size(20)
         .build(test_data);
 
-    // Predictions come out normalized; test targets were never encoded.
+    // Predictions come out normalized; test targets were never encoded
     let y_norm = UnitGaussianNormalizer::from_record(
         &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),
     );

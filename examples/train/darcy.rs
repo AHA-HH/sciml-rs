@@ -1,9 +1,9 @@
 //! FNO on 2D Darcy flow
 //!
-//! Run with: cargo run --release --example darcy
+//! Run with: cargo run --release --example train_darcy
 //!
-//! Structurally identical to `examples/burgers` — see that file for the
-//! annotated version. The differences: `modes` has two entries instead of
+//! Structurally identical to `examples/train/burgers.rs` - see that file for the
+//! fully annotated version. The differences: `modes` has two entries instead of
 //! one and the targets are normalized which the trainer has to undo before
 //! computing the loss.
 
@@ -68,7 +68,7 @@ fn main() {
 
     // y_normalizer is fitted on y_train during loading. train_darcy uses it
     // to decode both prediction and target during training, but only the
-    // prediction during evaluation — y_test was never encoded
+    // prediction during evaluation - y_test was never encoded
     let (model, metrics) = train_darcy(
         train_data,
         test_data,
@@ -81,6 +81,7 @@ fn main() {
 
     let dir = write_run_artifacts("darcy_fno", &metrics, &model_cfg, &train_cfg, &dataset_cfg);
 
+    // Write normalizers files to runs/darcy_fno_<timestamp>/
     normalizers
         .x
         .to_record()
