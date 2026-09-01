@@ -70,7 +70,11 @@ impl<const R: usize> SpectralConv<R> {
             )));
         }
 
-        Self { weights_re, weights_im, modes }
+        Self {
+            weights_re,
+            weights_im,
+            modes,
+        }
     }
 
     /// Spatial-axis slices selecting one mode corner.
@@ -147,8 +151,8 @@ impl<const R: usize> SpectralConv<R> {
     /// Inverse of [`fft_nd`], applying the axes in the reverse order.
     fn ifft_ctensor(mut re: Tensor<R>, mut im: Tensor<R>, orig_dims: &[usize]) -> Tensor<R> {
         let last = R - 1;
-        for axis in 2..last {
-            let (r, i) = icfft_full_spectrum(re, im, axis, orig_dims[axis]);
+        for (axis, &dim) in orig_dims.iter().enumerate().take(last).skip(2) {
+            let (r, i) = icfft_full_spectrum(re, im, axis, dim);
             re = r;
             im = i;
         }
