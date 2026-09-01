@@ -9,5 +9,7 @@ use ndarray::ArrayD;
 pub trait FieldReader {
     /// Returns the array stored under `name`, or an error if the file
     /// couldn't be read or the field doesn't exist.
+    ///
+    /// Single-array formats (`.npy`) hold exactly one array and ignore `name`.
     fn read_field(&self, name: &str) -> ReaderResult<ArrayD<f64>>;
 }

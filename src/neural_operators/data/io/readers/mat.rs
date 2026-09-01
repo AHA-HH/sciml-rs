@@ -18,11 +18,16 @@ pub struct MatFileReader {
 }
 
 impl MatFileReader {
-    /// Opens and parses `path`. Panics if the file can't be opened or parsed.
-    pub fn new(path: &Path) -> Self {
-        let file = std::fs::File::open(path).expect("failed to open .mat file");
-        let mat = matfile::MatFile::parse(file).expect("failed to parse .mat file");
-        Self { mat }
+    /// Opens and parses `path`.
+    pub fn new(path: &Path) -> ReaderResult<Self> {
+        if !path.exists() {
+            return Err(ReaderError::FileNotFound(path.display().to_string()));
+        }
+        let file = std::fs::File::open(path)
+            .map_err(|e| ReaderError::ParseError(format!("{}: {e}", path.display())))?;
+        let mat = matfile::MatFile::parse(file)
+            .map_err(|e| ReaderError::ParseError(format!("{}: {e}", path.display())))?;
+        Ok(Self { mat })
     }
 }
 
@@ -71,6 +76,23 @@ impl FieldReader for MatFileReader {
                 "unsupported dtype in field '{}'",
                 name
             ))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_missing_file() {
+        match MatFileReader::new(Path::new("does_not_exist.mat")) {
+            Err(ReaderError::FileNotFound(msg)) => assert!(
+                msg.contains("does_not_exist.mat"),
+                "message should name the path, got: {msg}"
+            ),
+            Err(e) => panic!("expected FileNotFound, got {e:?}"),
+            Ok(_) => panic!("expected an error"),
         }
     }
 }

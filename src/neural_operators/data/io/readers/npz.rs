@@ -57,3 +57,20 @@ impl FieldReader for NpzFileReader {
         Ok(array)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_missing_file() {
+        let reader = NpzFileReader::new(Path::new("does_not_exist.npz"));
+        match reader.read_field("x") {
+            Err(ReaderError::FileNotFound(msg)) => assert!(
+                msg.contains("does_not_exist.npz"),
+                "message should name the path, got: {msg}"
+            ),
+            other => panic!("expected FileNotFound, got {other:?}"),
+        }
+    }
+}

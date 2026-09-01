@@ -46,3 +46,20 @@ impl FieldReader for NpyFileReader {
         Ok(array)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_missing_file() {
+        let reader = NpyFileReader::new(Path::new("does_not_exist.npy"));
+        match reader.read_field("unused") {
+            Err(ReaderError::FileNotFound(msg)) => assert!(
+                msg.contains("does_not_exist.npy"),
+                "message should name the path, got: {msg}"
+            ),
+            other => panic!("expected FileNotFound, got {other:?}"),
+        }
+    }
+}
