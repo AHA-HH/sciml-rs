@@ -25,5 +25,7 @@ impl std::fmt::Display for ReaderError {
     }
 }
 
+impl std::error::Error for ReaderError {}
+
 /// Result alias used by all file readers in this module.
 pub type ReaderResult<T> = Result<T, ReaderError>;
