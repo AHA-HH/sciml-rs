@@ -31,7 +31,9 @@ use sciml_rs::neural_operators::{
 
 fn main() {
     let dir = PathBuf::from(
-        std::env::args().nth(1).expect("usage: predict_darcy <run_dir>"),
+        std::env::args()
+            .nth(1)
+            .expect("usage: predict_darcy <run_dir>"),
     );
     let device = Device::default().autodiff();
 
@@ -66,6 +68,12 @@ fn main() {
     let loss_fn = LpLoss::new(2, 2, false, true);
     let l2 = eval_epoch::<4, 3>(&model, &test_loader, &loss_fn, &eval_post);
 
-    println!("test_l2: {:.4}", l2 / dataset_cfg.base().n_test as f32);
-    println!("(should match the last row of {}/metrics.csv)", dir.display());
+    println!(
+        "loaded model test_l2: {:.6}",
+        l2 / dataset_cfg.base().n_test as f32
+    );
+    println!(
+        "(should match the last test_l2 in {}/metrics.csv)",
+        dir.display()
+    );
 }

@@ -2,8 +2,8 @@
 //! trait (fit / encode / decode) with three implementations differing in
 //! what statistics they compute and over what scope.
 
-use ndarray::{ArrayD, Axis, IxDyn};
 use burn::config::Config;
+use ndarray::{ArrayD, Axis, IxDyn};
 
 // Default guard added to standard deviations to avoid division by zero.
 const DEFAULT_EPS: f64 = 1e-5;
@@ -77,8 +77,7 @@ impl UnitGaussianNormalizer {
         Self {
             mean: ArrayD::from_shape_vec(shape.clone(), r.mean.clone())
                 .expect("mean shape mismatch"),
-            std: ArrayD::from_shape_vec(shape, r.std.clone())
-                .expect("std shape mismatch"),
+            std: ArrayD::from_shape_vec(shape, r.std.clone()).expect("std shape mismatch"),
             eps: r.eps,
         }
     }
@@ -172,7 +171,9 @@ mod tests {
 
     #[test]
     fn normalizer_survives_record_round_trip() {
-        let data = ArrayD::from_shape_fn(IxDyn(&[4, 3, 5]), |i| (i[0] * 100 + i[1] * 10 + i[2]) as f64);
+        let data = ArrayD::from_shape_fn(IxDyn(&[4, 3, 5]), |i| {
+            (i[0] * 100 + i[1] * 10 + i[2]) as f64
+        });
         let n = UnitGaussianNormalizer::fit(&data);
         let rebuilt = UnitGaussianNormalizer::from_record(&n.to_record());
         assert_eq!(n.encode(data.clone()), rebuilt.encode(data));

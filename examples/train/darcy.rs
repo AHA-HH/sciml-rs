@@ -81,8 +81,16 @@ fn main() {
 
     let dir = write_run_artifacts("darcy_fno", &metrics, &model_cfg, &train_cfg, &dataset_cfg);
 
-    normalizers.x.to_record().save(dir.join("x_normalizer.json")).expect("save x normalizer");
-    normalizers.y.to_record().save(dir.join("y_normalizer.json")).expect("save y normalizer");
+    normalizers
+        .x
+        .to_record()
+        .save(dir.join("x_normalizer.json"))
+        .expect("save x normalizer");
+    normalizers
+        .y
+        .to_record()
+        .save(dir.join("y_normalizer.json"))
+        .expect("save y normalizer");
 
     let mut store = BurnpackStore::from_file(dir.join("model_weights"));
     model

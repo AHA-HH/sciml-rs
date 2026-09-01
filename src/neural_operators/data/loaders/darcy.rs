@@ -164,5 +164,12 @@ pub fn load_darcy_uniform(
 
     println!("darcy: {n_train} train / {n_test} test at s={s}");
 
-    (train_dataset, test_dataset, DarcyNormalizers { x: x_normalizer, y: y_normalizer})
+    (
+        train_dataset,
+        test_dataset,
+        DarcyNormalizers {
+            x: x_normalizer,
+            y: y_normalizer,
+        },
+    )
 }
