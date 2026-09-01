@@ -5,13 +5,13 @@ use burn::prelude::*;
 use crate::neural_operators::{
     data::{
         dataset::OperatorDataset, loaders::base_dataset::DatasetConfig,
-        transforms::normalisers::UnitGaussianNormaliser,
+        transforms::normalizers::UnitGaussianNormalizer,
     },
     models::fno::{FNO, FNOConfig},
     training::{
         metrics::EpochMetrics,
         trainer::{
-            TrainingConfig, build_training_components, decode_flat, normaliser_to_flat_tensors,
+            TrainingConfig, build_training_components, decode_flat, normalizer_to_flat_tensors,
             training_loop,
         },
     },
@@ -25,14 +25,14 @@ use crate::neural_operators::{
 pub fn train_darcy(
     train_data: OperatorDataset,
     test_data: OperatorDataset,
-    y_normaliser: &UnitGaussianNormaliser,
+    y_normalizer: &UnitGaussianNormalizer,
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
     data_cfg: &DatasetConfig,
     device: &Device,
 ) -> (FNO<4>, Vec<EpochMetrics>) {
-    let (mean, std) = normaliser_to_flat_tensors(y_normaliser, device);
-    let eps = y_normaliser.eps_val();
+    let (mean, std) = normalizer_to_flat_tensors(y_normalizer, device);
+    let eps = y_normalizer.eps_val();
 
     let train_post = {
         let (mean, std) = (mean.clone(), std.clone());

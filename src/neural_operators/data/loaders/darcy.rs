@@ -4,10 +4,10 @@
 //! resolution) on top of the shared `DatasetConfig`. `load_darcy_flow_uniform`
 //! builds train/test `OperatorDataset`s from separate `.mat` files: reading,
 //! truncating to configured sizes, subsampling both spatial axes, fitting and
-//! applying normalisation and appending 2D grid coordinates.
+//! applying normalization and appending 2D grid coordinates.
 //!
-//! Normalisation asymmetry (matches the reference implementation exactly):
-//! `x_test` is encoded using the `x` normaliser fit on `x_train`, but
+//! normalization asymmetry (matches the reference implementation exactly):
+//! `x_test` is encoded using the `x` normalizer fit on `x_train`, but
 //! `y_test` is left un-encoded — predictions are decoded back to physical
 //! scale before comparison, not targets encoded forward. The returned
 //! `y_normalizer` is what the caller needs to do that decode.
@@ -18,7 +18,7 @@ use crate::neural_operators::data::{
     io::{readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     transforms::{
-        normalisers::{Normaliser, UnitGaussianNormaliser},
+        normalizers::{Normalizer, UnitGaussianNormalizer},
         subsample::subsample,
     },
 };
@@ -48,13 +48,13 @@ impl HasBaseConfig for DarcyConfig {
 }
 
 /// Builds the Darcy flow dataset with a uniform 2D grid channel appended.
-/// Returns `(train_dataset, test_dataset, y_normalizer)` — the normaliser is
+/// Returns `(train_dataset, test_dataset, y_normalizer)` — the normalizer is
 /// needed by the caller to decode predictions back to physical scale.
 pub fn load_darcy_uniform(
     train_path: &PathBuf,
     test_path: &PathBuf,
     config: &DarcyConfig,
-) -> (OperatorDataset, OperatorDataset, UnitGaussianNormaliser) {
+) -> (OperatorDataset, OperatorDataset, UnitGaussianNormalizer) {
     // read input ('coeff') and target ('sol') fields from separate train/test .mat files
     let train_reader = MatFileReader::new(Path::new(train_path));
     let x_train = train_reader
@@ -126,14 +126,14 @@ pub fn load_darcy_uniform(
     );
     assert_eq!(n_test, config.n_test(), "n_test mismatch after truncation");
 
-    // fit x-normaliser on x_train, encode both x_train and x_test;
-    // fit y-normaliser on y_train, encode y_train only — y_test stays raw,
+    // fit x-normalizer on x_train, encode both x_train and x_test;
+    // fit y-normalizer on y_train, encode y_train only — y_test stays raw,
     // decoded against at eval time via the returned y_normalizer
-    let x_normalizer = UnitGaussianNormaliser::fit(&x_train);
+    let x_normalizer = UnitGaussianNormalizer::fit(&x_train);
     let x_train = x_normalizer.encode(x_train);
     let x_test = x_normalizer.encode(x_test);
 
-    let y_normalizer = UnitGaussianNormaliser::fit(&y_train);
+    let y_normalizer = UnitGaussianNormalizer::fit(&y_train);
     let y_train = y_normalizer.encode(y_train);
     // y_test intentionally NOT encoded
 

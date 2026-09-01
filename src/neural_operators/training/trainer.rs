@@ -19,7 +19,7 @@ use crate::neural_operators::{
         batcher::{Batch, OperatorBatcher},
         dataset::OperatorDataset,
         loaders::base_dataset::DatasetConfig,
-        transforms::normalisers::UnitGaussianNormaliser,
+        transforms::normalizers::UnitGaussianNormalizer,
     },
     losses::data_losses::LpLoss,
     models::fno::{FNO, FNOConfig},
@@ -79,19 +79,19 @@ fn flatten_pair<const R: usize, const RM1: usize>(
 
 /// Rank-independent decode: (x * (std + eps)) + mean, on flattened
 /// [batch, n_points] tensors. Tensor-native so autodiff traces through it
-/// into the model, unlike UnitGaussianNormaliser::decode's ndarray version.
+/// into the model, unlike UnitGaussiannormalizer::decode's ndarray version.
 pub fn decode_flat(x: Tensor<2>, mean: &Tensor<1>, std: &Tensor<1>, eps: f64) -> Tensor<2> {
     x * (std.clone().unsqueeze::<2>() + eps) + mean.clone().unsqueeze::<2>()
 }
 
-/// Converts a fitted UnitGaussianNormaliser's mean/std into flat rank-1
+/// Converts a fitted UnitGaussiannormalizer's mean/std into flat rank-1
 /// Tensors, once, before training starts — not called per-batch.
-pub fn normaliser_to_flat_tensors(
-    normaliser: &UnitGaussianNormaliser,
+pub fn normalizer_to_flat_tensors(
+    normalizer: &UnitGaussianNormalizer,
     device: &Device,
 ) -> (Tensor<1>, Tensor<1>) {
-    let mean_data: Vec<f64> = normaliser.mean_ref().iter().copied().collect();
-    let std_data: Vec<f64> = normaliser.std_ref().iter().copied().collect();
+    let mean_data: Vec<f64> = normalizer.mean_ref().iter().copied().collect();
+    let std_data: Vec<f64> = normalizer.std_ref().iter().copied().collect();
     let n = mean_data.len();
     (
         Tensor::<1>::from_data(TensorData::new(mean_data, vec![n]), device),
@@ -283,7 +283,7 @@ pub fn training_loop<const R: usize, const RM1: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::data::transforms::normalisers::Normaliser;
+    use crate::neural_operators::data::transforms::normalizers::Normalizer;
 
     #[test]
     fn tensor_reshape_matches_ndarray_ordering() {
@@ -313,17 +313,17 @@ mod tests {
             (idx[0] * 100 + idx[1] * 10 + idx[2]) as f64
         });
 
-        let normaliser = UnitGaussianNormaliser::fit(&raw);
-        let encoded = normaliser.encode(raw.clone());
+        let normalizer = UnitGaussianNormalizer::fit(&raw);
+        let encoded = normalizer.encode(raw.clone());
 
         // Path A: ndarray decode, the reference implementation.
-        let decoded_nd = normaliser.decode(encoded.clone());
+        let decoded_nd = normalizer.decode(encoded.clone());
 
         // Path B: Tensor-native decode on the flattened pair, as training uses.
-        let (mean, std) = normaliser_to_flat_tensors(&normaliser, &device);
+        let (mean, std) = normalizer_to_flat_tensors(&normalizer, &device);
         let flat: Vec<f64> = encoded.iter().copied().collect();
         let t = Tensor::<2>::from_data(TensorData::new(flat, vec![n, s1 * s2]), &device);
-        let decoded_flat = decode_flat(t, &mean, &std, normaliser.eps_val());
+        let decoded_flat = decode_flat(t, &mean, &std, normalizer.eps_val());
 
         let a: Vec<f64> = decoded_nd.iter().copied().collect();
         let b: Vec<f64> = decoded_flat.into_data().iter::<f64>().collect();

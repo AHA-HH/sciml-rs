@@ -1,32 +1,32 @@
-//! Normalisation strategies for operator-learning data: a shared `Normaliser`
+//! normalization strategies for operator-learning data: a shared `normalizer`
 //! trait (fit / encode / decode) with three implementations differing in
 //! what statistics they compute and over what scope.
 
 use ndarray::{ArrayD, Axis};
 
-/// Shared interface for all normalisers: fit on training data, encode inputs
+/// Shared interface for all normalizers: fit on training data, encode inputs
 /// before training, decode predictions back to physical scale.
-pub trait Normaliser {
+pub trait Normalizer {
     /// Computes and stores statistics from `data`.
     fn fit(data: &ArrayD<f64>) -> Self;
 
-    /// Normalises `data` using stored statistics.
+    /// normalizes `data` using stored statistics.
     fn encode(&self, data: ArrayD<f64>) -> ArrayD<f64>;
 
-    /// Denormalises `data` back to physical scale.
+    /// Denormalizes `data` back to physical scale.
     fn decode(&self, data: ArrayD<f64>) -> ArrayD<f64>;
 }
 
-/// Pointwise normalisation: per-spatial-point mean/std, computed across the
+/// Pointwise normalization: per-spatial-point mean/std, computed across the
 /// batch axis. `mean`/`std` have the shape of a single example, not a scalar.
 #[derive(Clone)]
-pub struct UnitGaussianNormaliser {
+pub struct UnitGaussianNormalizer {
     mean: ArrayD<f64>,
     std: ArrayD<f64>,
     eps: f64,
 }
 
-impl UnitGaussianNormaliser {
+impl UnitGaussianNormalizer {
     /// Fits with a caller-specified `eps` instead of `fit`'s default.
     pub fn with_eps(data: &ArrayD<f64>, eps: f64) -> Self {
         let mean = data.mean_axis(Axis(0)).unwrap();
@@ -51,7 +51,7 @@ impl UnitGaussianNormaliser {
     }
 }
 
-impl Normaliser for UnitGaussianNormaliser {
+impl Normalizer for UnitGaussianNormalizer {
     fn fit(data: &ArrayD<f64>) -> Self {
         Self::with_eps(data, 0.00001)
     }
@@ -65,17 +65,17 @@ impl Normaliser for UnitGaussianNormaliser {
     }
 }
 
-/// Global normalisation: single scalar mean/std across all values, all
+/// Global normalization: single scalar mean/std across all values, all
 /// spatial points, all examples. No customization of `eps` — see gap noted
 /// above `fit`.
 #[derive(Clone)]
-pub struct GaussianNormaliser {
+pub struct GaussianNormalizer {
     mean: f64,
     std: f64,
     eps: f64,
 }
 
-impl Normaliser for GaussianNormaliser {
+impl Normalizer for GaussianNormalizer {
     fn fit(data: &ArrayD<f64>) -> Self {
         let mean = data.mean().unwrap();
         let std = data.std(0.0);
@@ -101,12 +101,12 @@ impl Normaliser for GaussianNormaliser {
 /// No `eps` guard: a constant channel (`max == min`) produces a division by
 /// zero in `with_range`, propagating `inf`/`NaN` through `encode` silently.
 #[derive(Clone)]
-pub struct RangeNormaliser {
+pub struct RangeNormalizer {
     a: ArrayD<f64>, // scale factor
     b: ArrayD<f64>, // offset
 }
 
-impl RangeNormaliser {
+impl RangeNormalizer {
     pub fn with_range(data: &ArrayD<f64>, low: f64, high: f64) -> Self {
         let min = data.map_axis(Axis(0), |row| row.fold(f64::INFINITY, |a, &b| a.min(b)));
         let max = data.map_axis(Axis(0), |row| row.fold(f64::NEG_INFINITY, |a, &b| a.max(b)));
@@ -119,7 +119,7 @@ impl RangeNormaliser {
     }
 }
 
-impl Normaliser for RangeNormaliser {
+impl Normalizer for RangeNormalizer {
     fn fit(data: &ArrayD<f64>) -> Self {
         Self::with_range(data, 0.0, 1.0)
     }
