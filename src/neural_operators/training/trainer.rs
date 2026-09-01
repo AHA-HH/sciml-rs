@@ -128,7 +128,7 @@ pub struct EpochSums {
     pub last_lr: f64,
 }
 
-/// Runs one training pass. Takes and returns the model — Burn's optimiser
+/// Runs one training pass. Takes and returns the model — Burn's optimizer
 /// consumes it on each step.
 pub fn train_epoch<const R: usize, const RM1: usize>(
     mut model: FNO<R>,
@@ -227,7 +227,7 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
         model,
         optim,
         scheduler,
-        loss_fn: LpLoss::new(1, 2, false, true),
+        loss_fn: LpLoss::new(R - 2, 2, false, true),
         train_loader,
         test_loader,
     }

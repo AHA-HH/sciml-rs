@@ -1,6 +1,6 @@
 //! Training
 //!
-//! The generic training loop, optimiser and schedule configuration, the AdamW
+//! The generic training loop, optimizer and schedule configuration, the Adam
 //! step, per-epoch metric types and the per-PDE trainer entry points.
 
 pub mod metrics;
