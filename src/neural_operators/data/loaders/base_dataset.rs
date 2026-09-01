@@ -27,6 +27,10 @@ pub trait HasBaseConfig {
 }
 
 impl<T: HasBaseConfig> BaseDatasetConfig for T {
-    fn n_train(&self) -> usize { self.base().n_train }
-    fn n_test(&self) -> usize { self.base().n_test }
+    fn n_train(&self) -> usize {
+        self.base().n_train
+    }
+    fn n_test(&self) -> usize {
+        self.base().n_test
+    }
 }

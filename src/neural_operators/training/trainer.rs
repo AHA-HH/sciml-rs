@@ -4,7 +4,11 @@ use burn::{
     config::Config,
     data::dataloader::{DataLoader, DataLoaderBuilder},
     lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
-    optim::{AdamConfig, decay::WeightDecayConfig, GradientsParams, lr_scheduler::module_lr_scheduler::{ModuleLearningRate, ModuleLrScheduler}, ModuleOptimizer},
+    optim::{
+        AdamConfig, GradientsParams, ModuleOptimizer,
+        decay::WeightDecayConfig,
+        lr_scheduler::module_lr_scheduler::{ModuleLearningRate, ModuleLrScheduler},
+    },
     prelude::*,
 };
 
@@ -12,9 +16,9 @@ use std::sync::Arc;
 
 use crate::neural_operators::{
     data::{
-        loaders::{base_dataset::DatasetConfig},
         batcher::{Batch, OperatorBatcher},
         dataset::OperatorDataset,
+        loaders::base_dataset::DatasetConfig,
         transforms::normalisers::UnitGaussianNormaliser,
     },
     losses::data_losses::LpLoss,
@@ -56,8 +60,16 @@ fn flatten_pair<const R: usize, const RM1: usize>(
     out: Tensor<R>,
     target: Tensor<RM1>,
 ) -> (Tensor<2>, Tensor<2>) {
-    assert_eq!(RM1, R - 1, "target rank must be output rank minus one (no channel axis)");
-    assert_eq!(out.dims()[R - 1], 1, "flatten_pair requires out_channels == 1");
+    assert_eq!(
+        RM1,
+        R - 1,
+        "target rank must be output rank minus one (no channel axis)"
+    );
+    assert_eq!(
+        out.dims()[R - 1],
+        1,
+        "flatten_pair requires out_channels == 1"
+    );
 
     let dims = target.dims(); // [b, ...spatial]
     let b = dims[0];
@@ -149,7 +161,14 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
         model = optim.step(last_lr.clone(), model, grads);
     }
 
-    (model, EpochSums { mse_sum, l2_sum, last_lr: last_lr.base() })
+    (
+        model,
+        EpochSums {
+            mse_sum,
+            l2_sum,
+            last_lr: last_lr.base(),
+        },
+    )
 }
 
 pub struct TrainingComponents<const R: usize, const RM1: usize> {
@@ -171,8 +190,13 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
 ) -> TrainingComponents<R, RM1> {
     device.seed(train_cfg.seed);
 
-    assert_eq!(model_cfg.modes.len() + 2, R,
-        "FNO<{R}> needs {} modes, config has {}", R - 2, model_cfg.modes.len());
+    assert_eq!(
+        model_cfg.modes.len() + 2,
+        R,
+        "FNO<{R}> needs {} modes, config has {}",
+        R - 2,
+        model_cfg.modes.len()
+    );
 
     let model = model_cfg.init::<R>(device);
 
@@ -183,12 +207,12 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
 
     let steps_per_epoch = data_cfg.n_train.div_ceil(train_cfg.batch_size);
     let scheduler = CosineAnnealingLrSchedulerConfig::new(
-            train_cfg.learning_rate,
-            train_cfg.epochs * steps_per_epoch,
-        )
-        .with_min_lr(train_cfg.min_lr)
-        .init()
-        .expect("valid cosine scheduler config");
+        train_cfg.learning_rate,
+        train_cfg.epochs * steps_per_epoch,
+    )
+    .with_min_lr(train_cfg.min_lr)
+    .init()
+    .expect("valid cosine scheduler config");
 
     let train_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new(device.clone()))
         .batch_size(train_cfg.batch_size)
@@ -199,7 +223,14 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
         .batch_size(train_cfg.test_batch_size)
         .build(test_data);
 
-    TrainingComponents { model, optim, scheduler, loss_fn: LpLoss::new(1, 2, false, true), train_loader, test_loader }
+    TrainingComponents {
+        model,
+        optim,
+        scheduler,
+        loss_fn: LpLoss::new(1, 2, false, true),
+        train_loader,
+        test_loader,
+    }
 }
 
 pub fn training_loop<const R: usize, const RM1: usize>(
@@ -225,7 +256,12 @@ pub fn training_loop<const R: usize, const RM1: usize>(
         );
         model = m;
 
-        let test_l2_sum = eval_epoch(&model, &components.test_loader, &components.loss_fn, eval_post,);
+        let test_l2_sum = eval_epoch(
+            &model,
+            &components.test_loader,
+            &components.loss_fn,
+            eval_post,
+        );
 
         let record = EpochMetrics {
             epoch,
@@ -258,13 +294,13 @@ mod tests {
         let flat_nd: Vec<f64> = arr.iter().copied().collect();
 
         // Same values as a [1, 3, 4] tensor, reshaped to [1, 12].
-        let t = Tensor::<3>::from_data(
-            TensorData::new(flat_nd.clone(), vec![1, 3, 4]),
-            &device,
-        );
+        let t = Tensor::<3>::from_data(TensorData::new(flat_nd.clone(), vec![1, 3, 4]), &device);
         let flat_t: Vec<f64> = t.reshape([1, 12]).into_data().iter::<f64>().collect();
 
-        assert_eq!(flat_nd, flat_t, "ndarray and Tensor flatten in different orders");
+        assert_eq!(
+            flat_nd, flat_t,
+            "ndarray and Tensor flatten in different orders"
+        );
     }
 
     #[test]

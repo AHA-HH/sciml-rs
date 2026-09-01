@@ -79,7 +79,11 @@ impl Normaliser for GaussianNormaliser {
     fn fit(data: &ArrayD<f64>) -> Self {
         let mean = data.mean().unwrap();
         let std = data.std(0.0);
-        Self { mean, std, eps: 0.00001 }
+        Self {
+            mean,
+            std,
+            eps: 0.00001,
+        }
     }
 
     fn encode(&self, data: ArrayD<f64>) -> ArrayD<f64> {

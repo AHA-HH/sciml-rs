@@ -1,6 +1,9 @@
 //! .npz file reader — multiple named arrays per file, `name` selects which one.
 
-use crate::neural_operators::data::io::{errors::{ReaderError, ReaderResult}, traits::FieldReader};
+use crate::neural_operators::data::io::{
+    errors::{ReaderError, ReaderResult},
+    traits::FieldReader,
+};
 use ndarray::ArrayD;
 use ndarray_npy::NpzReader;
 use std::fs::File;
@@ -14,7 +17,9 @@ pub struct NpzFileReader {
 
 impl NpzFileReader {
     pub fn new(path: &Path) -> Self {
-        Self { path: path.to_path_buf() }
+        Self {
+            path: path.to_path_buf(),
+        }
     }
 }
 
@@ -23,7 +28,10 @@ impl FieldReader for NpzFileReader {
     /// second failure means the field genuinely isn't present.
     fn read_field(&self, name: &str) -> ReaderResult<ArrayD<f64>> {
         if !self.path.exists() {
-            return Err(ReaderError::FileNotFound(format!("{}", self.path.display())));
+            return Err(ReaderError::FileNotFound(format!(
+                "{}",
+                self.path.display()
+            )));
         }
 
         let mut npz = NpzReader::new(

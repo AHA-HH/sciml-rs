@@ -1,6 +1,9 @@
 //! .npy file reader - single array per file, so `read_field`'s `name` is unused.
 
-use crate::neural_operators::data::io::{errors::{ReaderError, ReaderResult}, traits::FieldReader};
+use crate::neural_operators::data::io::{
+    errors::{ReaderError, ReaderResult},
+    traits::FieldReader,
+};
 use ndarray::ArrayD;
 use ndarray_npy::read_npy;
 use std::path::{Path, PathBuf};
@@ -13,7 +16,9 @@ pub struct NpyFileReader {
 
 impl NpyFileReader {
     pub fn new(path: &Path) -> Self {
-        Self { path: path.to_path_buf() }
+        Self {
+            path: path.to_path_buf(),
+        }
     }
 }
 
@@ -22,7 +27,10 @@ impl FieldReader for NpyFileReader {
     /// Tries f64 first; on failure, falls back to f32 and casts up.
     fn read_field(&self, _name: &str) -> ReaderResult<ArrayD<f64>> {
         if !self.path.exists() {
-            return Err(ReaderError::FileNotFound(format!("{}", self.path.display())));
+            return Err(ReaderError::FileNotFound(format!(
+                "{}",
+                self.path.display()
+            )));
         }
 
         let array: ArrayD<f64> = match read_npy(&self.path) {

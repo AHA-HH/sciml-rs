@@ -21,7 +21,12 @@ pub struct LpLoss {
 impl LpLoss {
     pub fn new(d: usize, p: usize, size_average: bool, reduction: bool) -> Self {
         assert!(d > 0 && p > 0);
-        Self { d, p, size_average, reduction }
+        Self {
+            d,
+            p,
+            size_average,
+            reduction,
+        }
     }
 
     /// Absolute Lp loss, scaled by the uniform-mesh quadrature weight
@@ -37,12 +42,26 @@ impl LpLoss {
         // p=1: sum of abs diffs. p=2: Euclidean norm. general p: p-norm.
         let all_norms = match self.p {
             1 => diff.sum_dim(1).squeeze_dims(&[1]).mul_scalar(h_weight),
-            2 => diff.powf_scalar(2.0).sum_dim(1).squeeze_dims(&[1]).sqrt().mul_scalar(h_weight),
-            p => diff.powf_scalar(p as f64).sum_dim(1).squeeze_dims(&[1]).powf_scalar(1.0 / p as f64).mul_scalar(h_weight),
+            2 => diff
+                .powf_scalar(2.0)
+                .sum_dim(1)
+                .squeeze_dims(&[1])
+                .sqrt()
+                .mul_scalar(h_weight),
+            p => diff
+                .powf_scalar(p as f64)
+                .sum_dim(1)
+                .squeeze_dims(&[1])
+                .powf_scalar(1.0 / p as f64)
+                .mul_scalar(h_weight),
         };
 
         if self.reduction {
-            if self.size_average { all_norms.mean() } else { all_norms.sum() }
+            if self.size_average {
+                all_norms.mean()
+            } else {
+                all_norms.sum()
+            }
         } else {
             all_norms // [batch] — per-example losses
         }
@@ -54,20 +73,38 @@ impl LpLoss {
     pub fn rel(&self, x: Tensor<2>, y: Tensor<2>) -> Tensor<1> {
         let diff_norms = match self.p {
             1 => (x - y.clone()).abs().sum_dim(1).squeeze_dims(&[1]),
-            2 => (x - y.clone()).powf_scalar(2.0).sum_dim(1).squeeze_dims(&[1]).sqrt(),
-            p => (x - y.clone()).abs().powf_scalar(p as f64).sum_dim(1).squeeze_dims(&[1]).powf_scalar(1.0 / p as f64),
+            2 => (x - y.clone())
+                .powf_scalar(2.0)
+                .sum_dim(1)
+                .squeeze_dims(&[1])
+                .sqrt(),
+            p => (x - y.clone())
+                .abs()
+                .powf_scalar(p as f64)
+                .sum_dim(1)
+                .squeeze_dims(&[1])
+                .powf_scalar(1.0 / p as f64),
         };
 
         let y_norms = match self.p {
             1 => y.abs().sum_dim(1).squeeze_dims(&[1]),
             2 => y.powf_scalar(2.0).sum_dim(1).squeeze_dims(&[1]).sqrt(),
-            p => y.abs().powf_scalar(p as f64).sum_dim(1).squeeze_dims(&[1]).powf_scalar(1.0 / p as f64),
+            p => y
+                .abs()
+                .powf_scalar(p as f64)
+                .sum_dim(1)
+                .squeeze_dims(&[1])
+                .powf_scalar(1.0 / p as f64),
         };
 
         let per_example = diff_norms / y_norms;
 
         if self.reduction {
-            if self.size_average { per_example.mean() } else { per_example.sum() }
+            if self.size_average {
+                per_example.mean()
+            } else {
+                per_example.sum()
+            }
         } else {
             per_example // [batch] — per-example losses
         }

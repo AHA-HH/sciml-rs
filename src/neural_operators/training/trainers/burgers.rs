@@ -3,10 +3,7 @@
 use burn::prelude::*;
 
 use crate::neural_operators::{
-    data::{
-        loaders::base_dataset::DatasetConfig,
-        dataset::OperatorDataset,
-    },
+    data::{dataset::OperatorDataset, loaders::base_dataset::DatasetConfig},
     models::fno::{FNO, FNOConfig},
     training::{
         metrics::EpochMetrics,

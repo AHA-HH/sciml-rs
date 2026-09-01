@@ -2,11 +2,7 @@
 //! rank-`R`/`R-1` tensors for training.
 
 use crate::neural_operators::data::dataitem::DataItem;
-use burn::{
-    Tensor,
-    data::dataloader::batcher::Batcher,
-    prelude::*,
-};
+use burn::{Tensor, data::dataloader::batcher::Batcher, prelude::*};
 
 /// A batch of stacked input/target tensor pairs.
 ///
@@ -20,7 +16,7 @@ pub struct Batch<const R: usize, const RM1: usize> {
     pub targets: Tensor<RM1>,
 }
 
-/// Stacks [`DataItem`]s into a [`BatchNd`] for a fixed input/target rank pair.
+/// Stacks [`DataItem`]s into a [`Batch`] for a fixed input/target rank pair.
 pub struct OperatorBatcher<const R: usize, const RM1: usize> {
     pub device: Device,
 }
@@ -30,12 +26,18 @@ impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
     ///
     /// Panics if `RM1 != R - 1` — the only rank pairing this batcher supports.
     pub fn new(device: Device) -> Self {
-        assert_eq!(RM1, R - 1, "targets rank must be inputs rank minus one (no channel dim)");
+        assert_eq!(
+            RM1,
+            R - 1,
+            "targets rank must be inputs rank minus one (no channel dim)"
+        );
         Self { device }
     }
 }
 
-impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>> for OperatorBatcher<R, RM1> {
+impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>>
+    for OperatorBatcher<R, RM1>
+{
     fn batch(&self, items: Vec<DataItem>, _device: &Device) -> Batch<R, RM1> {
         let n = items.len();
 
@@ -44,15 +46,27 @@ impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>> for Oper
         let mut input_shape = vec![n];
         input_shape.extend_from_slice(items[0].input.shape());
         let input_shape: [usize; R] = input_shape.try_into().unwrap();
-        let input_data: Vec<f64> = items.iter().flat_map(|item| item.input.iter().copied()).collect();
-        let inputs = Tensor::<R>::from_data(burn::tensor::TensorData::new(input_data, input_shape), &self.device);
+        let input_data: Vec<f64> = items
+            .iter()
+            .flat_map(|item| item.input.iter().copied())
+            .collect();
+        let inputs = Tensor::<R>::from_data(
+            burn::tensor::TensorData::new(input_data, input_shape),
+            &self.device,
+        );
 
         // target: same construction, rank RM1 (== R - 1, no channel axis)
         let mut target_shape = vec![n];
         target_shape.extend_from_slice(items[0].target.shape());
         let target_shape: [usize; RM1] = target_shape.try_into().unwrap();
-        let target_data: Vec<f64> = items.iter().flat_map(|item| item.target.iter().copied()).collect();
-        let targets = Tensor::<RM1>::from_data(burn::tensor::TensorData::new(target_data, target_shape), &self.device);
+        let target_data: Vec<f64> = items
+            .iter()
+            .flat_map(|item| item.target.iter().copied())
+            .collect();
+        let targets = Tensor::<RM1>::from_data(
+            burn::tensor::TensorData::new(target_data, target_shape),
+            &self.device,
+        );
 
         Batch { inputs, targets }
     }

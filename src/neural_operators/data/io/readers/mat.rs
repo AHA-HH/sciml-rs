@@ -1,6 +1,9 @@
 //! .mat file reader (legacy and modern MATLAB formats).
 
-use crate::neural_operators::data::io::{errors::{ReaderError, ReaderResult}, traits::FieldReader};
+use crate::neural_operators::data::io::{
+    errors::{ReaderError, ReaderResult},
+    traits::FieldReader,
+};
 use matfile;
 use ndarray::{Array, ArrayD, IxDyn};
 use std::path::Path;

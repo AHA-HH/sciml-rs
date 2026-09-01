@@ -14,13 +14,13 @@
 
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
+    grids::{append_grid_2d, uniform_grid_2d},
+    io::{readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
-    io::{traits::FieldReader, readers::mat::MatFileReader},
     transforms::{
         normalisers::{Normaliser, UnitGaussianNormaliser},
-        subsample::subsample
+        subsample::subsample,
     },
-    grids::{append_grid_2d, uniform_grid_2d},
 };
 use burn::config::Config;
 use ndarray::{Axis, IxDyn};
@@ -57,33 +57,73 @@ pub fn load_darcy_uniform(
 ) -> (OperatorDataset, OperatorDataset, UnitGaussianNormaliser) {
     // read input ('coeff') and target ('sol') fields from separate train/test .mat files
     let train_reader = MatFileReader::new(Path::new(train_path));
-    let x_train = train_reader.read_field("coeff").expect("failed to read 'coeff'");
-    let y_train = train_reader.read_field("sol").expect("failed to read 'sol'");
+    let x_train = train_reader
+        .read_field("coeff")
+        .expect("failed to read 'coeff'");
+    let y_train = train_reader
+        .read_field("sol")
+        .expect("failed to read 'sol'");
 
     let test_reader = MatFileReader::new(Path::new(test_path));
-    let x_test = test_reader.read_field("coeff").expect("failed to read 'coeff'");
+    let x_test = test_reader
+        .read_field("coeff")
+        .expect("failed to read 'coeff'");
     let y_test = test_reader.read_field("sol").expect("failed to read 'sol'");
 
     // truncate to configured n_train/n_test along the sample axis — without this,
     // dataset size is whatever the file happens to contain
-    let x_train = x_train.slice_axis(Axis(0), (0..config.n_train()).into()).to_owned();
-    let y_train = y_train.slice_axis(Axis(0), (0..config.n_train()).into()).to_owned();
-    let x_test = x_test.slice_axis(Axis(0), (0..config.n_test()).into()).to_owned();
-    let y_test = y_test.slice_axis(Axis(0), (0..config.n_test()).into()).to_owned();
+    let x_train = x_train
+        .slice_axis(Axis(0), (0..config.n_train()).into())
+        .to_owned();
+    let y_train = y_train
+        .slice_axis(Axis(0), (0..config.n_train()).into())
+        .to_owned();
+    let x_test = x_test
+        .slice_axis(Axis(0), (0..config.n_test()).into())
+        .to_owned();
+    let y_test = y_test
+        .slice_axis(Axis(0), (0..config.n_test()).into())
+        .to_owned();
 
     // downsample both spatial axes (1 and 2) by config.subsample_rate
-    let x_train = subsample(subsample(x_train, 1, config.subsample_rate), 2, config.subsample_rate);
-    let y_train = subsample(subsample(y_train, 1, config.subsample_rate), 2, config.subsample_rate);
-    let x_test = subsample(subsample(x_test, 1, config.subsample_rate), 2, config.subsample_rate);
-    let y_test = subsample(subsample(y_test, 1, config.subsample_rate), 2, config.subsample_rate);
+    let x_train = subsample(
+        subsample(x_train, 1, config.subsample_rate),
+        2,
+        config.subsample_rate,
+    );
+    let y_train = subsample(
+        subsample(y_train, 1, config.subsample_rate),
+        2,
+        config.subsample_rate,
+    );
+    let x_test = subsample(
+        subsample(x_test, 1, config.subsample_rate),
+        2,
+        config.subsample_rate,
+    );
+    let y_test = subsample(
+        subsample(y_test, 1, config.subsample_rate),
+        2,
+        config.subsample_rate,
+    );
 
     let s = x_train.shape()[1];
     let n_train = x_train.shape()[0];
     let n_test = x_test.shape()[0];
 
     // cross-check derived config values against what was actually read/subsampled
-    assert_eq!(s, config.s(), "subsampled grid size {} does not match config.s() {}", s, config.s());
-    assert_eq!(n_train, config.n_train(), "n_train mismatch after truncation");
+    assert_eq!(
+        s,
+        config.s(),
+        "subsampled grid size {} does not match config.s() {}",
+        s,
+        config.s()
+    );
+    assert_eq!(
+        n_train,
+        config.n_train(),
+        "n_train mismatch after truncation"
+    );
     assert_eq!(n_test, config.n_test(), "n_test mismatch after truncation");
 
     // fit x-normaliser on x_train, encode both x_train and x_test;
@@ -98,8 +138,12 @@ pub fn load_darcy_uniform(
     // y_test intentionally NOT encoded
 
     // add a trailing channel axis to inputs: [n, s, s] -> [n, s, s, 1]
-    let x_train = x_train.into_shape_with_order(IxDyn(&[n_train, s, s, 1])).expect("reshape x_train");
-    let x_test = x_test.into_shape_with_order(IxDyn(&[n_test, s, s, 1])).expect("reshape x_test");
+    let x_train = x_train
+        .into_shape_with_order(IxDyn(&[n_train, s, s, 1]))
+        .expect("reshape x_train");
+    let x_test = x_test
+        .into_shape_with_order(IxDyn(&[n_test, s, s, 1]))
+        .expect("reshape x_test");
 
     // append 2D grid coordinates as two more channels: [n, s, s, 1] -> [n, s, s, 3]
     let (xx, yy) = uniform_grid_2d(0.0, 1.0, s);

@@ -7,14 +7,11 @@
 
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
-    loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
-    io::{
-        traits::FieldReader,
-        readers::mat::MatFileReader,
-    },
-    transforms::subsample::subsample,
     grids::{append_grid_1d, uniform_grid_1d},
+    io::{readers::mat::MatFileReader, traits::FieldReader},
+    loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     split::train_test_split,
+    transforms::subsample::subsample,
 };
 use burn::config::Config;
 use ndarray::IxDyn;
@@ -43,7 +40,7 @@ impl HasBaseConfig for BurgersConfig {
 ///
 /// Reads fields `a` (initial condition) and `u` (solution at t=1),
 /// subsamples the spatial axis by `config.subsample_rate`, splits off
-/// `n_train`/`n_test` samples, and appends a uniform grid on [0, 1] as a
+/// `n_train`/`n_test` samples and appends a uniform grid on [0, 1] as a
 /// second input channel.
 ///
 /// Inputs end up `[n, s, 1 + 1]` and targets `[n, s]` — the rank difference
@@ -63,7 +60,12 @@ pub fn load_burgers_uniform(
 
     // spatial size after subsampling
     let s = a_data.shape()[1];
-    assert_eq!(s, config.s(), "subsampled resolution {s} != config.s() {}", config.s());
+    assert_eq!(
+        s,
+        config.s(),
+        "subsampled resolution {s} != config.s() {}",
+        config.s()
+    );
 
     // 3. Split into train and test
     let (a_train, a_test) = train_test_split(a_data, config.n_train(), config.n_test());
@@ -95,7 +97,12 @@ pub fn load_burgers_uniform(
     let train_dataset = OperatorDataset::new(a_train, u_train);
     let test_dataset = OperatorDataset::new(a_test, u_test);
 
-    println!("burgers: {} train / {} test at s={}", config.n_train(), config.n_test(), s);
+    println!(
+        "burgers: {} train / {} test at s={}",
+        config.n_train(),
+        config.n_test(),
+        s
+    );
 
     (train_dataset, test_dataset)
 }
