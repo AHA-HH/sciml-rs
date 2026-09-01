@@ -14,7 +14,7 @@ use std::path::Path;
 
 fn main() {
     let device = Device::default().autodiff();
-
+    
     let data_cfg = DatasetConfig { n_train: 1000, n_test: 100 };
     let dataset_cfg = DarcyConfig::new(data_cfg.clone(), 28);
 
