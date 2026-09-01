@@ -8,8 +8,8 @@ license = "MIT / Apache-2.0"
 homepage = "https://codeberg.com.com/sciml-rs/sciml-rs"
 repository = "https://codeberg.org/sciml-rs/sciml-rs.git"
 readme = "README.md"
-keywords = ["numerics"]
-categories = ["mathematics", "science"]
+keywords = ["neural operators"]
+categories = ["scientific machine learning"]
 
 [lib]
 name = "sciml_rs"
@@ -28,22 +28,14 @@ path = "examples/predict_burgers/main.rs"
 
 [dependencies]
 burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
-rlst = { git = "https://codeberg.org/rlst/rlst.git", branch = "main" }
 ndarray = "0.17"
 ndarray-npy = "0.10"
 matfile = "0.5"
-ndarray-npz = "0.4.2"
-burn-backend = "0.21.0"
 gnuplot = "0.0.46"
 
 [dev-dependencies]
 approx = { version = "0.5", features = ["num-complex"] }
-gnuplot = "0.0.46"
 
 [target.'cfg(target_os= "macos")'.dev-dependencies]
-rlst = { git = "https://codeberg.org/rlst/rlst.git", branch = "main", features = ["fftw", "fftw_source", "burn"] }
-blas-src = {version="0.14", features = ["accelerate"]}
-lapack-src = {version="0.13", features = ["accelerate"]}
 
 [target.'cfg(target_os= "linux")'.dev-dependencies]
-rlst = { git = "https://codeberg.org/rlst/rlst.git", branch = "main", features = ["fftw", "fftw_source", "burn"] }
