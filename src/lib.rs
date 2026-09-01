@@ -7,10 +7,10 @@
 //!
 //! # Layout
 //!
-//! - [`neural_operators::models`] — the FNO
-//! - [`neural_operators::layers`] — spectral convolution
-//! - [`neural_operators::training`] — training loop and metrics
-//! - [`neural_operators::data`] — loaders, batching, transforms
+//! - [`neural_operators::models`] - the FNO
+//! - [`neural_operators::layers`] - spectral convolution
+//! - [`neural_operators::training`] - training loop and metrics
+//! - [`neural_operators::data`] - loaders, batching, transforms
 //!
 //! # Examples
 //!

@@ -25,7 +25,7 @@ published number to compare against.
 
 - Rust 1.85 or later ([rustup.rs](https://rustup.rs))
 - ~2 GB disk for the datasets
-- `gnuplot` — required for plots (`brew install gnuplot`, `apt install gnuplot`)
+- `gnuplot` - required for plots (`brew install gnuplot`, `apt install gnuplot`)
 
 ## Getting started
 
@@ -35,7 +35,7 @@ published number to compare against.
 
 ## Datasets
 
-Datasets aren't committed — see [`datasets/README.md`](datasets/README.md)
+Datasets aren't committed - see [`datasets/README.md`](datasets/README.md)
 for download links.
 
 ## Running examples
@@ -45,7 +45,7 @@ for download links.
 
 Each example is self-contained: the hyperparameters are Rust literals at the
 top of the file, so the experiment is readable without a separate config
-format. Output goes to `runs/<name>_<timestamp>/` — metrics CSV, a loss plot,
+format. Output goes to `runs/<name>_<timestamp>/` - metrics CSV, a loss plot,
 the three configs and the trained weights.
 
 To re-evaluate a saved run:

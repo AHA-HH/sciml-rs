@@ -11,7 +11,7 @@ use std::path::Path;
 /// Reads named fields from a `.mat` file.
 ///
 /// Note: unlike `NpyFileReader`/`NpzFileReader`, this reader opens and parses
-/// eagerly in `new()` and panics on failure rather than returning `Err` — not
+/// eagerly in `new()` and panics on failure rather than returning `Err` - not
 /// yet made consistent with the other `FieldReader` implementors.
 pub struct MatFileReader {
     mat: matfile::MatFile,
@@ -29,7 +29,7 @@ impl MatFileReader {
 impl FieldReader for MatFileReader {
     /// Reads field `name`. MATLAB stores arrays column-major (Fortran order);
     /// `ndarray::Array::from_shape_vec` assumes row-major, so dims are reversed
-    /// before construction and `.reversed_axes()` restores the correct shape —
+    /// before construction and `.reversed_axes()` restores the correct shape -
     /// applied identically across every supported dtype below.
     fn read_field(&self, name: &str) -> ReaderResult<ArrayD<f64>> {
         let array = self
@@ -66,7 +66,7 @@ impl FieldReader for MatFileReader {
                     .map_err(|e| ReaderError::ParseError(e.to_string()))
                     .map(|a| a.reversed_axes())
             }
-            // Int16/UInt16/UInt32/Complex/Char not handled — extend here if needed
+            // Int16/UInt16/UInt32/Complex/Char not handled - extend here if needed
             _ => Err(ReaderError::ParseError(format!(
                 "unsupported dtype in field '{}'",
                 name

@@ -13,13 +13,13 @@ The examples look for the `.mat` files by exactly those names.
 
 Each file is a MATLAB `.mat` holding named fields. The first index is the
 sample; the remaining indices are the spatial discretisation. Both examples
-subsample the spatial axes — see `subsample_rate` in each example file.
+subsample the spatial axes - see `subsample_rate` in each example file.
 
-- `burgers_data_R10.mat` — the Burgers equation. Shape `[2048, 8192]`: 2048
+- `burgers_data_R10.mat` - the Burgers equation. Shape `[2048, 8192]`: 2048
   samples on a grid of 8192. Fields: `a` (initial condition), `u` (solution
   at t = 1).
 
-- `piececonst_r421_N1024_smooth1.mat` and `..._smooth2.mat` — Darcy flow.
+- `piececonst_r421_N1024_smooth1.mat` and `..._smooth2.mat` - Darcy flow.
   Each `[1024, 421, 421]`: 1024 samples on a 421×421 grid. `smooth1` is used
   for training, `smooth2` for testing. Fields: `coeff` (permeability field),
   `sol` (solution).

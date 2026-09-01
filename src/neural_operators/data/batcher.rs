@@ -24,7 +24,7 @@ pub struct OperatorBatcher<const R: usize, const RM1: usize> {
 impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
     /// Constructs a batcher for the given device.
     ///
-    /// Panics if `RM1 != R - 1` — the only rank pairing this batcher supports.
+    /// Panics if `RM1 != R - 1` - the only rank pairing this batcher supports.
     pub fn new(device: Device) -> Self {
         assert_eq!(
             RM1,

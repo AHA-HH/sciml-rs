@@ -23,7 +23,7 @@ impl NpyFileReader {
 }
 
 impl FieldReader for NpyFileReader {
-    /// `_name` is ignored — a `.npy` file holds exactly one array.
+    /// `_name` is ignored - a `.npy` file holds exactly one array.
     /// Tries f64 first; on failure, falls back to f32 and casts up.
     fn read_field(&self, _name: &str) -> ReaderResult<ArrayD<f64>> {
         if !self.path.exists() {

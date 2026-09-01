@@ -85,7 +85,7 @@ pub fn decode_flat(x: Tensor<2>, mean: &Tensor<1>, std: &Tensor<1>, eps: f64) ->
 }
 
 /// Converts a fitted UnitGaussiannormalizer's mean/std into flat rank-1
-/// Tensors, once, before training starts — not called per-batch.
+/// Tensors, once, before training starts - not called per-batch.
 pub fn normalizer_to_flat_tensors(
     normalizer: &UnitGaussianNormalizer,
     device: &Device,
@@ -128,7 +128,7 @@ pub struct EpochSums {
     pub last_lr: f64,
 }
 
-/// Runs one training pass. Takes and returns the model — Burn's optimizer
+/// Runs one training pass. Takes and returns the model - Burn's optimizer
 /// consumes it on each step.
 pub fn train_epoch<const R: usize, const RM1: usize>(
     mut model: FNO<R>,
@@ -289,7 +289,7 @@ mod tests {
     fn tensor_reshape_matches_ndarray_ordering() {
         let device = Device::default();
 
-        // 0..12 in a [3, 4] ndarray — row-major, so element (i,j) = i*4 + j.
+        // 0..12 in a [3, 4] ndarray - row-major, so element (i,j) = i*4 + j.
         let arr = ndarray::Array2::from_shape_fn((3, 4), |(i, j)| (i * 4 + j) as f64);
         let flat_nd: Vec<f64> = arr.iter().copied().collect();
 
@@ -307,7 +307,7 @@ mod tests {
     fn decode_flat_matches_ndarray_decode() {
         let device = Device::default();
 
-        // Non-square spatial dims — a transpose bug is invisible on square shapes.
+        // Non-square spatial dims - a transpose bug is invisible on square shapes.
         let (n, s1, s2) = (2, 3, 4);
         let raw = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, s1, s2]), |idx| {
             (idx[0] * 100 + idx[1] * 10 + idx[2]) as f64

@@ -5,7 +5,7 @@ use burn::tensor::Tensor;
 /// Absolute or relative Lp loss between predicted and target fields.
 ///
 /// `d`: spatial dimensionality, used only in `abs()`'s quadrature weight
-/// `h^(d/p)` — it cancels out in `rel()`'s ratio, so has no effect there.
+/// `h^(d/p)` - it cancels out in `rel()`'s ratio, so has no effect there.
 /// `p`: Lp norm order (1, 2, or general).
 /// `size_average`: when `reduction` is true, mean over the batch if true,
 /// sum if false.
@@ -63,7 +63,7 @@ impl LpLoss {
                 all_norms.sum()
             }
         } else {
-            all_norms // [batch] — per-example losses
+            all_norms // [batch] - per-example losses
         }
     }
 
@@ -106,11 +106,11 @@ impl LpLoss {
                 per_example.sum()
             }
         } else {
-            per_example // [batch] — per-example losses
+            per_example // [batch] - per-example losses
         }
     }
 
-    /// Default call — relative loss.
+    /// Default call - relative loss.
     pub fn forward(&self, x: Tensor<2>, y: Tensor<2>) -> Tensor<1> {
         self.rel(x, y)
     }

@@ -43,7 +43,7 @@ impl HasBaseConfig for BurgersConfig {
 /// `n_train`/`n_test` samples and appends a uniform grid on [0, 1] as a
 /// second input channel.
 ///
-/// Inputs end up `[n, s, 1 + 1]` and targets `[n, s]` — the rank difference
+/// Inputs end up `[n, s, 1 + 1]` and targets `[n, s]` - the rank difference
 /// the batcher's `RM1 = R - 1` invariant expects.
 pub fn load_burgers_uniform(
     path: &PathBuf,

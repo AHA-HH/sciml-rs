@@ -20,7 +20,7 @@ use crate::neural_operators::{
 /// Trains an FNO on the 2D Darcy flow dataset. `R = 4` (batch + 2 spatial +
 /// channel), `RM1 = 3`.
 ///
-/// `y_train` was encoded during loading, `y_test` was not — so training
+/// `y_train` was encoded during loading, `y_test` was not - so training
 /// decodes both sides and evaluation decodes only the prediction.
 pub fn train_darcy(
     train_data: OperatorDataset,

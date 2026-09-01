@@ -1,4 +1,4 @@
-//! .npz file reader — multiple named arrays per file, `name` selects which one.
+//! .npz file reader - multiple named arrays per file, `name` selects which one.
 
 use crate::neural_operators::data::io::{
     errors::{ReaderError, ReaderResult},

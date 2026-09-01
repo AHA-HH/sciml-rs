@@ -12,7 +12,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Reads a metrics CSV written by `write_metrics_csv` back into `EpochMetrics`.
-/// Panics on missing/malformed fields — no partial-row recovery.
+/// Panics on missing/malformed fields - no partial-row recovery.
 pub fn read_metrics_csv(path: &str) -> Vec<EpochMetrics> {
     let file = std::fs::File::open(path).expect("failed to open csv");
     let reader = std::io::BufReader::new(file);

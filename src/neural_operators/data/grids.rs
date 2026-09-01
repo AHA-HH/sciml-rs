@@ -32,7 +32,7 @@ pub fn uniform_grid(bounds: &[(f64, f64)], sizes: &[usize]) -> Vec<ArrayD<f64>> 
 
 /// Append n grid coordinate channels to `data` along the last axis.
 /// `data` is [batch, *spatial, channels]. `grid_first` controls channel order
-/// (grids-then-data vs data-then-grids) — TEMPORARY until the 2D/3D convention
+/// (grids-then-data vs data-then-grids) - TEMPORARY until the 2D/3D convention
 /// mismatch in the current codebase is resolved; do not leave this public.
 pub fn append_grid(data: ArrayD<f64>, grids: Vec<ArrayD<f64>>, grid_first: bool) -> ArrayD<f64> {
     let batch_size = data.shape()[0];
@@ -100,7 +100,7 @@ pub fn uniform_grid_2d(start: f64, end: f64, s: usize) -> (Array2<f64>, Array2<f
     let coords = Array1::linspace(start, end, s);
 
     // x varies along columns, constant along rows; y varies along rows, constant along columns
-    // — matches np.meshgrid's default 'xy' indexing, same convention Li's Python uses.
+    // - matches np.meshgrid's default 'xy' indexing, same convention Li's Python uses.
     let mut xx = Array2::<f64>::zeros((s, s));
     let mut yy = Array2::<f64>::zeros((s, s));
     for i in 0..s {
@@ -332,7 +332,7 @@ mod tests {
 
         // channel 0 should still be the original data (9.0 everywhere)
         assert_eq!(result[[0, 0, 0, 0]], 9.0);
-        // channel 1 should be xx, channel 2 should be yy — spot check one position
+        // channel 1 should be xx, channel 2 should be yy - spot check one position
         assert_eq!(result[[0, 1, 1, 1]], 1.0); // xx[1,1] = 1.0
         assert_eq!(result[[0, 1, 1, 2]], 1.0); // yy[1,1] = 1.0
     }
@@ -382,7 +382,7 @@ mod tests {
         }
 
         // no xy-swap: xx[i,*,*] should equal the i-th linspace value directly,
-        // not the j-th — this is the specific bug a copy-pasted meshgrid-swap
+        // not the j-th - this is the specific bug a copy-pasted meshgrid-swap
         // convention from uniform_grid_2d would introduce.
         assert!(
             (xx[[1, 0, 0]] - (1.0 / 3.0)).abs() < 1e-9,
@@ -400,7 +400,7 @@ mod tests {
         let t_out = 4;
         let (xx, _yy, tt) = uniform_grid_3d(0.0, 1.0, s, t_out);
 
-        // x/y: closed interval [0,1] — first point IS 0
+        // x/y: closed interval [0,1] - first point IS 0
         assert!(
             (xx[[0, 0, 0]] - 0.0).abs() < 1e-9,
             "x should include 0 as its first point"
@@ -410,11 +410,11 @@ mod tests {
             "x should include 1 as its last point"
         );
 
-        // t: half-open (0,1] — first point is 1/t_out, NOT 0; last point IS 1
+        // t: half-open (0,1] - first point is 1/t_out, NOT 0; last point IS 1
         let expected_first_t = 1.0 / t_out as f64;
         assert!(
             (tt[[0, 0, 0]] - expected_first_t).abs() < 1e-9,
-            "t's first point should be 1/t_out ({}), got {} — check for an accidental switch to plain linspace(0,1,t_out)",
+            "t's first point should be 1/t_out ({}), got {} - check for an accidental switch to plain linspace(0,1,t_out)",
             expected_first_t,
             tt[[0, 0, 0]]
         );
@@ -444,7 +444,7 @@ mod tests {
             for i in 0..s {
                 for j in 0..s {
                     for k in 0..t_out {
-                        // grid channels first (0,1,2) — same value regardless of batch
+                        // grid channels first (0,1,2) - same value regardless of batch
                         assert!(
                             (out[[b, i, j, k, 0]] - xx[[i, j, k]]).abs() < 1e-9,
                             "channel 0 should be xx"

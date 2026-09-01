@@ -98,7 +98,7 @@ impl Normalizer for UnitGaussianNormalizer {
 }
 
 /// Global normalization: single scalar mean/std across all values, all
-/// spatial points, all examples. No customization of `eps` — see gap noted
+/// spatial points, all examples. No customization of `eps` - see gap noted
 /// above `fit`.
 #[derive(Clone)]
 pub struct GaussianNormalizer {

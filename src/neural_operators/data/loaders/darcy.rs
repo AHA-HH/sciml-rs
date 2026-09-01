@@ -8,7 +8,7 @@
 //!
 //! normalization asymmetry (matches the reference implementation exactly):
 //! `x_test` is encoded using the `x` normalizer fit on `x_train`, but
-//! `y_test` is left un-encoded — predictions are decoded back to physical
+//! `y_test` is left un-encoded - predictions are decoded back to physical
 //! scale before comparison, not targets encoded forward. The returned
 //! `y_normalizer` is what the caller needs to do that decode.
 
@@ -56,7 +56,7 @@ pub struct DarcyNormalizers {
 }
 
 /// Builds the Darcy flow dataset with a uniform 2D grid channel appended.
-/// Returns `(train_dataset, test_dataset, x_normalizer, y_normalizer)` — the normalizer is
+/// Returns `(train_dataset, test_dataset, x_normalizer, y_normalizer)` - the normalizer is
 /// needed by the caller to decode predictions back to physical scale.
 pub fn load_darcy_uniform(
     train_path: &PathBuf,
@@ -78,7 +78,7 @@ pub fn load_darcy_uniform(
         .expect("failed to read 'coeff'");
     let y_test = test_reader.read_field("sol").expect("failed to read 'sol'");
 
-    // truncate to configured n_train/n_test along the sample axis — without this,
+    // truncate to configured n_train/n_test along the sample axis - without this,
     // dataset size is whatever the file happens to contain
     let x_train = x_train
         .slice_axis(Axis(0), (0..config.n_train()).into())
@@ -135,7 +135,7 @@ pub fn load_darcy_uniform(
     assert_eq!(n_test, config.n_test(), "n_test mismatch after truncation");
 
     // fit x-normalizer on x_train, encode both x_train and x_test;
-    // fit y-normalizer on y_train, encode y_train only — y_test stays raw,
+    // fit y-normalizer on y_train, encode y_train only - y_test stays raw,
     // decoded against at eval time via the returned y_normalizer
     let x_normalizer = UnitGaussianNormalizer::fit(&x_train);
     let x_train = x_normalizer.encode(x_train);

@@ -4,7 +4,7 @@
 //! domain, apply a learned linear map to the channel axis at each retained
 //! frequency, and transform back. Because the map is applied per-frequency
 //! rather than per-grid-point, the layer is a global convolution and is
-//! independent of the input discretisation — the same weights apply at any
+//! independent of the input discretisation - the same weights apply at any
 //! resolution.
 //!
 //! # Rank
@@ -102,7 +102,7 @@ impl<const R: usize> SpectralConv<R> {
     ///
     /// The mode axes are flattened to a single axis `M` so the contraction is a
     /// plain batched matmul `[M, B, I] @ [M, I, O]`. This keeps every
-    /// intermediate at literal rank 3 — the broadcast-and-sum alternative would
+    /// intermediate at literal rank 3 - the broadcast-and-sum alternative would
     /// need rank `R + 1`, which stable Rust cannot express as a type.
     fn complex_multiplication(
         x_re: Tensor<R>,
@@ -171,14 +171,14 @@ impl<const R: usize> SpectralConv<R> {
         let num_corners = self.weights_re.len();
 
         let (x_ft_re, x_ft_im) = Self::fft_ctensor(x);
-        // Post-transform extents — the last axis is now n/2 + 1.
+        // Post-transform extents - the last axis is now n/2 + 1.
         let spec_dims: Vec<usize> = x_ft_re.dims()[2..].to_vec();
 
         let mut out_shape = vec![batch, out_ch];
         out_shape.extend_from_slice(&spec_dims);
         let out_shape: [usize; R] = out_shape.try_into().unwrap();
 
-        // Frequencies outside the retained modes stay zero — this is the
+        // Frequencies outside the retained modes stay zero - this is the
         // low-pass truncation that makes the operator resolution-independent.
         let mut out_ft_re = Tensor::<R>::zeros(out_shape, &x_ft_re.device());
         let mut out_ft_im = Tensor::<R>::zeros(out_shape, &x_ft_im.device());
