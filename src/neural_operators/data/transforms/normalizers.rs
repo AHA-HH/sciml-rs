@@ -2,8 +2,11 @@
 //! trait (fit / encode / decode) with three implementations differing in
 //! what statistics they compute and over what scope.
 
-use ndarray::{ArrayD, Axis};
+use ndarray::{ArrayD, Axis, IxDyn};
+use burn::config::Config;
 
+// Default guard added to standard deviations to avoid division by zero.
+const DEFAULT_EPS: f64 = 1e-5;
 /// Shared interface for all normalizers: fit on training data, encode inputs
 /// before training, decode predictions back to physical scale.
 pub trait Normalizer {
@@ -15,6 +18,16 @@ pub trait Normalizer {
 
     /// Denormalizes `data` back to physical scale.
     fn decode(&self, data: ArrayD<f64>) -> ArrayD<f64>;
+}
+
+/// Serialisable form of a fitted [`UnitGaussianNormalizer`]. `mean` and `std`
+/// are flattened; `shape` restores them.
+#[derive(Config, Debug)]
+pub struct NormalizerRecord {
+    pub mean: Vec<f64>,
+    pub std: Vec<f64>,
+    pub shape: Vec<usize>,
+    pub eps: f64,
 }
 
 /// Pointwise normalization: per-spatial-point mean/std, computed across the
@@ -49,11 +62,31 @@ impl UnitGaussianNormalizer {
     pub fn eps_val(&self) -> f64 {
         self.eps
     }
+
+    pub fn to_record(&self) -> NormalizerRecord {
+        NormalizerRecord {
+            mean: self.mean.iter().copied().collect(),
+            std: self.std.iter().copied().collect(),
+            shape: self.mean.shape().to_vec(),
+            eps: self.eps,
+        }
+    }
+
+    pub fn from_record(r: &NormalizerRecord) -> Self {
+        let shape = IxDyn(&r.shape);
+        Self {
+            mean: ArrayD::from_shape_vec(shape.clone(), r.mean.clone())
+                .expect("mean shape mismatch"),
+            std: ArrayD::from_shape_vec(shape, r.std.clone())
+                .expect("std shape mismatch"),
+            eps: r.eps,
+        }
+    }
 }
 
 impl Normalizer for UnitGaussianNormalizer {
     fn fit(data: &ArrayD<f64>) -> Self {
-        Self::with_eps(data, 0.00001)
+        Self::with_eps(data, DEFAULT_EPS)
     }
 
     fn encode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
@@ -82,7 +115,7 @@ impl Normalizer for GaussianNormalizer {
         Self {
             mean,
             std,
-            eps: 0.00001,
+            eps: DEFAULT_EPS,
         }
     }
 
@@ -130,5 +163,18 @@ impl Normalizer for RangeNormalizer {
 
     fn decode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
         (&data - &self.b) / &self.a
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizer_survives_record_round_trip() {
+        let data = ArrayD::from_shape_fn(IxDyn(&[4, 3, 5]), |i| (i[0] * 100 + i[1] * 10 + i[2]) as f64);
+        let n = UnitGaussianNormalizer::fit(&data);
+        let rebuilt = UnitGaussianNormalizer::from_record(&n.to_record());
+        assert_eq!(n.encode(data.clone()), rebuilt.encode(data));
     }
 }

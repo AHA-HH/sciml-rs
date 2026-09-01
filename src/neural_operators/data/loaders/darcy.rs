@@ -47,14 +47,22 @@ impl HasBaseConfig for DarcyConfig {
     }
 }
 
+/// The two normalizers fitted during Darcy loading. `x` encodes inputs;
+/// `y` decodes predictions back to physical scale. Named fields because
+/// both have the same type and swapping them fails silently.
+pub struct DarcyNormalizers {
+    pub x: UnitGaussianNormalizer,
+    pub y: UnitGaussianNormalizer,
+}
+
 /// Builds the Darcy flow dataset with a uniform 2D grid channel appended.
-/// Returns `(train_dataset, test_dataset, y_normalizer)` — the normalizer is
+/// Returns `(train_dataset, test_dataset, x_normalizer, y_normalizer)` — the normalizer is
 /// needed by the caller to decode predictions back to physical scale.
 pub fn load_darcy_uniform(
     train_path: &PathBuf,
     test_path: &PathBuf,
     config: &DarcyConfig,
-) -> (OperatorDataset, OperatorDataset, UnitGaussianNormalizer) {
+) -> (OperatorDataset, OperatorDataset, DarcyNormalizers) {
     // read input ('coeff') and target ('sol') fields from separate train/test .mat files
     let train_reader = MatFileReader::new(Path::new(train_path));
     let x_train = train_reader
@@ -156,5 +164,5 @@ pub fn load_darcy_uniform(
 
     println!("darcy: {n_train} train / {n_test} test at s={s}");
 
-    (train_dataset, test_dataset, y_normalizer)
+    (train_dataset, test_dataset, DarcyNormalizers { x: x_normalizer, y: y_normalizer})
 }
