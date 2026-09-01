@@ -36,6 +36,18 @@ pub struct FNO<const R: usize> {
 
 impl FNOConfig {
     pub fn init<const R: usize>(&self, device: &Device) -> FNO<R> {
+        assert_eq!(
+            self.modes.len() + 2,
+            R,
+            "FNO<{R}> needs {} modes, config has {}",
+            R - 2,
+            self.modes.len()
+        );
+        assert_eq!(
+            self.out_channels, 1,
+            "only scalar-output operators are supported (see flatten_pair)"
+        );
+
         let coord_channels = self.modes.len(); // D = R - 2, need to derive and input into layer
 
         FNO {
@@ -100,5 +112,80 @@ impl<const R: usize> FNO<R> {
         let x = self.fc1.forward(x);
         let x = relu(x);
         self.fc2.forward(x)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burn::tensor::Distribution;
+
+    fn fno_forward_shape_check<const R: usize>(
+        modes: Vec<usize>,
+        hidden_channels: usize,
+        data_channels: usize,
+        spatial: &[usize],
+    ) {
+        let device = Device::default();
+        let coord_channels = modes.len();
+        assert_eq!(spatial.len(), R - 2, "spatial dims must match modes count");
+
+        let config = FNOConfig {
+            modes,
+            hidden_channels,
+            data_channels,
+            out_channels: 1,
+            n_layers: 4,
+        };
+        let model: FNO<R> = config.init::<R>(&device);
+
+        // Channels-last on input, as fc0 expects.
+        let mut x_shape = vec![1];
+        x_shape.extend_from_slice(spatial);
+        x_shape.push(data_channels + coord_channels);
+        let x_shape: [usize; R] = x_shape.try_into().unwrap();
+
+        let out = model.forward(Tensor::<R>::random(x_shape, Distribution::Default, &device));
+
+        let mut expected = vec![1];
+        expected.extend_from_slice(spatial);
+        expected.push(1);
+        let expected: [usize; R] = expected.try_into().unwrap();
+
+        assert_eq!(
+            out.dims(),
+            expected,
+            "expected [batch, spatial.., out_channels]"
+        );
+    }
+
+    #[test]
+    fn forward_shape_1d() {
+        fno_forward_shape_check::<3>(vec![16], 32, 1, &[64]);
+    }
+
+    #[test]
+    fn forward_shape_2d() {
+        fno_forward_shape_check::<4>(vec![2, 2], 4, 1, &[4, 4]);
+    }
+
+    #[test]
+    fn forward_shape_3d() {
+        // 10 stacked timesteps + x + y + t channels.
+        fno_forward_shape_check::<5>(vec![2, 2, 2], 4, 10, &[4, 4, 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs 2 modes")]
+    fn init_rejects_rank_mismatch() {
+        let device = Device::default();
+        let config = FNOConfig {
+            modes: vec![16], // 1 entry → R must be 3
+            hidden_channels: 32,
+            data_channels: 1,
+            out_channels: 1,
+            n_layers: 4,
+        };
+        let _: FNO<4> = config.init::<4>(&device); // asking for rank 4
     }
 }
