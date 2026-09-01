@@ -1,7 +1,7 @@
 //! Darcy flow dataset: config and constructor.
 //!
 //! `DarcyConfig` holds Darcy-specific settings (subsample rate, derived
-//! resolution) on top of the shared `DatasetConfig`. `load_darcy_flow_uniform`
+//! resolution) on top of the shared `DatasetConfig`. `load_darcy_uniform`
 //! builds train/test `OperatorDataset`s from separate `.mat` files: reading,
 //! truncating to configured sizes, subsampling both spatial axes, fitting and
 //! applying normalization and appending 2D grid coordinates.
@@ -56,15 +56,19 @@ pub struct DarcyNormalizers {
 }
 
 /// Builds the Darcy flow dataset with a uniform 2D grid channel appended.
-/// Returns `(train_dataset, test_dataset, x_normalizer, y_normalizer)` - the normalizer is
-/// needed by the caller to decode predictions back to physical scale.
+///
+/// Returns `(train_dataset, test_dataset, normalizers)`. `normalizers.y` is
+/// what the caller needs to decode predictions back to physical scale;
+/// `normalizers.x` is only needed for encoding inputs that didn't come from
+/// this dataset.
 pub fn load_darcy_uniform(
     train_path: &PathBuf,
     test_path: &PathBuf,
     config: &DarcyConfig,
 ) -> (OperatorDataset, OperatorDataset, DarcyNormalizers) {
     // read input ('coeff') and target ('sol') fields from separate train/test .mat files
-    let train_reader = MatFileReader::new(Path::new(train_path));
+    let train_reader =
+        MatFileReader::new(Path::new(train_path)).expect("failed to open Darcy .mat train file");
     let x_train = train_reader
         .read_field("coeff")
         .expect("failed to read 'coeff'");
@@ -72,7 +76,8 @@ pub fn load_darcy_uniform(
         .read_field("sol")
         .expect("failed to read 'sol'");
 
-    let test_reader = MatFileReader::new(Path::new(test_path));
+    let test_reader =
+        MatFileReader::new(Path::new(test_path)).expect("failed to open Darcy .mat test file");
     let x_test = test_reader
         .read_field("coeff")
         .expect("failed to read 'coeff'");

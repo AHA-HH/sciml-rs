@@ -50,7 +50,7 @@ pub fn load_burgers_uniform(
     config: &BurgersConfig,
 ) -> (OperatorDataset, OperatorDataset) {
     // 1. Read raw data from .mat file
-    let reader = MatFileReader::new(Path::new(path));
+    let reader = MatFileReader::new(Path::new(path)).expect("failed to open Burgers .mat file");
     let a_data = reader.read_field("a").expect("failed to read field 'a'");
     let u_data = reader.read_field("u").expect("failed to read field 'u'");
 
@@ -70,6 +70,17 @@ pub fn load_burgers_uniform(
     // 3. Split into train and test
     let (a_train, a_test) = train_test_split(a_data, config.n_train(), config.n_test());
     let (u_train, u_test) = train_test_split(u_data, config.n_train(), config.n_test());
+
+    assert_eq!(
+        a_train.shape()[0],
+        config.n_train(),
+        "n_train mismatch after split"
+    );
+    assert_eq!(
+        a_test.shape()[0],
+        config.n_test(),
+        "n_test mismatch after split"
+    );
 
     // 4. Reshape inputs [n, s] -> [n, s, 1] to prepare for grid append
     let a_train = a_train
