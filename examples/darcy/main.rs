@@ -4,7 +4,7 @@
 //!
 //! Structurally identical to `examples/burgers` — see that file for the
 //! annotated version. The differences: `modes` has two entries instead of
-//! one and the targets are normalized which the trainer has to undo before 
+//! one and the targets are normalized which the trainer has to undo before
 //! computing the loss.
 
 use burn::{
@@ -29,7 +29,7 @@ fn main() {
         n_train: 1000,
         n_test: 100,
     };
-    
+
     // subsample rate is 28 -> s = (421-1)/28 + 1 = 16 grid points per axis
     // The paper uses r=5 (s=85) but Burn's FFT is radix-2 only, so s must
     // be a power of two

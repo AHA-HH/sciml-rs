@@ -39,14 +39,24 @@ impl FNOConfig {
         let coord_channels = self.modes.len(); // D = R - 2, need to derive and input into layer
 
         FNO {
-            fc0: LinearConfig::new(self.data_channels + coord_channels, self.hidden_channels).init(device),
+            fc0: LinearConfig::new(self.data_channels + coord_channels, self.hidden_channels)
+                .init(device),
 
             conv: (0..self.n_layers)
-                .map(|_| SpectralConv::<R>::new(device, self.hidden_channels, self.hidden_channels, &self.modes))
+                .map(|_| {
+                    SpectralConv::<R>::new(
+                        device,
+                        self.hidden_channels,
+                        self.hidden_channels,
+                        &self.modes,
+                    )
+                })
                 .collect(),
 
             w: (0..self.n_layers)
-                .map(|_| Conv1dConfig::new(self.hidden_channels, self.hidden_channels, 1).init(device))
+                .map(|_| {
+                    Conv1dConfig::new(self.hidden_channels, self.hidden_channels, 1).init(device)
+                })
                 .collect(),
 
             fc1: LinearConfig::new(self.hidden_channels, 128).init(device),
@@ -60,7 +70,8 @@ impl<const R: usize> FNO<R> {
         let dims = x.dims();
         let (b, hidden_channels) = (dims[0], dims[1]);
         let spatial: usize = dims[2..].iter().product();
-        conv.forward(x.reshape([b, hidden_channels, spatial])).reshape(dims)
+        conv.forward(x.reshape([b, hidden_channels, spatial]))
+            .reshape(dims)
     }
 
     pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {

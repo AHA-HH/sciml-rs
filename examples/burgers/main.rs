@@ -2,15 +2,15 @@
 //!
 //! We train a Fourier Neural Operator (FNO) on a Burgers dataset.
 //! Run with: cargo run --release --example burgers
-//! 
+//!
 //! This example demonstrates the complete workflow of training a neural operator:
 //! 1. Loading and preprocessing the Burgers dataset
 //! 2. Creating an FNO model architecture
 //! 3. Setting up training components (optimizer, scheduler, losses)
 //! 4. Training the model
 //! 5. Writing metrics, configs and trained weights to a local run directory
-//! 
-//! The FNO's key advantage is its resolution invariance - it can make predictions 
+//!
+//! The FNO's key advantage is its resolution invariance - it can make predictions
 //! at different resolutions without retraining.
 
 // Import the necessary modules for training a Fourier Neural Operator
@@ -41,12 +41,12 @@ fn main() {
     };
 
     // Set subsample rate `r` which computes the number of grid points `s`
-    // so each sample is a function `a(x)` is evaluated at `s` evenly spaced locations on [0,1] 
+    // so each sample is a function `a(x)` is evaluated at `s` evenly spaced locations on [0,1]
     // paired with the solution `u(x)` at the same `s` locations
     // For this example it is set to 32 -> s = 2^13 / 32 = 256 grid points
     let dataset_cfg = BurgersConfig::new(data_cfg.clone(), 32);
 
-    // Automatically finds the path for the Burgers dataset as long as the file is in 
+    // Automatically finds the path for the Burgers dataset as long as the file is in
     // the datasets folder at the repository root
     let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");
     assert!(
