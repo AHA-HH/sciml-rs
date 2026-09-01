@@ -38,6 +38,11 @@ impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
 impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>>
     for OperatorBatcher<R, RM1>
 {
+    /// `_device` is the plain inner device the DataLoader always supplies.
+    /// This batcher uses `self.device` instead, so batches land on the same
+    /// (autodiff) backend as the model in the hand-written training loop.
+    /// That's why it doesn't work with Burn's `Learner`, which controls
+    /// placement across the train/validation split itself.
     fn batch(&self, items: Vec<DataItem>, _device: &Device) -> Batch<R, RM1> {
         let n = items.len();
 
@@ -69,5 +74,36 @@ impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>>
         );
 
         Batch { inputs, targets }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::{ArrayD, IxDyn};
+
+    #[test]
+    fn stacks_items_in_order_with_batch_dim_prepended() {
+        let device = Device::default();
+        let batcher = OperatorBatcher::<3, 2>::new(device.clone());
+
+        // Two items: input [4, 2], target [4]. Values encode their origin.
+        let items: Vec<DataItem> = (0..2)
+            .map(|k| DataItem {
+                input: ArrayD::from_shape_fn(IxDyn(&[4, 2]), |i| {
+                    (k * 100 + i[0] * 10 + i[1]) as f64
+                }),
+                target: ArrayD::from_shape_fn(IxDyn(&[4]), |i| (k * 100 + i[0]) as f64),
+            })
+            .collect();
+
+        let batch = batcher.batch(items, &device);
+
+        assert_eq!(batch.inputs.dims(), [2, 4, 2]);
+        assert_eq!(batch.targets.dims(), [2, 4]);
+
+        let inputs: Vec<f64> = batch.inputs.into_data().iter::<f64>().collect();
+        assert_eq!(inputs[0], 0.0); // item 0, [0,0]
+        assert_eq!(inputs[8], 100.0); // item 1, [0,0] — 4*2 elements per item
     }
 }

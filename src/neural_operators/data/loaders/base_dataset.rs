@@ -5,6 +5,7 @@
 //! `DarcyConfig`) embed a `DatasetConfig` via `HasBaseConfig` rather than
 //! duplicating these fields and get `BaseDatasetConfig` for free through the
 //! blanket impl below.
+
 use burn::config::Config;
 
 /// Fields common to every dataset config.

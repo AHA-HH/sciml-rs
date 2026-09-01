@@ -11,8 +11,10 @@ use crate::neural_operators::{
     },
 };
 
-/// Trains an FNO on the 1D Burgers dataset. `R = 3` (batch + 1 spatial + channel),
-/// `RM1 = 2`.
+/// Trains an FNO on the 1D Burgers dataset. `R = 3` (batch + 1 spatial +
+/// channel), `RM1 = 2`.
+///
+/// Burgers has no normalizer, so both postprocess hooks are `identity`.
 pub fn train_burgers(
     train_data: OperatorDataset,
     test_data: OperatorDataset,
