@@ -33,6 +33,7 @@ fn main() {
     // Set the device for the underlying compute backend
     // .autodiff() wraps the backend to enable automatic differentiation for the tensors
     let device = Device::default().autodiff();
+    println!("device: {device:?}");
 
     // Set the training test split for the dataset configuration
     let data_cfg = DatasetConfig {
@@ -83,7 +84,8 @@ fn main() {
         .with_batch_size(20)
         .with_learning_rate(1e-3)
         .with_weight_decay(1e-4)
-        .with_min_lr(1e-5);
+        .with_min_lr(1e-5)
+        .with_seed(5);
 
     // Training wrapper function that handles the building of training components and the training loop
     // Use the L2 loss for training and evaluation

@@ -71,7 +71,7 @@ fn main() {
     let l2 = eval_epoch::<4, 3>(&model, &test_loader, &loss_fn, &eval_post);
 
     println!(
-        "loaded model test_l2: {:.6}",
+        "loaded model test_l2: {:.10}",
         l2 / dataset_cfg.base().n_test as f32
     );
     println!(
