@@ -120,30 +120,13 @@ impl<const R: usize> SpectralConv<R> {
         modes: &[usize],
         flat: usize,
     ) -> (Tensor<R>, Tensor<R>) {
-        // let (b, i) = (x_re.dims()[0], x_re.dims()[1]);
-        // let o = w_re.dims()[1];
-
-        // let x_re = x_re.reshape([b, i, flat]).permute([2, 0, 1]);
-        // let x_im = x_im.reshape([b, i, flat]).permute([2, 0, 1]);
-        // let w_re = w_re.reshape([i, o, flat]).permute([2, 0, 1]);
-        // let w_im = w_im.reshape([i, o, flat]).permute([2, 0, 1]);
         let (b, i) = (x_re.dims()[0], x_re.dims()[1]);
+        let o = w_re.dims()[1];
 
-        let w_dims = w_re.dims();
-        let o = w_dims[R - 1];
-
-        let x_re = x_re
-            .reshape([b, i, flat])
-            .permute([2, 0, 1]);
-
-        let x_im = x_im
-            .reshape([b, i, flat])
-            .permute([2, 0, 1]);
-
-        // Already stored as [modes..., I, O],
-        // therefore flattening modes directly gives [M, I, O].
-        let w_re = w_re.reshape([flat, i, o]);
-        let w_im = w_im.reshape([flat, i, o]);
+        let x_re = x_re.reshape([b, i, flat]).permute([2, 0, 1]);
+        let x_im = x_im.reshape([b, i, flat]).permute([2, 0, 1]);
+        let w_re = w_re.reshape([i, o, flat]).permute([2, 0, 1]);
+        let w_im = w_im.reshape([i, o, flat]).permute([2, 0, 1]);
 
         let ac = x_re.clone().matmul(w_re.clone());
         let bd = x_im.clone().matmul(w_im.clone());
