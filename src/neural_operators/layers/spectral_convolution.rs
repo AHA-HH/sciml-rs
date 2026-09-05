@@ -51,13 +51,8 @@ impl<const R: usize> SpectralConv<R> {
         let flat_modes = modes.iter().product();
         let num_corners = 1usize << (modes.len() - 1);
 
-        // let mut shape = vec![in_channels, out_channels];
-        // shape.extend_from_slice(&modes);
-        // let shape: [usize; R] = shape.try_into().unwrap();
-        let mut shape = modes.clone();
-        shape.push(in_channels);
-        shape.push(out_channels);
-
+        let mut shape = vec![in_channels, out_channels];
+        shape.extend_from_slice(&modes);
         let shape: [usize; R] = shape.try_into().unwrap();
 
         // Scaling follows the reference implementation.
