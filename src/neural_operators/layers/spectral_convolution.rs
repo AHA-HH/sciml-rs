@@ -120,8 +120,13 @@ impl<const R: usize> SpectralConv<R> {
         let w_re = w_re.reshape([i, o, flat]).permute([2, 0, 1]);
         let w_im = w_im.reshape([i, o, flat]).permute([2, 0, 1]);
 
-        let out_re = x_re.clone().matmul(w_re.clone()) - x_im.clone().matmul(w_im.clone());
-        let out_im = x_re.matmul(w_im) + x_im.matmul(w_re);
+        let ac = x_re.clone().matmul(w_re.clone());
+        let bd = x_im.clone().matmul(w_im.clone());
+
+        let ab_cd = (x_re + x_im).matmul(w_re + w_im);
+
+        let out_re = ac.clone() - bd.clone();
+        let out_im = ab_cd - ac - bd;
 
         let mut out_shape = vec![b, o];
         out_shape.extend_from_slice(modes);
