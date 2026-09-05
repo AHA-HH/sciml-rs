@@ -4,6 +4,7 @@ use burn::{
     config::Config,
     data::dataloader::{DataLoader, DataLoaderBuilder},
     lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
+    module::AutodiffModule,
     optim::{
         AdamConfig, GradientsParams, ModuleOptimizer,
         decay::WeightDecayConfig,
@@ -79,23 +80,50 @@ pub fn flatten_pair<const R: usize, const RM1: usize>(
 
 /// Runs one evaluation pass. Returns the summed relative L2 across all
 /// batches; the caller divides by `n_test`.
+// pub fn eval_epoch<const R: usize, const RM1: usize>(
+//     model: &FNO<R>,
+//     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
+//     loss_fn: &LpLoss,
+//     post: &Postprocess,
+// ) -> f32 {
+//     let mut l2_sum = 0.0f32;
+
+//     for batch in loader.iter() {
+//         let batch = batch.expect("dataset error during evaluation");
+//         let out = model.forward(batch.inputs);
+//         let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
+//         let (out, target) = post(out, target);
+//         l2_sum += loss_fn.rel(out, target).into_scalar::<f32>();
+//     }
+
+//     l2_sum
+// }
 pub fn eval_epoch<const R: usize, const RM1: usize>(
     model: &FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
     loss_fn: &LpLoss,
     post: &Postprocess,
 ) -> f32 {
-    let mut l2_sum = 0.0f32;
+    let mut l2_sum_tensor = None;
 
     for batch in loader.iter() {
         let batch = batch.expect("dataset error during evaluation");
+
         let out = model.forward(batch.inputs);
         let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
         let (out, target) = post(out, target);
-        l2_sum += loss_fn.rel(out, target).into_scalar::<f32>();
+
+        let l2 = loss_fn.rel(out, target);
+
+        l2_sum_tensor = Some(match l2_sum_tensor {
+            Some(sum) => sum + l2,
+            None => l2,
+        });
     }
 
-    l2_sum
+    l2_sum_tensor
+        .expect("evaluation loader produced no batches")
+        .into_scalar::<f32>()
 }
 
 /// Summed losses for one training epoch. Division by `n_train` /
@@ -106,8 +134,49 @@ pub struct EpochSums {
     pub last_lr: f64,
 }
 
-/// Runs one training pass. Takes and returns the model - Burn's optimizer
-/// consumes it on each step.
+// /// Runs one training pass. Takes and returns the model - Burn's optimizer
+// /// consumes it on each step.
+// pub fn train_epoch<const R: usize, const RM1: usize>(
+//     mut model: FNO<R>,
+//     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
+//     optim: &mut ModuleOptimizer,
+//     scheduler: &mut ModuleLrScheduler,
+//     loss_fn: &LpLoss,
+//     post: &Postprocess,
+// ) -> (FNO<R>, EpochSums) {
+//     let (mut mse_sum, mut l2_sum) = (0.0f32, 0.0f32);
+//     let mut last_lr = ModuleLearningRate::from(0.0_f64);
+
+//     for batch in loader.iter() {
+//         let batch = batch.expect("dataset error during training");
+
+//         let out = model.forward(batch.inputs);
+//         let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
+//         let (out, target) = post(out, target);
+
+//         mse_sum += (out.clone() - target.clone())
+//             .powf_scalar(2.0)
+//             .mean()
+//             .into_scalar::<f32>();
+
+//         let l2 = loss_fn.rel(out, target);
+//         l2_sum += l2.clone().into_scalar::<f32>(); // logged before the step
+
+//         let grads = GradientsParams::from_grads(l2.backward(), &model);
+//         last_lr = scheduler.step();
+//         model = optim.step(last_lr.clone(), model, grads);
+//     }
+
+//     (
+//         model,
+//         EpochSums {
+//             mse_sum,
+//             l2_sum,
+//             last_lr: last_lr.base(),
+//         },
+//     )
+// }
+
 pub fn train_epoch<const R: usize, const RM1: usize>(
     mut model: FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
@@ -116,28 +185,78 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
     loss_fn: &LpLoss,
     post: &Postprocess,
 ) -> (FNO<R>, EpochSums) {
-    let (mut mse_sum, mut l2_sum) = (0.0f32, 0.0f32);
+    // Keep metric sums as tensors on the GPU during the epoch.
+    // The concrete tensor type will be inferred from the first batch.
+    let mut mse_sum_tensor = None;
+    let mut l2_sum_tensor = None;
+
     let mut last_lr = ModuleLearningRate::from(0.0_f64);
 
     for batch in loader.iter() {
         let batch = batch.expect("dataset error during training");
 
+        // Forward pass on the autodiff backend.
         let out = model.forward(batch.inputs);
+
         let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
         let (out, target) = post(out, target);
 
-        mse_sum += (out.clone() - target.clone())
+        // ------------------------------------------------------------
+        // Metrics
+        // ------------------------------------------------------------
+
+        // MSE is only a reporting metric, so don't build an autodiff
+        // graph for its subtraction / square / reduction.
+        let out_metric = out.clone().inner();
+        let target_metric = target.clone().inner();
+
+        let mse = (out_metric - target_metric)
             .powf_scalar(2.0)
-            .mean()
-            .into_scalar::<f32>();
+            .mean();
 
+        // L2 is the actual training loss, so calculate it using the
+        // autodiff tensors.
         let l2 = loss_fn.rel(out, target);
-        l2_sum += l2.clone().into_scalar::<f32>(); // logged before the step
 
+        // Make a non-autodiff version purely for metric accumulation.
+        // This stays on the GPU; it does NOT copy the scalar to the CPU.
+        let l2_metric = l2.clone().inner();
+
+        // Accumulate MSE on the GPU.
+        mse_sum_tensor = Some(match mse_sum_tensor {
+            Some(sum) => sum + mse,
+            None => mse,
+        });
+
+        // Accumulate L2 on the GPU.
+        l2_sum_tensor = Some(match l2_sum_tensor {
+            Some(sum) => sum + l2_metric,
+            None => l2_metric,
+        });
+
+        // ------------------------------------------------------------
+        // Backpropagation
+        // ------------------------------------------------------------
+
+        // Backward uses the original autodiff L2 tensor.
         let grads = GradientsParams::from_grads(l2.backward(), &model);
+
         last_lr = scheduler.step();
+
         model = optim.step(last_lr.clone(), model, grads);
     }
+
+    // ------------------------------------------------------------
+    // GPU -> CPU synchronization only once per metric per epoch.
+    // ------------------------------------------------------------
+
+    let mse_sum = mse_sum_tensor
+        .expect("training loader produced no batches")
+        .into_scalar::<f32>();
+
+    let l2_sum = l2_sum_tensor
+        .expect("training loader produced no batches")
+        .into_scalar::<f32>();
 
     (
         model,
@@ -168,6 +287,13 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
 ) -> TrainingComponents<R, RM1> {
     device.seed(train_cfg.seed);
 
+    // Training tensors must live on the autodiff device.
+    let train_device = device.clone();
+
+    // Evaluation tensors must live on the plain inner backend,
+    // because model.valid() returns an FNO on Metal rather than Autodiff<Metal>.
+    let eval_device = device.clone().inner();
+
     assert_eq!(
         model_cfg.modes.len() + 2,
         R,
@@ -192,12 +318,14 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
     .init()
     .expect("valid cosine scheduler config");
 
-    let train_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new(device.clone()))
+    // let train_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new(device.clone()))
+    let train_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new(train_device))
         .batch_size(train_cfg.batch_size)
         .shuffle(train_cfg.seed)
         .build(train_data);
 
-    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new(device.clone()))
+    // let test_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new(device.clone()))
+    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new(eval_device))
         .batch_size(train_cfg.test_batch_size)
         .build(test_data);
 
@@ -210,6 +338,53 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
         test_loader,
     }
 }
+
+// pub fn training_loop<const R: usize, const RM1: usize>(
+//     mut components: TrainingComponents<R, RM1>,
+//     train_cfg: &TrainingConfig,
+//     data_cfg: &DatasetConfig,
+//     train_post: &Postprocess,
+//     eval_post: &Postprocess,
+// ) -> (FNO<R>, Vec<EpochMetrics>) {
+//     let start = std::time::Instant::now();
+//     let steps_per_epoch = data_cfg.n_train.div_ceil(train_cfg.batch_size);
+//     let mut model = components.model;
+//     let mut metrics = Vec::with_capacity(train_cfg.epochs);
+
+//     for epoch in 0..train_cfg.epochs {
+//         let (m, sums) = train_epoch(
+//             model,
+//             &components.train_loader,
+//             &mut components.optim,
+//             &mut components.scheduler,
+//             &components.loss_fn,
+//             train_post,
+//         );
+//         model = m;
+
+//         let test_l2_sum = eval_epoch(
+//             &model,
+//             &components.test_loader,
+//             &components.loss_fn,
+//             eval_post,
+//         );
+
+//         let record = EpochMetrics {
+//             epoch,
+//             train_mse: sums.mse_sum / steps_per_epoch as f32,
+//             train_l2: sums.l2_sum / data_cfg.n_train as f32,
+//             test_l2: test_l2_sum / data_cfg.n_test as f32,
+//             current_lr: sums.last_lr,
+//         };
+
+//         println!("{record:?}");
+//         metrics.push(record);
+//     }
+
+//     println!("total training time: {:.2?}", start.elapsed());
+
+//     (model, metrics)
+// }
 
 pub fn training_loop<const R: usize, const RM1: usize>(
     mut components: TrainingComponents<R, RM1>,
@@ -234,8 +409,10 @@ pub fn training_loop<const R: usize, const RM1: usize>(
         );
         model = m;
 
+        let valid_model = model.valid();
+
         let test_l2_sum = eval_epoch(
-            &model,
+            &valid_model,
             &components.test_loader,
             &components.loss_fn,
             eval_post,
