@@ -34,6 +34,7 @@ pub struct SpectralConv<const R: usize> {
     weights_im: Vec<Param<Tensor<R>>>,
     /// Retained frequency count per spatial axis; `len() == R - 2`.
     modes: Vec<usize>,
+    flat_modes: usize,
 }
 
 impl<const R: usize> SpectralConv<R> {
@@ -47,6 +48,7 @@ impl<const R: usize> SpectralConv<R> {
             "modes must have one entry per spatial axis (R - 2)"
         );
         let modes = modes.to_vec();
+        let flat_modes = modes.iter().product();
         let num_corners = 1usize << (modes.len() - 1);
 
         let mut shape = vec![in_channels, out_channels];
@@ -74,6 +76,7 @@ impl<const R: usize> SpectralConv<R> {
             weights_re,
             weights_im,
             modes,
+            flat_modes,
         }
     }
 
@@ -110,10 +113,10 @@ impl<const R: usize> SpectralConv<R> {
         w_re: Tensor<R>,
         w_im: Tensor<R>, // [I, O, modes..]
         modes: &[usize],
+        flat: usize,
     ) -> (Tensor<R>, Tensor<R>) {
         let (b, i) = (x_re.dims()[0], x_re.dims()[1]);
         let o = w_re.dims()[1];
-        let flat: usize = modes.iter().product();
 
         let x_re = x_re.reshape([b, i, flat]).permute([2, 0, 1]);
         let x_im = x_im.reshape([b, i, flat]).permute([2, 0, 1]);
@@ -204,6 +207,7 @@ impl<const R: usize> SpectralConv<R> {
                 self.weights_re[corner].val(),
                 self.weights_im[corner].val(),
                 &self.modes,
+                self.flat_modes,
             );
 
             let mut out_ranges = vec![0..batch, 0..out_ch];
@@ -274,7 +278,7 @@ mod tests {
         );
 
         let (out_re, out_im) =
-            SpectralConv::<3>::complex_multiplication(x_re, x_im, w_re, w_im, &[2]);
+            SpectralConv::<3>::complex_multiplication(x_re, x_im, w_re, w_im, &[2], 2);
 
         let re_vec = out_re.into_data().try_to_vec::<f32>().unwrap();
         let im_vec = out_im.into_data().try_to_vec::<f32>().unwrap();
