@@ -30,10 +30,22 @@ path = "examples/predict/burgers.rs"
 name = "predict_darcy"
 path = "examples/predict/darcy.rs"
 
+[[example]]
+name = "burgers_resolution"
+path = "examples/predict/burgers_resolutions.rs"
+
+[[example]]
+name = "burgers_superresolution"
+path = "examples/predict/burgers_superresolution.rs"
+
+[[example]]
+name = "darcy_plot"
+path = "examples/predict/darcy_plot.rs"
+
 [dependencies]
-# burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
+burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
 # burn = { version = "0.22.0-pre.3", features = ["autodiff", "wgpu", "store", "train"] }
-burn = { version = "0.22.0-pre.3", features = ["autodiff", "metal", "store", "train"] }
+# burn = { version = "0.22.0-pre.3", features = ["autodiff", "metal", "store", "train"] }
 ndarray = "0.17"
 ndarray-npy = "0.10"
 matfile = "0.5"
