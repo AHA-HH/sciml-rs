@@ -14,6 +14,7 @@ use burn::{
 };
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::neural_operators::{
     data::{
@@ -80,24 +81,6 @@ pub fn flatten_pair<const R: usize, const RM1: usize>(
 
 /// Runs one evaluation pass. Returns the summed relative L2 across all
 /// batches; the caller divides by `n_test`.
-// pub fn eval_epoch<const R: usize, const RM1: usize>(
-//     model: &FNO<R>,
-//     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
-//     loss_fn: &LpLoss,
-//     post: &Postprocess,
-// ) -> f32 {
-//     let mut l2_sum = 0.0f32;
-
-//     for batch in loader.iter() {
-//         let batch = batch.expect("dataset error during evaluation");
-//         let out = model.forward(batch.inputs);
-//         let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
-//         let (out, target) = post(out, target);
-//         l2_sum += loss_fn.rel(out, target).into_scalar::<f32>();
-//     }
-
-//     l2_sum
-// }
 pub fn eval_epoch<const R: usize, const RM1: usize>(
     model: &FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
@@ -136,47 +119,6 @@ pub struct EpochSums {
 
 // /// Runs one training pass. Takes and returns the model - Burn's optimizer
 // /// consumes it on each step.
-// pub fn train_epoch<const R: usize, const RM1: usize>(
-//     mut model: FNO<R>,
-//     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
-//     optim: &mut ModuleOptimizer,
-//     scheduler: &mut ModuleLrScheduler,
-//     loss_fn: &LpLoss,
-//     post: &Postprocess,
-// ) -> (FNO<R>, EpochSums) {
-//     let (mut mse_sum, mut l2_sum) = (0.0f32, 0.0f32);
-//     let mut last_lr = ModuleLearningRate::from(0.0_f64);
-
-//     for batch in loader.iter() {
-//         let batch = batch.expect("dataset error during training");
-
-//         let out = model.forward(batch.inputs);
-//         let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
-//         let (out, target) = post(out, target);
-
-//         mse_sum += (out.clone() - target.clone())
-//             .powf_scalar(2.0)
-//             .mean()
-//             .into_scalar::<f32>();
-
-//         let l2 = loss_fn.rel(out, target);
-//         l2_sum += l2.clone().into_scalar::<f32>(); // logged before the step
-
-//         let grads = GradientsParams::from_grads(l2.backward(), &model);
-//         last_lr = scheduler.step();
-//         model = optim.step(last_lr.clone(), model, grads);
-//     }
-
-//     (
-//         model,
-//         EpochSums {
-//             mse_sum,
-//             l2_sum,
-//             last_lr: last_lr.base(),
-//         },
-//     )
-// }
-
 pub fn train_epoch<const R: usize, const RM1: usize>(
     mut model: FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
@@ -185,70 +127,106 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
     loss_fn: &LpLoss,
     post: &Postprocess,
 ) -> (FNO<R>, EpochSums) {
-    // Keep metric sums as tensors on the GPU during the epoch.
-    // The concrete tensor type will be inferred from the first batch.
     let mut mse_sum_tensor = None;
     let mut l2_sum_tensor = None;
 
     let mut last_lr = ModuleLearningRate::from(0.0_f64);
 
-    for batch in loader.iter() {
+    let mut batch_time = Duration::ZERO;
+    let mut forward_time = Duration::ZERO;
+    let mut loss_time = Duration::ZERO;
+    let mut backward_time = Duration::ZERO;
+    let mut optimizer_time = Duration::ZERO;
+
+    let mut iterator = loader.iter();
+    let mut n_batches = 0usize;
+
+    loop {
+        // ============================================
+        // Batch loading / construction
+        // ============================================
+
+        let batch_start = Instant::now();
+
+        let Some(batch) = iterator.next() else {
+            break;
+        };
+
         let batch = batch.expect("dataset error during training");
 
-        // Forward pass on the autodiff backend.
+        batch_time += batch_start.elapsed();
+
+        // ============================================
+        // Forward
+        // ============================================
+
+        let forward_start = Instant::now();
+
         let out = model.forward(batch.inputs);
 
         let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
+
         let (out, target) = post(out, target);
 
-        // ------------------------------------------------------------
-        // Metrics
-        // ------------------------------------------------------------
+        forward_time += forward_start.elapsed();
 
-        // MSE is only a reporting metric, so don't build an autodiff
-        // graph for its subtraction / square / reduction.
+        // ============================================
+        // Loss + metrics
+        // ============================================
+
+        let loss_start = Instant::now();
+
         let out_metric = out.clone().inner();
         let target_metric = target.clone().inner();
 
-        let mse = (out_metric - target_metric)
-            .powf_scalar(2.0)
-            .mean();
+        let mse = (out_metric - target_metric).powf_scalar(2.0).mean();
 
-        // L2 is the actual training loss, so calculate it using the
-        // autodiff tensors.
         let l2 = loss_fn.rel(out, target);
 
-        // Make a non-autodiff version purely for metric accumulation.
-        // This stays on the GPU; it does NOT copy the scalar to the CPU.
         let l2_metric = l2.clone().inner();
 
-        // Accumulate MSE on the GPU.
         mse_sum_tensor = Some(match mse_sum_tensor {
             Some(sum) => sum + mse,
             None => mse,
         });
 
-        // Accumulate L2 on the GPU.
         l2_sum_tensor = Some(match l2_sum_tensor {
             Some(sum) => sum + l2_metric,
             None => l2_metric,
         });
 
-        // ------------------------------------------------------------
-        // Backpropagation
-        // ------------------------------------------------------------
+        loss_time += loss_start.elapsed();
 
-        // Backward uses the original autodiff L2 tensor.
+        // ============================================
+        // Backward
+        // ============================================
+
+        let backward_start = Instant::now();
+
         let grads = GradientsParams::from_grads(l2.backward(), &model);
+
+        backward_time += backward_start.elapsed();
+
+        // ============================================
+        // Optimizer
+        // ============================================
+
+        let optimizer_start = Instant::now();
 
         last_lr = scheduler.step();
 
         model = optim.step(last_lr.clone(), model, grads);
+
+        optimizer_time += optimizer_start.elapsed();
+
+        n_batches += 1;
     }
 
-    // ------------------------------------------------------------
-    // GPU -> CPU synchronization only once per metric per epoch.
-    // ------------------------------------------------------------
+    // ================================================
+    // End-of-epoch synchronization / metric read
+    // ================================================
+
+    let metric_read_start = Instant::now();
 
     let mse_sum = mse_sum_tensor
         .expect("training loader produced no batches")
@@ -257,6 +235,28 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
     let l2_sum = l2_sum_tensor
         .expect("training loader produced no batches")
         .into_scalar::<f32>();
+
+    let metric_read_time = metric_read_start.elapsed();
+
+    let n = n_batches as f64;
+
+    println!(
+        concat!(
+            "train profile: ",
+            "batch={:.3} ms | ",
+            "forward={:.3} ms | ",
+            "loss={:.3} ms | ",
+            "backward={:.3} ms | ",
+            "optimizer={:.3} ms | ",
+            "metric_read={:.3} ms"
+        ),
+        batch_time.as_secs_f64() * 1000.0 / n,
+        forward_time.as_secs_f64() * 1000.0 / n,
+        loss_time.as_secs_f64() * 1000.0 / n,
+        backward_time.as_secs_f64() * 1000.0 / n,
+        optimizer_time.as_secs_f64() * 1000.0 / n,
+        metric_read_time.as_secs_f64() * 1000.0,
+    );
 
     (
         model,
@@ -339,53 +339,6 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
     }
 }
 
-// pub fn training_loop<const R: usize, const RM1: usize>(
-//     mut components: TrainingComponents<R, RM1>,
-//     train_cfg: &TrainingConfig,
-//     data_cfg: &DatasetConfig,
-//     train_post: &Postprocess,
-//     eval_post: &Postprocess,
-// ) -> (FNO<R>, Vec<EpochMetrics>) {
-//     let start = std::time::Instant::now();
-//     let steps_per_epoch = data_cfg.n_train.div_ceil(train_cfg.batch_size);
-//     let mut model = components.model;
-//     let mut metrics = Vec::with_capacity(train_cfg.epochs);
-
-//     for epoch in 0..train_cfg.epochs {
-//         let (m, sums) = train_epoch(
-//             model,
-//             &components.train_loader,
-//             &mut components.optim,
-//             &mut components.scheduler,
-//             &components.loss_fn,
-//             train_post,
-//         );
-//         model = m;
-
-//         let test_l2_sum = eval_epoch(
-//             &model,
-//             &components.test_loader,
-//             &components.loss_fn,
-//             eval_post,
-//         );
-
-//         let record = EpochMetrics {
-//             epoch,
-//             train_mse: sums.mse_sum / steps_per_epoch as f32,
-//             train_l2: sums.l2_sum / data_cfg.n_train as f32,
-//             test_l2: test_l2_sum / data_cfg.n_test as f32,
-//             current_lr: sums.last_lr,
-//         };
-
-//         println!("{record:?}");
-//         metrics.push(record);
-//     }
-
-//     println!("total training time: {:.2?}", start.elapsed());
-
-//     (model, metrics)
-// }
-
 pub fn training_loop<const R: usize, const RM1: usize>(
     mut components: TrainingComponents<R, RM1>,
     train_cfg: &TrainingConfig,
@@ -399,6 +352,10 @@ pub fn training_loop<const R: usize, const RM1: usize>(
     let mut metrics = Vec::with_capacity(train_cfg.epochs);
 
     for epoch in 0..train_cfg.epochs {
+        let epoch_start = std::time::Instant::now();
+
+        let train_start = std::time::Instant::now();
+
         let (m, sums) = train_epoch(
             model,
             &components.train_loader,
@@ -409,6 +366,10 @@ pub fn training_loop<const R: usize, const RM1: usize>(
         );
         model = m;
 
+        let train_time = train_start.elapsed();
+
+        let eval_start = std::time::Instant::now();
+
         let valid_model = model.valid();
 
         let test_l2_sum = eval_epoch(
@@ -418,6 +379,10 @@ pub fn training_loop<const R: usize, const RM1: usize>(
             eval_post,
         );
 
+        let eval_time = eval_start.elapsed();
+
+        let epoch_time = epoch_start.elapsed();
+
         let record = EpochMetrics {
             epoch,
             train_mse: sums.mse_sum / steps_per_epoch as f32,
@@ -426,7 +391,12 @@ pub fn training_loop<const R: usize, const RM1: usize>(
             current_lr: sums.last_lr,
         };
 
-        println!("{record:?}");
+        println!(
+            "{record:?} | train={:.3}s eval={:.3}s total={:.3}s",
+            train_time.as_secs_f64(),
+            eval_time.as_secs_f64(),
+            epoch_time.as_secs_f64(),
+        );
         metrics.push(record);
     }
 
