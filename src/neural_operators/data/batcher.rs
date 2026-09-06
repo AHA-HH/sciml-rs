@@ -43,83 +43,27 @@ impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>>
     /// (autodiff) backend as the model in the hand-written training loop.
     /// That's why it doesn't work with Burn's `Learner`, which controls
     /// placement across the train/validation split itself.
-    // fn batch(&self, items: Vec<DataItem>, _device: &Device) -> Batch<R, RM1> {
-    //     let n = items.len();
-
-    //     // input: prepend batch dim to item 0's shape, flatten all items' raw
-    //     // values in order, reshape into a rank-R tensor on self.device
-    //     let mut input_shape = vec![n];
-    //     input_shape.extend_from_slice(items[0].input.shape());
-    //     let input_shape: [usize; R] = input_shape.try_into().unwrap();
-    //     let input_data: Vec<f64> = items
-    //         .iter()
-    //         .flat_map(|item| item.input.iter().copied())
-    //         .collect();
-    //     let inputs = Tensor::<R>::from_data(
-    //         burn::tensor::TensorData::new(input_data, input_shape),
-    //         &self.device,
-    //     );
-
-    //     // target: same construction, rank RM1 (== R - 1, no channel axis)
-    //     let mut target_shape = vec![n];
-    //     target_shape.extend_from_slice(items[0].target.shape());
-    //     let target_shape: [usize; RM1] = target_shape.try_into().unwrap();
-    //     let target_data: Vec<f64> = items
-    //         .iter()
-    //         .flat_map(|item| item.target.iter().copied())
-    //         .collect();
-    //     let targets = Tensor::<RM1>::from_data(
-    //         burn::tensor::TensorData::new(target_data, target_shape),
-    //         &self.device,
-    //     );
-
-    //     Batch { inputs, targets }
-    // }
-    fn batch(
-        &self,
-        items: Vec<DataItem>,
-        _device: &Device,
-    ) -> Batch<R, RM1> {
+    fn batch(&self, items: Vec<DataItem>, _device: &Device) -> Batch<R, RM1> {
         let n = items.len();
 
         assert!(!items.is_empty(), "cannot construct an empty batch");
 
-        // ------------------------------------------------------------
-        // Shapes
-        // ------------------------------------------------------------
-
         let input_item_shape = items[0].input.shape();
 
-        let input_shape: [usize; R] = core::array::from_fn(|i| {
-            if i == 0 {
-                n
-            } else {
-                input_item_shape[i - 1]
-            }
-        });
+        let input_shape: [usize; R] =
+            core::array::from_fn(|i| if i == 0 { n } else { input_item_shape[i - 1] });
 
         let target_item_shape = items[0].target.shape();
 
-        let target_shape: [usize; RM1] = core::array::from_fn(|i| {
-            if i == 0 {
-                n
-            } else {
-                target_item_shape[i - 1]
-            }
-        });
-
-        // ------------------------------------------------------------
-        // Allocate exactly once for each contiguous batch buffer
-        // ------------------------------------------------------------
+        let target_shape: [usize; RM1] =
+            core::array::from_fn(|i| if i == 0 { n } else { target_item_shape[i - 1] });
 
         let input_item_len = items[0].input.len();
         let target_item_len = items[0].target.len();
 
-        let mut input_data =
-            Vec::with_capacity(n * input_item_len);
+        let mut input_data = Vec::with_capacity(n * input_item_len);
 
-        let mut target_data =
-            Vec::with_capacity(n * target_item_len);
+        let mut target_data = Vec::with_capacity(n * target_item_len);
 
         // Fill both buffers in a single traversal of the batch.
         for item in &items {
@@ -127,23 +71,13 @@ impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>>
             target_data.extend(item.target.iter().copied());
         }
 
-        // ------------------------------------------------------------
-        // Create tensors on the selected backend/device
-        // ------------------------------------------------------------
-
         let inputs = Tensor::<R>::from_data(
-            burn::tensor::TensorData::new(
-                input_data,
-                input_shape,
-            ),
+            burn::tensor::TensorData::new(input_data, input_shape),
             &self.device,
         );
 
         let targets = Tensor::<RM1>::from_data(
-            burn::tensor::TensorData::new(
-                target_data,
-                target_shape,
-            ),
+            burn::tensor::TensorData::new(target_data, target_shape),
             &self.device,
         );
 
