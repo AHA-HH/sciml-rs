@@ -31,21 +31,24 @@ pub fn train_darcy(
     data_cfg: &DatasetConfig,
     device: &Device,
 ) -> (FNO<4>, Vec<EpochMetrics>) {
-    let (mean, std) = normalizer_to_flat_tensors(y_normalizer, device);
+    let (train_mean, train_std) = normalizer_to_flat_tensors(y_normalizer, device);
+
+    let eval_device = device.clone().inner();
+
+    let (eval_mean, eval_std) = normalizer_to_flat_tensors(y_normalizer, &eval_device);
+
     let eps = y_normalizer.eps_val();
 
-    let train_post = {
-        let (mean, std) = (mean.clone(), std.clone());
-        move |out: Tensor<2>, target: Tensor<2>| {
-            (
-                decode_flat(out, &mean, &std, eps),
-                decode_flat(target, &mean, &std, eps),
-            )
-        }
+    let train_post = move |out: Tensor<2>, target: Tensor<2>| {
+        (
+            decode_flat(out, &train_mean, &train_std, eps),
+            decode_flat(target, &train_mean, &train_std, eps),
+        )
     };
 
-    let eval_post =
-        move |out: Tensor<2>, target: Tensor<2>| (decode_flat(out, &mean, &std, eps), target);
+    let eval_post = move |out: Tensor<2>, target: Tensor<2>| {
+        (decode_flat(out, &eval_mean, &eval_std, eps), target)
+    };
 
     let components = build_training_components::<4, 3>(
         model_cfg, train_cfg, data_cfg, train_data, test_data, device,
