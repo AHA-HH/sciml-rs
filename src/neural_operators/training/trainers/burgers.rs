@@ -27,5 +27,13 @@ pub fn train_burgers(
         model_cfg, train_cfg, data_cfg, train_data, test_data, device,
     );
 
+    if let Some(batch) = components.train_loader.iter().next() {
+        let batch = batch.expect("batch error");
+
+        println!("input device: {:?}", batch.inputs.device());
+        println!("target device: {:?}", batch.targets.device());
+    }
+
+
     training_loop(components, train_cfg, data_cfg, &identity, &identity)
 }
