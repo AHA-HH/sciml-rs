@@ -1,7 +1,7 @@
 //! Burgers Resolution Sweep
 //! Evaluates a saved Burgers model at resolutions it was never trained on.
 //!
-//! Run with: cargo run --release --example predict_burgers_resolutions -- runs/burgers_fno_<timestamp>
+//! Run with: cargo run --release --example burgers_resolutions -- runs/burgers_fno_<timestamp>
 //!
 //! The FNO learns a mapping between function spaces rather than between grids,
 //! so test error should stay roughly flat as the discretisation changes. The

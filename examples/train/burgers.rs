@@ -85,7 +85,7 @@ fn main() {
         .with_learning_rate(1e-3)
         .with_weight_decay(1e-4)
         .with_min_lr(1e-5);
-        // .with_seed(1);
+    // .with_seed(1);
 
     // Training wrapper function that handles the building of training components and the training loop
     // Use the L2 loss for training and evaluation
