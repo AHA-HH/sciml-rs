@@ -43,7 +43,7 @@ name = "darcy_plot"
 path = "examples/predict/darcy_plot.rs"
 
 [dependencies]
-burn = { version = "0.22.0-pre.3", features = ["autodiff", "metal", "store", "train"] }
+burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
 ndarray = "0.17"
 ndarray-npy = "0.10"
 matfile = "0.5"
