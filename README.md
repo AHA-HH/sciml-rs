@@ -8,16 +8,10 @@ problem is fixed when the binary is built rather than checked at runtime.
 `modes: vec![4, 4]` gives you a 2D FNO.
 
 ## Results
-| problem    | grid    | Burn   | PyTorch |
-|------------|---------|--------|---------|
-| 1D Burgers | s = 256 | 0.00189 | 0.0017  |
-| 2D Darcy   | s = 16  | 0.0340 | 0.0345  |
-
-| problem | 1D Burgers | 2D Darcy |
-|---------|------------|----------|
-| grid    | s = 256    |s = 16    |
-| Burn    | 0.00189 range 0.00186-0.00195  | 0.0340  |
-| PyTorch |0.0018 0.0017  | 0.0345  |
+| problem    | grid    | Burn    | PyTorch |
+|------------|---------|---------|---------|
+| 1D Burgers | s = 256 | 0.00188 | 0.00189 |
+| 2D Darcy   | s = 16  | 0.03403 | 0.03451 |
 
 Same hyperparameters across columns. The PyTorch port is a direct
 translation of Li et al.'s reference implementation in the official 
