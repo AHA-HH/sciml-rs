@@ -1,6 +1,10 @@
 name: 🧪 run-tests
 
 on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -11,7 +15,7 @@ jobs:
     runs-on: codeberg-medium
     steps:
       - name: Install Rust
-        uses: https://github.com/dtolnay/rust-toolchain@stable
+        uses: https://github.com/dtolnay/rust-toolchain@v1
         with:
           components: clippy, rustfmt
 
