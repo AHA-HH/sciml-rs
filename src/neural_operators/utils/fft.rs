@@ -55,7 +55,7 @@ mod tests {
             assert!((a - e).abs() < 1e-4, "imag mismatch: {a} vs {e}");
         }
     }
-    
+
     /// Non-Hermitian input: would not survive a truncate-and-irfft
     /// implementation, so this exercises the full-spectrum path rather than
     /// passing by coincidence.
