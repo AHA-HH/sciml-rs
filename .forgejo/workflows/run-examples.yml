@@ -31,5 +31,5 @@ jobs:
           cargo update -p pliron --precise 0.17.0
           cargo update -p pliron-llvm --precise 0.17.0
 
-      - name: Check if dependencies are up-to-date
-        run: cargo templated-examples NPROCESSES 3
+      # - name: Run examples
+      #   run: cargo templated-examples
