@@ -45,11 +45,6 @@ jobs:
       - name: Install MPI
         run: sudo apt-get install -y openmpi-bin libopenmpi-dev
 
-      - name: Fix PLIRON version to 0.17.0
-        run: |
-          cargo update -p pliron --precise 0.17.0
-          cargo update -p pliron-llvm --precise 0.17.0
-
       - name: Format
         run: cargo fmt -- --check
 
