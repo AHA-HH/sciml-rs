@@ -26,10 +26,5 @@ jobs:
       - name: Install cargo-templated-examples
         run: cargo install cargo-templated-examples
 
-      - name: Fix PLIRON version to 0.17.0
-        run: |
-          cargo update -p pliron --precise 0.17.0
-          cargo update -p pliron-llvm --precise 0.17.0
-
       # - name: Run examples
-      #   run: cargo templated-examples
+        # run: cargo templated-examples
