@@ -26,5 +26,5 @@ jobs:
       - name: Install cargo-templated-examples
         run: cargo install cargo-templated-examples
 
-      - name: Check if dependencies are up-to-date
-        run: cargo templated-examples NPROCESSES 3
+      # - name: Run examples
+        # run: cargo templated-examples

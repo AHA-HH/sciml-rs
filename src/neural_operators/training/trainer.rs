@@ -4,7 +4,7 @@ use burn::{
     config::Config,
     data::dataloader::{DataLoader, DataLoaderBuilder},
     lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
-    module::AutodiffModule,
+    module::Module,
     optim::{
         AdamConfig, GradientsParams, ModuleOptimizer,
         decay::WeightDecayConfig,

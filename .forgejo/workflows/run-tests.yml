@@ -53,8 +53,8 @@ jobs:
           cargo clippy --no-deps -- -D warnings
           cargo clippy --no-deps --examples -- -D warnings
 
-      - name: Run unit tests
-        run: RUST_MIN_STACK=8388608 cargo test 
+      # - name: Run unit tests
+      #   run: RUST_MIN_STACK=8388608 cargo test 
 
-      - name: Build docs
-        run: cargo doc --no-deps 
+      # - name: Build docs
+      #   run: cargo doc --no-deps

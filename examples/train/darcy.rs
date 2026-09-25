@@ -34,7 +34,7 @@ fn main() {
     // subsample rate is 28 -> s = (421-1)/28 + 1 = 16 grid points per axis
     // The paper uses r=5 (s=85) but Burn's FFT is radix-2 only, so s must
     // be a power of two r=420,140,60,28 s=2,4,8,16
-    let dataset_cfg = DarcyConfig::new(data_cfg.clone(), 28);
+    let dataset_cfg = DarcyConfig::new(data_cfg.clone(), 5);
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let train_path = datasets.join("piececonst_r421_N1024_smooth1.mat");
