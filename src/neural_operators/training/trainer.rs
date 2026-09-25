@@ -2,7 +2,10 @@
 
 use burn::{
     config::Config,
-    data::dataloader::{DataLoader, DataLoaderBuilder},
+    data::{
+        dataloader::{DataLoader, DataLoaderBuilder},
+        dataset::Dataset,
+    },
     lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
     module::Module,
     optim::{
@@ -18,7 +21,7 @@ use std::sync::Arc;
 use crate::neural_operators::{
     data::{
         batcher::{Batch, OperatorBatcher},
-        dataset::OperatorDataset,
+        dataitem::DataItem,
         loaders::base_dataset::DatasetConfig,
     },
     losses::data_losses::LpLoss,
@@ -203,8 +206,8 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
     data_cfg: &DatasetConfig,
-    train_data: OperatorDataset,
-    test_data: OperatorDataset,
+    train_data: impl Dataset<DataItem> + 'static,
+    test_data: impl Dataset<DataItem> + 'static,
     device: &Device,
 ) -> TrainingComponents<R, RM1> {
     device.seed(train_cfg.seed);

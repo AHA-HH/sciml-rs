@@ -329,6 +329,125 @@ mod tests {
         round_trip_check::<5>([2, 4, 8, 8, 8]);
     }
 
+    // Non-power-of-two extents take the Bluestein path. The time axis in the
+    // Navier-Stokes FNO-3D is 40 (Li's T) - even, but not a power of two.
+    #[test]
+    fn fft_round_trip_3d_even_non_power_of_two_time() {
+        round_trip_check::<5>([2, 3, 8, 8, 10]);
+    }
+
+    #[test]
+    fn fft_round_trip_3d_navier_stokes_time() {
+        round_trip_check::<5>([1, 1, 4, 4, 40]);
+    }
+
+    #[test]
+    #[ignore = "Burn fork: Bluestein cfft on a non-last axis is wrong for even trailing extents; see utils::fft::tests::cfft_bluestein_non_last_axis_even_trailing"]
+    fn fft_round_trip_3d_odd_extents() {
+        round_trip_check::<5>([1, 2, 6, 5, 7]);
+    }
+
+    /// Single plane wave `cos θ`, `θ = 2π(a·i/n0 + b·j/n1 + k·t/n2)`, through a
+    /// 1→1 channel `SpectralConv<5>` with every corner weight `w = wr + i·wi`.
+    ///
+    /// With `k > 0` and not the Nyquist index, the half spectrum holds only the
+    /// `+(a, b, k)` component, so a retained wave comes out as
+    /// `Re(w e^{iθ}) = wr cos θ - wi sin θ` and a truncated one as zero.
+    /// This checks the forward sign convention, the 1/n inverse scaling and
+    /// the corner placement of negative frequencies - which a round trip
+    /// alone can't.
+    fn plane_wave_check(
+        dims: [usize; 3],
+        freq: (isize, isize, usize),
+        modes: [usize; 3],
+        w: (f32, f32),
+        retained: bool,
+    ) {
+        use std::f32::consts::TAU;
+
+        let device = Device::default();
+        let [n0, n1, n2] = dims;
+        let (a, b, k) = freq;
+        let theta = |i: usize, j: usize, t: usize| {
+            TAU * (a as f32 * i as f32 / n0 as f32
+                + b as f32 * j as f32 / n1 as f32
+                + k as f32 * t as f32 / n2 as f32)
+        };
+
+        let mut values = Vec::with_capacity(n0 * n1 * n2);
+        for i in 0..n0 {
+            for j in 0..n1 {
+                for t in 0..n2 {
+                    values.push(theta(i, j, t).cos());
+                }
+            }
+        }
+        let x = Tensor::<5>::from_data(
+            burn::tensor::TensorData::new(values, [1, 1, n0, n1, n2]),
+            &device,
+        );
+
+        let mut conv = SpectralConv::<5>::new(&device, 1, 1, &modes);
+        let shape = [1, 1, modes[0], modes[1], modes[2]];
+        for c in 0..conv.weights_re.len() {
+            conv.weights_re[c] = Param::from_tensor(Tensor::<5>::full(shape, w.0, &device));
+            conv.weights_im[c] = Param::from_tensor(Tensor::<5>::full(shape, w.1, &device));
+        }
+
+        let out = conv.forward(x).into_data().try_to_vec::<f32>().unwrap();
+
+        let mut idx = 0;
+        for i in 0..n0 {
+            for j in 0..n1 {
+                for t in 0..n2 {
+                    let th = theta(i, j, t);
+                    let expected = if retained {
+                        w.0 * th.cos() - w.1 * th.sin()
+                    } else {
+                        0.0
+                    };
+                    // f32 FFTs of O(1) data over <= 360 points: errors are
+                    // ~1e-6; 1e-4 matches the other round-trip checks.
+                    assert!(
+                        (out[idx] - expected).abs() < 1e-4,
+                        "at ({i},{j},{t}): got {}, expected {expected}",
+                        out[idx]
+                    );
+                    idx += 1;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn forward_3d_plane_wave_identity_non_power_of_two() {
+        // b = -1 lives in the high-frequency corner of axis 1.
+        plane_wave_check([6, 6, 10], (1, -1, 2), [2, 2, 3], (1.0, 0.0), true);
+    }
+
+    #[test]
+    fn forward_3d_plane_wave_phase_shift_non_power_of_two() {
+        // Multiplying by i turns cos into -sin: catches a flipped FFT sign.
+        plane_wave_check([6, 6, 10], (1, -1, 2), [2, 2, 3], (0.0, 1.0), true);
+    }
+
+    #[test]
+    #[ignore = "Burn fork: Bluestein cfft on a non-last axis is wrong for even trailing extents; see utils::fft::tests::cfft_bluestein_non_last_axis_even_trailing"]
+    fn forward_3d_plane_wave_odd_extents() {
+        // Odd extents everywhere, 45-degree weight.
+        let h = std::f32::consts::FRAC_1_SQRT_2;
+        plane_wave_check([5, 7, 7], (-2, 1, 3), [3, 2, 4], (h, h), true);
+    }
+
+    #[test]
+    fn forward_3d_truncates_modes_beyond_limit_non_power_of_two() {
+        // t-frequency 3 is outside modes[2] = 3 (keeps 0..3).
+        plane_wave_check([6, 6, 10], (1, -1, 3), [2, 2, 3], (1.0, 0.0), false);
+        // On n0 = 6 with modes[0] = 2 the corners keep x-indices 0..2 and
+        // 4..6 (frequencies 0, 1, -2, -1); frequency 3 is in neither.
+        plane_wave_check([6, 6, 10], (3, 0, 2), [2, 2, 3], (1.0, 0.0), false);
+    }
+
     #[test]
     fn forward_2d_matches_pytorch_reference() {
         let device = Device::default();

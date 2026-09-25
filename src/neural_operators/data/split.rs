@@ -36,6 +36,47 @@ pub fn train_test_split(
     (train, test)
 }
 
+/// Splits `data` along `axis` into an input window and the target window
+/// that directly follows it.
+///
+/// Returns `(input, target)`: entries `0..n_in` and `n_in..n_in + n_out`
+/// along `axis`. Entries past `n_in + n_out` are dropped. Used to turn a
+/// trajectory's time axis into "first `n_in` snapshots in, next `n_out` out".
+///
+/// Panics if `n_in` or `n_out` is zero, `axis` is out of bounds, or
+/// `n_in + n_out` exceeds the length of `axis`.
+pub fn input_target_split(
+    data: &ArrayD<f64>,
+    axis: usize,
+    n_in: usize,
+    n_out: usize,
+) -> (ArrayD<f64>, ArrayD<f64>) {
+    assert!(n_in > 0 && n_out > 0, "n_in and n_out must be > 0");
+    assert!(
+        axis < data.ndim(),
+        "axis {} out of bounds for array with {} dims",
+        axis,
+        data.ndim()
+    );
+    let len = data.shape()[axis];
+    assert!(
+        n_in + n_out <= len,
+        "n_in ({}) + n_out ({}) = {} exceeds the {} entries along axis {}",
+        n_in,
+        n_out,
+        n_in + n_out,
+        len,
+        axis
+    );
+
+    let input = data.slice_axis(Axis(axis), Slice::from(0..n_in)).to_owned();
+    let target = data
+        .slice_axis(Axis(axis), Slice::from(n_in..n_in + n_out))
+        .to_owned();
+
+    (input, target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,5 +102,34 @@ mod tests {
     fn rejects_oversized_split() {
         let data = ArrayD::from_shape_fn(IxDyn(&[4, 2]), |_| 0.0);
         train_test_split(data, 3, 3);
+    }
+
+    #[test]
+    fn input_target_split_takes_consecutive_windows() {
+        // value = 10 * sample + time, so the source time index is visible.
+        let data = ArrayD::from_shape_fn(IxDyn(&[2, 7]), |i| (i[0] * 10 + i[1]) as f64);
+        let (input, target) = input_target_split(&data, 1, 2, 3);
+
+        assert_eq!(input.shape(), &[2, 2]);
+        assert_eq!(target.shape(), &[2, 3]);
+
+        assert_eq!(input[[1, 0]], 10.0); // time 0
+        assert_eq!(input[[1, 1]], 11.0); // time 1
+        assert_eq!(target[[1, 0]], 12.0); // time 2, directly after the input
+        assert_eq!(target[[1, 2]], 14.0); // time 4; times 5, 6 dropped
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds the 4 entries along axis 1")]
+    fn input_target_split_rejects_oversized_windows() {
+        let data = ArrayD::zeros(IxDyn(&[2, 4]));
+        input_target_split(&data, 1, 2, 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "must be > 0")]
+    fn input_target_split_rejects_empty_window() {
+        let data = ArrayD::zeros(IxDyn(&[2, 4]));
+        input_target_split(&data, 1, 0, 3);
     }
 }

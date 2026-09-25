@@ -23,12 +23,20 @@ name = "train_darcy"
 path = "examples/train/darcy.rs"
 
 [[example]]
+name = "train_navier_stokes"
+path = "examples/train/navier_stokes.rs"
+
+[[example]]
 name = "predict_burgers"
 path = "examples/predict/burgers.rs"
 
 [[example]]
 name = "predict_darcy"
 path = "examples/predict/darcy.rs"
+
+[[example]]
+name = "predict_navier_stokes"
+path = "examples/predict/navier_stokes.rs"
 
 [[example]]
 name = "burgers_resolution"
