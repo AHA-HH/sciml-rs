@@ -53,7 +53,8 @@ fn main() {
         &datasets.join("piececonst_r421_N1024_smooth1.mat"),
         &datasets.join("piececonst_r421_N1024_smooth2.mat"),
         &dataset_cfg,
-    );
+    )
+    .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
     let test_loader = DataLoaderBuilder::new(OperatorBatcher::<4, 3>::new(device.clone()))
         .batch_size(20)

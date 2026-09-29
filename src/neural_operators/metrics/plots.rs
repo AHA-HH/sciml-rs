@@ -1,11 +1,18 @@
 //! Training-curve plots (loss + learning rate) via gnuplot.
 
 use crate::neural_operators::training::metrics::EpochMetrics;
-use gnuplot::{AxesCommon, Caption, Color, Figure, LineWidth};
-use std::path::PathBuf;
+use gnuplot::{AxesCommon, Caption, Color, Figure, GnuplotInitError, LineWidth};
+use std::path::Path;
 
 /// Two-panel plot: relative L2 loss (train/test) and learning rate schedule.
-pub fn plot_metrics(path: &PathBuf, metrics: &[EpochMetrics], title: &str) {
+///
+/// # Errors
+/// If gnuplot can't be started (e.g. it isn't installed or not on `PATH`).
+pub fn plot_metrics(
+    path: impl AsRef<Path>,
+    metrics: &[EpochMetrics],
+    title: &str,
+) -> Result<(), GnuplotInitError> {
     let epochs: Vec<f32> = metrics.iter().map(|m| m.epoch as f32).collect();
     let train_l2: Vec<f32> = metrics.iter().map(|m| m.train_l2).collect();
     let test_l2: Vec<f32> = metrics.iter().map(|m| m.test_l2).collect();
@@ -56,5 +63,4 @@ pub fn plot_metrics(path: &PathBuf, metrics: &[EpochMetrics], title: &str) {
         );
 
     fig.save_to_png(path, 1200, 800)
-        .expect("failed to save plot");
 }

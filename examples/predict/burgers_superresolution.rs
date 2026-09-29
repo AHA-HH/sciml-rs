@@ -70,7 +70,8 @@ fn main() {
             continue; // super-resolution only: skip anything coarser
         }
 
-        let (_, test_data) = load_burgers_uniform(&data_path, &cfg);
+        let (_, test_data) = load_burgers_uniform(&data_path, &cfg)
+            .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
         let test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new(device.clone()))
             .batch_size(20)
             .build(test_data);

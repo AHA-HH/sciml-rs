@@ -40,7 +40,8 @@ fn main() {
         &datasets.join("piececonst_r421_N1024_smooth1.mat"),
         &datasets.join("piececonst_r421_N1024_smooth2.mat"),
         &dataset_cfg,
-    );
+    )
+    .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
     let y_norm = UnitGaussianNormalizer::from_record(
         &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),

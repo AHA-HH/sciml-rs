@@ -15,7 +15,7 @@
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
     grids::{GridPlacement, append_grid, uniform_grid},
-    io::{readers::mat::MatFileReader, traits::FieldReader},
+    io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     transforms::{
         normalizers::{Normalizer, UnitGaussianNormalizer},
@@ -24,7 +24,7 @@ use crate::neural_operators::data::{
 };
 use burn::config::Config;
 use ndarray::{Axis, IxDyn};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Darcy-specific config: subsample rate and the resolution it implies.
 #[derive(Config, Debug)]
@@ -61,27 +61,49 @@ pub struct DarcyNormalizers {
 /// what the caller needs to decode predictions back to physical scale;
 /// `normalizers.x` is only needed for encoding inputs that didn't come from
 /// this dataset.
+///
+/// # Errors
+/// [`LoadError::Reader`] if a file can't be read or lacks `coeff`/`sol`;
+/// [`LoadError::Invalid`] if the fields aren't `[samples, s, s]`, a file has
+/// fewer samples than requested, or the subsample rate doesn't give
+/// `config.s()` points per axis.
 pub fn load_darcy_uniform(
-    train_path: &PathBuf,
-    test_path: &PathBuf,
+    train_path: impl AsRef<Path>,
+    test_path: impl AsRef<Path>,
     config: &DarcyConfig,
-) -> (OperatorDataset, OperatorDataset, DarcyNormalizers) {
-    // read input ('coeff') and target ('sol') fields from separate train/test .mat files
-    let train_reader =
-        MatFileReader::new(Path::new(train_path)).expect("failed to open Darcy .mat train file");
-    let x_train = train_reader
-        .read_field("coeff")
-        .expect("failed to read 'coeff'");
-    let y_train = train_reader
-        .read_field("sol")
-        .expect("failed to read 'sol'");
+) -> Result<(OperatorDataset, OperatorDataset, DarcyNormalizers), LoadError> {
+    if config.subsample_rate == 0 {
+        return Err(LoadError::Invalid("subsample_rate must be > 0".into()));
+    }
 
-    let test_reader =
-        MatFileReader::new(Path::new(test_path)).expect("failed to open Darcy .mat test file");
-    let x_test = test_reader
-        .read_field("coeff")
-        .expect("failed to read 'coeff'");
-    let y_test = test_reader.read_field("sol").expect("failed to read 'sol'");
+    // read input ('coeff') and target ('sol') fields from separate train/test .mat files
+    let train_reader = MatFileReader::new(train_path.as_ref())?;
+    let x_train = train_reader.read_field("coeff")?;
+    let y_train = train_reader.read_field("sol")?;
+
+    let test_reader = MatFileReader::new(test_path.as_ref())?;
+    let x_test = test_reader.read_field("coeff")?;
+    let y_test = test_reader.read_field("sol")?;
+
+    for (split, n, fields) in [
+        ("train", config.n_train(), [&x_train, &y_train]),
+        ("test", config.n_test(), [&x_test, &y_test]),
+    ] {
+        for (name, field) in ["coeff", "sol"].into_iter().zip(fields) {
+            if field.ndim() != 3 {
+                return Err(LoadError::Invalid(format!(
+                    "{split} field '{name}' must be [samples, s, s], got shape {:?}",
+                    field.shape()
+                )));
+            }
+            if n > field.shape()[0] {
+                return Err(LoadError::Invalid(format!(
+                    "requested {n} {split} samples but '{name}' has {}",
+                    field.shape()[0]
+                )));
+            }
+        }
+    }
 
     // truncate to configured n_train/n_test along the sample axis - without this,
     // dataset size is whatever the file happens to contain
@@ -124,20 +146,18 @@ pub fn load_darcy_uniform(
     let n_train = x_train.shape()[0];
     let n_test = x_test.shape()[0];
 
-    // cross-check derived config values against what was actually read/subsampled
-    assert_eq!(
-        s,
-        config.s(),
-        "subsampled grid size {} does not match config.s() {}",
-        s,
-        config.s()
-    );
-    assert_eq!(
-        n_train,
-        config.n_train(),
-        "n_train mismatch after truncation"
-    );
-    assert_eq!(n_test, config.n_test(), "n_test mismatch after truncation");
+    // cross-check the derived resolution against what was actually subsampled
+    let spatial_ok = [&x_train, &y_train, &x_test, &y_test]
+        .iter()
+        .all(|a| a.shape()[1] == s && a.shape()[2] == s);
+    if s != config.s() || !spatial_ok {
+        return Err(LoadError::Invalid(format!(
+            "subsampled grids must all be {0}x{0} (config.s()), got train {1:?} / test {2:?}",
+            config.s(),
+            &x_train.shape()[1..],
+            &x_test.shape()[1..]
+        )));
+    }
 
     // fit x-normalizer on x_train, encode both x_train and x_test;
     // fit y-normalizer on y_train, encode y_train only - y_test stays raw,
@@ -153,10 +173,10 @@ pub fn load_darcy_uniform(
     // add a trailing channel axis to inputs: [n, s, s] -> [n, s, s, 1]
     let x_train = x_train
         .into_shape_with_order(IxDyn(&[n_train, s, s, 1]))
-        .expect("reshape x_train");
+        .map_err(|e| LoadError::Invalid(format!("reshape x_train: {e}")))?;
     let x_test = x_test
         .into_shape_with_order(IxDyn(&[n_test, s, s, 1]))
-        .expect("reshape x_test");
+        .map_err(|e| LoadError::Invalid(format!("reshape x_test: {e}")))?;
 
     // append 2D grid coordinates as two more channels: [n, s, s, 1] -> [n, s, s, 3]
     // Reversed 'ij' grids = Li's 'xy' meshgrid order: channel 1 varies along
@@ -172,12 +192,48 @@ pub fn load_darcy_uniform(
 
     println!("darcy: {n_train} train / {n_test} test at s={s}");
 
-    (
+    Ok((
         train_dataset,
         test_dataset,
         DarcyNormalizers {
             x: x_normalizer,
             y: y_normalizer,
         },
-    )
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::neural_operators::data::io::errors::ReaderError;
+
+    fn cfg(subsample_rate: usize) -> DarcyConfig {
+        DarcyConfig::new(
+            DatasetConfig {
+                n_train: 1,
+                n_test: 1,
+            },
+            subsample_rate,
+        )
+    }
+
+    #[test]
+    fn missing_file_is_a_reader_error() {
+        let err = load_darcy_uniform("/nope/train.mat", "/nope/test.mat", &cfg(5))
+            .err()
+            .expect("loading should fail");
+        assert!(
+            matches!(err, LoadError::Reader(ReaderError::FileNotFound(_))),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains("train.mat"), "{err}");
+    }
+
+    #[test]
+    fn zero_subsample_rate_is_invalid_not_a_panic() {
+        let err = load_darcy_uniform("/nope/train.mat", "/nope/test.mat", &cfg(0))
+            .err()
+            .expect("loading should fail");
+        assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
+    }
 }

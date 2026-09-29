@@ -51,7 +51,8 @@ fn main() {
     }
 
     let (train_data, test_data, normalizers) =
-        load_darcy_uniform(&train_path, &test_path, &dataset_cfg);
+        load_darcy_uniform(&train_path, &test_path, &dataset_cfg)
+            .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
     let model_cfg = FNOConfig {
         // Two entries so a 2D FNO model. Same code path as Burgers' vec![16]
@@ -82,7 +83,8 @@ fn main() {
         &device,
     );
 
-    let dir = write_run_artifacts("darcy_fno", &metrics, &model_cfg, &train_cfg, &dataset_cfg);
+    let dir = write_run_artifacts("darcy_fno", &metrics, &model_cfg, &train_cfg, &dataset_cfg)
+        .unwrap_or_else(|e| panic!("could not write run artifacts: {e}"));
 
     // Write normalizers files to runs/darcy_fno_<timestamp>/
     normalizers
