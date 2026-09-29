@@ -17,13 +17,10 @@ use crate::neural_operators::data::{
     grids::{GridPlacement, append_grid, uniform_grid},
     io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
-    transforms::{
-        normalizers::{Normalizer, UnitGaussianNormalizer},
-        subsample::subsample,
-    },
+    transforms::normalizers::{Normalizer, UnitGaussianNormalizer},
 };
 use burn::config::Config;
-use ndarray::{Axis, IxDyn};
+use ndarray::{ArrayD, IxDyn, s};
 use std::path::Path;
 
 /// Darcy-specific config: subsample rate and the resolution it implies.
@@ -76,20 +73,18 @@ pub fn load_darcy_uniform(
         return Err(LoadError::Invalid("subsample_rate must be > 0".into()));
     }
 
-    // read input ('coeff') and target ('sol') fields from separate train/test .mat files
-    let train_reader = MatFileReader::new(train_path.as_ref())?;
-    let x_train = train_reader.read_field("coeff")?;
-    let y_train = train_reader.read_field("sol")?;
-
-    let test_reader = MatFileReader::new(test_path.as_ref())?;
-    let x_test = test_reader.read_field("coeff")?;
-    let y_test = test_reader.read_field("sol")?;
-
-    for (split, n, fields) in [
-        ("train", config.n_train(), [&x_train, &y_train]),
-        ("test", config.n_test(), [&x_test, &y_test]),
-    ] {
-        for (name, field) in ["coeff", "sol"].into_iter().zip(fields) {
+    // Read input ('coeff') and target ('sol') from each split's .mat file,
+    // validate them, then truncate to the configured sample count and subsample
+    // both spatial axes in one strided copy. Doing this per split means the
+    // reader and full-size fields of one file are freed before the next is
+    // parsed. Without the truncation, dataset size is whatever the file holds.
+    let r = config.subsample_rate;
+    let load_split = |path: &Path, split: &str, n: usize| -> Result<_, LoadError> {
+        let (x, y) = {
+            let reader = MatFileReader::new(path)?;
+            (reader.read_field("coeff")?, reader.read_field("sol")?)
+        };
+        for (name, field) in [("coeff", &x), ("sol", &y)] {
             if field.ndim() != 3 {
                 return Err(LoadError::Invalid(format!(
                     "{split} field '{name}' must be [samples, s, s], got shape {:?}",
@@ -103,44 +98,10 @@ pub fn load_darcy_uniform(
                 )));
             }
         }
-    }
-
-    // truncate to configured n_train/n_test along the sample axis - without this,
-    // dataset size is whatever the file happens to contain
-    let x_train = x_train
-        .slice_axis(Axis(0), (0..config.n_train()).into())
-        .to_owned();
-    let y_train = y_train
-        .slice_axis(Axis(0), (0..config.n_train()).into())
-        .to_owned();
-    let x_test = x_test
-        .slice_axis(Axis(0), (0..config.n_test()).into())
-        .to_owned();
-    let y_test = y_test
-        .slice_axis(Axis(0), (0..config.n_test()).into())
-        .to_owned();
-
-    // downsample both spatial axes (1 and 2) by config.subsample_rate
-    let x_train = subsample(
-        subsample(x_train, 1, config.subsample_rate),
-        2,
-        config.subsample_rate,
-    );
-    let y_train = subsample(
-        subsample(y_train, 1, config.subsample_rate),
-        2,
-        config.subsample_rate,
-    );
-    let x_test = subsample(
-        subsample(x_test, 1, config.subsample_rate),
-        2,
-        config.subsample_rate,
-    );
-    let y_test = subsample(
-        subsample(y_test, 1, config.subsample_rate),
-        2,
-        config.subsample_rate,
-    );
+        Ok((take_subsampled(x, n, r), take_subsampled(y, n, r)))
+    };
+    let (x_train, y_train) = load_split(train_path.as_ref(), "train", config.n_train())?;
+    let (x_test, y_test) = load_split(test_path.as_ref(), "test", config.n_test())?;
 
     let s = x_train.shape()[1];
     let n_train = x_train.shape()[0];
@@ -202,6 +163,19 @@ pub fn load_darcy_uniform(
     ))
 }
 
+/// The first `n` samples of a `[samples, s, s]` field with every `r`-th
+/// point kept on both spatial axes, as a standard-layout array.
+///
+/// One allocation of just the kept subset; when nothing is dropped the input
+/// buffer is returned as is (the reader already produces standard layout).
+fn take_subsampled(field: ArrayD<f64>, n: usize, r: usize) -> ArrayD<f64> {
+    if n == field.shape()[0] && r == 1 {
+        return field;
+    }
+    let step = r as isize;
+    field.slice(s![..n, ..;step, ..;step]).to_owned().into_dyn()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +209,36 @@ mod tests {
             .err()
             .expect("loading should fail");
         assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
+    }
+
+    // --- REVIEW.md 4.7: one strided copy == old slice + 2x subsample ---
+
+    fn old_path(field: ArrayD<f64>, n: usize, r: usize) -> ArrayD<f64> {
+        use crate::neural_operators::data::transforms::subsample::subsample;
+        let field = field.slice_axis(ndarray::Axis(0), (0..n).into()).to_owned();
+        subsample(subsample(field, 1, r), 2, r)
+    }
+
+    #[test]
+    fn take_subsampled_matches_old_slice_and_subsample() {
+        // Non-square spatial extents and a rate that doesn't divide them.
+        let field = ArrayD::from_shape_fn(IxDyn(&[5, 7, 9]), |i| {
+            (i[0] * 10_000 + i[1] * 100 + i[2]) as f64
+        });
+        for (n, r) in [(5, 1), (3, 1), (5, 2), (2, 3), (1, 4)] {
+            let new = take_subsampled(field.clone(), n, r);
+            assert_eq!(new, old_path(field.clone(), n, r), "n = {n}, r = {r}");
+            assert!(new.is_standard_layout(), "n = {n}, r = {r}");
+            // the loader's row-major reshape must succeed
+            let shape = [new.shape(), &[1]].concat();
+            assert!(new.into_shape_with_order(IxDyn(&shape)).is_ok());
+        }
+    }
+
+    #[test]
+    fn take_subsampled_reuses_buffer_when_nothing_is_dropped() {
+        let field = ArrayD::from_shape_fn(IxDyn(&[2, 3, 3]), |i| i[2] as f64);
+        let ptr = field.as_ptr();
+        assert_eq!(take_subsampled(field, 2, 1).as_ptr(), ptr);
     }
 }
