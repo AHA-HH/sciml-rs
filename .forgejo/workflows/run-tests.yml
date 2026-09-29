@@ -24,37 +24,72 @@ jobs:
         with:
           submodules: "true"
 
-      - name: Add universe repository
-        run: sudo add-apt-repository universe
+      # - name: Add universe repository
+      #   run: sudo add-apt-repository universe
 
-      - name: Update package list
-        run: sudo apt-get update
+      # - name: Update package list
+      #   run: sudo apt-get update
 
-      - name: Install libclang
-        run: sudo apt-get install -y libclang-dev
+      # - name: Install libclang
+      #   run: sudo apt-get install -y libclang-dev
 
-      - name: Install CMake
-        run: sudo apt-get install -y cmake
+      # - name: Install CMake
+      #   run: sudo apt-get install -y cmake
 
-      - name: Install FFTW
-        run: sudo apt-get install -y libfftw3-dev
+      # - name: Install FFTW
+      #   run: sudo apt-get install -y libfftw3-dev
 
-      - name: Install Blas
-        run: sudo apt-get install -y libopenblas-dev
+      # - name: Install Blas
+      #   run: sudo apt-get install -y libopenblas-dev
 
-      - name: Install MPI
-        run: sudo apt-get install -y openmpi-bin libopenmpi-dev
+      # - name: Install MPI
+      #   run: sudo apt-get install -y openmpi-bin libopenmpi-dev
 
-      - name: Format
-        run: cargo fmt -- --check
+      - name: Run unit tests
+        run: cargo test 
 
-      - name: Clippy
-        run: |
-          cargo clippy --no-deps -- -D warnings
-          cargo clippy --no-deps --examples -- -D warnings
+      - name: Build docs
+        run: cargo doc --no-deps
 
-      # - name: Run unit tests
-      #   run: RUST_MIN_STACK=8388608 cargo test 
-
-      # - name: Build docs
-      #   run: cargo doc --no-deps
+  style-checks-rust:
+      name: style-checks
+      runs-on: codeberg-medium
+      steps:
+        - name: Install Rust
+          uses: https://github.com/dtolnay/rust-toolchain@v1
+          with:
+            components: clippy, rustfmt
+            toolchain: stable
+  
+        - uses: actions/checkout@v6
+          with:
+            submodules: "true"
+  
+        # - name: Add universe repository
+        #   run: sudo add-apt-repository universe
+  
+        # - name: Update package list
+        #   run: sudo apt-get update
+  
+        # - name: Install libclang
+        #   run: sudo apt-get install -y libclang-dev
+  
+        # - name: Install CMake
+        #   run: sudo apt-get install -y cmake
+  
+        # - name: Install FFTW
+        #   run: sudo apt-get install -y libfftw3-dev
+  
+        # - name: Install Blas
+        #   run: sudo apt-get install -y libopenblas-dev
+  
+        # - name: Install MPI
+        #   run: sudo apt-get install -y openmpi-bin libopenmpi-dev
+  
+        - name: Format
+          run: cargo fmt -- --check
+  
+        - name: Clippy
+          run: |
+            cargo clippy --no-deps -- -D warnings
+            cargo clippy --no-deps --examples -- -D warnings
