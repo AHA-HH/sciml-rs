@@ -12,7 +12,8 @@
 //! `R` is the total tensor rank: `R = D + 2` for `D` spatial axes, plus the
 //! batch and channel axes. Burn encodes rank in the tensor *type*, so it must
 //! be a compile-time constant. Mode counts, by contrast, are ordinary runtime
-//! data (`modes: Vec<usize>`); `new` asserts the two agree.
+//! data (`modes: Vec<usize>`); `new` asserts the two agree. `R >= 3` (at least
+//! one spatial axis) is enforced at compile time.
 
 use burn::{
     Tensor,
@@ -38,10 +39,49 @@ pub struct SpectralConv<const R: usize> {
 }
 
 impl<const R: usize> SpectralConv<R> {
+    /// Compile-time guard: at least one spatial axis. Evaluated in `new` and
+    /// `forward`, so `SpectralConv<R>` (and `FNO<R>`) with `R < 3` fails to
+    /// build instead of underflowing `R - 2` / `modes.len() - 1` at runtime.
+    const RANK_OK: () = assert!(
+        R >= 3,
+        "SpectralConv<R> needs at least one spatial axis (R >= 3)"
+    );
+
+    /// `R` must be at least 3 (one or more spatial axes):
+    ///
+    /// ```
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
+    /// use sciml_rs::neural_operators::models::fno::FNOConfig;
+    ///
+    /// let device = Device::default();
+    /// let _conv = SpectralConv::<3>::new(&device, 1, 1, &[4]);
+    /// let _model = FNOConfig::new(vec![4], 1, 1).init::<3>(&device);
+    /// ```
+    ///
+    /// Smaller ranks are rejected at compile time, including through `FNO`:
+    ///
+    /// ```compile_fail
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
+    ///
+    /// let device = Device::default();
+    /// let _conv = SpectralConv::<2>::new(&device, 1, 1, &[]);
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::models::fno::FNOConfig;
+    ///
+    /// let device = Device::default();
+    /// let _model = FNOConfig::new(vec![], 1, 1).init::<2>(&device);
+    /// ```
+    ///
     /// # Panics
     ///
     /// If `modes.len() != R - 2`.
     pub fn new(device: &Device, in_channels: usize, out_channels: usize, modes: &[usize]) -> Self {
+        let () = Self::RANK_OK;
         assert_eq!(
             modes.len(),
             R - 2,
@@ -198,6 +238,7 @@ impl<const R: usize> SpectralConv<R> {
     pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
         // Captured before the transform: irfft needs the original extent to
         // recover the correct length from the truncated half-spectrum.
+        let () = Self::RANK_OK;
         let orig_dims = x.dims();
         Self::check_modes_fit(&self.modes, &orig_dims[2..]);
         let (batch, in_ch) = (orig_dims[0], orig_dims[1]);
