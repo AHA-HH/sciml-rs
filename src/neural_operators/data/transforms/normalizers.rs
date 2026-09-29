@@ -43,7 +43,7 @@ impl UnitGaussianNormalizer {
     /// Fits with a caller-specified `eps` instead of `fit`'s default.
     pub fn with_eps(data: &ArrayD<f64>, eps: f64) -> Self {
         let mean = data.mean_axis(Axis(0)).unwrap();
-        let std = data.std_axis(Axis(0), 0.0);
+        let std = data.std_axis(Axis(0), 1.0);
         Self { mean, std, eps }
     }
 
@@ -110,7 +110,7 @@ pub struct GaussianNormalizer {
 impl Normalizer for GaussianNormalizer {
     fn fit(data: &ArrayD<f64>) -> Self {
         let mean = data.mean().unwrap();
-        let std = data.std(0.0);
+        let std = data.std(1.0);
         Self {
             mean,
             std,
