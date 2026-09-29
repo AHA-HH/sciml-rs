@@ -44,7 +44,7 @@ path = "examples/predict/darcy_plot.rs"
 
 [dependencies]
 # burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
-burn = { git = "https://github.com/ax1s-x1zz/burn", branch = "feat/bluestein-arbitrary-n", features = ["autodiff", "metal", "signal", "store", "train"] }
+burn = { git = "https://github.com/ax1s-x1zz/burn", branch = "feat/bluestein-arbitrary-n", features = ["autodiff", "flex", "signal", "store", "train"] }
 ndarray = "0.17"
 ndarray-npy = "0.10"
 matfile = "0.5"
