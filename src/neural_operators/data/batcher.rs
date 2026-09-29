@@ -41,7 +41,7 @@ impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
     ///
     /// Any other pairing is rejected at compile time:
     ///
-    /// ```compile_fail
+    /// ```compile_fail,E0080
     /// use burn::tensor::Device;
     /// use sciml_rs::neural_operators::data::batcher::OperatorBatcher;
     ///

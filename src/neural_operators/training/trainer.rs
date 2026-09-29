@@ -73,7 +73,7 @@ pub fn identity(out: Tensor<2>, target: Tensor<2>) -> (Tensor<2>, Tensor<2>) {
 ///
 /// Any other pairing is rejected at compile time:
 ///
-/// ```compile_fail
+/// ```compile_fail,E0080
 /// use burn::{Tensor, tensor::Device};
 /// use sciml_rs::neural_operators::training::trainer::flatten_pair;
 ///

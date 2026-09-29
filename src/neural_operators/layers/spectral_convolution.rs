@@ -61,7 +61,7 @@ impl<const R: usize> SpectralConv<R> {
     ///
     /// Smaller ranks are rejected at compile time, including through `FNO`:
     ///
-    /// ```compile_fail
+    /// ```compile_fail,E0080
     /// use burn::tensor::Device;
     /// use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
     ///
@@ -69,7 +69,7 @@ impl<const R: usize> SpectralConv<R> {
     /// let _conv = SpectralConv::<2>::new(&device, 1, 1, &[]);
     /// ```
     ///
-    /// ```compile_fail
+    /// ```compile_fail,E0080
     /// use burn::tensor::Device;
     /// use sciml_rs::neural_operators::models::fno::FNOConfig;
     ///
