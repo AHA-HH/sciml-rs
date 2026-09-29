@@ -55,9 +55,8 @@ The backend is a cargo feature; the code is the same for all of them.
 Features are additive. At runtime `Device::default()` uses the
 highest-priority backend that was compiled in - CUDA, then Metal, ROCm,
 Vulkan, wgpu, and Flex last - so enabling a GPU feature on top of the default
-is enough. Every example prints the device it picked. To force one without
-rebuilding, set `BURN_DEVICE` (`cuda`, `rocm`, `metal`, `vulkan`, `wgpu`,
-`flex`):
+is enough. To force one without rebuilding, set 
+`BURN_DEVICE` (`cuda`, `rocm`, `metal`, `vulkan`, `wgpu`, `flex`):
 
     cargo run --release --example train_burgers                      # CPU
     cargo run --release --example train_burgers --features metal     # Apple GPU
