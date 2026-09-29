@@ -1,7 +1,7 @@
 //! Burgers Resolution Sweep
 //! Evaluates a saved Burgers model at resolutions it was never trained on.
 //!
-//! Run with: cargo run --release --example burgers_resolutions -- runs/burgers_fno_<timestamp>
+//! Run with: cargo run --release --example burgers_resolution -- runs/burgers_fno_<timestamp>
 //!
 //! The FNO learns a mapping between function spaces rather than between grids,
 //! so test error should stay roughly flat as the discretisation changes. The
@@ -32,7 +32,7 @@ fn main() {
     let dir = PathBuf::from(
         std::env::args()
             .nth(1)
-            .expect("usage: predict_burgers_resolutions <run_dir>"),
+            .expect("usage: burgers_resolution <run_dir>"),
     );
     // Inference only: no autodiff, so forward passes record no backward graph.
     let device = Device::default();
@@ -54,8 +54,9 @@ fn main() {
 
     let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
 
-    // 8192 / rate. Every rate here is a power of two, so every s is too —
-    // Burn's FFT is radix-2 only.
+    // s = 8192 / rate. Each rate must divide 8192 so the subsampled grid
+    // matches `BurgersConfig::s()` (the loader rejects others); the FFT itself
+    // handles any s.
     println!("{:>6}  {:>10}", "s", "test_l2");
     for rate in [128, 64, 32, 16, 8, 4] {
         let cfg = BurgersConfig::new(

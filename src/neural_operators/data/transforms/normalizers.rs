@@ -98,8 +98,9 @@ impl Normalizer for UnitGaussianNormalizer {
 }
 
 /// Global normalization: single scalar mean/std across all values, all
-/// spatial points, all examples. No customization of `eps` - see gap noted
-/// above `fit`.
+/// spatial points, all examples. `eps` is fixed at `DEFAULT_EPS` (1e-5):
+/// unlike [`UnitGaussianNormalizer::with_eps`], there is no constructor that
+/// sets it.
 #[derive(Clone)]
 pub struct GaussianNormalizer {
     mean: f64,

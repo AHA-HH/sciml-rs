@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run --release --example predict_darcy -- runs/darcy_fno_<timestamp>
 //!
-//! Loads the architecture from model_config.json, the weights from
+//! Loads the architecture from model_cfg.json, the weights from
 //! model_weights.bpk, and the y normalizer from y_normalizer.json - all three
 //! are needed, since weights alone can't reconstruct the model and predictions
 //! come out in normalized units.

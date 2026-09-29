@@ -9,8 +9,10 @@
 //! config rather than by the discretisation. So the same weights apply at any
 //! resolution, and test error should stay roughly flat as the grid refines.
 //!
-//! Burgers' raw grid is 8192 = 2^13, so every power-of-two subsample rate
-//! gives a power-of-two resolution — which Burn's radix-2 FFT requires.
+//! Burgers' raw grid is 8192 = 2^13, and each subsample rate r gives
+//! s = 8192 / r. The rates must divide 8192 so the subsampled grid matches
+//! `BurgersConfig::s()` (the loader rejects others); the FFT itself handles
+//! any s.
 
 use std::path::{Path, PathBuf};
 

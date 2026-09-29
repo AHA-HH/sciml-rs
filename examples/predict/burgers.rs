@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run --release --example predict_burgers -- runs/burgers_fno_<timestamp>
 //!
-//! Loads the architecture from model_config.json, the weights from
+//! Loads the architecture from model_cfg.json, the weights from
 //! model_weights.bpk and reconstructs the model.
 
 use std::path::PathBuf;

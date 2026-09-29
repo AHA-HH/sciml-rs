@@ -17,9 +17,10 @@ Same hyperparameters across columns. The PyTorch port is a direct
 translation of Li et al.'s reference implementation in the official 
 PyTorch neural operators toolbox, run locally.
 
-Darcy at the paper's s = 85 requires a non-power-of-two FFT, which Burn's
-current implementation doesn't support, hence the coarser grid and no
-published number to compare against.
+The spectral layers support any grid size (non-power-of-two FFTs go through
+Bluestein's algorithm), and `examples/train/darcy.rs` now trains at the
+paper's s = 85 with 12 modes. The Darcy row above is from an earlier s = 16
+configuration; an s = 85 comparison against PyTorch hasn't been run yet.
 
 ## Requirements
 

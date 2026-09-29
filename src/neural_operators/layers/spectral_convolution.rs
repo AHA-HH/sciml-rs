@@ -216,7 +216,7 @@ impl<const R: usize> SpectralConv<R> {
         (re, im)
     }
 
-    /// Inverse of [`fft_nd`], applying the axes in the reverse order.
+    /// Inverse of [`Self::fft_ctensor`], applying the axes in the reverse order.
     fn ifft_ctensor(mut re: Tensor<R>, mut im: Tensor<R>, orig_dims: &[usize]) -> Tensor<R> {
         let last = R - 1;
         for (axis, &dim) in orig_dims.iter().enumerate().take(last).skip(2) {

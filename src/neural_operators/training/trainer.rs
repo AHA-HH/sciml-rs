@@ -146,8 +146,8 @@ pub struct EpochSums {
     pub last_lr: f64,
 }
 
-// /// Runs one training pass. Takes and returns the model - Burn's optimizer
-// /// consumes it on each step.
+/// Runs one training pass. Takes and returns the model - Burn's optimizer
+/// consumes it on each step.
 pub fn train_epoch<const R: usize, const RM1: usize>(
     mut model: FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,

@@ -34,9 +34,9 @@ fn main() {
         n_test: 100,
     };
 
-    // subsample rate is 28 -> s = (421-1)/28 + 1 = 16 grid points per axis
-    // The paper uses r=5 (s=85) but Burn's FFT is radix-2 only, so s must
-    // be a power of two r=420,140,60,28 s=2,4,8,16
+    // subsample rate is 5 -> s = (421-1)/5 + 1 = 85 grid points per axis,
+    // the paper's setting. Non-power-of-two sizes are fine: the FFT falls
+    // back to Bluestein's algorithm.
     let dataset_cfg = DarcyConfig::new(data_cfg.clone(), 5);
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
