@@ -1,6 +1,8 @@
 //! FNO on 2D Darcy flow
 //!
 //! Run with: cargo run --release --example train_darcy
+//! (CPU by default; add `--features metal` or `--features cuda` for a GPU -
+//! see "Backends" in the README).
 //!
 //! Structurally identical to `examples/train/burgers.rs` - see that file for the
 //! fully annotated version. The differences: `modes` has two entries instead of
@@ -25,6 +27,7 @@ use std::path::Path;
 
 fn main() {
     let device = Device::default().autodiff();
+    println!("device: {device:?}");
 
     let data_cfg = DatasetConfig {
         n_train: 1000,

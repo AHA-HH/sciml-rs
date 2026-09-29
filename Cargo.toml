@@ -42,9 +42,22 @@ path = "examples/predict/burgers_superresolution.rs"
 name = "darcy_plot"
 path = "examples/predict/darcy_plot.rs"
 
+# Backends are additive: `Device::default()` picks the highest-priority one
+# compiled in (CUDA > Metal > ROCm > Vulkan > wgpu > Flex), and the
+# `BURN_DEVICE` env var overrides it at runtime. NdArray is not offered: Burn's
+# FFT extension (burn-signal) does not support it.
+[features]
+default = ["flex"]
+flex = ["burn/flex"] # pure-Rust CPU
+metal = ["burn/metal"]
+cuda = ["burn/cuda"]
+rocm = ["burn/rocm"]
+vulkan = ["burn/vulkan"]
+wgpu = ["burn/wgpu"]
+
 [dependencies]
 # burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
-burn = { git = "https://github.com/ax1s-x1zz/burn", branch = "feat/bluestein-arbitrary-n", features = ["autodiff", "metal", "signal", "store", "train"] }
+burn = { git = "https://github.com/ax1s-x1zz/burn", branch = "feat/bluestein-arbitrary-n", features = ["autodiff", "signal", "store", "train"] }
 ndarray = "0.17"
 ndarray-npy = "0.10"
 matfile = "0.5"

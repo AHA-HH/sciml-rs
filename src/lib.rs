@@ -16,4 +16,18 @@
 //!
 //! See `examples/burgers` and `examples/darcy`.
 
+// Without a backend Burn's `Device::default()` panics at runtime; fail the
+// build instead with an actionable message.
+#[cfg(not(any(
+    feature = "flex",
+    feature = "metal",
+    feature = "cuda",
+    feature = "rocm",
+    feature = "vulkan",
+    feature = "wgpu"
+)))]
+compile_error!(
+    "sciml-rs needs a backend feature: flex (default), metal, cuda, rocm, vulkan or wgpu"
+);
+
 pub mod neural_operators;
