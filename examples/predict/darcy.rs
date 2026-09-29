@@ -56,7 +56,8 @@ fn main() {
     )
     .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
-    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<4, 3>::new(device.clone()))
+    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<4, 3>::new())
+        .set_device(device.clone())
         .batch_size(20)
         .build(test_data);
 

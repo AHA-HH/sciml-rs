@@ -286,12 +286,14 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
     .init()
     .expect("valid cosine scheduler config");
 
-    let train_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new(train_device))
+    let train_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new())
+        .set_device(train_device)
         .batch_size(train_cfg.batch_size)
         .shuffle(train_cfg.seed)
         .build(train_data);
 
-    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new(eval_device))
+    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new())
+        .set_device(eval_device)
         .batch_size(train_cfg.test_batch_size)
         .build(test_data);
 
@@ -441,7 +443,8 @@ mod tests {
 
         // test_l2 is the summed relative L2 of the final model over the 3 test
         // samples, divided by 3.
-        let loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new(Device::default()))
+        let loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
+            .set_device(Device::default())
             .batch_size(2)
             .build(tiny_dataset(n_test));
         let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
