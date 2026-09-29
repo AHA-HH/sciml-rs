@@ -57,15 +57,45 @@ pub fn identity(out: Tensor<2>, target: Tensor<2>) -> (Tensor<2>, Tensor<2>) {
 /// (rank `RM1 = R - 1`) to the rank-2 pair `LpLoss` requires.
 ///
 /// For `R = 3`: `[b, s, 1]` and `[b, s]` both become `[b, s]`.
+///
+/// `RM1` must be `R - 1`:
+///
+/// ```
+/// use burn::{Tensor, tensor::Device};
+/// use sciml_rs::neural_operators::training::trainer::flatten_pair;
+///
+/// let device = Device::default();
+/// let out = Tensor::<3>::zeros([2, 4, 1], &device);
+/// let target = Tensor::<2>::zeros([2, 4], &device);
+/// let (o, t) = flatten_pair::<3, 2>(out, target);
+/// assert_eq!((o.dims(), t.dims()), ([2, 4], [2, 4]));
+/// ```
+///
+/// Any other pairing is rejected at compile time:
+///
+/// ```compile_fail
+/// use burn::{Tensor, tensor::Device};
+/// use sciml_rs::neural_operators::training::trainer::flatten_pair;
+///
+/// let device = Device::default();
+/// let out = Tensor::<3>::zeros([2, 4, 1], &device);
+/// let target = Tensor::<3>::zeros([2, 4, 1], &device);
+/// let _ = flatten_pair::<3, 3>(out, target);
+/// ```
+///
+/// # Panics
+///
+/// If the output has more than one channel.
 pub fn flatten_pair<const R: usize, const RM1: usize>(
     out: Tensor<R>,
     target: Tensor<RM1>,
 ) -> (Tensor<2>, Tensor<2>) {
-    assert_eq!(
-        RM1,
-        R - 1,
-        "target rank must be output rank minus one (no channel axis)"
-    );
+    const {
+        assert!(
+            RM1 + 1 == R,
+            "target rank must be output rank minus one (no channel axis)"
+        )
+    };
     assert_eq!(
         out.dims()[R - 1],
         1,
@@ -216,14 +246,7 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
     // because model.valid() returns an FNO on Metal rather than Autodiff<Metal>.
     let eval_device = device.clone().inner();
 
-    assert_eq!(
-        model_cfg.modes.len() + 2,
-        R,
-        "FNO<{R}> needs {} modes, config has {}",
-        R - 2,
-        model_cfg.modes.len()
-    );
-
+    // `init` checks `modes.len() + 2 == R`.
     let model = model_cfg.init::<R>(device);
 
     let optim: ModuleOptimizer = AdamConfig::new()
