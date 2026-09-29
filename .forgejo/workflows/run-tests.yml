@@ -46,7 +46,7 @@ jobs:
       #   run: sudo apt-get install -y openmpi-bin libopenmpi-dev
 
       - name: Run unit tests
-        run: cargo test --doc -j 1
+        run: cargo test 
 
       - name: Build docs
         run: cargo doc --no-deps
