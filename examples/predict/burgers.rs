@@ -29,7 +29,8 @@ use std::path::Path;
 
 fn main() {
     let dir = PathBuf::from(std::env::args().nth(1).expect("usage: predict <run_dir>"));
-    let device = Device::default().autodiff();
+    // Inference only: no autodiff, so forward passes record no backward graph.
+    let device = Device::default();
 
     // Architecture from the saved config, weights from the saved record
     let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
