@@ -50,7 +50,8 @@ fn main() {
     let (_, test_data) = load_burgers_uniform(&data_path, &dataset_cfg)
         .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
 
-    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new(device.clone()))
+    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
+        .set_device(device.clone())
         .batch_size(20)
         .build(test_data);
 

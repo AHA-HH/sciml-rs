@@ -16,9 +16,16 @@ pub struct Batch<const R: usize, const RM1: usize> {
 }
 
 /// Stacks [`DataItem`]s into a [`Batch`] for a fixed input/target rank pair.
-pub struct OperatorBatcher<const R: usize, const RM1: usize> {
-    pub device: Device,
-}
+///
+/// Batches are placed on whatever device the DataLoader supplies to
+/// [`Batcher::batch`]. In a hand-written loop, choose it with
+/// `DataLoaderBuilder::set_device`; Burn's `Learner` overrides it via
+/// `DataLoader::to_device` (autodiff device for training, inner device for
+/// validation).
+///
+/// Zero-sized; the private field forces construction through
+/// [`OperatorBatcher::new`] so the rank guard always runs.
+pub struct OperatorBatcher<const R: usize, const RM1: usize>(());
 
 impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
     /// Compile-time guard: evaluated in `new`, so a wrong rank pairing fails
@@ -28,40 +35,42 @@ impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
         "targets rank must be inputs rank minus one (no channel dim)"
     );
 
-    /// Constructs a batcher for the given device.
+    /// Constructs a batcher.
+    ///
+    /// The batcher does not choose a device. If the DataLoader is built
+    /// without `DataLoaderBuilder::set_device`, batches land on
+    /// `Device::default()`, which is **not** an autodiff device, so training
+    /// on them fails or produces no gradients. Pass
+    /// `device.clone().autodiff()` for training loaders.
     ///
     /// `RM1` must be `R - 1`, the only rank pairing this batcher supports:
     ///
     /// ```
-    /// use burn::tensor::Device;
     /// use sciml_rs::neural_operators::data::batcher::OperatorBatcher;
     ///
-    /// let _batcher = OperatorBatcher::<3, 2>::new(Device::default());
+    /// let _batcher = OperatorBatcher::<3, 2>::new();
     /// ```
     ///
     /// Any other pairing is rejected at compile time:
     ///
     /// ```compile_fail,E0080
-    /// use burn::tensor::Device;
     /// use sciml_rs::neural_operators::data::batcher::OperatorBatcher;
     ///
-    /// let _batcher = OperatorBatcher::<3, 3>::new(Device::default());
+    /// let _batcher = OperatorBatcher::<3, 3>::new();
     /// ```
-    pub fn new(device: Device) -> Self {
+    #[allow(clippy::new_without_default)] // a derived `Default` would skip `RANK_OK`
+    pub fn new() -> Self {
         let () = Self::RANK_OK;
-        Self { device }
+        Self(())
     }
 }
 
 impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>>
     for OperatorBatcher<R, RM1>
 {
-    /// `_device` is the plain inner device the DataLoader always supplies.
-    /// This batcher uses `self.device` instead, so batches land on the same
-    /// (autodiff) backend as the model in the hand-written training loop.
-    /// That's why it doesn't work with Burn's `Learner`, which controls
-    /// placement across the train/validation split itself.
-    fn batch(&self, items: Vec<DataItem>, _device: &Device) -> Batch<R, RM1> {
+    /// Places the batch on `device`, as supplied by the DataLoader (set with
+    /// `DataLoaderBuilder::set_device`, or by the `Learner` via `to_device`).
+    fn batch(&self, items: Vec<DataItem>, device: &Device) -> Batch<R, RM1> {
         let n = items.len();
 
         assert!(!items.is_empty(), "cannot construct an empty batch");
@@ -91,12 +100,12 @@ impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>>
 
         let inputs = Tensor::<R>::from_data(
             burn::tensor::TensorData::new(input_data, input_shape),
-            &self.device,
+            device,
         );
 
         let targets = Tensor::<RM1>::from_data(
             burn::tensor::TensorData::new(target_data, target_shape),
-            &self.device,
+            device,
         );
 
         Batch { inputs, targets }
@@ -111,7 +120,7 @@ mod tests {
     #[test]
     fn stacks_items_in_order_with_batch_dim_prepended() {
         let device = Device::default();
-        let batcher = OperatorBatcher::<3, 2>::new(device.clone());
+        let batcher = OperatorBatcher::<3, 2>::new();
 
         // Two items: input [4, 2], target [4]. Values encode their origin.
         let items: Vec<DataItem> = (0..2)
@@ -131,5 +140,24 @@ mod tests {
         let inputs: Vec<f64> = batch.inputs.into_data().iter::<f64>().collect();
         assert_eq!(inputs[0], 0.0); // item 0, [0,0]
         assert_eq!(inputs[8], 100.0); // item 1, [0,0] — 4*2 elements per item
+    }
+
+    #[test]
+    fn batch_lands_on_the_supplied_device() {
+        let batcher = OperatorBatcher::<3, 2>::new();
+        let items = || {
+            vec![DataItem {
+                input: ArrayD::zeros(IxDyn(&[4, 2])),
+                target: ArrayD::zeros(IxDyn(&[4])),
+            }]
+        };
+
+        let ad = batcher.batch(items(), &Device::default().autodiff());
+        assert!(ad.inputs.is_autodiff());
+        assert!(ad.targets.is_autodiff());
+
+        let inner = batcher.batch(items(), &Device::default().autodiff().inner());
+        assert!(!inner.inputs.is_autodiff());
+        assert!(!inner.targets.is_autodiff());
     }
 }
