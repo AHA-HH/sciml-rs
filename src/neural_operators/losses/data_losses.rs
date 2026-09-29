@@ -37,6 +37,8 @@ impl LpLoss {
     /// `x`, `y`: `[batch, s_1, ..., s_d]`, **unflattened** - the per-axis
     /// extents are needed for the weight. For `d = 1` this is `[batch, s]`.
     ///
+    /// At an exact match the loss is 0 with gradient 0, as in `rel`.
+    ///
     /// # Panics
     /// If `R - 1 != d` (e.g. a flattened `[batch, s^2]` tensor with `d = 2`),
     /// if `x` and `y` shapes differ, or if any spatial extent is below 2.
@@ -63,22 +65,7 @@ impl LpLoss {
 
         let n_points: usize = dims[1..].iter().product();
         let diff = (x - y).abs().reshape([dims[0], n_points]);
-        // p=1: sum of abs diffs. p=2: Euclidean norm. general p: p-norm.
-        let all_norms = match self.p {
-            1 => diff.sum_dim(1).squeeze_dims(&[1]).mul_scalar(h_weight),
-            2 => diff
-                .powf_scalar(2.0)
-                .sum_dim(1)
-                .squeeze_dims(&[1])
-                .sqrt()
-                .mul_scalar(h_weight),
-            p => diff
-                .powf_scalar(p as f64)
-                .sum_dim(1)
-                .squeeze_dims(&[1])
-                .powf_scalar(1.0 / p as f64)
-                .mul_scalar(h_weight),
-        };
+        let all_norms = lp_norm(diff, self.p).mul_scalar(h_weight);
 
         if self.reduction {
             if self.size_average {
@@ -94,32 +81,17 @@ impl LpLoss {
     /// Relative Lp loss: `||x - y||_p / ||y||_p`. Quadrature weight cancels
     /// between numerator and denominator, so it's not applied here.
     /// `x`, `y`: `[batch, n_points]`.
+    ///
+    /// At an exact match (`x == y` for an example) the loss is 0 with gradient
+    /// 0, matching `torch.norm`'s subgradient convention.
+    ///
+    /// Undefined for an identically zero target (`||y||_p = 0`): the example
+    /// evaluates to `inf`, or `NaN` if the prediction is also zero, exactly as
+    /// the reference implementation does. Mask or exclude such examples
+    /// upstream.
     pub fn rel(&self, x: Tensor<2>, y: Tensor<2>) -> Tensor<1> {
-        let diff_norms = match self.p {
-            1 => (x - y.clone()).abs().sum_dim(1).squeeze_dims(&[1]),
-            2 => (x - y.clone())
-                .powf_scalar(2.0)
-                .sum_dim(1)
-                .squeeze_dims(&[1])
-                .sqrt(),
-            p => (x - y.clone())
-                .abs()
-                .powf_scalar(p as f64)
-                .sum_dim(1)
-                .squeeze_dims(&[1])
-                .powf_scalar(1.0 / p as f64),
-        };
-
-        let y_norms = match self.p {
-            1 => y.abs().sum_dim(1).squeeze_dims(&[1]),
-            2 => y.powf_scalar(2.0).sum_dim(1).squeeze_dims(&[1]).sqrt(),
-            p => y
-                .abs()
-                .powf_scalar(p as f64)
-                .sum_dim(1)
-                .squeeze_dims(&[1])
-                .powf_scalar(1.0 / p as f64),
-        };
+        let diff_norms = lp_norm(x - y.clone(), self.p);
+        let y_norms = lp_norm(y, self.p);
 
         let per_example = diff_norms / y_norms;
 
@@ -138,6 +110,32 @@ impl LpLoss {
     pub fn forward(&self, x: Tensor<2>, y: Tensor<2>) -> Tensor<1> {
         self.rel(x, y)
     }
+}
+
+/// Per-row Lp norm of `t: [batch, n_points]`, returning `[batch]`.
+///
+/// For `p >= 2` the final root `s^(1/p)` has an infinite derivative at
+/// `s = 0`, and backward would give `inf * 0 = NaN` at an exact match. Rows
+/// with `s == 0` therefore take the root of a constant 1 and are then set to
+/// 0, so their norm is exactly 0 with gradient 0 - the subgradient
+/// `torch.norm` uses. All other rows are computed exactly as before.
+fn lp_norm(t: Tensor<2>, p: usize) -> Tensor<1> {
+    // p=1: sum of abs. p=2: Euclidean norm. general p: p-norm.
+    let sum = match p {
+        1 => return t.abs().sum_dim(1).squeeze_dims(&[1]),
+        2 => t.powf_scalar(2.0),
+        p => t.abs().powf_scalar(p as f64),
+    }
+    .sum_dim(1)
+    .squeeze_dims::<1>(&[1]);
+
+    let is_zero = sum.clone().equal_elem(0.0);
+    let safe = sum.mask_fill(is_zero.clone(), 1.0);
+    let root = match p {
+        2 => safe.sqrt(),
+        p => safe.powf_scalar(1.0 / p as f64),
+    };
+    root.mask_fill(is_zero, 0.0)
 }
 
 #[cfg(test)]
@@ -373,5 +371,102 @@ mod tests {
             approx::assert_relative_eq!(gi as f64, expected, max_relative = 1e-6, epsilon = 1e-7);
             assert!(gi.is_finite(), "grad[{i}] is not finite");
         }
+    }
+
+    // --- REVIEW.md 2.5: exact-match gradients and zero targets ---
+
+    /// The unguarded norm used before 2.5, kept here as the forward reference.
+    fn unguarded_norm(t: Tensor<2>, p: usize) -> Tensor<1> {
+        match p {
+            1 => t.abs().sum_dim(1).squeeze_dims(&[1]),
+            2 => t.powf_scalar(2.0).sum_dim(1).squeeze_dims(&[1]).sqrt(),
+            p => t
+                .abs()
+                .powf_scalar(p as f64)
+                .sum_dim(1)
+                .squeeze_dims(&[1])
+                .powf_scalar(1.0 / p as f64),
+        }
+    }
+
+    #[test]
+    fn rel_forward_is_bit_identical_to_unguarded_formula() {
+        // The mask only touches rows whose sum is exactly zero, so every
+        // other value must be unchanged to the bit - no tolerance.
+        let (b, n) = (3, 7);
+        let xs: Vec<f32> = (0..b * n).map(|i| (i as f32 * 0.37).sin()).collect();
+        let ys: Vec<f32> = (0..b * n).map(|i| (i as f32 * 0.91).cos() + 0.1).collect();
+        let x = Tensor::<2>::from_data(TensorData::new(xs, vec![b, n]), &device());
+        let y = Tensor::<2>::from_data(TensorData::new(ys, vec![b, n]), &device());
+
+        for p in [1, 2, 3] {
+            let got = LpLoss::new(1, p, true, false)
+                .rel(x.clone(), y.clone())
+                .into_data()
+                .try_to_vec::<f32>()
+                .unwrap();
+            let expected = (unguarded_norm(x.clone() - y.clone(), p)
+                / unguarded_norm(y.clone(), p))
+            .into_data()
+            .try_to_vec::<f32>()
+            .unwrap();
+            assert_eq!(got, expected, "p = {p}");
+        }
+    }
+
+    #[test]
+    fn rel_gradient_at_exact_match_is_zero_not_nan() {
+        // Row 0: x == y (previously NaN gradient for p >= 2).
+        // Row 1: d = x - y = [0.5, 0]. With mean over 2 examples,
+        //   dL/dx_1 = (1/2) |d|^(p-1) sign(d) / (||d||_p^(p-1) ||y_1||_p)
+        //           = [0.5 / ||y_1||_p, 0]  since ||d||_p = |d_0| = 0.5.
+        for p in [2usize, 3] {
+            let ad = Device::default().autodiff();
+            let x = Tensor::<2>::from_data([[1.0, 2.0], [1.0, 2.0]], &ad).require_grad();
+            let y = Tensor::<2>::from_data([[1.0, 2.0], [0.5, 2.0]], &ad);
+            let loss = LpLoss::new(1, p, true, true).rel(x.clone(), y);
+            let g = x
+                .grad(&loss.backward())
+                .expect("x received no gradient")
+                .into_data()
+                .try_to_vec::<f32>()
+                .unwrap();
+
+            assert_eq!(&g[..2], &[0.0, 0.0], "p = {p}: exact-match row");
+            let y1_norm = (0.5f64.powi(p as i32) + 2.0f64.powi(p as i32)).powf(1.0 / p as f64);
+            approx::assert_relative_eq!(g[2] as f64, 0.5 / y1_norm, max_relative = 1e-6);
+            assert_eq!(g[3], 0.0, "p = {p}: zero-difference element");
+        }
+    }
+
+    #[test]
+    fn rel_zero_target_is_inf_or_nan_as_documented() {
+        // Relative error is undefined for ||y|| = 0; behaviour matches the
+        // reference (x/0 = inf, 0/0 = NaN) and is documented on `rel`.
+        let x = Tensor::<2>::from_data([[1.0, 2.0], [0.0, 0.0]], &device());
+        let y = Tensor::<2>::zeros([2, 2], &device());
+        let vals = LpLoss::new(1, 2, true, false)
+            .rel(x, y)
+            .into_data()
+            .try_to_vec::<f32>()
+            .unwrap();
+        assert!(vals[0].is_infinite() && vals[0] > 0.0, "got {}", vals[0]);
+        assert!(vals[1].is_nan(), "got {}", vals[1]);
+    }
+
+    #[test]
+    fn abs_gradient_at_exact_match_is_zero_not_nan() {
+        // abs shares the norm, so it had the same NaN at an exact match.
+        let ad = Device::default().autodiff();
+        let x = Tensor::<2>::from_data([[1.0, 2.0, 3.0]], &ad).require_grad();
+        let y = Tensor::<2>::from_data([[1.0, 2.0, 3.0]], &ad);
+        let loss = LpLoss::new(1, 2, true, true).abs(x.clone(), y);
+        let g = x
+            .grad(&loss.backward())
+            .expect("x received no gradient")
+            .into_data()
+            .try_to_vec::<f32>()
+            .unwrap();
+        assert_eq!(g, vec![0.0, 0.0, 0.0]);
     }
 }
