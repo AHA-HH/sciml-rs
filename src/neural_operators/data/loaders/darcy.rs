@@ -61,7 +61,8 @@ pub struct DarcyNormalizers {
 ///
 /// # Errors
 /// [`LoadError::Reader`] if a file can't be read or lacks `coeff`/`sol`;
-/// [`LoadError::Invalid`] if the fields aren't `[samples, s, s]`, a file has
+/// [`LoadError::Invalid`] if `n_train < 2` (the normalizers' sample std is
+/// undefined for one sample), the fields aren't `[samples, s, s]`, a file has
 /// fewer samples than requested, or the subsample rate doesn't give
 /// `config.s()` points per axis.
 pub fn load_darcy_uniform(
@@ -71,6 +72,13 @@ pub fn load_darcy_uniform(
 ) -> Result<(OperatorDataset, OperatorDataset, DarcyNormalizers), LoadError> {
     if config.subsample_rate == 0 {
         return Err(LoadError::Invalid("subsample_rate must be > 0".into()));
+    }
+    // ddof = 1 std of a single sample is 0/0 = NaN, which eps can't guard
+    if config.n_train() < 2 {
+        return Err(LoadError::Invalid(format!(
+            "n_train must be >= 2: a sample std needs at least 2 training samples, got {}",
+            config.n_train()
+        )));
     }
 
     // Read input ('coeff') and target ('sol') from each split's .mat file,
@@ -184,11 +192,25 @@ mod tests {
     fn cfg(subsample_rate: usize) -> DarcyConfig {
         DarcyConfig::new(
             DatasetConfig {
-                n_train: 1,
+                n_train: 2,
                 n_test: 1,
             },
             subsample_rate,
         )
+    }
+
+    // --- REVIEW1.md N1: one training sample gave an all-NaN normalizer ---
+
+    #[test]
+    fn single_train_sample_is_invalid_not_nan() {
+        let mut config = cfg(5);
+        config.base.n_train = 1;
+        // nonexistent paths: the check must run before any file I/O
+        let err = load_darcy_uniform("/nope/train.mat", "/nope/test.mat", &config)
+            .err()
+            .expect("loading should fail");
+        assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
+        assert!(err.to_string().contains("at least 2"), "{err}");
     }
 
     #[test]

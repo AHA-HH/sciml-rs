@@ -41,7 +41,17 @@ pub struct UnitGaussianNormalizer {
 
 impl UnitGaussianNormalizer {
     /// Fits with a caller-specified `eps` instead of `fit`'s default.
+    ///
+    /// # Panics
+    ///
+    /// If `data` has fewer than 2 samples along axis 0: the sample std
+    /// (`ddof = 1`) is 0/0 = NaN for one sample, which `eps` can't guard.
     pub fn with_eps(data: &ArrayD<f64>, eps: f64) -> Self {
+        let n = data.shape().first().copied().unwrap_or(0);
+        assert!(
+            n >= 2,
+            "UnitGaussianNormalizer: a sample std needs at least 2 samples along axis 0, got {n}"
+        );
         let mean = data.mean_axis(Axis(0)).unwrap();
         let std = data.std_axis(Axis(0), 1.0);
         Self { mean, std, eps }
@@ -101,6 +111,11 @@ impl Normalizer for UnitGaussianNormalizer {
 /// spatial points, all examples. `eps` is fixed at `DEFAULT_EPS` (1e-5):
 /// unlike [`UnitGaussianNormalizer::with_eps`], there is no constructor that
 /// sets it.
+///
+/// # Panics
+///
+/// `fit` panics if `data` has fewer than 2 values in total: the sample std
+/// (`ddof = 1`) is 0/0 = NaN for one value.
 #[derive(Clone)]
 pub struct GaussianNormalizer {
     mean: f64,
@@ -110,6 +125,11 @@ pub struct GaussianNormalizer {
 
 impl Normalizer for GaussianNormalizer {
     fn fit(data: &ArrayD<f64>) -> Self {
+        assert!(
+            data.len() >= 2,
+            "GaussianNormalizer: a sample std needs at least 2 values, got {}",
+            data.len()
+        );
         let mean = data.mean().unwrap();
         let std = data.std(1.0);
         Self {
@@ -281,6 +301,45 @@ mod tests {
         for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
             assert!((x - y).abs() < 1e-4, "element {i}: ndarray {x} != flat {y}");
         }
+    }
+
+    // --- REVIEW1.md N1: one-sample fits gave NaN std under ddof = 1 ---
+
+    #[test]
+    #[should_panic(expected = "at least 2")]
+    fn unit_gaussian_rejects_single_sample() {
+        let data = ArrayD::from_shape_vec(IxDyn(&[1, 3]), vec![1.0, 3.0, 5.0]).unwrap();
+        let _ = UnitGaussianNormalizer::fit(&data);
+    }
+
+    #[test]
+    #[should_panic(expected = "at least 2")]
+    fn gaussian_rejects_single_value() {
+        let data = ArrayD::from_shape_vec(IxDyn(&[1]), vec![1.0]).unwrap();
+        let _ = GaussianNormalizer::fit(&data);
+    }
+
+    #[test]
+    fn unit_gaussian_two_samples_uses_sample_std() {
+        // columns [1, 3] and [3, 7]: ddof = 1 gives [√2, 2√2], ddof = 0 [1, 2]
+        let data = ArrayD::from_shape_vec(IxDyn(&[2, 2]), vec![1.0, 3.0, 3.0, 7.0]).unwrap();
+        let n = UnitGaussianNormalizer::fit(&data);
+        assert_eq!(n.mean_ref().as_slice().unwrap(), &[2.0, 5.0]);
+        let std = n.std_ref().as_slice().unwrap();
+        let expected = [2f64.sqrt(), 2.0 * 2f64.sqrt()];
+        for (a, b) in std.iter().zip(expected) {
+            assert!((a - b).abs() < 1e-12, "{a} != {b}");
+        }
+        assert!(n.encode(data).iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn gaussian_accepts_one_sample_with_several_values() {
+        // global std is over all values, so one multi-point sample is fine
+        let data = ArrayD::from_shape_vec(IxDyn(&[1, 3]), vec![1.0, 2.0, 3.0]).unwrap();
+        let n = GaussianNormalizer::fit(&data);
+        assert!((n.mean - 2.0).abs() < 1e-12 && (n.std - 1.0).abs() < 1e-12);
+        assert!(n.encode(data).iter().all(|v| v.is_finite()));
     }
 
     // --- REVIEW.md 2.6: RangeNormalizer at constant points ---
