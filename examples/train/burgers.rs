@@ -47,7 +47,7 @@ fn main() {
     // so each sample is a function `a(x)` is evaluated at `s` evenly spaced locations on [0,1]
     // paired with the solution `u(x)` at the same `s` locations
     // For this example it is set to 32 -> s = 2^13 / 32 = 256 grid points
-    let dataset_cfg = BurgersConfig::new(data_cfg.clone(), 32);
+    let dataset_cfg = BurgersConfig::new(data_cfg, 32);
 
     // Automatically finds the path for the Burgers dataset as long as the file is in
     // the datasets folder at the repository root
@@ -92,9 +92,7 @@ fn main() {
 
     // Training wrapper function that handles the building of training components and the training loop
     // Use the L2 loss for training and evaluation
-    let (model, metrics) = train_burgers(
-        train_data, test_data, &model_cfg, &train_cfg, &data_cfg, &device,
-    );
+    let (model, metrics) = train_burgers(train_data, test_data, &model_cfg, &train_cfg, &device);
 
     // Writes metrics and configs files to runs/burgers_fno_<timestamp>/
     let dir = write_run_artifacts(

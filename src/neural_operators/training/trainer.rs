@@ -2,7 +2,10 @@
 
 use burn::{
     config::Config,
-    data::dataloader::{DataLoader, DataLoaderBuilder},
+    data::{
+        dataloader::{DataLoader, DataLoaderBuilder},
+        dataset::Dataset,
+    },
     lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
     module::Module,
     optim::{
@@ -19,7 +22,6 @@ use crate::neural_operators::{
     data::{
         batcher::{Batch, OperatorBatcher},
         dataset::OperatorDataset,
-        loaders::base_dataset::DatasetConfig,
     },
     losses::data_losses::{LpLoss, Reduction},
     models::fno::{FNO, FNOConfig},
@@ -109,7 +111,7 @@ pub fn flatten_pair<const R: usize, const RM1: usize>(
 }
 
 /// Runs one evaluation pass. Returns the summed relative L2 across all
-/// batches; the caller divides by `n_test`.
+/// batches; the caller divides by the number of test samples.
 pub fn eval_epoch<const R: usize, const RM1: usize>(
     model: &FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
@@ -138,8 +140,9 @@ pub fn eval_epoch<const R: usize, const RM1: usize>(
         .into_scalar::<f32>()
 }
 
-/// Summed losses for one training epoch. Division by `n_train` /
-/// `steps_per_epoch` happens in the caller, which owns the denominators.
+/// Summed losses for one training epoch. Division by the number of training
+/// samples / `steps_per_epoch` happens in the caller, which owns the
+/// denominators.
 pub struct EpochSums {
     pub mse_sum: f32,
     pub l2_sum: f32,
@@ -227,16 +230,35 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
     pub loss_fn: LpLoss,
     pub train_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
     pub test_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
+    /// Training / test sample counts: the per-sample metric divisors.
+    pub n_train: usize,
+    pub n_test: usize,
+    /// Batches per training epoch; the cosine schedule spans
+    /// `epochs * steps_per_epoch` steps.
+    pub steps_per_epoch: usize,
 }
 
+/// Builds the model, optimizer, schedule and loaders.
+///
+/// Sample counts come from the datasets themselves, so the schedule length
+/// and the metric divisors always match the data actually trained on.
+///
+/// # Panics
+///
+/// If either dataset is empty.
 pub fn build_training_components<const R: usize, const RM1: usize>(
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
-    data_cfg: &DatasetConfig,
     train_data: OperatorDataset,
     test_data: OperatorDataset,
     device: &Device,
 ) -> TrainingComponents<R, RM1> {
+    let (n_train, n_test) = (train_data.len(), test_data.len());
+    assert!(
+        n_train > 0 && n_test > 0,
+        "training needs non-empty datasets, got {n_train} train / {n_test} test samples"
+    );
+
     device.seed(train_cfg.seed);
 
     // Training tensors must live on the autodiff device.
@@ -254,7 +276,8 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
         .with_weight_decay(Some(WeightDecayConfig::new(train_cfg.weight_decay)))
         .init();
 
-    let steps_per_epoch = data_cfg.n_train.div_ceil(train_cfg.batch_size);
+    // DataLoader yields ceil(len / batch_size) batches, the last one partial
+    let steps_per_epoch = n_train.div_ceil(train_cfg.batch_size);
     let scheduler = CosineAnnealingLrSchedulerConfig::new(
         train_cfg.learning_rate,
         train_cfg.epochs * steps_per_epoch,
@@ -279,18 +302,21 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
         loss_fn: LpLoss::new(R - 2, 2, Reduction::Sum),
         train_loader,
         test_loader,
+        n_train,
+        n_test,
+        steps_per_epoch,
     }
 }
 
 pub fn training_loop<const R: usize, const RM1: usize>(
     mut components: TrainingComponents<R, RM1>,
     train_cfg: &TrainingConfig,
-    data_cfg: &DatasetConfig,
     train_post: &Postprocess,
     eval_post: &Postprocess,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
     let start = std::time::Instant::now();
-    let steps_per_epoch = data_cfg.n_train.div_ceil(train_cfg.batch_size);
+    let (n_train, n_test) = (components.n_train, components.n_test);
+    let steps_per_epoch = components.steps_per_epoch;
     let mut model = components.model;
     let mut metrics = Vec::with_capacity(train_cfg.epochs);
 
@@ -321,8 +347,8 @@ pub fn training_loop<const R: usize, const RM1: usize>(
         let record = EpochMetrics {
             epoch,
             train_mse: sums.mse_sum / steps_per_epoch as f32,
-            train_l2: sums.l2_sum / data_cfg.n_train as f32,
-            test_l2: test_l2_sum / data_cfg.n_test as f32,
+            train_l2: sums.l2_sum / n_train as f32,
+            test_l2: test_l2_sum / n_test as f32,
             current_lr: sums.last_lr,
         };
 
@@ -347,6 +373,96 @@ mod tests {
         let (o, t) = flatten_pair::<4, 3>(out, target);
         assert_eq!(o.dims(), [2, 30]);
         assert_eq!(t.dims(), [2, 30]);
+    }
+
+    // --- REVIEW1.md N5: schedule length and divisors come from the data ---
+
+    /// `n` Burgers-shaped samples: inputs `[n, 8, 2]`, targets `[n, 8]`,
+    /// targets nonzero so the relative L2 is well defined.
+    fn tiny_dataset(n: usize) -> OperatorDataset {
+        let inputs = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 8, 2]), |i| {
+            ((i[0] * 8 + i[1]) as f64 * 0.3 + i[2] as f64).sin()
+        });
+        let targets = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 8]), |i| {
+            2.0 + ((i[0] * 8 + i[1]) as f64 * 0.7).cos()
+        });
+        OperatorDataset::new(inputs, targets)
+    }
+
+    fn tiny_model_cfg() -> FNOConfig {
+        FNOConfig::new(vec![2], 1, 1)
+            .with_hidden_channels(4)
+            .with_n_layers(1)
+    }
+
+    #[test]
+    fn components_take_sample_counts_from_the_datasets() {
+        let train_cfg = TrainingConfig::new().with_batch_size(2);
+        let c = build_training_components::<3, 2>(
+            &tiny_model_cfg(),
+            &train_cfg,
+            tiny_dataset(5),
+            tiny_dataset(3),
+            &Device::default().autodiff(),
+        );
+        assert_eq!((c.n_train, c.n_test), (5, 3));
+        assert_eq!(c.steps_per_epoch, 3); // ceil(5 / 2)
+    }
+
+    #[test]
+    fn schedule_and_test_divisor_match_the_data() {
+        let (n_train, n_test, epochs) = (5, 3, 2);
+        let (lr, min_lr) = (1e-3, 1e-5);
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(epochs)
+            .with_batch_size(2)
+            .with_test_batch_size(2)
+            .with_learning_rate(lr)
+            .with_min_lr(min_lr);
+        let components = build_training_components::<3, 2>(
+            &tiny_model_cfg(),
+            &train_cfg,
+            tiny_dataset(n_train),
+            tiny_dataset(n_test),
+            &Device::default().autodiff(),
+        );
+        let (model, metrics) = training_loop(components, &train_cfg, &identity, &identity);
+
+        // Cosine over N = epochs * ceil(5 / 2) = 6 steps: step k (1-based)
+        // gives min + (max - min)(1 + cos((k - 1)π / N)) / 2.
+        let n = (epochs * 3) as f64;
+        let expected_lr =
+            min_lr + 0.5 * (lr - min_lr) * (1.0 + ((n - 1.0) / n * std::f64::consts::PI).cos());
+        let last_lr = metrics.last().unwrap().current_lr;
+        assert!(
+            (last_lr - expected_lr).abs() < 1e-15,
+            "{last_lr} != {expected_lr}"
+        );
+
+        // test_l2 is the summed relative L2 of the final model over the 3 test
+        // samples, divided by 3.
+        let loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new(Device::default()))
+            .batch_size(2)
+            .build(tiny_dataset(n_test));
+        let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
+        let expected = eval_epoch(&model.valid(), &loader, &loss_fn, &identity) / n_test as f32;
+        let test_l2 = metrics.last().unwrap().test_l2;
+        assert!(
+            (test_l2 - expected).abs() <= 1e-6 * expected.abs(),
+            "{test_l2} != {expected}"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "non-empty datasets")]
+    fn empty_training_set_is_rejected() {
+        let _ = build_training_components::<3, 2>(
+            &tiny_model_cfg(),
+            &TrainingConfig::new(),
+            tiny_dataset(0),
+            tiny_dataset(3),
+            &Device::default().autodiff(),
+        );
     }
 
     #[test]

@@ -37,7 +37,7 @@ fn main() {
     // subsample rate is 5 -> s = (421-1)/5 + 1 = 85 grid points per axis,
     // the paper's setting. Non-power-of-two sizes are fine: the FFT falls
     // back to Bluestein's algorithm.
-    let dataset_cfg = DarcyConfig::new(data_cfg.clone(), 5);
+    let dataset_cfg = DarcyConfig::new(data_cfg, 5);
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let train_path = datasets.join("piececonst_r421_N1024_smooth1.mat");
@@ -79,7 +79,6 @@ fn main() {
         &normalizers.y,
         &model_cfg,
         &train_cfg,
-        &data_cfg,
         &device,
     );
 

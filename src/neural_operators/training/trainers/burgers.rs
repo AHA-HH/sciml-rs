@@ -3,7 +3,7 @@
 use burn::prelude::*;
 
 use crate::neural_operators::{
-    data::{dataset::OperatorDataset, loaders::base_dataset::DatasetConfig},
+    data::dataset::OperatorDataset,
     models::fno::{FNO, FNOConfig},
     training::{
         metrics::EpochMetrics,
@@ -20,12 +20,10 @@ pub fn train_burgers(
     test_data: OperatorDataset,
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
-    data_cfg: &DatasetConfig,
     device: &Device,
 ) -> (FNO<3>, Vec<EpochMetrics>) {
-    let components = build_training_components::<3, 2>(
-        model_cfg, train_cfg, data_cfg, train_data, test_data, device,
-    );
+    let components =
+        build_training_components::<3, 2>(model_cfg, train_cfg, train_data, test_data, device);
 
-    training_loop(components, train_cfg, data_cfg, &identity, &identity)
+    training_loop(components, train_cfg, &identity, &identity)
 }

@@ -5,7 +5,6 @@ use burn::prelude::*;
 use crate::neural_operators::{
     data::{
         dataset::OperatorDataset,
-        loaders::base_dataset::DatasetConfig,
         transforms::normalizers::{
             UnitGaussianNormalizer, decode_flat, normalizer_to_flat_tensors,
         },
@@ -28,7 +27,6 @@ pub fn train_darcy(
     y_normalizer: &UnitGaussianNormalizer,
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
-    data_cfg: &DatasetConfig,
     device: &Device,
 ) -> (FNO<4>, Vec<EpochMetrics>) {
     let (train_mean, train_std) = normalizer_to_flat_tensors(y_normalizer, device);
@@ -50,9 +48,8 @@ pub fn train_darcy(
         (decode_flat(out, &eval_mean, &eval_std, eps), target)
     };
 
-    let components = build_training_components::<4, 3>(
-        model_cfg, train_cfg, data_cfg, train_data, test_data, device,
-    );
+    let components =
+        build_training_components::<4, 3>(model_cfg, train_cfg, train_data, test_data, device);
 
-    training_loop(components, train_cfg, data_cfg, &train_post, &eval_post)
+    training_loop(components, train_cfg, &train_post, &eval_post)
 }
