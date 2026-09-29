@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run --release --example predict_darcy -- runs/darcy_fno_<timestamp>
 //!
-//! Loads the architecture from model_config.json, the weights from
+//! Loads the architecture from model_cfg.json, the weights from
 //! model_weights.bpk, and the y normalizer from y_normalizer.json - all three
 //! are needed, since weights alone can't reconstruct the model and predictions
 //! come out in normalized units.
@@ -26,7 +26,7 @@ use sciml_rs::neural_operators::{
             NormalizerRecord, UnitGaussianNormalizer, decode_flat, normalizer_to_flat_tensors,
         },
     },
-    losses::data_losses::LpLoss,
+    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
     training::trainer::eval_epoch,
 };
@@ -37,7 +37,8 @@ fn main() {
             .nth(1)
             .expect("usage: predict_darcy <run_dir>"),
     );
-    let device = Device::default().autodiff();
+    // Inference only: no autodiff, so forward passes record no backward graph.
+    let device = Device::default();
 
     // Architecture from config, weights from the burnpack record
     let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
@@ -49,10 +50,11 @@ fn main() {
     let dataset_cfg = DarcyConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let (_, test_data, _) = load_darcy_uniform(
-        &datasets.join("piececonst_r421_N1024_smooth1.mat"),
-        &datasets.join("piececonst_r421_N1024_smooth2.mat"),
+        datasets.join("piececonst_r421_N1024_smooth1.mat"),
+        datasets.join("piececonst_r421_N1024_smooth2.mat"),
         &dataset_cfg,
-    );
+    )
+    .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
     let test_loader = DataLoaderBuilder::new(OperatorBatcher::<4, 3>::new(device.clone()))
         .batch_size(20)
@@ -67,7 +69,7 @@ fn main() {
     let eval_post =
         move |out: Tensor<2>, target: Tensor<2>| (decode_flat(out, &mean, &std, eps), target);
 
-    let loss_fn = LpLoss::new(2, 2, false, true);
+    let loss_fn = LpLoss::new(2, 2, Reduction::Sum);
     let l2 = eval_epoch::<4, 3>(&model, &test_loader, &loss_fn, &eval_post);
 
     println!(

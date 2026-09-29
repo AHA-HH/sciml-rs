@@ -188,4 +188,54 @@ mod tests {
         };
         let _: FNO<4> = config.init::<4>(&device); // asking for rank 4
     }
+
+    // --- REVIEW.md 2.7: inference without autodiff ---
+
+    #[test]
+    fn autodiff_trained_weights_give_identical_inference_on_plain_device() {
+        // Mirrors train -> save -> predict: weights from a model built on the
+        // autodiff device, loaded into one on the plain device (what the
+        // predict examples now use).
+        use burn::store::{BurnpackStore, ModuleSnapshot};
+        use burn::tensor::TensorData;
+
+        let ad = Device::default().autodiff();
+        let plain = Device::default();
+        let config = FNOConfig {
+            modes: vec![4],
+            hidden_channels: 8,
+            data_channels: 1,
+            out_channels: 1,
+            n_layers: 2,
+        };
+
+        let trained: FNO<3> = config.init::<3>(&ad);
+        let mut save = BurnpackStore::from_bytes(None);
+        trained.save_into(&mut save).expect("save weights");
+        let bytes = save.get_bytes().expect("serialise weights");
+
+        let mut loaded: FNO<3> = config.init::<3>(&plain);
+        loaded
+            .load_from(&mut BurnpackStore::from_bytes(Some(bytes)))
+            .expect("load weights");
+
+        // [batch, s, data + coord channels], channels-last.
+        let shape = vec![2, 16, 2];
+        let vals: Vec<f32> = (0..64).map(|i| (i as f32 * 0.29).sin()).collect();
+        let x_ad = Tensor::<3>::from_data(TensorData::new(vals.clone(), shape.clone()), &ad);
+        let x_plain = Tensor::<3>::from_data(TensorData::new(vals, shape), &plain);
+
+        let out_ad = trained.forward(x_ad);
+        let out_plain = loaded.forward(x_plain);
+
+        // The old example path tracked a backward graph; the new one doesn't.
+        assert!(out_ad.is_autodiff());
+        assert!(!out_plain.is_autodiff());
+
+        // Same backend kernels either way, so the values must match exactly.
+        assert_eq!(
+            out_ad.inner().into_data().try_to_vec::<f32>().unwrap(),
+            out_plain.into_data().try_to_vec::<f32>().unwrap()
+        );
+    }
 }

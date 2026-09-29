@@ -7,15 +7,15 @@
 
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
-    grids::{append_grid_1d, uniform_grid_1d},
-    io::{readers::mat::MatFileReader, traits::FieldReader},
+    grids::{GridPlacement, append_grid, uniform_grid},
+    io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     split::train_test_split,
     transforms::subsample::subsample,
 };
 use burn::config::Config;
 use ndarray::IxDyn;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Config, Debug)]
 pub struct BurgersConfig {
@@ -45,14 +45,41 @@ impl HasBaseConfig for BurgersConfig {
 ///
 /// Inputs end up `[n, s, 1 + 1]` and targets `[n, s]` - the rank difference
 /// the batcher's `RM1 = R - 1` invariant expects.
+///
+/// # Errors
+/// [`LoadError::Reader`] if the file can't be read or lacks `a`/`u`;
+/// [`LoadError::Invalid`] if the fields aren't `[samples, 8192]`, there are
+/// fewer than `n_train + n_test` samples, or the subsample rate doesn't give
+/// `config.s()` points.
 pub fn load_burgers_uniform(
-    path: &PathBuf,
+    path: impl AsRef<Path>,
     config: &BurgersConfig,
-) -> (OperatorDataset, OperatorDataset) {
+) -> Result<(OperatorDataset, OperatorDataset), LoadError> {
+    if config.subsample_rate == 0 {
+        return Err(LoadError::Invalid("subsample_rate must be > 0".into()));
+    }
+
     // 1. Read raw data from .mat file
-    let reader = MatFileReader::new(Path::new(path)).expect("failed to open Burgers .mat file");
-    let a_data = reader.read_field("a").expect("failed to read field 'a'");
-    let u_data = reader.read_field("u").expect("failed to read field 'u'");
+    let reader = MatFileReader::new(path.as_ref())?;
+    let a_data = reader.read_field("a")?;
+    let u_data = reader.read_field("u")?;
+
+    for (name, field) in [("a", &a_data), ("u", &u_data)] {
+        if field.ndim() != 2 {
+            return Err(LoadError::Invalid(format!(
+                "field '{name}' must be [samples, points], got shape {:?}",
+                field.shape()
+            )));
+        }
+        let n_total = field.shape()[0];
+        if config.n_train() + config.n_test() > n_total {
+            return Err(LoadError::Invalid(format!(
+                "n_train ({}) + n_test ({}) exceeds the {n_total} samples in field '{name}'",
+                config.n_train(),
+                config.n_test()
+            )));
+        }
+    }
 
     // 2. Subsample along spatial dimension (dim 1)
     let a_data = subsample(a_data, 1, config.subsample_rate);
@@ -60,49 +87,39 @@ pub fn load_burgers_uniform(
 
     // spatial size after subsampling
     let s = a_data.shape()[1];
-    assert_eq!(
-        s,
-        config.s(),
-        "subsampled resolution {s} != config.s() {}",
-        config.s()
-    );
+    if s != config.s() || u_data.shape()[1] != s {
+        return Err(LoadError::Invalid(format!(
+            "subsampled resolution {s} (a) / {} (u) != config.s() {}",
+            u_data.shape()[1],
+            config.s()
+        )));
+    }
 
-    // 3. Split into train and test
+    // 3. Split into train and test (sizes validated above)
     let (a_train, a_test) = train_test_split(a_data, config.n_train(), config.n_test());
     let (u_train, u_test) = train_test_split(u_data, config.n_train(), config.n_test());
-
-    assert_eq!(
-        a_train.shape()[0],
-        config.n_train(),
-        "n_train mismatch after split"
-    );
-    assert_eq!(
-        a_test.shape()[0],
-        config.n_test(),
-        "n_test mismatch after split"
-    );
 
     // 4. Reshape inputs [n, s] -> [n, s, 1] to prepare for grid append
     let a_train = a_train
         .into_shape_with_order(IxDyn(&[config.n_train(), s, 1]))
-        .expect("failed to reshape a_train");
+        .map_err(|e| LoadError::Invalid(format!("reshape a_train: {e}")))?;
     let a_test = a_test
         .into_shape_with_order(IxDyn(&[config.n_test(), s, 1]))
-        .expect("failed to reshape a_test");
+        .map_err(|e| LoadError::Invalid(format!("reshape a_test: {e}")))?;
 
     // 5. Generate uniform grid [0, 1] and append as second channel
     // [n, s, 1] -> [n, s, 2]
-    let grid = uniform_grid_1d(0.0, 1.0, s);
-    let a_train = append_grid_1d(a_train, grid.clone());
-    let a_test = append_grid_1d(a_test, grid.clone());
+    let grid = uniform_grid(&[(0.0, 1.0)], &[s]);
+    let a_train = append_grid(a_train, &grid, GridPlacement::AfterData);
+    let a_test = append_grid(a_test, &grid, GridPlacement::AfterData);
 
     // 6. Reshape targets [n, s] -> [n, s] ensure dynamic shape
     let u_train = u_train
         .into_shape_with_order(IxDyn(&[config.n_train(), s]))
-        .expect("failed to reshape u_train");
+        .map_err(|e| LoadError::Invalid(format!("reshape u_train: {e}")))?;
     let u_test = u_test
         .into_shape_with_order(IxDyn(&[config.n_test(), s]))
-        .expect("failed to reshape u_test");
+        .map_err(|e| LoadError::Invalid(format!("reshape u_test: {e}")))?;
 
     // 7. Wrap in OperatorDataset
     let train_dataset = OperatorDataset::new(a_train, u_train);
@@ -115,5 +132,42 @@ pub fn load_burgers_uniform(
         s
     );
 
-    (train_dataset, test_dataset)
+    Ok((train_dataset, test_dataset))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::neural_operators::data::io::errors::ReaderError;
+
+    fn cfg(subsample_rate: usize) -> BurgersConfig {
+        BurgersConfig::new(
+            DatasetConfig {
+                n_train: 1,
+                n_test: 1,
+            },
+            subsample_rate,
+        )
+    }
+
+    #[test]
+    fn missing_file_is_a_reader_error() {
+        let err = load_burgers_uniform("/definitely/not/here/burgers.mat", &cfg(32))
+            .err()
+            .expect("loading should fail");
+        assert!(
+            matches!(err, LoadError::Reader(ReaderError::FileNotFound(_))),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains("burgers.mat"), "{err}");
+    }
+
+    #[test]
+    fn zero_subsample_rate_is_invalid_not_a_panic() {
+        // Previously `config.s()` (8192 / 0) or `subsample` would panic.
+        let err = load_burgers_uniform("/definitely/not/here/burgers.mat", &cfg(0))
+            .err()
+            .expect("loading should fail");
+        assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
+    }
 }

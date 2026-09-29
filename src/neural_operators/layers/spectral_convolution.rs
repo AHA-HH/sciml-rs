@@ -12,7 +12,8 @@
 //! `R` is the total tensor rank: `R = D + 2` for `D` spatial axes, plus the
 //! batch and channel axes. Burn encodes rank in the tensor *type*, so it must
 //! be a compile-time constant. Mode counts, by contrast, are ordinary runtime
-//! data (`modes: Vec<usize>`); `new` asserts the two agree.
+//! data (`modes: Vec<usize>`); `new` asserts the two agree. `R >= 3` (at least
+//! one spatial axis) is enforced at compile time.
 
 use burn::{
     Tensor,
@@ -38,10 +39,49 @@ pub struct SpectralConv<const R: usize> {
 }
 
 impl<const R: usize> SpectralConv<R> {
+    /// Compile-time guard: at least one spatial axis. Evaluated in `new` and
+    /// `forward`, so `SpectralConv<R>` (and `FNO<R>`) with `R < 3` fails to
+    /// build instead of underflowing `R - 2` / `modes.len() - 1` at runtime.
+    const RANK_OK: () = assert!(
+        R >= 3,
+        "SpectralConv<R> needs at least one spatial axis (R >= 3)"
+    );
+
+    /// `R` must be at least 3 (one or more spatial axes):
+    ///
+    /// ```
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
+    /// use sciml_rs::neural_operators::models::fno::FNOConfig;
+    ///
+    /// let device = Device::default();
+    /// let _conv = SpectralConv::<3>::new(&device, 1, 1, &[4]);
+    /// let _model = FNOConfig::new(vec![4], 1, 1).init::<3>(&device);
+    /// ```
+    ///
+    /// Smaller ranks are rejected at compile time, including through `FNO`:
+    ///
+    /// ```compile_fail,E0080
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
+    ///
+    /// let device = Device::default();
+    /// let _conv = SpectralConv::<2>::new(&device, 1, 1, &[]);
+    /// ```
+    ///
+    /// ```compile_fail,E0080
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::models::fno::FNOConfig;
+    ///
+    /// let device = Device::default();
+    /// let _model = FNOConfig::new(vec![], 1, 1).init::<2>(&device);
+    /// ```
+    ///
     /// # Panics
     ///
     /// If `modes.len() != R - 2`.
     pub fn new(device: &Device, in_channels: usize, out_channels: usize, modes: &[usize]) -> Self {
+        let () = Self::RANK_OK;
         assert_eq!(
             modes.len(),
             R - 2,
@@ -97,6 +137,26 @@ impl<const R: usize> SpectralConv<R> {
                 }
             })
             .collect()
+    }
+
+    /// Checks that every mode count fits its spatial extent `n`.
+    ///
+    /// Non-last axes keep a low block `0..m` and a high block `n-m..n`, which
+    /// are disjoint only if `m <= n/2`. The last axis keeps `0..m` of the
+    /// `n/2 + 1` bins the real FFT produces.
+    fn check_modes_fit(modes: &[usize], spatial: &[usize]) {
+        let last = modes.len() - 1;
+        for (axis, (&m, &n)) in modes.iter().zip(spatial).enumerate() {
+            let (limit, reason) = if axis == last {
+                (n / 2 + 1, "the rfft axis has n/2 + 1 frequency bins")
+            } else {
+                (n / 2, "low and high mode blocks would overlap")
+            };
+            assert!(
+                m <= limit,
+                "SpectralConv: modes[{axis}] = {m} exceeds {limit} for spatial extent {n} ({reason})"
+            );
+        }
     }
 
     /// Complex channel mixing at every retained frequency.
@@ -156,7 +216,7 @@ impl<const R: usize> SpectralConv<R> {
         (re, im)
     }
 
-    /// Inverse of [`fft_nd`], applying the axes in the reverse order.
+    /// Inverse of [`Self::fft_ctensor`], applying the axes in the reverse order.
     fn ifft_ctensor(mut re: Tensor<R>, mut im: Tensor<R>, orig_dims: &[usize]) -> Tensor<R> {
         let last = R - 1;
         for (axis, &dim) in orig_dims.iter().enumerate().take(last).skip(2) {
@@ -170,10 +230,17 @@ impl<const R: usize> SpectralConv<R> {
     /// `[B, in_channels, spatial..] -> [B, out_channels, spatial..]`.
     ///
     /// Spatial extents are preserved; the channel count changes.
+    ///
+    /// # Panics
+    ///
+    /// If a mode count does not fit the input grid: `modes[i] > n_i / 2` on a
+    /// non-last spatial axis, or `modes[last] > n_last / 2 + 1`.
     pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
         // Captured before the transform: irfft needs the original extent to
         // recover the correct length from the truncated half-spectrum.
+        let () = Self::RANK_OK;
         let orig_dims = x.dims();
+        Self::check_modes_fit(&self.modes, &orig_dims[2..]);
         let (batch, in_ch) = (orig_dims[0], orig_dims[1]);
         let out_ch = self.weights_re[0].val().dims()[1];
         let num_corners = self.weights_re.len();
@@ -468,6 +535,92 @@ mod tests {
     #[test]
     fn gradients_flow_3d() {
         gradient_flow_check::<5>(vec![2, 2, 2], [1, 1, 4, 4, 4]);
+    }
+
+    // --- regression: modes must fit the grid (REVIEW.md 2.2) ---
+
+    fn modes_fit(modes: &[usize], spatial: &[usize]) -> bool {
+        std::panic::catch_unwind(|| SpectralConv::<4>::check_modes_fit(modes, spatial)).is_ok()
+    }
+
+    #[test]
+    fn check_modes_fit_limits_odd_and_even() {
+        // Non-last axis: m <= n/2, so the low and high blocks are disjoint.
+        assert!(modes_fit(&[4, 1], &[8, 8]));
+        assert!(!modes_fit(&[5, 1], &[8, 8]));
+        assert!(modes_fit(&[3, 1], &[7, 8]));
+        assert!(!modes_fit(&[4, 1], &[7, 8]));
+        // Last axis: m <= n/2 + 1 rfft bins.
+        assert!(modes_fit(&[1, 5], &[8, 8]));
+        assert!(!modes_fit(&[1, 6], &[8, 8]));
+        assert!(modes_fit(&[1, 4], &[8, 7]));
+        assert!(!modes_fit(&[1, 5], &[8, 7]));
+    }
+
+    fn forward_with_modes<const R: usize>(modes: Vec<usize>, x_shape: [usize; R]) -> Tensor<R> {
+        let device = Device::default();
+        let conv = SpectralConv::<R>::new(&device, 1, 1, &modes);
+        conv.forward(Tensor::<R>::random(
+            x_shape,
+            Distribution::Normal(0.0, 1.0),
+            &device,
+        ))
+    }
+
+    #[test]
+    #[should_panic(expected = "modes[0] = 5 exceeds 4 for spatial extent 8")]
+    fn forward_rejects_overlapping_modes() {
+        // Previously ran silently: low 0..5 and high 3..8 overlap on rows 3..5.
+        let _ = forward_with_modes::<4>(vec![5, 2], [1, 1, 8, 8]);
+    }
+
+    #[test]
+    #[should_panic(expected = "modes[1] = 6 exceeds 5 for spatial extent 8")]
+    fn forward_rejects_modes_beyond_rfft_bins() {
+        // Previously an opaque out-of-range slice panic inside Burn.
+        let _ = forward_with_modes::<4>(vec![2, 6], [1, 1, 8, 8]);
+    }
+
+    #[test]
+    #[should_panic(expected = "modes[0] = 5 exceeds 2 for spatial extent 4")]
+    fn forward_rejects_modes_larger_than_axis() {
+        // Previously `n - m` underflowed usize in corner_ranges.
+        let _ = forward_with_modes::<4>(vec![5, 2], [1, 1, 4, 8]);
+    }
+
+    /// With I = O = 1, unit weights on every corner and modes at the limit on
+    /// every axis, each frequency bin is kept exactly once, so the layer is
+    /// the identity. Requires an even extent on non-last axes (an odd extent
+    /// drops the middle frequency).
+    fn identity_at_mode_limit<const R: usize>(modes: Vec<usize>, x_shape: [usize; R]) {
+        let device = Device::default();
+        let mut conv = SpectralConv::<R>::new(&device, 1, 1, &modes);
+        let mut w_shape = [1usize; R];
+        w_shape[2..].copy_from_slice(&modes);
+        for c in 0..conv.weights_re.len() {
+            conv.weights_re[c] = Param::from_tensor(Tensor::<R>::ones(w_shape, &device));
+            conv.weights_im[c] = Param::from_tensor(Tensor::<R>::zeros(w_shape, &device));
+        }
+
+        let x = Tensor::<R>::random(x_shape, Distribution::Normal(0.0, 1.0), &device);
+        let out = conv.forward(x.clone());
+        assert_eq!(out.dims(), x_shape);
+
+        let x_vec = x.into_data().try_to_vec::<f32>().unwrap();
+        let out_vec = out.into_data().try_to_vec::<f32>().unwrap();
+        for (i, (a, e)) in out_vec.iter().zip(&x_vec).enumerate() {
+            assert!((a - e).abs() < 1e-4, "mismatch at index {i}: {a} vs {e}");
+        }
+    }
+
+    #[test]
+    fn forward_at_mode_limit_is_identity_1d_even() {
+        identity_at_mode_limit::<3>(vec![9], [1, 1, 16]);
+    }
+
+    #[test]
+    fn forward_at_mode_limit_is_identity_2d_odd_last_axis() {
+        identity_at_mode_limit::<4>(vec![4, 4], [1, 1, 8, 7]);
     }
 
     // --- regression: output must carry out_channels, not in_channels ---

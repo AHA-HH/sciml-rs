@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run --release --example predict_burgers -- runs/burgers_fno_<timestamp>
 //!
-//! Loads the architecture from model_config.json, the weights from
+//! Loads the architecture from model_cfg.json, the weights from
 //! model_weights.bpk and reconstructs the model.
 
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ use sciml_rs::neural_operators::{
             burgers::{BurgersConfig, load_burgers_uniform},
         },
     },
-    losses::data_losses::LpLoss,
+    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
     training::trainer::{eval_epoch, identity},
 };
@@ -29,7 +29,8 @@ use std::path::Path;
 
 fn main() {
     let dir = PathBuf::from(std::env::args().nth(1).expect("usage: predict <run_dir>"));
-    let device = Device::default().autodiff();
+    // Inference only: no autodiff, so forward passes record no backward graph.
+    let device = Device::default();
 
     // Architecture from the saved config, weights from the saved record
     let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
@@ -46,7 +47,8 @@ fn main() {
         data_path.display()
     );
 
-    let (_, test_data) = load_burgers_uniform(&data_path, &dataset_cfg);
+    let (_, test_data) = load_burgers_uniform(&data_path, &dataset_cfg)
+        .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
 
     let test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new(device.clone()))
         .batch_size(20)
@@ -54,7 +56,7 @@ fn main() {
 
     // Burgers has no normalizer, so predictions need no postprocessing - hence `identity`
     // Compare examples/predict/darcy.rs, which decodes
-    let loss_fn = LpLoss::new(1, 2, false, true);
+    let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
     let l2 = eval_epoch::<3, 2>(&model, &test_loader, &loss_fn, &identity);
 
     println!(

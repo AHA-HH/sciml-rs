@@ -26,7 +26,8 @@ fn main() {
             .nth(1)
             .expect("usage: darcy_plot <run_dir>"),
     );
-    let device = Device::default().autodiff();
+    // Inference only: no autodiff, so forward passes record no backward graph.
+    let device = Device::default();
 
     let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
     let mut model = model_cfg.init::<4>(&device);
@@ -36,10 +37,11 @@ fn main() {
     let dataset_cfg = DarcyConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let (_, test_data, _) = load_darcy_uniform(
-        &datasets.join("piececonst_r421_N1024_smooth1.mat"),
-        &datasets.join("piececonst_r421_N1024_smooth2.mat"),
+        datasets.join("piececonst_r421_N1024_smooth1.mat"),
+        datasets.join("piececonst_r421_N1024_smooth2.mat"),
         &dataset_cfg,
-    );
+    )
+    .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
     let y_norm = UnitGaussianNormalizer::from_record(
         &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),

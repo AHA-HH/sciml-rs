@@ -1,9 +1,9 @@
 //! Scientific machine learning in Rust.
 //!
 //! A Neural Operator crate built on [Burn](https://burn.dev).
-//! Tensor rank is a compile-time parameter: `FNO<3>` and `FNO<4>` are distinct
-//! types generated from the same code, so shape invariants are checked by the
-//! compiler rather than at runtime.
+//! Tensor rank is a compile-time parameter: `FNO<3>` (1D), `FNO<4>` (2D) and
+//! `FNO<5>` (3D) are distinct types generated from the same code, so shape
+//! invariants are checked by the compiler rather than at runtime.
 //!
 //! # Layout
 //!
@@ -14,6 +14,21 @@
 //!
 //! # Examples
 //!
-//! See `examples/burgers` and `examples/darcy`.
+//! Training entry points are in `examples/train/` (`burgers.rs`, `darcy.rs`);
+//! re-evaluation of saved runs is in `examples/predict/`.
+
+// Without a backend Burn's `Device::default()` panics at runtime; fail the
+// build instead with an actionable message.
+#[cfg(not(any(
+    feature = "flex",
+    feature = "metal",
+    feature = "cuda",
+    feature = "rocm",
+    feature = "vulkan",
+    feature = "wgpu"
+)))]
+compile_error!(
+    "sciml-rs needs a backend feature: flex (default), metal, cuda, rocm, vulkan or wgpu"
+);
 
 pub mod neural_operators;

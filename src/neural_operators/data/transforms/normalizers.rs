@@ -3,7 +3,7 @@
 //! what statistics they compute and over what scope.
 
 use burn::{config::Config, prelude::*};
-use ndarray::{ArrayD, Axis, IxDyn};
+use ndarray::{ArrayD, Axis, IxDyn, Zip};
 
 // Default guard added to standard deviations to avoid division by zero.
 const DEFAULT_EPS: f64 = 1e-5;
@@ -41,9 +41,19 @@ pub struct UnitGaussianNormalizer {
 
 impl UnitGaussianNormalizer {
     /// Fits with a caller-specified `eps` instead of `fit`'s default.
+    ///
+    /// # Panics
+    ///
+    /// If `data` has fewer than 2 samples along axis 0: the sample std
+    /// (`ddof = 1`) is 0/0 = NaN for one sample, which `eps` can't guard.
     pub fn with_eps(data: &ArrayD<f64>, eps: f64) -> Self {
+        let n = data.shape().first().copied().unwrap_or(0);
+        assert!(
+            n >= 2,
+            "UnitGaussianNormalizer: a sample std needs at least 2 samples along axis 0, got {n}"
+        );
         let mean = data.mean_axis(Axis(0)).unwrap();
-        let std = data.std_axis(Axis(0), 0.0);
+        let std = data.std_axis(Axis(0), 1.0);
         Self { mean, std, eps }
     }
 
@@ -98,8 +108,14 @@ impl Normalizer for UnitGaussianNormalizer {
 }
 
 /// Global normalization: single scalar mean/std across all values, all
-/// spatial points, all examples. No customization of `eps` - see gap noted
-/// above `fit`.
+/// spatial points, all examples. `eps` is fixed at `DEFAULT_EPS` (1e-5):
+/// unlike [`UnitGaussianNormalizer::with_eps`], there is no constructor that
+/// sets it.
+///
+/// # Panics
+///
+/// `fit` panics if `data` has fewer than 2 values in total: the sample std
+/// (`ddof = 1`) is 0/0 = NaN for one value.
 #[derive(Clone)]
 pub struct GaussianNormalizer {
     mean: f64,
@@ -109,8 +125,13 @@ pub struct GaussianNormalizer {
 
 impl Normalizer for GaussianNormalizer {
     fn fit(data: &ArrayD<f64>) -> Self {
+        assert!(
+            data.len() >= 2,
+            "GaussianNormalizer: a sample std needs at least 2 values, got {}",
+            data.len()
+        );
         let mean = data.mean().unwrap();
-        let std = data.std(0.0);
+        let std = data.std(1.0);
         Self {
             mean,
             std,
@@ -130,8 +151,10 @@ impl Normalizer for GaussianNormalizer {
 /// Linear rescaling to `[low, high]` (default `[0, 1]` via `fit`), computed
 /// per spatial point from batch min/max.
 ///
-/// No `eps` guard: a constant channel (`max == min`) produces a division by
-/// zero in `with_range`, propagating `inf`/`NaN` through `encode` silently.
+/// A point that is constant across the batch (`max == min`, e.g. a Dirichlet
+/// boundary pixel) has no range to rescale: it gets scale 1 and is shifted to
+/// the midpoint `(low + high) / 2`, so `encode`/`decode` stay finite and exact
+/// inverses. All other points use the plain min/max map.
 #[derive(Clone)]
 pub struct RangeNormalizer {
     a: ArrayD<f64>, // scale factor
@@ -139,13 +162,31 @@ pub struct RangeNormalizer {
 }
 
 impl RangeNormalizer {
+    /// # Panics
+    ///
+    /// If `low >= high`: `decode` would divide by a zero scale.
     pub fn with_range(data: &ArrayD<f64>, low: f64, high: f64) -> Self {
+        assert!(
+            low < high,
+            "RangeNormalizer: need low < high, got [{low}, {high}]"
+        );
         let min = data.map_axis(Axis(0), |row| row.fold(f64::INFINITY, |a, &b| a.min(b)));
         let max = data.map_axis(Axis(0), |row| row.fold(f64::NEG_INFINITY, |a, &b| a.max(b)));
+        let mid = 0.5 * (low + high);
 
-        // a = (high - low) / (max - min); b = -a * max + high
-        let a = (&max - &min).mapv(|x| (high - low) / x);
-        let b = -&a * &max + high;
+        // a = (high - low) / (max - min); b = -a * max + high. Constant points
+        // would give a = inf and NaN on encode, so they get a = 1, b = mid - c.
+        let a = Zip::from(&max).and(&min).map_collect(|&mx, &mn| {
+            if mx == mn {
+                1.0
+            } else {
+                (high - low) / (mx - mn)
+            }
+        });
+        let b = Zip::from(&a)
+            .and(&max)
+            .and(&min)
+            .map_collect(|&a, &mx, &mn| if mx == mn { mid - mx } else { -a * mx + high });
 
         Self { a, b }
     }
@@ -260,5 +301,116 @@ mod tests {
         for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
             assert!((x - y).abs() < 1e-4, "element {i}: ndarray {x} != flat {y}");
         }
+    }
+
+    // --- REVIEW1.md N1: one-sample fits gave NaN std under ddof = 1 ---
+
+    #[test]
+    #[should_panic(expected = "at least 2")]
+    fn unit_gaussian_rejects_single_sample() {
+        let data = ArrayD::from_shape_vec(IxDyn(&[1, 3]), vec![1.0, 3.0, 5.0]).unwrap();
+        let _ = UnitGaussianNormalizer::fit(&data);
+    }
+
+    #[test]
+    #[should_panic(expected = "at least 2")]
+    fn gaussian_rejects_single_value() {
+        let data = ArrayD::from_shape_vec(IxDyn(&[1]), vec![1.0]).unwrap();
+        let _ = GaussianNormalizer::fit(&data);
+    }
+
+    #[test]
+    fn unit_gaussian_two_samples_uses_sample_std() {
+        // columns [1, 3] and [3, 7]: ddof = 1 gives [√2, 2√2], ddof = 0 [1, 2]
+        let data = ArrayD::from_shape_vec(IxDyn(&[2, 2]), vec![1.0, 3.0, 3.0, 7.0]).unwrap();
+        let n = UnitGaussianNormalizer::fit(&data);
+        assert_eq!(n.mean_ref().as_slice().unwrap(), &[2.0, 5.0]);
+        let std = n.std_ref().as_slice().unwrap();
+        let expected = [2f64.sqrt(), 2.0 * 2f64.sqrt()];
+        for (a, b) in std.iter().zip(expected) {
+            assert!((a - b).abs() < 1e-12, "{a} != {b}");
+        }
+        assert!(n.encode(data).iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn gaussian_accepts_one_sample_with_several_values() {
+        // global std is over all values, so one multi-point sample is fine
+        let data = ArrayD::from_shape_vec(IxDyn(&[1, 3]), vec![1.0, 2.0, 3.0]).unwrap();
+        let n = GaussianNormalizer::fit(&data);
+        assert!((n.mean - 2.0).abs() < 1e-12 && (n.std - 1.0).abs() < 1e-12);
+        assert!(n.encode(data).iter().all(|v| v.is_finite()));
+    }
+
+    // --- REVIEW.md 2.6: RangeNormalizer at constant points ---
+
+    /// [3 samples, 4 points]: points 0 and 2 vary; point 1 is constant 2.5
+    /// (old code: a = inf, b = -inf) and point 3 is constant 0.0 (old code:
+    /// b = inf * 0 = NaN).
+    fn range_data_with_constant_points() -> ArrayD<f64> {
+        ArrayD::from_shape_vec(
+            IxDyn(&[3, 4]),
+            vec![
+                -1.0, 2.5, 10.0, 0.0, //
+                0.5, 2.5, 30.0, 0.0, //
+                3.0, 2.5, 20.0, 0.0,
+            ],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn range_constant_points_encode_to_midpoint_and_round_trip() {
+        let data = range_data_with_constant_points();
+        for (low, high) in [(0.0, 1.0), (-1.0, 1.0)] {
+            let n = RangeNormalizer::with_range(&data, low, high);
+            let enc = n.encode(data.clone());
+            assert!(
+                enc.iter().all(|v| v.is_finite()),
+                "non-finite encode: {enc:?}"
+            );
+
+            let mid = 0.5 * (low + high);
+            for sample in 0..3 {
+                assert_eq!(enc[[sample, 1]], mid, "[{low}, {high}] point 1");
+                assert_eq!(enc[[sample, 3]], mid, "[{low}, {high}] point 3");
+            }
+
+            let dec = n.decode(enc);
+            for (a, b) in data.iter().zip(dec.iter()) {
+                assert!((a - b).abs() < 1e-12, "{a} != {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn range_non_constant_points_are_unchanged() {
+        // The guard only touches max == min points; the others must match the
+        // unguarded formula to the bit, and span [low, high].
+        let data = range_data_with_constant_points();
+        let (low, high) = (-2.0, 3.0);
+        let n = RangeNormalizer::with_range(&data, low, high);
+        let enc = n.encode(data.clone());
+
+        for point in [0, 2] {
+            let col: Vec<f64> = (0..3).map(|s| data[[s, point]]).collect();
+            let min = col.iter().copied().fold(f64::INFINITY, f64::min);
+            let max = col.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let a = (high - low) / (max - min);
+            let b = -a * max + high;
+            for (s, &x) in col.iter().enumerate() {
+                assert_eq!(enc[[s, point]], a * x + b, "point {point}, sample {s}");
+            }
+            let enc_col: Vec<f64> = (0..3).map(|s| enc[[s, point]]).collect();
+            let lo = enc_col.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = enc_col.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            assert!((lo - low).abs() < 1e-12 && (hi - high).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "low < high")]
+    fn range_rejects_empty_target_interval() {
+        let _ = RangeNormalizer::with_range(&range_data_with_constant_points(), 1.0, 1.0);
     }
 }

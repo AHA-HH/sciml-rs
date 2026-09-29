@@ -4,12 +4,12 @@ version = "0.1.0-dev"
 authors = ["The sciml-rs developers"]
 edition = "2024"
 description = "Scientific machine learning tools in Rust"
-license = "MIT / Apache-2.0"
-homepage = "https://codeberg.com.com/sciml-rs/sciml-rs"
+license = "MIT OR Apache-2.0"
+homepage = "https://codeberg.org/sciml-rs/sciml-rs"
 repository = "https://codeberg.org/sciml-rs/sciml-rs.git"
 readme = "README.md"
 keywords = ["neural operators"]
-categories = ["scientific machine learning"]
+categories = ["scientific machine learning", "science", "algorithms"]
 
 [lib]
 name = "sciml_rs"
@@ -42,9 +42,26 @@ path = "examples/predict/burgers_superresolution.rs"
 name = "darcy_plot"
 path = "examples/predict/darcy_plot.rs"
 
+# Backends are additive: `Device::default()` picks the highest-priority one
+# compiled in (CUDA > Metal > ROCm > Vulkan > wgpu > Flex), and the
+# `BURN_DEVICE` env var overrides it at runtime. Burn's FFT extension 
+# (burn-signal) does not support it.
+[features]
+default = ["flex"]
+flex = ["burn/flex"] # pure-Rust CPU
+metal = ["burn/metal"]
+cuda = ["burn/cuda"]
+rocm = ["burn/rocm"]
+vulkan = ["burn/vulkan"]
+wgpu = ["burn/wgpu"]
+
 [dependencies]
 # burn = { version = "0.22.0-pre.3", features = ["autodiff", "flex", "store", "train"] }
+<<<<<<< HEAD
 burn = { git = "https://github.com/ax1s-x1zz/burn", branch = "feat/bluestein-arbitrary-n", features = ["autodiff", "flex", "signal", "store", "train"] }
+=======
+burn = { git = "https://github.com/ax1s-x1zz/burn", rev = "ddfa9af03ab9fb4b8491889e55c9d0ceffbfda22", features = ["autodiff", "signal", "store", "train"] }
+>>>>>>> agents/review
 ndarray = "0.17"
 ndarray-npy = "0.10"
 matfile = "0.5"

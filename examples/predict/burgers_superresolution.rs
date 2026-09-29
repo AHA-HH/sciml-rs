@@ -9,8 +9,10 @@
 //! config rather than by the discretisation. So the same weights apply at any
 //! resolution, and test error should stay roughly flat as the grid refines.
 //!
-//! Burgers' raw grid is 8192 = 2^13, so every power-of-two subsample rate
-//! gives a power-of-two resolution — which Burn's radix-2 FFT requires.
+//! Burgers' raw grid is 8192 = 2^13, and each subsample rate r gives
+//! s = 8192 / r. The rates must divide 8192 so the subsampled grid matches
+//! `BurgersConfig::s()` (the loader rejects others); the FFT itself handles
+//! any s.
 
 use std::path::{Path, PathBuf};
 
@@ -28,7 +30,7 @@ use sciml_rs::neural_operators::{
             burgers::{BurgersConfig, load_burgers_uniform},
         },
     },
-    losses::data_losses::LpLoss,
+    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
     training::trainer::{eval_epoch, identity},
 };
@@ -39,7 +41,8 @@ fn main() {
             .nth(1)
             .expect("usage: burgers_superresolution <run_dir>"),
     );
-    let device = Device::default().autodiff();
+    // Inference only: no autodiff, so forward passes record no backward graph.
+    let device = Device::default();
 
     // Architecture from the saved config, weights from the saved record.
     let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
@@ -58,7 +61,7 @@ fn main() {
         data_path.display()
     );
 
-    let loss_fn = LpLoss::new(1, 2, false, true);
+    let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
     let mut results = Vec::new();
 
     // Training resolution first, then progressively finer grids.
@@ -69,7 +72,8 @@ fn main() {
             continue; // super-resolution only: skip anything coarser
         }
 
-        let (_, test_data) = load_burgers_uniform(&data_path, &cfg);
+        let (_, test_data) = load_burgers_uniform(&data_path, &cfg)
+            .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
         let test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new(device.clone()))
             .batch_size(20)
             .build(test_data);

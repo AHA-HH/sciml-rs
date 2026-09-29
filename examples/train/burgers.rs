@@ -2,6 +2,8 @@
 //!
 //! We train a Fourier Neural Operator (FNO) on a Burgers dataset.
 //! Run with: cargo run --release --example train_burgers
+//! (CPU by default; add `--features metal` or `--features cuda` for a GPU -
+//! see "Backends" in the README).
 //!
 //! This example demonstrates the complete workflow of training a neural operator:
 //! 1. Loading and preprocessing the Burgers dataset
@@ -45,7 +47,7 @@ fn main() {
     // so each sample is a function `a(x)` is evaluated at `s` evenly spaced locations on [0,1]
     // paired with the solution `u(x)` at the same `s` locations
     // For this example it is set to 32 -> s = 2^13 / 32 = 256 grid points
-    let dataset_cfg = BurgersConfig::new(data_cfg.clone(), 32);
+    let dataset_cfg = BurgersConfig::new(data_cfg, 32);
 
     // Automatically finds the path for the Burgers dataset as long as the file is in
     // the datasets folder at the repository root
@@ -58,7 +60,8 @@ fn main() {
 
     // Load and preprocess the Burgers dataset for training and testing using the dataset config values
     // The dataset contains fields initial condition `a` and solution at t=1 `u`
-    let (train_data, test_data) = load_burgers_uniform(&data_path, &dataset_cfg);
+    let (train_data, test_data) = load_burgers_uniform(&data_path, &dataset_cfg)
+        .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
 
     // Set the FNO model, the number of modes sets the dimension of the problem
     // `modes` has one entry per spatial dimension, its length fixes the tensor rank
@@ -89,9 +92,7 @@ fn main() {
 
     // Training wrapper function that handles the building of training components and the training loop
     // Use the L2 loss for training and evaluation
-    let (model, metrics) = train_burgers(
-        train_data, test_data, &model_cfg, &train_cfg, &data_cfg, &device,
-    );
+    let (model, metrics) = train_burgers(train_data, test_data, &model_cfg, &train_cfg, &device);
 
     // Writes metrics and configs files to runs/burgers_fno_<timestamp>/
     let dir = write_run_artifacts(
@@ -100,7 +101,8 @@ fn main() {
         &model_cfg,
         &train_cfg,
         &dataset_cfg,
-    );
+    )
+    .unwrap_or_else(|e| panic!("could not write run artifacts: {e}"));
 
     // Writes model weights file to the same directory
     let mut store = BurnpackStore::from_file(dir.join("model_weights"));

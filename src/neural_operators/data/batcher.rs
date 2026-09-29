@@ -8,8 +8,7 @@ use burn::{Tensor, data::dataloader::batcher::Batcher, prelude::*};
 ///
 /// `R` = input tensor rank (batch + spatial dims + channel axis).
 /// `RM1` = target tensor rank, constrained to `R - 1` (targets have no
-/// channel axis) - enforced at runtime in [`OperatorBatcher::new`],
-/// not by the type system.
+/// channel axis) - enforced at compile time by [`OperatorBatcher::new`].
 #[derive(Clone, Debug)]
 pub struct Batch<const R: usize, const RM1: usize> {
     pub inputs: Tensor<R>,
@@ -22,15 +21,34 @@ pub struct OperatorBatcher<const R: usize, const RM1: usize> {
 }
 
 impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
+    /// Compile-time guard: evaluated in `new`, so a wrong rank pairing fails
+    /// to build instead of panicking at runtime.
+    const RANK_OK: () = assert!(
+        RM1 + 1 == R,
+        "targets rank must be inputs rank minus one (no channel dim)"
+    );
+
     /// Constructs a batcher for the given device.
     ///
-    /// Panics if `RM1 != R - 1` - the only rank pairing this batcher supports.
+    /// `RM1` must be `R - 1`, the only rank pairing this batcher supports:
+    ///
+    /// ```
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::data::batcher::OperatorBatcher;
+    ///
+    /// let _batcher = OperatorBatcher::<3, 2>::new(Device::default());
+    /// ```
+    ///
+    /// Any other pairing is rejected at compile time:
+    ///
+    /// ```compile_fail,E0080
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::data::batcher::OperatorBatcher;
+    ///
+    /// let _batcher = OperatorBatcher::<3, 3>::new(Device::default());
+    /// ```
     pub fn new(device: Device) -> Self {
-        assert_eq!(
-            RM1,
-            R - 1,
-            "targets rank must be inputs rank minus one (no channel dim)"
-        );
+        let () = Self::RANK_OK;
         Self { device }
     }
 }
