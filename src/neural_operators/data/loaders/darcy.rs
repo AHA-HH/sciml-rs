@@ -14,7 +14,7 @@
 
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
-    grids::{append_grid_2d, uniform_grid_2d},
+    grids::{GridPlacement, append_grid, uniform_grid},
     io::{readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     transforms::{
@@ -159,9 +159,12 @@ pub fn load_darcy_uniform(
         .expect("reshape x_test");
 
     // append 2D grid coordinates as two more channels: [n, s, s, 1] -> [n, s, s, 3]
-    let (xx, yy) = uniform_grid_2d(0.0, 1.0, s);
-    let x_train = append_grid_2d(x_train, xx.clone(), yy.clone());
-    let x_test = append_grid_2d(x_test, xx, yy);
+    // Reversed 'ij' grids = Li's 'xy' meshgrid order: channel 1 varies along
+    // spatial axis 2, channel 2 along axis 1. Saved checkpoints depend on it.
+    let mut grid = uniform_grid(&[(0.0, 1.0); 2], &[s, s]);
+    grid.reverse();
+    let x_train = append_grid(x_train, &grid, GridPlacement::AfterData);
+    let x_test = append_grid(x_test, &grid, GridPlacement::AfterData);
 
     // package into OperatorDataset
     let train_dataset = OperatorDataset::new(x_train, y_train);

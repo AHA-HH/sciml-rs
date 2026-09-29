@@ -7,7 +7,7 @@
 
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
-    grids::{append_grid_1d, uniform_grid_1d},
+    grids::{GridPlacement, append_grid, uniform_grid},
     io::{readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     split::train_test_split,
@@ -92,9 +92,9 @@ pub fn load_burgers_uniform(
 
     // 5. Generate uniform grid [0, 1] and append as second channel
     // [n, s, 1] -> [n, s, 2]
-    let grid = uniform_grid_1d(0.0, 1.0, s);
-    let a_train = append_grid_1d(a_train, grid.clone());
-    let a_test = append_grid_1d(a_test, grid.clone());
+    let grid = uniform_grid(&[(0.0, 1.0)], &[s]);
+    let a_train = append_grid(a_train, &grid, GridPlacement::AfterData);
+    let a_test = append_grid(a_test, &grid, GridPlacement::AfterData);
 
     // 6. Reshape targets [n, s] -> [n, s] ensure dynamic shape
     let u_train = u_train

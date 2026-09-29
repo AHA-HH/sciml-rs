@@ -1,25 +1,40 @@
 //! Uniform coordinate grid generation for N-dimensional spatial data.
 
-use ndarray::{Array1, Array2, Array3, ArrayD, Axis, IxDyn, concatenate, s};
+use ndarray::{Array1, ArrayD, Axis, IxDyn, concatenate, s};
 
-/// Generate n independent coordinate axes as broadcast-expanded ArrayD grids.
-/// Each grid varies along its own axis only ('ij'-style indexing, no swap).
-/// `bounds[i]` = (start, end) for axis i, `sizes[i]` = number of points on axis i.
-pub fn uniform_grid(bounds: &[(f64, f64)], sizes: &[usize]) -> Vec<ArrayD<f64>> {
-    let ndim = sizes.len();
-    let full_shape = IxDyn(sizes);
+/// Where [`append_grid`] places the coordinate channels relative to the data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GridPlacement {
+    /// `[grids.., data..]` - Li's `fourier_3d.py` order.
+    BeforeData,
+    /// `[data.., grids..]` - Li's 1D and 2D scripts.
+    AfterData,
+}
 
-    (0..ndim)
-        .map(|axis| {
-            // 1D coords for this axis
-            let coords = Array1::linspace(bounds[axis].0, bounds[axis].1, sizes[axis]);
+/// Broadcast per-axis coordinates into full 'ij'-indexed grids.
+///
+/// `axes[i]` holds the coordinates along spatial axis `i`; grid `i` has shape
+/// `[axes[0].len(), .., axes[n-1].len()]` and varies along axis `i` only.
+/// Use this directly for non-`linspace` axes, e.g. a time axis over `(0, 1]`.
+///
+/// # Panics
+/// If `axes` is empty.
+pub fn grid_from_axes(axes: &[Array1<f64>]) -> Vec<ArrayD<f64>> {
+    assert!(!axes.is_empty(), "grid_from_axes: need at least one axis");
+    let ndim = axes.len();
+    let sizes: Vec<usize> = axes.iter().map(|a| a.len()).collect();
+    let full_shape = IxDyn(&sizes);
 
+    axes.iter()
+        .enumerate()
+        .map(|(axis, coords)| {
             // shape with this axis live, all others singleton, e.g. [1, s, 1] for axis=1 in 3D
             let mut axis_shape = vec![1; ndim];
             axis_shape[axis] = sizes[axis];
 
             // reshape then broadcast out to the full spatial shape
             coords
+                .clone()
                 .into_shape_with_order(IxDyn(&axis_shape))
                 .unwrap()
                 .broadcast(full_shape.clone())
@@ -29,29 +44,68 @@ pub fn uniform_grid(bounds: &[(f64, f64)], sizes: &[usize]) -> Vec<ArrayD<f64>> 
         .collect()
 }
 
-/// Append n grid coordinate channels to `data` along the last axis.
-/// `data` is [batch, *spatial, channels]. `grid_first` controls channel order
-/// (grids-then-data vs data-then-grids) - TEMPORARY until the 2D/3D convention
-/// mismatch in the current codebase is resolved.
-pub fn append_grid(data: ArrayD<f64>, grids: Vec<ArrayD<f64>>, grid_first: bool) -> ArrayD<f64> {
+/// Uniform 'ij'-indexed grids: axis `i` has `sizes[i]` evenly spaced points
+/// over the closed interval `bounds[i] = (start, end)`.
+///
+/// For Li's 2D 'xy' (`np.meshgrid`) channel order, reverse the result.
+///
+/// # Panics
+/// If `bounds` and `sizes` differ in length or are empty.
+pub fn uniform_grid(bounds: &[(f64, f64)], sizes: &[usize]) -> Vec<ArrayD<f64>> {
+    assert_eq!(
+        bounds.len(),
+        sizes.len(),
+        "uniform_grid: one (start, end) bound per axis size"
+    );
+    let axes: Vec<Array1<f64>> = bounds
+        .iter()
+        .zip(sizes)
+        .map(|(&(start, end), &n)| Array1::linspace(start, end, n))
+        .collect();
+    grid_from_axes(&axes)
+}
+
+/// Append coordinate channels to `data: [batch, *spatial, channels]` along
+/// the last axis, broadcasting each grid across the batch.
+///
+/// Every grid must have shape `spatial`; the output has
+/// `channels + grids.len()` channels, ordered by `placement`.
+///
+/// # Panics
+/// If `data` has no spatial axis or a grid's shape differs from `spatial`.
+pub fn append_grid(
+    data: ArrayD<f64>,
+    grids: &[ArrayD<f64>],
+    placement: GridPlacement,
+) -> ArrayD<f64> {
+    assert!(
+        data.ndim() >= 3,
+        "append_grid: data must be [batch, *spatial, channels], got {:?}",
+        data.shape()
+    );
     let batch_size = data.shape()[0];
     let last_axis = data.ndim() - 1;
+    let spatial = &data.shape()[1..last_axis];
 
     // expand each spatial grid [*spatial] -> [batch, *spatial, 1] via broadcast
+    let unit_shape: Vec<usize> = std::iter::once(1)
+        .chain(spatial.iter().copied())
+        .chain(std::iter::once(1))
+        .collect();
+    let full_shape: Vec<usize> = std::iter::once(batch_size)
+        .chain(spatial.iter().copied())
+        .chain(std::iter::once(1))
+        .collect();
     let expanded: Vec<ArrayD<f64>> = grids
-        .into_iter()
-        .map(|g| {
-            let spatial: Vec<usize> = g.shape().to_vec();
-            let unit_shape: Vec<usize> = std::iter::once(1)
-                .chain(spatial.iter().copied())
-                .chain(std::iter::once(1))
-                .collect();
-            let full_shape: Vec<usize> = std::iter::once(batch_size)
-                .chain(spatial)
-                .chain(std::iter::once(1))
-                .collect();
-
-            g.into_shape_with_order(IxDyn(&unit_shape))
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            assert_eq!(
+                g.shape(),
+                spatial,
+                "append_grid: grid {i} shape does not match data spatial shape"
+            );
+            g.to_shape(IxDyn(&unit_shape))
                 .unwrap()
                 .broadcast(IxDyn(&full_shape))
                 .unwrap()
@@ -59,260 +113,112 @@ pub fn append_grid(data: ArrayD<f64>, grids: Vec<ArrayD<f64>>, grid_first: bool)
         })
         .collect();
 
-    // assemble concat order per grid_first flag
     let mut views = Vec::with_capacity(expanded.len() + 1);
-    if grid_first {
-        views.extend(expanded.iter().map(|a| a.view()));
-        views.push(data.view());
-    } else {
-        views.push(data.view());
-        views.extend(expanded.iter().map(|a| a.view()));
+    match placement {
+        GridPlacement::BeforeData => {
+            views.extend(expanded.iter().map(|a| a.view()));
+            views.push(data.view());
+        }
+        GridPlacement::AfterData => {
+            views.push(data.view());
+            views.extend(expanded.iter().map(|a| a.view()));
+        }
     }
 
     concatenate(Axis(last_axis), &views).unwrap()
 }
 
-// Generate a uniform 1D grid of n points
-pub fn uniform_grid_1d(start: f64, end: f64, n_points: usize) -> Array1<f64> {
-    Array1::linspace(start, end, n_points)
-}
-
-// Append spatial grid coordinates as an extra channel to the data
-pub fn append_grid_1d(data: ArrayD<f64>, grid: Array1<f64>) -> ArrayD<f64> {
-    let batch_size = data.shape()[0];
-    let n_points = data.shape()[1];
-
-    // Reshape grid from [s] to [batch, s, 1] repeating it for each example in the batch
-    let grid_expanded = grid
-        .into_shape_with_order(IxDyn(&[1, n_points, 1])) // [1, s, 1]
-        .unwrap()
-        .broadcast(IxDyn(&[batch_size, n_points, 1])) // [batch, s, 1]
-        .unwrap()
-        .to_owned();
-
-    // Concatenate along last dimension [batch, s, 1] + [batch, s, 1] -> [batch, s, 2]
-    concatenate(Axis(2), &[data.view(), grid_expanded.view()]).unwrap()
-}
-
-// Generate a uniform 2D meshgrid of (s x s) points, returned as two coordinate arrays
-pub fn uniform_grid_2d(start: f64, end: f64, s: usize) -> (Array2<f64>, Array2<f64>) {
-    let coords = Array1::linspace(start, end, s);
-
-    // x varies along columns, constant along rows; y varies along rows, constant along columns
-    // - matches np.meshgrid's default 'xy' indexing, same convention Li's Python uses.
-    let mut xx = Array2::<f64>::zeros((s, s));
-    let mut yy = Array2::<f64>::zeros((s, s));
-    for i in 0..s {
-        for j in 0..s {
-            xx[[i, j]] = coords[j];
-            yy[[i, j]] = coords[i];
-        }
-    }
-
-    (xx, yy)
-}
-
-// Append 2D spatial grid coordinates (x, y) as two extra channels to the data
-pub fn append_grid_2d(data: ArrayD<f64>, xx: Array2<f64>, yy: Array2<f64>) -> ArrayD<f64> {
-    let batch_size = data.shape()[0];
-    let s1 = data.shape()[1];
-    let s2 = data.shape()[2];
-
-    let xx_expanded = xx
-        .into_shape_with_order(IxDyn(&[1, s1, s2, 1]))
-        .unwrap()
-        .broadcast(IxDyn(&[batch_size, s1, s2, 1]))
-        .unwrap()
-        .to_owned();
-
-    let yy_expanded = yy
-        .into_shape_with_order(IxDyn(&[1, s1, s2, 1]))
-        .unwrap()
-        .broadcast(IxDyn(&[batch_size, s1, s2, 1]))
-        .unwrap()
-        .to_owned();
-
-    // [batch, s, s, 1] + [batch, s, s, 1] + [batch, s, s, 1] -> [batch, s, s, 3]
-    concatenate(
-        Axis(3),
-        &[data.view(), xx_expanded.view(), yy_expanded.view()],
-    )
-    .unwrap()
-}
-
-// Generate a uniform 3d grid over (x, y, t) for an (s x s x t_out) volume
-pub fn uniform_grid_3d(
-    start: f64,
-    end: f64,
-    s: usize,
-    t_out: usize,
-) -> (Array3<f64>, Array3<f64>, Array3<f64>) {
-    let coords = Array1::linspace(start, end, s);
-    // T+1 points over [start,end], drop the first - leaves T points over (start,end]
-    let t_coords_full = Array1::linspace(start, end, t_out + 1);
-    let t_coords: Array1<f64> = t_coords_full.slice(s![1..]).to_owned();
-
-    let mut xx = Array3::<f64>::zeros((s, s, t_out));
-    let mut yy = Array3::<f64>::zeros((s, s, t_out));
-    let mut tt = Array3::<f64>::zeros((s, s, t_out));
-
-    for i in 0..s {
-        for j in 0..s {
-            for k in 0..t_out {
-                // No xy-swap: each grid varies along its own matching axis as fourier_3d.py direct reshape/repeat (not a meshgrid call)
-                xx[[i, j, k]] = coords[i];
-                yy[[i, j, k]] = coords[j];
-                tt[[i, j, k]] = t_coords[k];
-            }
-        }
-    }
-
-    (xx, yy, tt)
-}
-
-// Append 3d grid coordinates (x, y, t) as three extra channels
-pub fn append_grid_3d(
-    data: ArrayD<f64>,
-    xx: Array3<f64>,
-    yy: Array3<f64>,
-    tt: Array3<f64>,
-) -> ArrayD<f64> {
-    let batch_size = data.shape()[0];
-    let s1 = data.shape()[1];
-    let s2 = data.shape()[2];
-    let t_out = data.shape()[3];
-
-    let expand = |g: Array3<f64>| -> ArrayD<f64> {
-        g.into_shape_with_order(IxDyn(&[1, s1, s2, t_out, 1]))
-            .unwrap()
-            .broadcast(IxDyn(&[batch_size, s1, s2, t_out, 1]))
-            .unwrap()
-            .to_owned()
-    };
-
-    let xx_expanded = expand(xx);
-    let yy_expanded = expand(yy);
-    let tt_expanded = expand(tt);
-
-    // grid channels first, data last match Li's cat order
-    concatenate(
-        Axis(4),
-        &[
-            xx_expanded.view(),
-            yy_expanded.view(),
-            tt_expanded.view(),
-            data.view(),
-        ],
-    )
-    .unwrap()
+/// `n` evenly spaced points over the half-open interval `(start, end]`:
+/// `linspace(start, end, n + 1)` without its first point. This is the time
+/// axis of Li's `fourier_3d.py` (`np.linspace(0, 1, T + 1)[1:]`); pass it to
+/// [`grid_from_axes`]. Not bitwise equal to `linspace(start + h, end, n)`.
+pub fn linspace_excluding_start(start: f64, end: f64, n: usize) -> Array1<f64> {
+    Array1::linspace(start, end, n + 1)
+        .slice(s![1..])
+        .to_owned()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
-    use ndarray::{Array, IxDyn};
 
-    #[test]
-    fn uniform_grid_1d_correct_length() {
-        let grid = uniform_grid_1d(0.0, 1.0, 10);
-        assert_eq!(grid.len(), 10);
+    /// Distinct value in every cell, so misplaced channels can't coincide.
+    fn distinct_data(shape: &[usize]) -> ArrayD<f64> {
+        let mut k = 0.0;
+        ArrayD::from_shape_simple_fn(IxDyn(shape), || {
+            k += 1.0;
+            k * 0.37
+        })
     }
 
+    fn line(start: f64, end: f64, n: usize) -> ArrayD<f64> {
+        uniform_grid(&[(start, end)], &[n]).remove(0)
+    }
+
+    // --- 1D (Burgers: [data, x]) ---
+
     #[test]
-    fn uniform_grid_1d_start_end() {
-        let grid = uniform_grid_1d(0.0, 1.0, 10);
+    fn uniform_grid_1d_length_endpoints_and_spacing() {
+        let grid = line(0.0, 1.0, 10);
+        assert_eq!(grid.shape(), &[10]);
         assert_relative_eq!(grid[0], 0.0, epsilon = 1e-10);
         assert_relative_eq!(grid[9], 1.0, epsilon = 1e-10);
-    }
 
-    #[test]
-    fn uniform_grid_1d_uniform_spacing() {
-        let grid = uniform_grid_1d(0.0, 1.0, 5);
-        // spacing should be 0.25
-        assert_relative_eq!(grid[1] - grid[0], 0.25, epsilon = 1e-10);
-        assert_relative_eq!(grid[2] - grid[1], 0.25, epsilon = 1e-10);
-        assert_relative_eq!(grid[3] - grid[2], 0.25, epsilon = 1e-10);
-    }
+        let grid = line(0.0, 1.0, 5);
+        for i in 0..4 {
+            assert_relative_eq!(grid[i + 1] - grid[i], 0.25, epsilon = 1e-10);
+        }
 
-    #[test]
-    fn uniform_grid_1d_custom_range() {
-        let grid = uniform_grid_1d(0.0, 2.0 * std::f64::consts::PI, 5);
+        let grid = line(0.0, 2.0 * std::f64::consts::PI, 5);
         assert_relative_eq!(grid[0], 0.0, epsilon = 1e-10);
         assert_relative_eq!(grid[4], 2.0 * std::f64::consts::PI, epsilon = 1e-10);
     }
 
     #[test]
-    fn append_grid_output_shape() {
+    fn append_grid_1d_places_grid_after_data() {
         // [batch=2, s=4, 1] + grid[4] -> [2, 4, 2]
-        let data = Array::from_shape_vec(
+        let data = ArrayD::from_shape_vec(
             IxDyn(&[2, 4, 1]),
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
         )
         .unwrap();
-        let grid = uniform_grid_1d(0.0, 1.0, 4);
-        let result = append_grid_1d(data, grid);
+        let result = append_grid(
+            data,
+            &uniform_grid(&[(0.0, 1.0)], &[4]),
+            GridPlacement::AfterData,
+        );
         assert_eq!(result.shape(), &[2, 4, 2]);
-    }
 
-    #[test]
-    fn append_grid_preserves_data() {
-        // original data values should be unchanged in first channel
-        let data = Array::from_shape_vec(
-            IxDyn(&[2, 4, 1]),
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-        )
-        .unwrap();
-        let grid = uniform_grid_1d(0.0, 1.0, 4);
-        let result = append_grid_1d(data, grid);
-        // first channel should be original data
-        assert_relative_eq!(result[[0, 0, 0]], 1.0, epsilon = 1e-10);
-        assert_relative_eq!(result[[0, 1, 0]], 2.0, epsilon = 1e-10);
-        assert_relative_eq!(result[[1, 0, 0]], 5.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn append_grid_correct_grid_values() {
-        // grid values should appear in second channel, same for all batch examples
-        let data = Array::from_shape_vec(
-            IxDyn(&[2, 4, 1]),
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-        )
-        .unwrap();
-        let grid = uniform_grid_1d(0.0, 1.0, 4);
-        let result = append_grid_1d(data, grid);
-        // second channel should be grid values
+        // channel 0 is the original data
+        assert_eq!(result[[0, 0, 0]], 1.0);
+        assert_eq!(result[[0, 1, 0]], 2.0);
+        assert_eq!(result[[1, 0, 0]], 5.0);
+        // channel 1 is the grid, identical for every batch example
         assert_relative_eq!(result[[0, 0, 1]], 0.0, epsilon = 1e-10);
         assert_relative_eq!(result[[0, 3, 1]], 1.0, epsilon = 1e-10);
-        // grid is same for all batch examples
-        assert_relative_eq!(result[[0, 1, 1]], result[[1, 1, 1]], epsilon = 1e-10);
+        assert_eq!(result[[0, 1, 1]], result[[1, 1, 1]]);
     }
 
+    // --- 2D (Darcy: [data, x, y] in 'xy' order = reversed 'ij') ---
+
     #[test]
-    fn uniform_grid_2d_matches_numpy_meshgrid() {
-        let (xx, yy) = uniform_grid_2d(0.0, 1.0, 3);
+    fn reversed_uniform_grid_2d_matches_numpy_meshgrid() {
+        let mut grid = uniform_grid(&[(0.0, 1.0); 2], &[3, 3]);
+        grid.reverse();
 
         // Pinned against: np.meshgrid(np.linspace(0,1,3), np.linspace(0,1,3))
         let expected_xx = [[0.0, 0.5, 1.0], [0.0, 0.5, 1.0], [0.0, 0.5, 1.0]];
         let expected_yy = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5], [1.0, 1.0, 1.0]];
-
         for i in 0..3 {
             for j in 0..3 {
                 assert!(
-                    (xx[[i, j]] - expected_xx[i][j]).abs() < 1e-9,
-                    "xx mismatch at [{},{}]: {} vs {}",
-                    i,
-                    j,
-                    xx[[i, j]],
-                    expected_xx[i][j]
+                    (grid[0][[i, j]] - expected_xx[i][j]).abs() < 1e-9,
+                    "xx[{i},{j}]"
                 );
                 assert!(
-                    (yy[[i, j]] - expected_yy[i][j]).abs() < 1e-9,
-                    "yy mismatch at [{},{}]: {} vs {}",
-                    i,
-                    j,
-                    yy[[i, j]],
-                    expected_yy[i][j]
+                    (grid[1][[i, j]] - expected_yy[i][j]).abs() < 1e-9,
+                    "yy[{i},{j}]"
                 );
             }
         }
@@ -320,166 +226,132 @@ mod tests {
 
     #[test]
     fn append_grid_2d_channel_placement() {
-        // data: [batch=1, s=2, s=2, channels=1], all 9.0 so it's distinguishable from grid values
+        // data all 9.0 so it's distinguishable from grid values
         let data = ArrayD::from_elem(IxDyn(&[1, 2, 2, 1]), 9.0);
-
-        let (xx, yy) = uniform_grid_2d(0.0, 1.0, 2);
-
-        let result = append_grid_2d(data, xx, yy);
+        let mut grid = uniform_grid(&[(0.0, 1.0); 2], &[2, 2]);
+        grid.reverse();
+        let result = append_grid(data, &grid, GridPlacement::AfterData);
 
         assert_eq!(result.shape(), &[1, 2, 2, 3]);
-
-        // channel 0 should still be the original data (9.0 everywhere)
-        assert_eq!(result[[0, 0, 0, 0]], 9.0);
-        // channel 1 should be xx, channel 2 should be yy - spot check one position
-        assert_eq!(result[[0, 1, 1, 1]], 1.0); // xx[1,1] = 1.0
-        assert_eq!(result[[0, 1, 1, 2]], 1.0); // yy[1,1] = 1.0
+        assert_eq!(result[[0, 0, 0, 0]], 9.0); // channel 0: data
+        assert_eq!(result[[0, 0, 1, 1]], 1.0); // channel 1: x, varies along axis 2
+        assert_eq!(result[[0, 1, 0, 1]], 0.0);
+        assert_eq!(result[[0, 1, 0, 2]], 1.0); // channel 2: y, varies along axis 1
+        assert_eq!(result[[0, 0, 1, 2]], 0.0);
     }
 
     #[test]
-    fn uniform_grid_3d_axis_assignment() {
-        let s = 4;
-        let t_out = 3;
-        let (xx, yy, tt) = uniform_grid_3d(0.0, 1.0, s, t_out);
+    fn append_grid_2d_non_square_axes_follow_their_extents() {
+        // [1, 2, 3, 1]: square grids hide a transpose, this doesn't.
+        let data = distinct_data(&[1, 2, 3, 1]);
+        let mut grid = uniform_grid(&[(0.0, 1.0); 2], &[2, 3]);
+        assert_eq!(grid[0].shape(), &[2, 3]);
+        grid.reverse();
+        let out = append_grid(data.clone(), &grid, GridPlacement::AfterData);
+        assert_eq!(out.shape(), &[1, 2, 3, 3]);
 
-        assert_eq!(xx.shape(), &[s, s, t_out]);
-        assert_eq!(yy.shape(), &[s, s, t_out]);
-        assert_eq!(tt.shape(), &[s, s, t_out]);
+        let along_axis2 = [0.0, 0.5, 1.0];
+        let along_axis1 = [0.0, 1.0];
+        for i in 0..2 {
+            for j in 0..3 {
+                assert_eq!(out[[0, i, j, 0]], data[[0, i, j, 0]]);
+                assert_eq!(out[[0, i, j, 1]], along_axis2[j]);
+                assert_eq!(out[[0, i, j, 2]], along_axis1[i]);
+            }
+        }
+    }
 
-        // xx varies with i (dim 0), constant across j, k
+    // --- 3D (NS: [x, y, t, data], 'ij', t over (0, 1]) ---
+
+    fn ns_grid(s: usize, t_out: usize) -> Vec<ArrayD<f64>> {
+        let x = Array1::linspace(0.0, 1.0, s);
+        grid_from_axes(&[x.clone(), x, linspace_excluding_start(0.0, 1.0, t_out)])
+    }
+
+    #[test]
+    fn grid_from_axes_3d_axis_assignment() {
+        let (s, t_out) = (4, 3);
+        let grid = ns_grid(s, t_out);
+        let (xx, yy, tt) = (&grid[0], &grid[1], &grid[2]);
+        for g in &grid {
+            assert_eq!(g.shape(), &[s, s, t_out]);
+        }
+
+        // each grid varies along its own axis only
         for i in 0..s {
             for j in 0..s {
                 for k in 0..t_out {
-                    assert!(
-                        (xx[[i, j, k]] - xx[[i, 0, 0]]).abs() < 1e-9,
-                        "xx should be constant across j,k at fixed i"
-                    );
-                }
-            }
-        }
-        // yy varies with j (dim 1), constant across i, k
-        for j in 0..s {
-            for i in 0..s {
-                for k in 0..t_out {
-                    assert!(
-                        (yy[[i, j, k]] - yy[[0, j, 0]]).abs() < 1e-9,
-                        "yy should be constant across i,k at fixed j"
-                    );
-                }
-            }
-        }
-        // tt varies with k (dim 2), constant across i, j
-        for k in 0..t_out {
-            for i in 0..s {
-                for j in 0..s {
-                    assert!(
-                        (tt[[i, j, k]] - tt[[0, 0, k]]).abs() < 1e-9,
-                        "tt should be constant across i,j at fixed k"
-                    );
+                    assert_eq!(xx[[i, j, k]], xx[[i, 0, 0]], "xx must depend on i only");
+                    assert_eq!(yy[[i, j, k]], yy[[0, j, 0]], "yy must depend on j only");
+                    assert_eq!(tt[[i, j, k]], tt[[0, 0, k]], "tt must depend on k only");
                 }
             }
         }
 
-        // no xy-swap: xx[i,*,*] should equal the i-th linspace value directly,
-        // not the j-th - this is the specific bug a copy-pasted meshgrid-swap
-        // convention from uniform_grid_2d would introduce.
-        assert!(
-            (xx[[1, 0, 0]] - (1.0 / 3.0)).abs() < 1e-9,
-            "xx[1] should be coords[1], not coords[j]"
-        );
-        assert!(
-            (yy[[0, 2, 0]] - (2.0 / 3.0)).abs() < 1e-9,
-            "yy[2] should be coords[2], not coords[i]"
-        );
+        // no xy-swap: xx[i] is coords[i], yy[j] is coords[j]
+        assert!((xx[[1, 0, 0]] - 1.0 / 3.0).abs() < 1e-9);
+        assert!((yy[[0, 2, 0]] - 2.0 / 3.0).abs() < 1e-9);
     }
 
     #[test]
-    fn uniform_grid_3d_time_excludes_zero() {
-        let s = 4;
-        let t_out = 4;
-        let (xx, _yy, tt) = uniform_grid_3d(0.0, 1.0, s, t_out);
+    fn ns_time_axis_excludes_zero() {
+        let (s, t_out) = (4, 4);
+        let grid = ns_grid(s, t_out);
+        let (xx, tt) = (&grid[0], &grid[2]);
 
-        // x/y: closed interval [0,1] - first point IS 0
-        assert!(
-            (xx[[0, 0, 0]] - 0.0).abs() < 1e-9,
-            "x should include 0 as its first point"
-        );
-        assert!(
-            (xx[[s - 1, 0, 0]] - 1.0).abs() < 1e-9,
-            "x should include 1 as its last point"
-        );
+        // x: closed [0, 1]
+        assert!((xx[[0, 0, 0]] - 0.0).abs() < 1e-9);
+        assert!((xx[[s - 1, 0, 0]] - 1.0).abs() < 1e-9);
 
-        // t: half-open (0,1] - first point is 1/t_out, NOT 0; last point IS 1
-        let expected_first_t = 1.0 / t_out as f64;
-        assert!(
-            (tt[[0, 0, 0]] - expected_first_t).abs() < 1e-9,
-            "t's first point should be 1/t_out ({}), got {} - check for an accidental switch to plain linspace(0,1,t_out)",
-            expected_first_t,
-            tt[[0, 0, 0]]
-        );
-        assert!(
-            (tt[[0, 0, t_out - 1]] - 1.0).abs() < 1e-9,
-            "t's last point should be 1.0"
-        );
+        // t: half-open (0, 1] - first point is 1/t_out, not 0; last is 1
+        assert!((tt[[0, 0, 0]] - 1.0 / t_out as f64).abs() < 1e-9);
+        assert!((tt[[0, 0, t_out - 1]] - 1.0).abs() < 1e-9);
     }
 
     #[test]
     fn append_grid_3d_channel_order_and_broadcast() {
-        let s = 2;
-        let t_out = 2;
-        let batch_size = 2;
-        let c = 1; // single data channel, distinct values per batch to catch a broadcast bug
-
-        let data = Array::from_shape_fn(IxDyn(&[batch_size, s, s, t_out, c]), |idx| {
-            (idx[0] * 1000) as f64 // batch index baked into the value
+        let (s, t_out, batch_size) = (2, 2, 2);
+        // batch index baked into the value, to catch a broadcast bug
+        let data = ArrayD::from_shape_fn(IxDyn(&[batch_size, s, s, t_out, 1]), |idx| {
+            (idx[0] * 1000) as f64
         });
+        let grid = ns_grid(s, t_out);
+        let out = append_grid(data.clone(), &grid, GridPlacement::BeforeData);
 
-        let (xx, yy, tt) = uniform_grid_3d(0.0, 1.0, s, t_out);
-        let out = append_grid_3d(data.clone(), xx.clone(), yy.clone(), tt.clone());
-
-        assert_eq!(out.shape(), &[batch_size, s, s, t_out, 3 + c]);
-
+        assert_eq!(out.shape(), &[batch_size, s, s, t_out, 4]);
         for b in 0..batch_size {
             for i in 0..s {
                 for j in 0..s {
                     for k in 0..t_out {
-                        // grid channels first (0,1,2) - same value regardless of batch
-                        assert!(
-                            (out[[b, i, j, k, 0]] - xx[[i, j, k]]).abs() < 1e-9,
-                            "channel 0 should be xx"
-                        );
-                        assert!(
-                            (out[[b, i, j, k, 1]] - yy[[i, j, k]]).abs() < 1e-9,
-                            "channel 1 should be yy"
-                        );
-                        assert!(
-                            (out[[b, i, j, k, 2]] - tt[[i, j, k]]).abs() < 1e-9,
-                            "channel 2 should be tt"
-                        );
-                        // data channel last (3) and correctly broadcast per-batch
-                        assert!(
-                            (out[[b, i, j, k, 3]] - data[[b, i, j, k, 0]]).abs() < 1e-9,
-                            "channel 3 should be original data, batch {}",
-                            b
-                        );
+                        for (c, g) in grid.iter().enumerate() {
+                            assert_eq!(out[[b, i, j, k, c]], g[[i, j, k]], "channel {c}");
+                        }
+                        assert_eq!(out[[b, i, j, k, 3]], data[[b, i, j, k, 0]], "batch {b}");
                     }
                 }
             }
         }
     }
 
-    #[test]
-    fn uniform_grid_matches_2d_specific_up_to_convention() {
-        let generic = uniform_grid(&[(0.0, 1.0), (0.0, 1.0)], &[3, 3]);
-        let (xx, yy) = uniform_grid_2d(0.0, 1.0, 3);
+    // --- validation ---
 
-        // uniform_grid is 'ij'-indexed, uniform_grid_2d is 'xy' — so the
-        // generic axis-0 grid should equal yy, and axis-1 should equal xx.
-        for i in 0..3 {
-            for j in 0..3 {
-                assert!((generic[0][[i, j]] - yy[[i, j]]).abs() < 1e-9);
-                assert!((generic[1][[i, j]] - xx[[i, j]]).abs() < 1e-9);
-            }
-        }
+    #[test]
+    #[should_panic(expected = "one (start, end) bound per axis size")]
+    fn uniform_grid_rejects_bounds_size_mismatch() {
+        let _ = uniform_grid(&[(0.0, 1.0)], &[3, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "need at least one axis")]
+    fn uniform_grid_rejects_zero_axes() {
+        let _ = uniform_grid(&[], &[]);
+    }
+
+    #[test]
+    #[should_panic(expected = "grid 0 shape does not match data spatial shape")]
+    fn append_grid_rejects_mismatched_grid() {
+        let data = ArrayD::zeros(IxDyn(&[1, 2, 3, 1]));
+        let grid = uniform_grid(&[(0.0, 1.0); 2], &[3, 2]); // transposed extents
+        let _ = append_grid(data, &grid, GridPlacement::AfterData);
     }
 }
