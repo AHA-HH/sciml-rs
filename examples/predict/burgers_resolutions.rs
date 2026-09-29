@@ -23,7 +23,7 @@ use sciml_rs::neural_operators::{
             burgers::{BurgersConfig, load_burgers_uniform},
         },
     },
-    losses::data_losses::LpLoss,
+    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
     training::trainer::{eval_epoch, identity},
 };
@@ -52,7 +52,7 @@ fn main() {
         data_path.display()
     );
 
-    let loss_fn = LpLoss::new(1, 2, false, true);
+    let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
 
     // 8192 / rate. Every rate here is a power of two, so every s is too —
     // Burn's FFT is radix-2 only.

@@ -26,7 +26,7 @@ use sciml_rs::neural_operators::{
             NormalizerRecord, UnitGaussianNormalizer, decode_flat, normalizer_to_flat_tensors,
         },
     },
-    losses::data_losses::LpLoss,
+    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
     training::trainer::eval_epoch,
 };
@@ -69,7 +69,7 @@ fn main() {
     let eval_post =
         move |out: Tensor<2>, target: Tensor<2>| (decode_flat(out, &mean, &std, eps), target);
 
-    let loss_fn = LpLoss::new(2, 2, false, true);
+    let loss_fn = LpLoss::new(2, 2, Reduction::Sum);
     let l2 = eval_epoch::<4, 3>(&model, &test_loader, &loss_fn, &eval_post);
 
     println!(

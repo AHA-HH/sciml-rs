@@ -21,7 +21,7 @@ use crate::neural_operators::{
         dataset::OperatorDataset,
         loaders::base_dataset::DatasetConfig,
     },
-    losses::data_losses::LpLoss,
+    losses::data_losses::{LpLoss, Reduction},
     models::fno::{FNO, FNOConfig},
     training::metrics::EpochMetrics,
 };
@@ -276,7 +276,7 @@ pub fn build_training_components<const R: usize, const RM1: usize>(
         model,
         optim,
         scheduler,
-        loss_fn: LpLoss::new(R - 2, 2, false, true),
+        loss_fn: LpLoss::new(R - 2, 2, Reduction::Sum),
         train_loader,
         test_loader,
     }

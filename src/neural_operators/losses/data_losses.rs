@@ -2,31 +2,45 @@
 
 use burn::tensor::Tensor;
 
+/// How [`LpLoss`] combines per-example losses over the batch.
+///
+/// Mirrors PyTorch's `reduction='mean' | 'sum' | 'none'`. Refer to variants
+/// as `Reduction::None` etc.; don't glob-import them, since `None` would
+/// shadow `Option::None`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reduction {
+    /// Mean over the batch; returns shape `[1]`.
+    Mean,
+    /// Sum over the batch; returns shape `[1]`.
+    Sum,
+    /// No reduction; returns per-example losses, shape `[batch]`.
+    None,
+}
+
 /// Absolute or relative Lp loss between predicted and target fields.
 ///
 /// `d`: spatial dimensionality, used only in `abs()`, which checks it against
 /// the number of spatial axes of its input. The quadrature weight cancels out
 /// in `rel()`'s ratio, so `d` has no effect there.
-/// `p`: Lp norm order (1, 2, or general).
-/// `size_average`: when `reduction` is true, mean over the batch if true,
-/// sum if false.
-/// `reduction`: whether to reduce over the batch at all, or return
-/// per-example losses.
+/// `p`: Lp norm order (1, 2, or general integer p).
+/// `reduction`: how per-example losses are combined over the batch.
 pub struct LpLoss {
     pub d: usize,
     pub p: usize,
-    pub size_average: bool,
-    pub reduction: bool,
+    pub reduction: Reduction,
 }
 
 impl LpLoss {
-    pub fn new(d: usize, p: usize, size_average: bool, reduction: bool) -> Self {
+    pub fn new(d: usize, p: usize, reduction: Reduction) -> Self {
         assert!(d > 0 && p > 0);
-        Self {
-            d,
-            p,
-            size_average,
-            reduction,
+        Self { d, p, reduction }
+    }
+
+    fn reduce(&self, per_example: Tensor<1>) -> Tensor<1> {
+        match self.reduction {
+            Reduction::Mean => per_example.mean(),
+            Reduction::Sum => per_example.sum(),
+            Reduction::None => per_example,
         }
     }
 
@@ -65,17 +79,7 @@ impl LpLoss {
 
         let n_points: usize = dims[1..].iter().product();
         let diff = (x - y).abs().reshape([dims[0], n_points]);
-        let all_norms = lp_norm(diff, self.p).mul_scalar(h_weight);
-
-        if self.reduction {
-            if self.size_average {
-                all_norms.mean()
-            } else {
-                all_norms.sum()
-            }
-        } else {
-            all_norms // [batch] - per-example losses
-        }
+        self.reduce(lp_norm(diff, self.p).mul_scalar(h_weight))
     }
 
     /// Relative Lp loss: `||x - y||_p / ||y||_p`. Quadrature weight cancels
@@ -93,17 +97,7 @@ impl LpLoss {
         let diff_norms = lp_norm(x - y.clone(), self.p);
         let y_norms = lp_norm(y, self.p);
 
-        let per_example = diff_norms / y_norms;
-
-        if self.reduction {
-            if self.size_average {
-                per_example.mean()
-            } else {
-                per_example.sum()
-            }
-        } else {
-            per_example // [batch] - per-example losses
-        }
+        self.reduce(diff_norms / y_norms)
     }
 
     /// Default call - relative loss.
@@ -152,7 +146,7 @@ mod tests {
         // if pred == target, relative error should be exactly 0
         let x = Tensor::<2>::from_data([[1.0, 2.0, 3.0]], &device());
         let y = Tensor::<2>::from_data([[1.0, 2.0, 3.0]], &device());
-        let loss = LpLoss::new(2, 2, true, true);
+        let loss = LpLoss::new(2, 2, Reduction::Mean);
         let result = loss.forward(x, y).into_scalar::<f32>();
         approx::assert_relative_eq!(result, 0.0, epsilon = 1e-10);
     }
@@ -165,7 +159,7 @@ mod tests {
         // rel       = sqrt(2) / sqrt(2) = 1.0
         let x = Tensor::<2>::from_data([[2.0, 2.0]], &device());
         let y = Tensor::<2>::from_data([[1.0, 1.0]], &device());
-        let loss = LpLoss::new(2, 2, true, true);
+        let loss = LpLoss::new(2, 2, Reduction::Mean);
         let result = loss.forward(x, y).into_scalar::<f32>();
         approx::assert_relative_eq!(result, 1.0, epsilon = 1e-10);
     }
@@ -177,8 +171,8 @@ mod tests {
         let x = Tensor::<2>::from_data([[2.0, 0.0], [3.0, 0.0]], &device());
         let y = Tensor::<2>::from_data([[1.0, 0.0], [1.0, 0.0]], &device());
 
-        let loss_mean = LpLoss::new(2, 2, true, true);
-        let loss_sum = LpLoss::new(2, 2, false, true);
+        let loss_mean = LpLoss::new(2, 2, Reduction::Mean);
+        let loss_sum = LpLoss::new(2, 2, Reduction::Sum);
 
         let mean_result = loss_mean.forward(x.clone(), y.clone()).into_scalar::<f32>();
         let sum_result = loss_sum.forward(x, y).into_scalar::<f32>();
@@ -191,7 +185,7 @@ mod tests {
     fn test_rel_no_reduction_returns_per_example() {
         let x = Tensor::<2>::from_data([[2.0, 0.0], [3.0, 0.0]], &device());
         let y = Tensor::<2>::from_data([[1.0, 0.0], [1.0, 0.0]], &device());
-        let loss = LpLoss::new(2, 2, true, false); // reduction=false
+        let loss = LpLoss::new(2, 2, Reduction::None);
 
         let result = loss.forward(x, y);
         assert_eq!(result.dims(), [2]); // shape should be [batch]
@@ -205,7 +199,7 @@ mod tests {
     fn test_abs_identical_inputs_gives_zero() {
         let x = Tensor::<2>::from_data([[1.0, 2.0, 3.0, 4.0]], &device());
         let y = Tensor::<2>::from_data([[1.0, 2.0, 3.0, 4.0]], &device());
-        let loss = LpLoss::new(1, 2, true, true);
+        let loss = LpLoss::new(1, 2, Reduction::Mean);
         let result = loss.abs(x, y).into_scalar::<f32>();
         approx::assert_relative_eq!(result, 0.0, epsilon = 1e-10);
     }
@@ -216,7 +210,7 @@ mod tests {
         // diff = [1, 1], L2 norm = sqrt(2), * h_weight = sqrt(2)
         let x = Tensor::<2>::from_data([[2.0, 2.0]], &device());
         let y = Tensor::<2>::from_data([[1.0, 1.0]], &device());
-        let loss = LpLoss::new(1, 2, true, true);
+        let loss = LpLoss::new(1, 2, Reduction::Mean);
         let result = loss.abs(x, y).into_scalar::<f32>();
         approx::assert_relative_eq!(result, 2.0_f32.sqrt(), epsilon = 1e-10);
     }
@@ -228,7 +222,7 @@ mod tests {
         // rel = 3/2 = 1.5
         let x = Tensor::<2>::from_data([[2.0, 3.0]], &device());
         let y = Tensor::<2>::from_data([[1.0, 1.0]], &device());
-        let loss = LpLoss::new(2, 1, true, true);
+        let loss = LpLoss::new(2, 1, Reduction::Mean);
         let result = loss.rel(x, y).into_scalar::<f32>();
         approx::assert_relative_eq!(result, 1.5, epsilon = 1e-10);
     }
@@ -238,8 +232,8 @@ mod tests {
         let x = Tensor::<2>::from_data([[2.0, 0.0], [3.0, 0.0]], &device());
         let y = Tensor::<2>::from_data([[1.0, 0.0], [1.0, 0.0]], &device());
 
-        let per_example = LpLoss::new(2, 2, true, false).rel(x.clone(), y.clone());
-        let summed = LpLoss::new(2, 2, false, true)
+        let per_example = LpLoss::new(2, 2, Reduction::None).rel(x.clone(), y.clone());
+        let summed = LpLoss::new(2, 2, Reduction::Sum)
             .rel(x, y)
             .into_scalar::<f32>();
 
@@ -264,7 +258,7 @@ mod tests {
         // h = 1/14, weight = 1/14 => sqrt(15)/14 ~ 0.277.
         let x = Tensor::<3>::ones([1, 3, 5], &device()).mul_scalar(2.0);
         let y = Tensor::<3>::ones([1, 3, 5], &device());
-        let loss = LpLoss::new(2, 2, true, true);
+        let loss = LpLoss::new(2, 2, Reduction::Mean);
         let result = loss.abs(x, y).into_scalar::<f32>();
         approx::assert_relative_eq!(result, (15.0f32 / 8.0).sqrt(), max_relative = 1e-6);
     }
@@ -277,7 +271,7 @@ mod tests {
         let x = Tensor::<3>::from_data(TensorData::new(e.clone(), vec![b, s, s]), &device());
         let y = Tensor::<3>::zeros([b, s, s], &device());
 
-        let per_example = LpLoss::new(2, 2, true, false).abs(x, y);
+        let per_example = LpLoss::new(2, 2, Reduction::None).abs(x, y);
         assert_eq!(per_example.dims(), [b]);
         let got = per_example.into_data().try_to_vec::<f32>().unwrap();
 
@@ -300,13 +294,15 @@ mod tests {
         let y = Tensor::<3>::ones([1, 3, 5], &device());
 
         // p=1: weight = 1/8, ||e||_1 = 15.
-        let l1 = LpLoss::new(2, 1, true, true)
+        let l1 = LpLoss::new(2, 1, Reduction::Mean)
             .abs(x.clone(), y.clone())
             .into_scalar::<f32>();
         approx::assert_relative_eq!(l1, 15.0 / 8.0, max_relative = 1e-6);
 
         // p=3: weight = (1/8)^(1/3) = 1/2, ||e||_3 = 15^(1/3).
-        let l3 = LpLoss::new(2, 3, true, true).abs(x, y).into_scalar::<f32>();
+        let l3 = LpLoss::new(2, 3, Reduction::Mean)
+            .abs(x, y)
+            .into_scalar::<f32>();
         approx::assert_relative_eq!(l3, 0.5 * 15.0f32.cbrt(), max_relative = 1e-6);
     }
 
@@ -316,7 +312,9 @@ mod tests {
         // weight = sqrt(1/2), ||e||_2 = sqrt(12) => sqrt(6).
         let x = Tensor::<4>::ones([1, 2, 3, 2], &device());
         let y = Tensor::<4>::zeros([1, 2, 3, 2], &device());
-        let result = LpLoss::new(3, 2, true, true).abs(x, y).into_scalar::<f32>();
+        let result = LpLoss::new(3, 2, Reduction::Mean)
+            .abs(x, y)
+            .into_scalar::<f32>();
         approx::assert_relative_eq!(result, 6.0f32.sqrt(), max_relative = 1e-6);
     }
 
@@ -326,7 +324,7 @@ mod tests {
         // The pre-fix call pattern: a 2D field flattened to [b, s^2] with d=2.
         let x = Tensor::<2>::ones([1, 15], &device());
         let y = Tensor::<2>::zeros([1, 15], &device());
-        let _ = LpLoss::new(2, 2, true, true).abs(x, y);
+        let _ = LpLoss::new(2, 2, Reduction::Mean).abs(x, y);
     }
 
     #[test]
@@ -334,7 +332,7 @@ mod tests {
     fn abs_rejects_shape_mismatch() {
         let x = Tensor::<3>::ones([1, 3, 5], &device());
         let y = Tensor::<3>::ones([1, 5, 3], &device());
-        let _ = LpLoss::new(2, 2, true, true).abs(x, y);
+        let _ = LpLoss::new(2, 2, Reduction::Mean).abs(x, y);
     }
 
     #[test]
@@ -342,7 +340,7 @@ mod tests {
     fn abs_rejects_single_point_axis() {
         let x = Tensor::<3>::ones([1, 1, 5], &device());
         let y = Tensor::<3>::zeros([1, 1, 5], &device());
-        let _ = LpLoss::new(2, 2, true, true).abs(x, y);
+        let _ = LpLoss::new(2, 2, Reduction::Mean).abs(x, y);
     }
 
     #[test]
@@ -355,7 +353,7 @@ mod tests {
             .require_grad();
         let y = Tensor::<3>::zeros([1, 3, 5], &device);
 
-        let loss = LpLoss::new(2, 2, true, true).abs(x.clone(), y);
+        let loss = LpLoss::new(2, 2, Reduction::Mean).abs(x.clone(), y);
         let grads = loss.backward();
         let g = x
             .grad(&grads)
@@ -400,7 +398,7 @@ mod tests {
         let y = Tensor::<2>::from_data(TensorData::new(ys, vec![b, n]), &device());
 
         for p in [1, 2, 3] {
-            let got = LpLoss::new(1, p, true, false)
+            let got = LpLoss::new(1, p, Reduction::None)
                 .rel(x.clone(), y.clone())
                 .into_data()
                 .try_to_vec::<f32>()
@@ -424,7 +422,7 @@ mod tests {
             let ad = Device::default().autodiff();
             let x = Tensor::<2>::from_data([[1.0, 2.0], [1.0, 2.0]], &ad).require_grad();
             let y = Tensor::<2>::from_data([[1.0, 2.0], [0.5, 2.0]], &ad);
-            let loss = LpLoss::new(1, p, true, true).rel(x.clone(), y);
+            let loss = LpLoss::new(1, p, Reduction::Mean).rel(x.clone(), y);
             let g = x
                 .grad(&loss.backward())
                 .expect("x received no gradient")
@@ -445,7 +443,7 @@ mod tests {
         // reference (x/0 = inf, 0/0 = NaN) and is documented on `rel`.
         let x = Tensor::<2>::from_data([[1.0, 2.0], [0.0, 0.0]], &device());
         let y = Tensor::<2>::zeros([2, 2], &device());
-        let vals = LpLoss::new(1, 2, true, false)
+        let vals = LpLoss::new(1, 2, Reduction::None)
             .rel(x, y)
             .into_data()
             .try_to_vec::<f32>()
@@ -460,7 +458,7 @@ mod tests {
         let ad = Device::default().autodiff();
         let x = Tensor::<2>::from_data([[1.0, 2.0, 3.0]], &ad).require_grad();
         let y = Tensor::<2>::from_data([[1.0, 2.0, 3.0]], &ad);
-        let loss = LpLoss::new(1, 2, true, true).abs(x.clone(), y);
+        let loss = LpLoss::new(1, 2, Reduction::Mean).abs(x.clone(), y);
         let g = x
             .grad(&loss.backward())
             .expect("x received no gradient")
@@ -468,5 +466,29 @@ mod tests {
             .try_to_vec::<f32>()
             .unwrap();
         assert_eq!(g, vec![0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn abs_reductions_are_consistent() {
+        // Two examples with different errors: Sum == sum(None), Mean == Sum / 2.
+        let x = Tensor::<2>::from_data([[2.0, 2.0, 2.0], [4.0, 1.0, 0.0]], &device());
+        let y = Tensor::<2>::from_data([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]], &device());
+
+        let per_example = LpLoss::new(1, 2, Reduction::None).abs(x.clone(), y.clone());
+        assert_eq!(per_example.dims(), [2]);
+        let per_example: Vec<f32> = per_example.into_data().try_to_vec().unwrap();
+        let sum = LpLoss::new(1, 2, Reduction::Sum)
+            .abs(x.clone(), y.clone())
+            .into_scalar::<f32>();
+        let mean = LpLoss::new(1, 2, Reduction::Mean)
+            .abs(x, y)
+            .into_scalar::<f32>();
+
+        approx::assert_relative_eq!(sum, per_example[0] + per_example[1], max_relative = 1e-6);
+        approx::assert_relative_eq!(mean, sum / 2.0, max_relative = 1e-6);
+        // h = 1/2, weight = h^(1/2): example 0 has ||e|| = sqrt(3), example 1 has sqrt(10)
+        let w = 0.5f32.sqrt();
+        approx::assert_relative_eq!(per_example[0], w * 3.0f32.sqrt(), max_relative = 1e-6);
+        approx::assert_relative_eq!(per_example[1], w * 10.0f32.sqrt(), max_relative = 1e-6);
     }
 }
