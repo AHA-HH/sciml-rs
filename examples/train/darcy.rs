@@ -52,7 +52,7 @@ fn main() {
 
     let model_cfg = FNOConfig {
         // Two entries so a 2D FNO model. Same code path as Burgers' vec![16]
-        modes: vec![4, 4],
+        modes: vec![12, 12],
         hidden_channels: 32,
         data_channels: 1,
         out_channels: 1,
