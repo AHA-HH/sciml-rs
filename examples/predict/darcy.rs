@@ -49,7 +49,7 @@ fn main() {
     // Same test split the run was evaluated on
     let dataset_cfg = DarcyConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
-    let (_, test_data, _) = load_darcy_uniform(
+    let (_, test_data, _) = load_darcy_uniform::<f32>(
         datasets.join("piececonst_r421_N1024_smooth1.mat"),
         datasets.join("piececonst_r421_N1024_smooth2.mat"),
         &dataset_cfg,

@@ -13,6 +13,7 @@
 //! `y_normalizer` is what the caller needs to do that decode.
 
 use crate::neural_operators::data::{
+    dataitem::HostFloat,
     dataset::OperatorDataset,
     grids::{GridPlacement, append_grid, uniform_grid},
     io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
@@ -65,11 +66,15 @@ pub struct DarcyNormalizers {
 /// undefined for one sample), the fields aren't `[samples, s, s]`, a file has
 /// fewer samples than requested, or the subsample rate doesn't give
 /// `config.s()` points per axis.
-pub fn load_darcy_uniform(
+///
+/// Reading, normalization and grids are computed in `f64`, and the
+/// normalizers keep `f64` statistics; the datasets are stored as `T`,
+/// rounded once at the end (see [`HostFloat`]).
+pub fn load_darcy_uniform<T: HostFloat>(
     train_path: impl AsRef<Path>,
     test_path: impl AsRef<Path>,
     config: &DarcyConfig,
-) -> Result<(OperatorDataset, OperatorDataset, DarcyNormalizers), LoadError> {
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>, DarcyNormalizers), LoadError> {
     if config.subsample_rate == 0 {
         return Err(LoadError::Invalid("subsample_rate must be > 0".into()));
     }
@@ -155,9 +160,9 @@ pub fn load_darcy_uniform(
     let x_train = append_grid(x_train, &grid, GridPlacement::AfterData);
     let x_test = append_grid(x_test, &grid, GridPlacement::AfterData);
 
-    // package into OperatorDataset
-    let train_dataset = OperatorDataset::new(x_train, y_train);
-    let test_dataset = OperatorDataset::new(x_test, y_test);
+    // package into OperatorDataset, casting to the host dtype T
+    let train_dataset = OperatorDataset::from_f64(x_train, y_train);
+    let test_dataset = OperatorDataset::from_f64(x_test, y_test);
 
     println!("darcy: {n_train} train / {n_test} test at s={s}");
 
@@ -206,7 +211,7 @@ mod tests {
         let mut config = cfg(5);
         config.base.n_train = 1;
         // nonexistent paths: the check must run before any file I/O
-        let err = load_darcy_uniform("/nope/train.mat", "/nope/test.mat", &config)
+        let err = load_darcy_uniform::<f32>("/nope/train.mat", "/nope/test.mat", &config)
             .err()
             .expect("loading should fail");
         assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
@@ -215,7 +220,7 @@ mod tests {
 
     #[test]
     fn missing_file_is_a_reader_error() {
-        let err = load_darcy_uniform("/nope/train.mat", "/nope/test.mat", &cfg(5))
+        let err = load_darcy_uniform::<f32>("/nope/train.mat", "/nope/test.mat", &cfg(5))
             .err()
             .expect("loading should fail");
         assert!(
@@ -227,7 +232,7 @@ mod tests {
 
     #[test]
     fn zero_subsample_rate_is_invalid_not_a_panic() {
-        let err = load_darcy_uniform("/nope/train.mat", "/nope/test.mat", &cfg(0))
+        let err = load_darcy_uniform::<f32>("/nope/train.mat", "/nope/test.mat", &cfg(0))
             .err()
             .expect("loading should fail");
         assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");

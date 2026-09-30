@@ -36,7 +36,9 @@ fn main() {
 
     let dataset_cfg = DarcyConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
-    let (_, test_data, _) = load_darcy_uniform(
+    // f64 host storage: the plot reads the sample back as f64. The model
+    // still sees the same f32 values (see `HostFloat`).
+    let (_, test_data, _) = load_darcy_uniform::<f64>(
         datasets.join("piececonst_r421_N1024_smooth1.mat"),
         datasets.join("piececonst_r421_N1024_smooth2.mat"),
         &dataset_cfg,

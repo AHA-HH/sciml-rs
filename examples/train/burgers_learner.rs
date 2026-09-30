@@ -48,7 +48,7 @@ fn main() {
         "Burgers dataset not found at {}\nSee datasets/README.md for the download link.",
         data_path.display()
     );
-    let (train_data, test_data) = load_burgers_uniform(&data_path, &dataset_cfg)
+    let (train_data, test_data) = load_burgers_uniform::<f32>(&data_path, &dataset_cfg)
         .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
 
     let model_cfg = FNOConfig {
@@ -69,8 +69,9 @@ fn main() {
 
     // Same model, Adam optimizer, cosine schedule and loaders as the
     // hand-written loop.
-    let c =
-        build_training_components::<3, 2>(&model_cfg, &train_cfg, train_data, test_data, &device);
+    let c = build_training_components::<3, 2, _>(
+        &model_cfg, &train_cfg, train_data, test_data, &device,
+    );
 
     std::fs::create_dir_all(ARTIFACT_DIR).expect("could not create artifact dir");
 

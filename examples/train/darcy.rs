@@ -51,7 +51,7 @@ fn main() {
     }
 
     let (train_data, test_data, normalizers) =
-        load_darcy_uniform(&train_path, &test_path, &dataset_cfg)
+        load_darcy_uniform::<f32>(&train_path, &test_path, &dataset_cfg)
             .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
     let model_cfg = FNOConfig {

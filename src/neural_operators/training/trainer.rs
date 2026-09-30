@@ -21,6 +21,7 @@ use std::sync::Arc;
 use crate::neural_operators::{
     data::{
         batcher::{Batch, OperatorBatcher},
+        dataitem::HostFloat,
         dataset::OperatorDataset,
     },
     losses::data_losses::{LpLoss, Reduction},
@@ -246,11 +247,11 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
 /// # Panics
 ///
 /// If either dataset is empty.
-pub fn build_training_components<const R: usize, const RM1: usize>(
+pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>(
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
-    train_data: OperatorDataset,
-    test_data: OperatorDataset,
+    train_data: OperatorDataset<T>,
+    test_data: OperatorDataset<T>,
     device: &Device,
 ) -> TrainingComponents<R, RM1> {
     let (n_train, n_test) = (train_data.len(), test_data.len());
@@ -381,7 +382,7 @@ mod tests {
 
     /// `n` Burgers-shaped samples: inputs `[n, 8, 2]`, targets `[n, 8]`,
     /// targets nonzero so the relative L2 is well defined.
-    fn tiny_dataset(n: usize) -> OperatorDataset {
+    fn tiny_dataset(n: usize) -> OperatorDataset<f64> {
         let inputs = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 8, 2]), |i| {
             ((i[0] * 8 + i[1]) as f64 * 0.3 + i[2] as f64).sin()
         });
@@ -400,7 +401,7 @@ mod tests {
     #[test]
     fn components_take_sample_counts_from_the_datasets() {
         let train_cfg = TrainingConfig::new().with_batch_size(2);
-        let c = build_training_components::<3, 2>(
+        let c = build_training_components::<3, 2, _>(
             &tiny_model_cfg(),
             &train_cfg,
             tiny_dataset(5),
@@ -421,7 +422,7 @@ mod tests {
             .with_test_batch_size(2)
             .with_learning_rate(lr)
             .with_min_lr(min_lr);
-        let components = build_training_components::<3, 2>(
+        let components = build_training_components::<3, 2, _>(
             &tiny_model_cfg(),
             &train_cfg,
             tiny_dataset(n_train),
@@ -459,7 +460,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "non-empty datasets")]
     fn empty_training_set_is_rejected() {
-        let _ = build_training_components::<3, 2>(
+        let _ = build_training_components::<3, 2, _>(
             &tiny_model_cfg(),
             &TrainingConfig::new(),
             tiny_dataset(0),
