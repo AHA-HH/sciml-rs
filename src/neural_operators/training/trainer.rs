@@ -2,10 +2,7 @@
 
 use burn::{
     config::Config,
-    data::{
-        dataloader::{DataLoader, DataLoaderBuilder},
-        dataset::Dataset,
-    },
+    data::{dataloader::DataLoader, dataset::Dataset},
     lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
     module::Module,
     optim::{
@@ -20,9 +17,8 @@ use std::sync::Arc;
 
 use crate::neural_operators::{
     data::{
-        batcher::{Batch, OperatorBatcher},
-        dataitem::HostFloat,
-        dataset::OperatorDataset,
+        batcher::Batch, dataitem::HostFloat, dataset::OperatorDataset,
+        device_batcher::device_loader,
     },
     losses::data_losses::{LpLoss, Reduction},
     models::fno::{FNO, FNOConfig},
@@ -241,6 +237,9 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
 
 /// Builds the model, optimizer, schedule and loaders.
 ///
+/// Both splits are uploaded to `device` once and stay there for the whole
+/// run (see [`device_loader`]), so they must fit in device memory.
+///
 /// Sample counts come from the datasets themselves, so the schedule length
 /// and the metric divisors always match the data actually trained on.
 ///
@@ -287,16 +286,18 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
     .init()
     .expect("valid cosine scheduler config");
 
-    let train_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new())
-        .set_device(train_device)
-        .batch_size(train_cfg.batch_size)
-        .shuffle(train_cfg.seed)
-        .build(train_data);
+    // Each split is uploaded once and batched on the device (REVIEW.md 4.1),
+    // with the same order as a DataLoader over the host dataset. The host
+    // copies are dropped on return.
+    let train_loader = device_loader::<R, RM1, T>(
+        &train_data,
+        &train_device,
+        train_cfg.batch_size,
+        Some(train_cfg.seed),
+    );
 
-    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<R, RM1>::new())
-        .set_device(eval_device)
-        .batch_size(train_cfg.test_batch_size)
-        .build(test_data);
+    let test_loader =
+        device_loader::<R, RM1, T>(&test_data, &eval_device, train_cfg.test_batch_size, None);
 
     TrainingComponents {
         model,
@@ -367,6 +368,8 @@ pub fn training_loop<const R: usize, const RM1: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::neural_operators::data::batcher::OperatorBatcher;
+    use burn::data::dataloader::DataLoaderBuilder;
 
     #[test]
     fn flatten_pair_collapses_to_rank_two() {
@@ -455,6 +458,79 @@ mod tests {
             (test_l2 - expected).abs() <= 1e-6 * expected.abs(),
             "{test_l2} != {expected}"
         );
+    }
+
+    // --- REVIEW.md 4.1: device-resident loaders change nothing numerically ---
+
+    /// Full `training_loop` with the device-resident loaders against the same
+    /// components with the pre-4.1 host loaders swapped in: every metric of
+    /// every epoch must be exactly equal (same batches, same order, same
+    /// kernels), as must the trained model's output.
+    #[test]
+    fn device_loaders_train_identically_to_host_loaders() {
+        let (n_train, n_test) = (7, 3); // partial last batch in both splits
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(3)
+            .with_batch_size(2)
+            .with_test_batch_size(2)
+            .with_seed(11);
+        let device = Device::default().autodiff();
+        let build = || {
+            build_training_components::<3, 2, _>(
+                &tiny_model_cfg(),
+                &train_cfg,
+                tiny_dataset(n_train),
+                tiny_dataset(n_test),
+                &device,
+            )
+        };
+
+        // One initial model for both runs: tests run in parallel and share the
+        // device RNG, so a second seeded `init` isn't guaranteed to match.
+        let device_run = build();
+        let mut host = build();
+        host.model = device_run.model.clone();
+
+        let (new_model, new) = training_loop(device_run, &train_cfg, &identity, &identity);
+
+        host.train_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
+            .set_device(device.clone())
+            .batch_size(train_cfg.batch_size)
+            .shuffle(train_cfg.seed)
+            .build(tiny_dataset(n_train));
+        host.test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
+            .set_device(device.clone().inner())
+            .batch_size(train_cfg.test_batch_size)
+            .build(tiny_dataset(n_test));
+        let (old_model, old) = training_loop(host, &train_cfg, &identity, &identity);
+
+        let key = |m: &EpochMetrics| {
+            (
+                m.train_mse.to_bits(),
+                m.train_l2.to_bits(),
+                m.test_l2.to_bits(),
+                m.current_lr.to_bits(),
+            )
+        };
+        assert_eq!(
+            new.iter().map(key).collect::<Vec<_>>(),
+            old.iter().map(key).collect::<Vec<_>>()
+        );
+
+        let probe = |m: &FNO<3>| -> Vec<u32> {
+            let x = tiny_dataset(1);
+            let x = Tensor::<3>::from_data(
+                TensorData::new(x.inputs().iter().map(|&v| v as f32).collect(), [1, 8, 2]),
+                &device.clone().inner(),
+            );
+            m.valid()
+                .forward(x)
+                .into_data()
+                .iter::<f32>()
+                .map(f32::to_bits)
+                .collect()
+        };
+        assert_eq!(probe(&new_model), probe(&old_model));
     }
 
     #[test]
