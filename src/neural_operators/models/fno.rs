@@ -115,12 +115,16 @@ impl<const R: usize> FNO<R> {
         )
     }
 
-    fn apply_pointwise(conv: &Conv1d, x: Tensor<R>) -> Tensor<R> {
-        let dims = x.dims();
-        let (b, hidden_channels) = (dims[0], dims[1]);
-        let spatial: usize = dims[2..].iter().product();
-        conv.forward(x.reshape([b, hidden_channels, spatial]))
-            .reshape(dims)
+    /// A kernel-size-1 `Conv1d` as a pointwise matmul (REVIEW.md 4.4), using
+    /// its own parameters: the `[O, I, 1]` weight read as `[O, I]`.
+    fn conv1x1_cf(conv: &Conv1d, x: Tensor<R>) -> Tensor<R> {
+        let [o, i, k] = conv.weight.val().dims();
+        debug_assert_eq!(k, 1, "pointwise path needs kernel size 1, got {k}");
+        Self::pointwise(
+            conv.weight.val().reshape([o, i]),
+            conv.bias.as_ref().map(|b| b.val()),
+            x,
+        )
     }
 
     /// `[B, spatial.., C_in]` → `[B, spatial.., out_channels]`.
@@ -140,7 +144,7 @@ impl<const R: usize> FNO<R> {
         let n = self.conv.len();
         for idx in 0..n {
             let x1 = self.conv[idx].forward(x.clone());
-            let x2 = Self::apply_pointwise(&self.w[idx], x);
+            let x2 = Self::conv1x1_cf(&self.w[idx], x);
             x = if idx == n - 1 { x1 + x2 } else { relu(x1 + x2) };
         }
 
