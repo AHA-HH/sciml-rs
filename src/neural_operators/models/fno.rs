@@ -78,40 +78,86 @@ impl FNOConfig {
 }
 
 impl<const R: usize> FNO<R> {
-    fn apply_pointwise(conv: &Conv1d, x: Tensor<R>) -> Tensor<R> {
-        let dims = x.dims();
-        let (b, hidden_channels) = (dims[0], dims[1]);
-        let spatial: usize = dims[2..].iter().product();
-        conv.forward(x.reshape([b, hidden_channels, spatial]))
-            .reshape(dims)
+    /// `y[b, o, n] = Σ_i w[o, i] · x[b, i, n] + bias[o]` on channels-first `x`
+    /// (`[B, I, spatial..]` → `[B, O, spatial..]`), as one batched matmul.
+    ///
+    /// The reshape to `[B, I, N]` is free on a contiguous channels-first
+    /// tensor, which is what every caller in `forward` passes.
+    fn pointwise(w_oi: Tensor<2>, bias: Option<Tensor<1>>, x: Tensor<R>) -> Tensor<R> {
+        let mut dims = x.dims();
+        let (b, i) = (dims[0], dims[1]);
+        let n: usize = dims[2..].iter().product();
+        let [o, w_i] = w_oi.dims();
+        debug_assert_eq!(
+            w_i, i,
+            "pointwise weight expects {w_i} input channels, got {i}"
+        );
+
+        let y = w_oi.unsqueeze::<3>().matmul(x.reshape([b, i, n])); // [1,O,I] @ [B,I,N]
+        let y = match bias {
+            Some(bias) => y + bias.reshape([1, o, 1]),
+            None => y,
+        };
+        dims[1] = o;
+        y.reshape(dims)
     }
 
-    pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
-        let x = self.fc0.forward(x);
+    /// A `Linear` applied along the channel axis of a channels-first tensor.
+    ///
+    /// Uses the layer's own parameters, so checkpoints are unchanged. `Linear`
+    /// stores `[d_input, d_output]` (the default row layout used by `init`),
+    /// hence the transpose to `[O, I]`.
+    fn linear_cf(layer: &Linear, x: Tensor<R>) -> Tensor<R> {
+        Self::pointwise(
+            layer.weight.val().transpose(),
+            layer.bias.as_ref().map(|b| b.val()),
+            x,
+        )
+    }
 
+    /// A kernel-size-1 `Conv1d` as a pointwise matmul (REVIEW.md 4.4), using
+    /// its own parameters: the `[O, I, 1]` weight read as `[O, I]`.
+    fn conv1x1_cf(conv: &Conv1d, x: Tensor<R>) -> Tensor<R> {
+        let [o, i, k] = conv.weight.val().dims();
+        debug_assert_eq!(k, 1, "pointwise path needs kernel size 1, got {k}");
+        Self::pointwise(
+            conv.weight.val().reshape([o, i]),
+            conv.bias.as_ref().map(|b| b.val()),
+            x,
+        )
+    }
+
+    /// `[B, spatial.., C_in]` → `[B, spatial.., out_channels]`.
+    ///
+    /// Channels-first inside: the input is permuted once while it is only
+    /// `C_in` wide, and the output once while it is one channel wide, so the
+    /// hidden-width activations are never permuted or copied for layout.
+    pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
+        // [B, s.., C] -> [B, C, s..]
         let perm_in: [usize; R] = core::array::from_fn(|i| match i {
             0 => 0,
             1 => R - 1,
             i => i - 1,
         });
-        let mut x = x.permute(perm_in);
+        let mut x = Self::linear_cf(&self.fc0, x.permute(perm_in));
 
         let n = self.conv.len();
         for idx in 0..n {
             let x1 = self.conv[idx].forward(x.clone());
-            let x2 = Self::apply_pointwise(&self.w[idx], x);
+            let x2 = Self::conv1x1_cf(&self.w[idx], x);
             x = if idx == n - 1 { x1 + x2 } else { relu(x1 + x2) };
         }
 
+        let x = relu(Self::linear_cf(&self.fc1, x));
+        let x = Self::linear_cf(&self.fc2, x);
+
+        // [B, C, s..] -> [B, s.., C]
         let perm_out: [usize; R] = core::array::from_fn(|i| match i {
             0 => 0,
             i if i == R - 1 => 1,
             i => i + 1,
         });
-        let x = x.permute(perm_out);
-        let x = self.fc1.forward(x);
-        let x = relu(x);
-        self.fc2.forward(x)
+        x.permute(perm_out)
     }
 }
 
@@ -237,5 +283,154 @@ mod tests {
             out_ad.inner().into_data().try_to_vec::<f32>().unwrap(),
             out_plain.into_data().try_to_vec::<f32>().unwrap()
         );
+    }
+
+    // --- REVIEW.md 4.2: channels-first internals match the old forward ---
+
+    /// The pre-4.2 `forward`, verbatim: `Linear` on channels-last, permute the
+    /// hidden activation to channels-first and back.
+    fn reference_forward<const R: usize>(m: &FNO<R>, x: Tensor<R>) -> Tensor<R> {
+        let x = m.fc0.forward(x);
+        let perm_in: [usize; R] = core::array::from_fn(|i| match i {
+            0 => 0,
+            1 => R - 1,
+            i => i - 1,
+        });
+        let mut x = x.permute(perm_in);
+        let n = m.conv.len();
+        for idx in 0..n {
+            let x1 = m.conv[idx].forward(x.clone());
+            let dims = x.dims();
+            let spatial: usize = dims[2..].iter().product();
+            let x2 = m.w[idx]
+                .forward(x.reshape([dims[0], dims[1], spatial]))
+                .reshape(dims);
+            x = if idx == n - 1 { x1 + x2 } else { relu(x1 + x2) };
+        }
+        let perm_out: [usize; R] = core::array::from_fn(|i| match i {
+            0 => 0,
+            i if i == R - 1 => 1,
+            i => i + 1,
+        });
+        let x = relu(m.fc1.forward(x.permute(perm_out)));
+        m.fc2.forward(x)
+    }
+
+    /// max |a - b| relative to max(1, max |b|).
+    fn rel_err(a: Tensor<1>, b: Tensor<1>) -> f32 {
+        let scale = b.clone().abs().max().into_scalar::<f32>().max(1.0);
+        (a - b).abs().max().into_scalar::<f32>() / scale
+    }
+
+    fn flat<const R: usize>(t: Tensor<R>) -> Tensor<1> {
+        let n: usize = t.dims().iter().product();
+        t.reshape([n])
+    }
+
+    /// f32, and each output is a sum of at most 128 O(1) products taken in a
+    /// different order than the reference, so ~1e-7 per term; 1e-5 leaves
+    /// headroom without hiding a wrong weight (which gives O(1) errors).
+    const TOL: f32 = 1e-5;
+
+    fn check_forward<const R: usize>(
+        modes: Vec<usize>,
+        data_channels: usize,
+        hidden: usize,
+        spatial: &[usize],
+    ) {
+        let device = Device::default();
+        device.seed(3);
+        let model: FNO<R> = FNOConfig::new(modes.clone(), data_channels, 1)
+            .with_hidden_channels(hidden)
+            .with_n_layers(2)
+            .init::<R>(&device);
+        let mut shape = vec![2];
+        shape.extend_from_slice(spatial);
+        shape.push(data_channels + modes.len());
+        let shape: [usize; R] = shape.try_into().unwrap();
+        let x = Tensor::<R>::random(shape, Distribution::Normal(0.0, 1.0), &device);
+
+        let new = model.forward(x.clone());
+        let old = reference_forward(&model, x);
+        assert_eq!(new.dims(), old.dims());
+        let err = rel_err(flat(new), flat(old));
+        println!("FNO<{R}> forward rel err {err:e}");
+        assert!(
+            err <= TOL,
+            "FNO<{R}> forward differs from reference: {err:e}"
+        );
+    }
+
+    #[test]
+    fn forward_matches_reference_1d() {
+        check_forward::<3>(vec![4], 1, 6, &[16]);
+    }
+
+    /// hidden = 128 makes `fc1` (128 -> 128) and every `w` square, so a
+    /// transposed weight would still have the right shape.
+    #[test]
+    fn forward_matches_reference_square_weights() {
+        check_forward::<3>(vec![4], 1, 128, &[16]);
+    }
+
+    #[test]
+    fn forward_matches_reference_2d() {
+        check_forward::<4>(vec![3, 2], 1, 6, &[8, 6]);
+    }
+
+    #[test]
+    fn forward_matches_reference_3d() {
+        check_forward::<5>(vec![2, 2, 2], 3, 6, &[4, 6, 5]);
+    }
+
+    /// Same loss through both forwards: the input gradient (which flows back
+    /// through every layer, spectral ones included) and the lift, pointwise
+    /// and projection parameter gradients must agree.
+    #[test]
+    fn gradients_match_reference() {
+        let device = Device::default().autodiff();
+        device.seed(5);
+        let model: FNO<4> = FNOConfig::new(vec![3, 2], 1, 1)
+            .with_hidden_channels(6)
+            .with_n_layers(2)
+            .init::<4>(&device);
+        let x0 = Tensor::<4>::random([2, 8, 6, 3], Distribution::Normal(0.0, 1.0), &device);
+        let probe = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
+
+        let grads_of = |f: &dyn Fn(Tensor<4>) -> Tensor<4>| {
+            let x = x0.clone().detach().require_grad();
+            let grads = (f(x.clone()) * probe.clone()).sum().backward();
+            let mut out: Vec<(String, Tensor<1>)> =
+                vec![("input".into(), flat(x.grad(&grads).expect("input grad")))];
+            for (name, l) in [
+                ("fc0", &model.fc0),
+                ("fc1", &model.fc1),
+                ("fc2", &model.fc2),
+            ] {
+                out.push((
+                    format!("{name}.weight"),
+                    flat(l.weight.grad(&grads).unwrap()),
+                ));
+                let b = l.bias.as_ref().unwrap();
+                out.push((format!("{name}.bias"), flat(b.grad(&grads).unwrap())));
+            }
+            for (i, w) in model.w.iter().enumerate() {
+                out.push((
+                    format!("w[{i}].weight"),
+                    flat(w.weight.grad(&grads).unwrap()),
+                ));
+                let b = w.bias.as_ref().unwrap();
+                out.push((format!("w[{i}].bias"), flat(b.grad(&grads).unwrap())));
+            }
+            out
+        };
+
+        let new = grads_of(&|x| model.forward(x));
+        let old = grads_of(&|x| reference_forward(&model, x));
+        for ((name, g_new), (_, g_old)) in new.into_iter().zip(old) {
+            let err = rel_err(g_new, g_old);
+            println!("grad {name} rel err {err:e}");
+            assert!(err <= TOL, "gradient of {name} differs: {err:e}");
+        }
     }
 }
