@@ -21,6 +21,10 @@ The spectral layers support any grid size (non-power-of-two FFTs go through
 Bluestein's algorithm), and `examples/train/darcy.rs` now trains at the
 paper's s = 85 with 12 modes. The Darcy row above is from an earlier s = 16
 configuration; an s = 85 comparison against PyTorch hasn't been run yet.
+For non-periodic problems, `FNOConfig::padding` appends that many zero cells to
+the end of every spatial axis before the spectral layers and crops them off
+afterwards; `train_darcy` uses 9, as in Li et al.'s `fourier_2d.py`. The padded
+size needn't be a power of two.
 
 ## Requirements
 
