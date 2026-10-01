@@ -23,8 +23,8 @@
     feature = "flex",
     feature = "metal",
     feature = "cuda",
-    feature = "rocm",
-    feature = "vulkan",
+    // feature = "rocm",
+    // feature = "vulkan",
     feature = "wgpu"
 )))]
 compile_error!(
