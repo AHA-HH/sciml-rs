@@ -22,9 +22,7 @@ use sciml_rs::neural_operators::{
             base_dataset::HasBaseConfig,
             darcy::{DarcyConfig, load_darcy_uniform},
         },
-        transforms::normalizers::{
-            NormalizerRecord, UnitGaussianNormalizer, decode_flat, normalizer_to_flat_tensors,
-        },
+        transforms::normalizers::{FlatDecoder, NormalizerRecord, UnitGaussianNormalizer},
     },
     losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
@@ -65,10 +63,8 @@ fn main() {
     let y_norm = UnitGaussianNormalizer::from_record(
         &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),
     );
-    let (mean, std) = normalizer_to_flat_tensors(&y_norm, &device);
-    let eps = y_norm.eps_val();
-    let eval_post =
-        move |out: Tensor<2>, target: Tensor<2>| (decode_flat(out, &mean, &std, eps), target);
+    let decoder = FlatDecoder::new(&y_norm, &device);
+    let eval_post = move |out: Tensor<2>, target: Tensor<2>| (decoder.decode(out), target);
 
     let loss_fn = LpLoss::new(2, 2, Reduction::Sum);
     let l2 = eval_epoch::<4, 3>(&model, &test_loader, &loss_fn, &eval_post);

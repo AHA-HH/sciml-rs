@@ -6,9 +6,7 @@ use crate::neural_operators::{
     data::{
         dataitem::HostFloat,
         dataset::OperatorDataset,
-        transforms::normalizers::{
-            UnitGaussianNormalizer, decode_flat, normalizer_to_flat_tensors,
-        },
+        transforms::normalizers::{FlatDecoder, UnitGaussianNormalizer},
     },
     models::fno::{FNO, FNOConfig},
     training::{
@@ -30,24 +28,16 @@ pub fn train_darcy<T: HostFloat>(
     train_cfg: &TrainingConfig,
     device: &Device,
 ) -> (FNO<4>, Vec<EpochMetrics>) {
-    let (train_mean, train_std) = normalizer_to_flat_tensors(y_normalizer, device);
-
-    let eval_device = device.clone().inner();
-
-    let (eval_mean, eval_std) = normalizer_to_flat_tensors(y_normalizer, &eval_device);
-
-    let eps = y_normalizer.eps_val();
+    // One decoder per device: training tensors are autodiff, evaluation
+    // tensors live on the inner device (model.valid()).
+    let train_decoder = FlatDecoder::new(y_normalizer, device);
+    let eval_decoder = FlatDecoder::new(y_normalizer, &device.clone().inner());
 
     let train_post = move |out: Tensor<2>, target: Tensor<2>| {
-        (
-            decode_flat(out, &train_mean, &train_std, eps),
-            decode_flat(target, &train_mean, &train_std, eps),
-        )
+        (train_decoder.decode(out), train_decoder.decode(target))
     };
 
-    let eval_post = move |out: Tensor<2>, target: Tensor<2>| {
-        (decode_flat(out, &eval_mean, &eval_std, eps), target)
-    };
+    let eval_post = move |out: Tensor<2>, target: Tensor<2>| (eval_decoder.decode(out), target);
 
     let components =
         build_training_components::<4, 3, _>(model_cfg, train_cfg, train_data, test_data, device);
