@@ -11,7 +11,7 @@ use burn::{
     tensor::{Device, activation::relu},
 };
 
-use crate::neural_operators::layers::spectral_convolution::SpectralConv;
+use crate::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
 
 // FNO Architecture
 #[derive(Config, Debug)]
@@ -23,6 +23,10 @@ pub struct FNOConfig {
     pub out_channels: usize,
     #[config(default = 4)]
     pub n_layers: usize,
+    /// Initialisation of every spectral layer's weights. `None` is the Li et
+    /// al. default, [`SpectralInit::LiUniform`]. An `Option` so that saved
+    /// configs without this field still load (as `None`).
+    pub spectral_init: Option<SpectralInit>,
 }
 
 #[derive(Module, Debug)]
@@ -56,11 +60,12 @@ impl FNOConfig {
 
             conv: (0..self.n_layers)
                 .map(|_| {
-                    SpectralConv::<R>::new(
+                    SpectralConv::<R>::new_with_init(
                         device,
                         self.hidden_channels,
                         self.hidden_channels,
                         &self.modes,
+                        self.spectral_init.clone().unwrap_or_default(),
                     )
                 })
                 .collect(),
@@ -182,6 +187,7 @@ mod tests {
             data_channels,
             out_channels: 1,
             n_layers: 4,
+            spectral_init: None,
         };
         let model: FNO<R> = config.init::<R>(&device);
 
@@ -231,8 +237,90 @@ mod tests {
             data_channels: 1,
             out_channels: 1,
             n_layers: 4,
+            spectral_init: None,
         };
         let _: FNO<4> = config.init::<4>(&device); // asking for rank 4
+    }
+
+    // --- issue #8: selectable spectral initialisation ---
+
+    /// Every spectral layer gets the configured scheme. `LiUniform` draws
+    /// from `[0, s)`, so a negative weight in a layer means that layer used a
+    /// zero-mean scheme; with 2 parts × 8·8·4 = 512 symmetric draws per layer
+    /// (one corner in 1D), P(none negative) = 2^-512.
+    #[test]
+    fn spectral_init_reaches_every_layer() {
+        let device = Device::default();
+        let min_per_layer = |init: Option<SpectralInit>| -> Vec<f32> {
+            let model: FNO<3> = FNOConfig::new(vec![4], 1, 1)
+                .with_hidden_channels(8)
+                .with_n_layers(3)
+                .with_spectral_init(init)
+                .init::<3>(&device);
+            model
+                .conv
+                .iter()
+                .map(|layer| {
+                    layer
+                        .corner_weights()
+                        .into_iter()
+                        .flat_map(|(re, im)| {
+                            [re.min().into_scalar::<f32>(), im.min().into_scalar()]
+                        })
+                        .fold(f32::INFINITY, f32::min)
+                })
+                .collect()
+        };
+
+        let default = min_per_layer(None);
+        assert_eq!(default.len(), 3);
+        assert!(
+            default.iter().all(|&m| m >= 0.0),
+            "default (Li) init must be non-negative in every layer: {default:?}"
+        );
+
+        for init in [SpectralInit::Normal, SpectralInit::SymmetricUniform] {
+            let mins = min_per_layer(Some(init.clone()));
+            assert!(
+                mins.iter().all(|&m| m < 0.0),
+                "{init:?} did not reach every layer: per-layer minima {mins:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn spectral_init_survives_config_round_trip() {
+        use burn::config::config_to_json;
+
+        for init in [
+            None,
+            Some(SpectralInit::LiUniform),
+            Some(SpectralInit::Normal),
+            Some(SpectralInit::SymmetricUniform),
+        ] {
+            let config = FNOConfig::new(vec![16], 1, 1).with_spectral_init(init.clone());
+            let json = config_to_json(&config);
+            let loaded = FNOConfig::load_binary(json.as_bytes()).expect("load saved config");
+            assert_eq!(loaded.spectral_init, init, "round trip via {json}");
+        }
+    }
+
+    /// A `model_cfg.json` as written before `spectral_init` existed must
+    /// still load, and mean the Li et al. default.
+    #[test]
+    fn config_without_spectral_init_loads_as_default() {
+        let old = r#"{
+  "modes": [16],
+  "hidden_channels": 64,
+  "data_channels": 1,
+  "out_channels": 1,
+  "n_layers": 4
+}"#;
+        let loaded = FNOConfig::load_binary(old.as_bytes()).expect("load pre-#8 config");
+        assert_eq!(loaded.spectral_init, None);
+        assert_eq!(loaded.modes, vec![16]);
+        assert_eq!(loaded.hidden_channels, 64);
+        assert_eq!(loaded.n_layers, 4);
     }
 
     // --- REVIEW.md 2.7: inference without autodiff ---
@@ -253,6 +341,7 @@ mod tests {
             data_channels: 1,
             out_channels: 1,
             n_layers: 2,
+            spectral_init: None,
         };
 
         let trained: FNO<3> = config.init::<3>(&ad);

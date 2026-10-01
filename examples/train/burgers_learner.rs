@@ -57,6 +57,9 @@ fn main() {
         data_channels: 1,
         out_channels: 1,
         n_layers: 4,
+        // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
+        // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
+        spectral_init: None,
     };
 
     // Fewer epochs than `train_burgers` so a TUI run finishes quickly.
