@@ -17,6 +17,7 @@
 
 use burn::{
     Tensor,
+    config::Config,
     module::{Module, Param},
     tensor::signal,
     tensor::{Device, Distribution},
@@ -25,6 +26,58 @@ use burn::{
 use std::ops::Range;
 
 use crate::neural_operators::utils::fft::icfft_full_spectrum;
+
+/// Initialisation of the complex spectral weights of [`SpectralConv`].
+///
+/// Every weight is `w = a + bi`, with the real part `a` and imaginary part `b`
+/// drawn independently from the same real distribution. `I` is
+/// `in_channels` and `O` is `out_channels`. Means and variances below are per
+/// part.
+#[derive(Config, Debug, PartialEq)]
+pub enum SpectralInit {
+    /// `U(0, s)` with `s = 1/(I·O)`: mean `s/2`, variance `s²/12`.
+    ///
+    /// The reference initialisation of Li et al. (`scale * torch.rand(cfloat)`)
+    /// and the default. Every part is non-negative, so the mean phase is π/4,
+    /// and the scale shrinks with the square of the width.
+    LiUniform,
+    /// `N(0, σ²)` with variance `σ² = 1/(I·O)` (standard deviation
+    /// `1/√(I·O)`): mean 0.
+    Normal,
+    /// `U(−1/√I, 1/√I)`: mean 0, variance `1/(3I)`. Depends on `in_channels`
+    /// only.
+    SymmetricUniform,
+}
+
+// Manual: `#[derive(Default)]` needs a `#[default]` variant attribute, which
+// `#[derive(Config)]` copies into its generated code, where it does not resolve.
+#[allow(clippy::derivable_impls)]
+impl Default for SpectralInit {
+    fn default() -> Self {
+        Self::LiUniform
+    }
+}
+
+impl SpectralInit {
+    /// The per-part distribution for an `in_channels × out_channels` layer.
+    fn distribution(&self, in_channels: usize, out_channels: usize) -> Distribution {
+        match self {
+            Self::LiUniform => {
+                let scale = 1.0 / (in_channels * out_channels) as f64;
+                Distribution::Uniform(0.0, scale)
+            }
+            // Burn's `Normal` takes the standard deviation, not the variance.
+            Self::Normal => {
+                let std = (1.0 / (in_channels * out_channels) as f64).sqrt();
+                Distribution::Normal(0.0, std)
+            }
+            Self::SymmetricUniform => {
+                let bound = 1.0 / (in_channels as f64).sqrt();
+                Distribution::Uniform(-bound, bound)
+            }
+        }
+    }
+}
 
 /// Learned spectral convolution over `R - 2` spatial axes.
 #[derive(Module, Debug)]
@@ -77,10 +130,42 @@ impl<const R: usize> SpectralConv<R> {
     /// let _model = FNOConfig::new(vec![], 1, 1).init::<2>(&device);
     /// ```
     ///
+    /// Weights use the Li et al. default, [`SpectralInit::LiUniform`]; see
+    /// [`Self::new_with_init`] to choose another scheme.
+    ///
     /// # Panics
     ///
     /// If `modes.len() != R - 2`.
     pub fn new(device: &Device, in_channels: usize, out_channels: usize, modes: &[usize]) -> Self {
+        Self::new_with_init(
+            device,
+            in_channels,
+            out_channels,
+            modes,
+            SpectralInit::LiUniform,
+        )
+    }
+
+    /// As [`Self::new`], with the weights drawn according to `init`.
+    ///
+    /// ```
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
+    ///
+    /// let device = Device::default();
+    /// let _conv = SpectralConv::<3>::new_with_init(&device, 64, 64, &[16], SpectralInit::Normal);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `modes.len() != R - 2`.
+    pub fn new_with_init(
+        device: &Device,
+        in_channels: usize,
+        out_channels: usize,
+        modes: &[usize],
+        init: SpectralInit,
+    ) -> Self {
         let () = Self::RANK_OK;
         assert_eq!(
             modes.len(),
@@ -95,19 +180,21 @@ impl<const R: usize> SpectralConv<R> {
         shape.extend_from_slice(&modes);
         let shape: [usize; R] = shape.try_into().unwrap();
 
-        // Scaling follows the reference implementation.
-        let scale = 1.0 / (in_channels * out_channels) as f64;
+        // Draw order (per corner: real, then imaginary) is part of the
+        // contract: with a fixed seed, `LiUniform` reproduces the weights of
+        // earlier releases bit for bit.
+        let distribution = init.distribution(in_channels, out_channels);
         let mut weights_re = Vec::with_capacity(num_corners);
         let mut weights_im = Vec::with_capacity(num_corners);
         for _ in 0..num_corners {
             weights_re.push(Param::from_tensor(Tensor::<R>::random(
                 shape,
-                Distribution::Uniform(0.0, scale),
+                distribution,
                 device,
             )));
             weights_im.push(Param::from_tensor(Tensor::<R>::random(
                 shape,
-                Distribution::Uniform(0.0, scale),
+                distribution,
                 device,
             )));
         }
@@ -286,6 +373,16 @@ impl<const R: usize> SpectralConv<R> {
         }
 
         Self::ifft_ctensor(out_ft_re, out_ft_im, &orig_dims)
+    }
+
+    /// `(re, im)` weight values per mode corner, for tests outside this module.
+    #[cfg(test)]
+    pub(crate) fn corner_weights(&self) -> Vec<(Tensor<R>, Tensor<R>)> {
+        self.weights_re
+            .iter()
+            .zip(&self.weights_im)
+            .map(|(re, im)| (re.val(), im.val()))
+            .collect()
     }
 }
 
@@ -644,5 +741,16 @@ mod tests {
             [batch, out_channels, h1, h2, m],
             "output shape should carry out_channels — regression test for the zeros-shape bug"
         );
+    }
+
+    // --- weight initialisation (issue #8) ---
+    //
+    // The distribution and bit-for-bit parity tests live in
+    // `tests/spectral_init.rs`: they reseed Flex's process-wide RNG, so they
+    // need their own test binary.
+
+    #[test]
+    fn init_default_is_li_uniform() {
+        assert_eq!(SpectralInit::default(), SpectralInit::LiUniform);
     }
 }

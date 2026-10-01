@@ -55,8 +55,8 @@ default = ["flex"]
 flex = ["burn/flex"] # pure-Rust CPU
 metal = ["burn/metal"]
 cuda = ["burn/cuda"]
-rocm = ["burn/rocm"]
-vulkan = ["burn/vulkan"]
+# rocm = ["burn/rocm"]
+# vulkan = ["burn/vulkan"]
 wgpu = ["burn/wgpu"]
 
 [dependencies]
