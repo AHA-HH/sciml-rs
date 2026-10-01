@@ -60,6 +60,9 @@ fn main() {
         // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
         // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
         spectral_init: None,
+        // No domain padding: Burgers is periodic, and Li et al.'s fourier_1d.py
+        // does not pad either
+        padding: None,
     };
 
     // Fewer epochs than `train_burgers` so a TUI run finishes quickly.

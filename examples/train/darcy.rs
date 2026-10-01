@@ -64,6 +64,10 @@ fn main() {
         // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
         // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
         spectral_init: None,
+        // Darcy is non-periodic, so pad the domain with 9 zero cells at the end
+        // of each axis before the spectral layers (cropped after), as Li et al.'s
+        // fourier_2d.py does. The padded 94 x 94 grid is not a power of two
+        padding: Some(9),
     };
 
     let train_cfg = TrainingConfig::new()

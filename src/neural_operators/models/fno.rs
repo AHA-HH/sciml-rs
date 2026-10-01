@@ -8,7 +8,7 @@ use burn::{
         Linear, LinearConfig,
         conv::{Conv1d, Conv1dConfig},
     },
-    tensor::{Device, activation::relu},
+    tensor::{Device, activation::relu, ops::PadMode},
 };
 
 use crate::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
@@ -27,6 +27,24 @@ pub struct FNOConfig {
     /// al. default, [`SpectralInit::LiUniform`]. An `Option` so that saved
     /// configs without this field still load (as `None`).
     pub spectral_init: Option<SpectralInit>,
+    /// Domain padding for non-periodic problems: `p` zero cells appended at
+    /// the **end** of every spatial axis after the lifting `fc0`, and cropped
+    /// off again after the last spectral layer, before the projection `fc1`.
+    /// This is the one-sided `F.pad(x, [0, p, 0, p])` of Li et al.'s
+    /// `fourier_2d.py` (which uses 9 for Darcy), so the FFT's implied
+    /// periodicity wraps through a zero buffer instead of joining opposite
+    /// boundaries directly.
+    ///
+    /// `None` (the default) and `Some(0)` both mean no padding. An `Option`
+    /// so that saved configs without this field still load (as `None`).
+    ///
+    /// - Every spatial axis is padded by the same `p`, also in 3D (Li et al.'s
+    ///   `fourier_3d.py` pads only the last, time, axis).
+    /// - The padded extent `n + p` is used as is, not rounded up to a power
+    ///   of two; any grid size is supported.
+    /// - The spectral layers run on `(n + p)^D` points, and `modes` are
+    ///   checked against the padded extent `n + p`, not `n`.
+    pub padding: Option<usize>,
 }
 
 #[derive(Module, Debug)]
@@ -36,6 +54,9 @@ pub struct FNO<const R: usize> {
     w: Vec<Conv1d>,
     fc1: Linear,
     fc2: Linear,
+    /// Zero cells appended to each spatial axis; 0 disables padding.
+    /// Not a parameter, so it is not part of a saved checkpoint.
+    padding: usize,
 }
 
 impl FNOConfig {
@@ -78,6 +99,7 @@ impl FNOConfig {
 
             fc1: LinearConfig::new(self.hidden_channels, 128).init(device),
             fc2: LinearConfig::new(128, self.out_channels).init(device),
+            padding: self.padding.unwrap_or(0),
         }
     }
 }
@@ -132,11 +154,30 @@ impl<const R: usize> FNO<R> {
         )
     }
 
+    /// Appends `p` zeros at the end of every spatial axis of a channels-first
+    /// `[B, C, spatial..]` tensor.
+    fn pad_spatial(x: Tensor<R>, p: usize) -> Tensor<R> {
+        let pairs: [(usize, usize); R] =
+            core::array::from_fn(|i| if i < 2 { (0, 0) } else { (0, p) });
+        x.pad(pairs, PadMode::Constant(0.0))
+    }
+
+    /// Keeps the leading `dims[i]` entries of every axis: the inverse of
+    /// [`Self::pad_spatial`] given the unpadded `dims`.
+    fn crop_spatial(x: Tensor<R>, dims: [usize; R]) -> Tensor<R> {
+        let ranges: [core::ops::Range<usize>; R] = core::array::from_fn(|i| 0..dims[i]);
+        x.slice(ranges)
+    }
+
     /// `[B, spatial.., C_in]` → `[B, spatial.., out_channels]`.
     ///
     /// Channels-first inside: the input is permuted once while it is only
     /// `C_in` wide, and the output once while it is one channel wide, so the
     /// hidden-width activations are never permuted or copied for layout.
+    ///
+    /// With [`FNOConfig::padding`] `p > 0`, the lifted activation is
+    /// zero-padded by `p` at the end of each spatial axis before the spectral
+    /// layers and cropped back before `fc1`; the output shape is unchanged.
     pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
         // [B, s.., C] -> [B, C, s..]
         let perm_in: [usize; R] = core::array::from_fn(|i| match i {
@@ -146,11 +187,20 @@ impl<const R: usize> FNO<R> {
         });
         let mut x = Self::linear_cf(&self.fc0, x.permute(perm_in));
 
+        let unpadded = x.dims();
+        if self.padding > 0 {
+            x = Self::pad_spatial(x, self.padding);
+        }
+
         let n = self.conv.len();
         for idx in 0..n {
             let x1 = self.conv[idx].forward(x.clone());
             let x2 = Self::conv1x1_cf(&self.w[idx], x);
             x = if idx == n - 1 { x1 + x2 } else { relu(x1 + x2) };
+        }
+
+        if self.padding > 0 {
+            x = Self::crop_spatial(x, unpadded);
         }
 
         let x = relu(Self::linear_cf(&self.fc1, x));
@@ -188,6 +238,7 @@ mod tests {
             out_channels: 1,
             n_layers: 4,
             spectral_init: None,
+            padding: None,
         };
         let model: FNO<R> = config.init::<R>(&device);
 
@@ -238,6 +289,7 @@ mod tests {
             out_channels: 1,
             n_layers: 4,
             spectral_init: None,
+            padding: None,
         };
         let _: FNO<4> = config.init::<4>(&device); // asking for rank 4
     }
@@ -318,6 +370,7 @@ mod tests {
 }"#;
         let loaded = FNOConfig::load_binary(old.as_bytes()).expect("load pre-#8 config");
         assert_eq!(loaded.spectral_init, None);
+        assert_eq!(loaded.padding, None);
         assert_eq!(loaded.modes, vec![16]);
         assert_eq!(loaded.hidden_channels, 64);
         assert_eq!(loaded.n_layers, 4);
@@ -342,6 +395,7 @@ mod tests {
             out_channels: 1,
             n_layers: 2,
             spectral_init: None,
+            padding: None,
         };
 
         let trained: FNO<3> = config.init::<3>(&ad);
@@ -521,5 +575,544 @@ mod tests {
             println!("grad {name} rel err {err:e}");
             assert!(err <= TOL, "gradient of {name} differs: {err:e}");
         }
+    }
+
+    // --- issue #11: domain padding ---
+
+    /// Where and how a reference forward pads the domain.
+    #[derive(Clone, Copy, Debug)]
+    enum Pad {
+        /// No padding: the pre-#11 forward.
+        Off,
+        /// `p` zeros at the end of each spatial axis after `fc0`, keep the
+        /// leading `n` (Li et al. `fourier_2d.py`; what `FNO::forward` does).
+        End(usize),
+        /// As `End`, but keep the trailing `n` after the layers: a crop
+        /// misaligned with the pad.
+        EndCropTail(usize),
+        /// Zeros appended to the raw channels-last input before `fc0`, so the
+        /// padded cells hold `fc0`'s bias rather than 0.
+        BeforeFc0(usize),
+        /// `⌊p/2⌋` zeros before and `⌈p/2⌉` after each axis, centre crop.
+        Symmetric(usize),
+    }
+
+    /// `x` with `before` zeros prepended and `after` appended on `dim`, built
+    /// with `cat` so it is independent of `Tensor::pad`.
+    fn zero_extend<const R: usize>(
+        x: Tensor<R>,
+        dim: usize,
+        before: usize,
+        after: usize,
+    ) -> Tensor<R> {
+        let device = x.device();
+        let block = |len: usize| {
+            let mut dims = x.dims();
+            dims[dim] = len;
+            Tensor::<R>::zeros(dims, &device)
+        };
+        let mut parts = Vec::new();
+        if before > 0 {
+            parts.push(block(before));
+        }
+        parts.push(x.clone());
+        if after > 0 {
+            parts.push(block(after));
+        }
+        Tensor::cat(parts, dim)
+    }
+
+    /// The pre-4.2 style forward (channels-last `Linear`s, `Conv1d` layers)
+    /// with domain padding done by `cat`/`narrow` according to `pad`.
+    fn reference_forward_padded<const R: usize>(m: &FNO<R>, x: Tensor<R>, pad: Pad) -> Tensor<R> {
+        let spatial_axes = 1..R - 1; // channels-last: [B, s.., C]
+        let n_in: Vec<usize> = x.dims()[spatial_axes.clone()].to_vec();
+
+        let mut x = x;
+        if let Pad::BeforeFc0(p) = pad {
+            for d in spatial_axes.clone() {
+                x = zero_extend(x, d, 0, p);
+            }
+        }
+        let x = m.fc0.forward(x);
+        let perm_in: [usize; R] = core::array::from_fn(|i| match i {
+            0 => 0,
+            1 => R - 1,
+            i => i - 1,
+        });
+        let mut x = x.permute(perm_in); // [B, H, s..]
+        for d in 2..R {
+            x = match pad {
+                Pad::End(p) | Pad::EndCropTail(p) => zero_extend(x, d, 0, p),
+                Pad::Symmetric(p) => zero_extend(x, d, p / 2, p - p / 2),
+                Pad::Off | Pad::BeforeFc0(_) => x,
+            };
+        }
+
+        let n = m.conv.len();
+        for idx in 0..n {
+            let x1 = m.conv[idx].forward(x.clone());
+            let dims = x.dims();
+            let spatial: usize = dims[2..].iter().product();
+            let x2 = m.w[idx]
+                .forward(x.reshape([dims[0], dims[1], spatial]))
+                .reshape(dims);
+            x = if idx == n - 1 { x1 + x2 } else { relu(x1 + x2) };
+        }
+
+        for d in 2..R {
+            let n_d = n_in[d - 2];
+            x = match pad {
+                Pad::Off => x,
+                Pad::End(_) | Pad::BeforeFc0(_) => x.narrow(d, 0, n_d),
+                Pad::EndCropTail(p) => x.narrow(d, p, n_d),
+                Pad::Symmetric(p) => x.narrow(d, p / 2, n_d),
+            };
+        }
+
+        let perm_out: [usize; R] = core::array::from_fn(|i| match i {
+            0 => 0,
+            i if i == R - 1 => 1,
+            i => i + 1,
+        });
+        let x = relu(m.fc1.forward(x.permute(perm_out)));
+        m.fc2.forward(x)
+    }
+
+    /// `FNO::forward` exactly as it was before padding existed.
+    fn pre_padding_forward<const R: usize>(m: &FNO<R>, x: Tensor<R>) -> Tensor<R> {
+        let perm_in: [usize; R] = core::array::from_fn(|i| match i {
+            0 => 0,
+            1 => R - 1,
+            i => i - 1,
+        });
+        let mut x = FNO::<R>::linear_cf(&m.fc0, x.permute(perm_in));
+        let n = m.conv.len();
+        for idx in 0..n {
+            let x1 = m.conv[idx].forward(x.clone());
+            let x2 = FNO::<R>::conv1x1_cf(&m.w[idx], x);
+            x = if idx == n - 1 { x1 + x2 } else { relu(x1 + x2) };
+        }
+        let x = relu(FNO::<R>::linear_cf(&m.fc1, x));
+        let x = FNO::<R>::linear_cf(&m.fc2, x);
+        let perm_out: [usize; R] = core::array::from_fn(|i| match i {
+            0 => 0,
+            i if i == R - 1 => 1,
+            i => i + 1,
+        });
+        x.permute(perm_out)
+    }
+
+    /// Every parameter, by name, as raw f32 values.
+    fn params<const R: usize>(m: &FNO<R>) -> Vec<(String, Vec<f32>)> {
+        use burn::store::{ModuleSnapshot, bridge::to_data};
+        let mut out: Vec<_> = m
+            .collect(None, None, false)
+            .iter()
+            .map(|t| {
+                (
+                    t.name.clone(),
+                    to_data(t).unwrap().try_to_vec::<f32>().unwrap(),
+                )
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// `to`'s parameters replaced by `from`'s, through a burnpack checkpoint.
+    fn copy_weights<const R: usize>(from: &FNO<R>, mut to: FNO<R>) -> FNO<R> {
+        use burn::store::{BurnpackStore, ModuleSnapshot};
+        let mut save = BurnpackStore::from_bytes(None);
+        from.save_into(&mut save).expect("save weights");
+        let bytes = save.get_bytes().expect("serialise weights");
+        to.load_from(&mut BurnpackStore::from_bytes(Some(bytes)))
+            .expect("load weights");
+        to
+    }
+
+    fn bits<const R: usize>(t: Tensor<R>) -> Vec<u32> {
+        t.into_data()
+            .try_to_vec::<f32>()
+            .unwrap()
+            .into_iter()
+            .map(f32::to_bits)
+            .collect()
+    }
+
+    fn padded_config(modes: Vec<usize>, data_channels: usize, hidden: usize) -> FNOConfig {
+        FNOConfig::new(modes, data_channels, 1)
+            .with_hidden_channels(hidden)
+            .with_n_layers(2)
+    }
+
+    fn random_input<const R: usize>(
+        spatial: &[usize],
+        channels: usize,
+        device: &Device,
+    ) -> Tensor<R> {
+        let mut shape = vec![2];
+        shape.extend_from_slice(spatial);
+        shape.push(channels);
+        let shape: [usize; R] = shape.try_into().unwrap();
+        Tensor::<R>::random(shape, Distribution::Normal(0.0, 1.0), device)
+    }
+
+    /// `m` with `fc0`'s bias set to 1. The lifted field then sits ~1 away
+    /// from the zero padding, so a wrong convention (padding before `fc0`,
+    /// which fills the pad with this bias, or no padding at all) changes the
+    /// output by O(1) relative amounts instead of by the size of Linear's
+    /// small random default bias, which can fall below the controls' 1e-3.
+    fn with_unit_lift_bias<const R: usize>(mut m: FNO<R>) -> FNO<R> {
+        use burn::module::Param;
+        let bias = m.fc0.bias.take().expect("fc0 has a bias");
+        let ones = bias.val().ones_like();
+        m.fc0.bias = Some(Param::from_tensor(ones));
+        m
+    }
+
+    /// `None` and `Some(0)` take the unpadded path: bit for bit the pre-#11
+    /// forward on the same weights.
+    fn check_padding_off_is_bitwise<const R: usize>(modes: Vec<usize>, spatial: &[usize]) {
+        let device = Device::default();
+        let c = 1 + modes.len();
+        let cfg = padded_config(modes, 1, 6);
+        let off: FNO<R> = cfg.clone().with_padding(None).init::<R>(&device);
+        let zero = copy_weights(&off, cfg.with_padding(Some(0)).init::<R>(&device));
+        assert_eq!(zero.padding, 0);
+        assert_eq!(params(&off), params(&zero));
+
+        let x = random_input::<R>(spatial, c, &device);
+        let before = bits(pre_padding_forward(&off, x.clone()));
+        assert_eq!(
+            bits(off.forward(x.clone())),
+            before,
+            "padding None, FNO<{R}>"
+        );
+        assert_eq!(bits(zero.forward(x)), before, "padding Some(0), FNO<{R}>");
+    }
+
+    #[test]
+    fn padding_zero_is_bitwise_identical() {
+        check_padding_off_is_bitwise::<3>(vec![4], &[16]);
+        check_padding_off_is_bitwise::<4>(vec![3, 2], &[8, 6]);
+        check_padding_off_is_bitwise::<5>(vec![2, 2, 2], &[4, 6, 5]);
+    }
+
+    /// Padding adds no parameters: the same names and shapes as unpadded.
+    #[test]
+    fn padding_adds_no_parameters() {
+        let device = Device::default();
+        let names_shapes = |p: Option<usize>| -> Vec<(String, usize)> {
+            let m: FNO<4> = padded_config(vec![3, 2], 1, 6)
+                .with_padding(p)
+                .init::<4>(&device);
+            params(&m).into_iter().map(|(n, v)| (n, v.len())).collect()
+        };
+        assert_eq!(names_shapes(None), names_shapes(Some(9)));
+    }
+
+    /// `p > 0` matches the `cat`/`narrow` reference, and measurably differs
+    /// from the wrong conventions (so the comparison is not vacuous). Padded
+    /// extents are deliberately not powers of two.
+    fn check_padded_forward<const R: usize>(
+        modes: Vec<usize>,
+        data_channels: usize,
+        spatial: &[usize],
+        p: usize,
+    ) {
+        let device = Device::default();
+        // SymmetricUniform (±1/√I) instead of Li's U(0, 1/(I·O)) only to make
+        // the spectral path, the one place padding acts, O(1) at width 6.
+        let model = with_unit_lift_bias(
+            padded_config(modes.clone(), data_channels, 6)
+                .with_spectral_init(Some(SpectralInit::SymmetricUniform))
+                .with_padding(Some(p))
+                .init::<R>(&device),
+        );
+        let x = random_input::<R>(spatial, data_channels + modes.len(), &device);
+
+        let out = model.forward(x.clone());
+        let mut expected = x.dims();
+        expected[R - 1] = 1;
+        assert_eq!(out.dims(), expected, "crop restores the input grid");
+
+        let err = rel_err(
+            flat(out.clone()),
+            flat(reference_forward_padded(&model, x.clone(), Pad::End(p))),
+        );
+        println!("FNO<{R}> padded forward rel err {err:e}");
+        assert!(err <= TOL, "FNO<{R}> padded forward differs: {err:e}");
+
+        for wrong in [Pad::Off, Pad::BeforeFc0(p), Pad::EndCropTail(p)] {
+            let err = rel_err(
+                flat(out.clone()),
+                flat(reference_forward_padded(&model, x.clone(), wrong)),
+            );
+            println!("FNO<{R}> vs {wrong:?}: rel err {err:e}");
+            assert!(
+                err >= 1e-3,
+                "FNO<{R}> forward indistinguishable from {wrong:?}: {err:e}"
+            );
+        }
+    }
+
+    #[test]
+    fn padded_forward_matches_reference_1d() {
+        check_padded_forward::<3>(vec![4], 1, &[16], 5); // 21
+    }
+
+    #[test]
+    fn padded_forward_matches_reference_2d() {
+        check_padded_forward::<4>(vec![3, 2], 1, &[8, 6], 3); // 11 x 9
+    }
+
+    #[test]
+    fn padded_forward_matches_reference_3d() {
+        check_padded_forward::<5>(vec![2, 2, 2], 3, &[4, 6, 5], 2); // 6 x 8 x 7
+    }
+
+    /// The pad side is immaterial once the crop is aligned with it: on the
+    /// padded grid every layer is circular-shift-equivariant (the truncated
+    /// spectral multiplier is diagonal in frequency; the 1x1 convs, biases
+    /// and ReLU are pointwise), so symmetric padding with a centre crop is the
+    /// end-padded result shifted back. Only the misaligned crop above differs.
+    #[test]
+    fn symmetric_padding_with_centre_crop_matches_end_padding() {
+        let device = Device::default();
+        let model = with_unit_lift_bias(
+            padded_config(vec![3, 2], 1, 6)
+                .with_spectral_init(Some(SpectralInit::SymmetricUniform))
+                .with_padding(Some(3))
+                .init::<4>(&device),
+        );
+        let x = random_input::<4>(&[8, 6], 3, &device);
+        let err = rel_err(
+            flat(model.forward(x.clone())),
+            flat(reference_forward_padded(&model, x, Pad::Symmetric(3))),
+        );
+        println!("FNO<4> vs Symmetric(3): rel err {err:e}");
+        assert!(err <= TOL, "symmetric + centre crop differs: {err:e}");
+    }
+
+    /// `pad_spatial` puts the data at `[0..n]` and exact zeros after it on
+    /// every spatial axis, and `crop_spatial` undoes it bit for bit.
+    #[test]
+    fn pad_crop_helpers_exact() {
+        use burn::tensor::TensorData;
+        let device = Device::default();
+        let (b, c, n0, n1, p) = (2, 2, 3, 4, 2);
+        let vals: Vec<f32> = (0..b * c * n0 * n1).map(|i| i as f32 + 1.0).collect();
+        let x = Tensor::<4>::from_data(TensorData::new(vals.clone(), [b, c, n0, n1]), &device);
+
+        let padded = FNO::<4>::pad_spatial(x.clone(), p);
+        assert_eq!(padded.dims(), [b, c, n0 + p, n1 + p]);
+        let got = padded.clone().into_data().try_to_vec::<f32>().unwrap();
+        let (m0, m1) = (n0 + p, n1 + p);
+        for bi in 0..b {
+            for ci in 0..c {
+                for i in 0..m0 {
+                    for j in 0..m1 {
+                        let want = if i < n0 && j < n1 {
+                            vals[((bi * c + ci) * n0 + i) * n1 + j]
+                        } else {
+                            0.0
+                        };
+                        let at = ((bi * c + ci) * m0 + i) * m1 + j;
+                        assert_eq!(got[at], want, "[{bi},{ci},{i},{j}]");
+                    }
+                }
+            }
+        }
+
+        let cropped = FNO::<4>::crop_spatial(padded, [b, c, n0, n1]);
+        assert_eq!(bits(cropped), bits(x));
+    }
+
+    /// Autodiff through pad/crop agrees with the `cat`/`narrow` reference for
+    /// the input and every parameter group, the spectral weights included.
+    #[test]
+    fn padded_gradients_match_reference() {
+        let device = Device::default().autodiff();
+        let model = with_unit_lift_bias(
+            padded_config(vec![3, 2], 1, 6)
+                .with_spectral_init(Some(SpectralInit::SymmetricUniform))
+                .with_padding(Some(3))
+                .init::<4>(&device),
+        );
+        let x0 = Tensor::<4>::random([2, 8, 6, 3], Distribution::Normal(0.0, 1.0), &device);
+        let probe = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
+
+        let grads_of = |f: &dyn Fn(Tensor<4>) -> Tensor<4>| {
+            let x = x0.clone().detach().require_grad();
+            let grads = (f(x.clone()) * probe.clone()).sum().backward();
+            let mut out: Vec<(String, Tensor<1>)> =
+                vec![("input".into(), flat(x.grad(&grads).expect("input grad")))];
+            for (name, l) in [
+                ("fc0", &model.fc0),
+                ("fc1", &model.fc1),
+                ("fc2", &model.fc2),
+            ] {
+                out.push((
+                    format!("{name}.weight"),
+                    flat(l.weight.grad(&grads).unwrap()),
+                ));
+                let b = l.bias.as_ref().unwrap();
+                out.push((format!("{name}.bias"), flat(b.grad(&grads).unwrap())));
+            }
+            for (i, w) in model.w.iter().enumerate() {
+                out.push((
+                    format!("w[{i}].weight"),
+                    flat(w.weight.grad(&grads).unwrap()),
+                ));
+                let b = w.bias.as_ref().unwrap();
+                out.push((format!("w[{i}].bias"), flat(b.grad(&grads).unwrap())));
+            }
+            for (i, layer) in model.conv.iter().enumerate() {
+                for (k, (re, im)) in layer.corner_weights().into_iter().enumerate() {
+                    out.push((
+                        format!("conv[{i}].corner[{k}].re"),
+                        flat(re.grad(&grads).expect("spectral re grad")),
+                    ));
+                    out.push((
+                        format!("conv[{i}].corner[{k}].im"),
+                        flat(im.grad(&grads).expect("spectral im grad")),
+                    ));
+                }
+            }
+            out
+        };
+
+        let new = grads_of(&|x| model.forward(x));
+        let old = grads_of(&|x| reference_forward_padded(&model, x, Pad::End(3)));
+        assert_eq!(new.len(), old.len());
+        for ((name, g_new), (_, g_old)) in new.into_iter().zip(old) {
+            // A vanishing gradient would make the comparison vacuous.
+            let size = g_old.clone().abs().max().into_scalar::<f32>();
+            assert!(size > 1e-4, "gradient of {name} vanishes: {size:e}");
+            let err = rel_err(g_new, g_old);
+            println!("padded grad {name} rel err {err:e} (max |g| {size:e})");
+            assert!(err <= TOL, "padded gradient of {name} differs: {err:e}");
+        }
+    }
+
+    /// The input gradient through pad and crop against central differences,
+    /// i.e. against the definition of the derivative rather than Burn's own
+    /// pad/slice backward (which the reference above shares in part).
+    ///
+    /// `L = Σ forward(x) · probe` is O(1) in f32, so with `h = 1e-2` the
+    /// rounding error of a difference is ~1e-7 / 1e-2 = 1e-5 and the
+    /// truncation error O(h²) ~ 1e-4, both far below the 5e-2 bound; a dropped
+    /// or misrouted gradient gives O(1) errors. ReLU kinks crossed within ±h
+    /// can spoil single entries, so the median over all entries is asserted.
+    #[test]
+    fn padded_input_gradient_finite_difference() {
+        use burn::tensor::TensorData;
+        let device = Device::default().autodiff();
+        let (n, c, p) = (8, 2, 3); // padded extent 11
+        let model = with_unit_lift_bias(
+            FNOConfig::new(vec![3], 1, 1)
+                .with_hidden_channels(4)
+                .with_n_layers(1)
+                .with_spectral_init(Some(SpectralInit::SymmetricUniform))
+                .with_padding(Some(p))
+                .init::<3>(&device),
+        );
+        let x_vals: Vec<f32> = (0..n * c).map(|i| (i as f32 * 0.37).sin()).collect();
+        let probe_vals: Vec<f32> = (0..n).map(|i| (i as f32 * 0.91).cos()).collect();
+        let probe = Tensor::<3>::from_data(TensorData::new(probe_vals, [1, n, 1]), &device);
+        let input = |v: Vec<f32>| Tensor::<3>::from_data(TensorData::new(v, [1, n, c]), &device);
+        let loss = |v: Vec<f32>| -> f32 {
+            (model.forward(input(v)) * probe.clone())
+                .sum()
+                .into_scalar::<f32>()
+        };
+
+        let x = input(x_vals.clone()).require_grad();
+        let grads = (model.forward(x.clone()) * probe.clone()).sum().backward();
+        let g: Vec<f32> = x
+            .grad(&grads)
+            .expect("input grad")
+            .into_data()
+            .try_to_vec()
+            .unwrap();
+
+        let h = 1e-2;
+        let fd: Vec<f32> = (0..n * c)
+            .map(|k| {
+                let (mut plus, mut minus) = (x_vals.clone(), x_vals.clone());
+                plus[k] += h;
+                minus[k] -= h;
+                (loss(plus) - loss(minus)) / (2.0 * h)
+            })
+            .collect();
+
+        let scale = g.iter().fold(0f32, |m, v| m.max(v.abs()));
+        assert!(scale > 1e-3, "degenerate gradient: max |g| = {scale:e}");
+        let mut errs: Vec<f32> = g
+            .iter()
+            .zip(&fd)
+            .map(|(a, b)| (a - b).abs() / scale)
+            .collect();
+        println!("autodiff {g:?}\nfinite difference {fd:?}");
+        errs.sort_by(f32::total_cmp);
+        let median = errs[errs.len() / 2];
+        println!(
+            "FD rel err median {median:e}, max {:e}",
+            errs[errs.len() - 1]
+        );
+        assert!(
+            median <= 5e-2,
+            "input gradient vs finite difference: {median:e}"
+        );
+    }
+
+    #[test]
+    fn padding_survives_config_round_trip() {
+        use burn::config::config_to_json;
+        for padding in [None, Some(0), Some(9)] {
+            let config = FNOConfig::new(vec![12, 12], 1, 1).with_padding(padding);
+            let json = config_to_json(&config);
+            let loaded = FNOConfig::load_binary(json.as_bytes()).expect("load saved config");
+            assert_eq!(loaded.padding, padding, "round trip via {json}");
+        }
+    }
+
+    /// Padding is not part of a checkpoint: weights saved from an unpadded
+    /// model load into a padded one and back, unchanged, and each then runs
+    /// its own configuration's forward.
+    #[test]
+    fn padding_does_not_change_checkpoint() {
+        let device = Device::default();
+        let cfg = padded_config(vec![3, 2], 1, 6)
+            .with_spectral_init(Some(SpectralInit::SymmetricUniform));
+        let unpadded = with_unit_lift_bias(cfg.clone().init::<4>(&device));
+        let x = random_input::<4>(&[8, 6], 3, &device);
+
+        // Unpadded -> padded (17 x 15).
+        let padded = copy_weights(
+            &unpadded,
+            cfg.clone().with_padding(Some(9)).init::<4>(&device),
+        );
+        assert_eq!(params(&padded), params(&unpadded));
+        let out = padded.forward(x.clone());
+        let err = rel_err(
+            flat(out.clone()),
+            flat(reference_forward_padded(&unpadded, x.clone(), Pad::End(9))),
+        );
+        assert!(
+            err <= TOL,
+            "loaded padded model differs from reference: {err:e}"
+        );
+        let diff = rel_err(flat(out), flat(unpadded.forward(x.clone())));
+        assert!(diff >= 1e-3, "padding had no effect after load: {diff:e}");
+
+        // Padded -> unpadded.
+        let back = copy_weights(&padded, cfg.with_padding(None).init::<4>(&device));
+        assert_eq!(params(&back), params(&padded));
+        assert_eq!(
+            bits(back.forward(x.clone())),
+            bits(pre_padding_forward(&padded, x))
+        );
     }
 }
