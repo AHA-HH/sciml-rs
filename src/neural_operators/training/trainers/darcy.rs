@@ -4,6 +4,7 @@ use burn::prelude::*;
 
 use crate::neural_operators::{
     data::{
+        dataitem::HostFloat,
         dataset::OperatorDataset,
         transforms::normalizers::{
             UnitGaussianNormalizer, decode_flat, normalizer_to_flat_tensors,
@@ -21,9 +22,9 @@ use crate::neural_operators::{
 ///
 /// `y_train` was encoded during loading, `y_test` was not - so training
 /// decodes both sides and evaluation decodes only the prediction.
-pub fn train_darcy(
-    train_data: OperatorDataset,
-    test_data: OperatorDataset,
+pub fn train_darcy<T: HostFloat>(
+    train_data: OperatorDataset<T>,
+    test_data: OperatorDataset<T>,
     y_normalizer: &UnitGaussianNormalizer,
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
@@ -49,7 +50,7 @@ pub fn train_darcy(
     };
 
     let components =
-        build_training_components::<4, 3>(model_cfg, train_cfg, train_data, test_data, device);
+        build_training_components::<4, 3, _>(model_cfg, train_cfg, train_data, test_data, device);
 
     training_loop(components, train_cfg, &train_post, &eval_post)
 }

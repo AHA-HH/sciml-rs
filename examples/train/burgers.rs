@@ -60,7 +60,7 @@ fn main() {
 
     // Load and preprocess the Burgers dataset for training and testing using the dataset config values
     // The dataset contains fields initial condition `a` and solution at t=1 `u`
-    let (train_data, test_data) = load_burgers_uniform(&data_path, &dataset_cfg)
+    let (train_data, test_data) = load_burgers_uniform::<f32>(&data_path, &dataset_cfg)
         .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
 
     // Set the FNO model, the number of modes sets the dimension of the problem

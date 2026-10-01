@@ -1,7 +1,7 @@
 //! Batching for operator-learning data: stacks individual [`DataItem`]s into
 //! rank-`R`/`R-1` tensors for training.
 
-use crate::neural_operators::data::dataitem::DataItem;
+use crate::neural_operators::data::dataitem::{DataItem, HostFloat};
 use burn::{Tensor, data::dataloader::batcher::Batcher, prelude::*};
 
 /// A batch of stacked input/target tensor pairs.
@@ -65,12 +65,13 @@ impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
     }
 }
 
-impl<const R: usize, const RM1: usize> Batcher<DataItem, Batch<R, RM1>>
+impl<const R: usize, const RM1: usize, T: HostFloat> Batcher<DataItem<T>, Batch<R, RM1>>
     for OperatorBatcher<R, RM1>
 {
     /// Places the batch on `device`, as supplied by the DataLoader (set with
-    /// `DataLoaderBuilder::set_device`, or by the `Learner` via `to_device`).
-    fn batch(&self, items: Vec<DataItem>, device: &Device) -> Batch<R, RM1> {
+    /// `DataLoaderBuilder::set_device`, or by the `Learner` via `to_device`),
+    /// converting from the host dtype `T` to the device's default float dtype.
+    fn batch(&self, items: Vec<DataItem<T>>, device: &Device) -> Batch<R, RM1> {
         let n = items.len();
 
         assert!(!items.is_empty(), "cannot construct an empty batch");
@@ -123,7 +124,7 @@ mod tests {
         let batcher = OperatorBatcher::<3, 2>::new();
 
         // Two items: input [4, 2], target [4]. Values encode their origin.
-        let items: Vec<DataItem> = (0..2)
+        let items: Vec<DataItem<f64>> = (0..2)
             .map(|k| DataItem {
                 input: ArrayD::from_shape_fn(IxDyn(&[4, 2]), |i| {
                     (k * 100 + i[0] * 10 + i[1]) as f64
@@ -147,7 +148,7 @@ mod tests {
         let batcher = OperatorBatcher::<3, 2>::new();
         let items = || {
             vec![DataItem {
-                input: ArrayD::zeros(IxDyn(&[4, 2])),
+                input: ArrayD::<f64>::zeros(IxDyn(&[4, 2])),
                 target: ArrayD::zeros(IxDyn(&[4])),
             }]
         };
@@ -159,5 +160,42 @@ mod tests {
         let inner = batcher.batch(items(), &Device::default().autodiff().inner());
         assert!(!inner.inputs.is_autodiff());
         assert!(!inner.targets.is_autodiff());
+    }
+
+    /// REVIEW.md 4.1: storing the host data as f32 (one cast at load time)
+    /// must give the same device tensors as f64 host data converted per
+    /// batch. Values are not exactly representable in f32, so a double
+    /// rounding or a truncating cast would change some of them.
+    #[test]
+    fn f32_host_items_upload_bit_identical_to_f64() {
+        let device = Device::default();
+        let batcher = OperatorBatcher::<3, 2>::new();
+
+        let items_f64: Vec<DataItem<f64>> = (0..3)
+            .map(|k| DataItem {
+                input: ArrayD::from_shape_fn(IxDyn(&[5, 2]), |i| {
+                    ((k * 10 + i[0] * 2 + i[1]) as f64 * 0.731).sin() / 3.0
+                }),
+                target: ArrayD::from_shape_fn(IxDyn(&[5]), |i| 1e-3 + (k + i[0]) as f64 / 7.0),
+            })
+            .collect();
+        let items_f32: Vec<DataItem<f32>> = items_f64
+            .iter()
+            .map(|it| DataItem {
+                input: it.input.mapv(f32::from_f64),
+                target: it.target.mapv(f32::from_f64),
+            })
+            .collect();
+
+        let a = batcher.batch(items_f64, &device);
+        let b = batcher.batch(items_f32, &device);
+
+        // The device default is f32; this is what makes the claim hold.
+        assert_eq!(a.inputs.dtype(), burn::tensor::DType::F32);
+        assert_eq!(b.inputs.dtype(), burn::tensor::DType::F32);
+
+        let bits = |t: TensorData| t.iter::<f32>().map(f32::to_bits).collect::<Vec<_>>();
+        assert_eq!(bits(a.inputs.into_data()), bits(b.inputs.into_data()));
+        assert_eq!(bits(a.targets.into_data()), bits(b.targets.into_data()));
     }
 }

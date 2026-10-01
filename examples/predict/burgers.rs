@@ -47,7 +47,7 @@ fn main() {
         data_path.display()
     );
 
-    let (_, test_data) = load_burgers_uniform(&data_path, &dataset_cfg)
+    let (_, test_data) = load_burgers_uniform::<f32>(&data_path, &dataset_cfg)
         .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
 
     let test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())

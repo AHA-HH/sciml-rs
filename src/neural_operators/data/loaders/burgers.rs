@@ -6,6 +6,7 @@
 //! subsampling, appending grid coordinates and splitting into train/test.
 
 use crate::neural_operators::data::{
+    dataitem::HostFloat,
     dataset::OperatorDataset,
     grids::{GridPlacement, append_grid, uniform_grid},
     io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
@@ -46,15 +47,18 @@ impl HasBaseConfig for BurgersConfig {
 /// Inputs end up `[n, s, 1 + 1]` and targets `[n, s]` - the rank difference
 /// the batcher's `RM1 = R - 1` invariant expects.
 ///
+/// Everything is computed in `f64`; the datasets are stored as `T`, rounded
+/// once at the end (see [`HostFloat`]).
+///
 /// # Errors
 /// [`LoadError::Reader`] if the file can't be read or lacks `a`/`u`;
 /// [`LoadError::Invalid`] if the fields aren't `[samples, 8192]`, there are
 /// fewer than `n_train + n_test` samples, or the subsample rate doesn't give
 /// `config.s()` points.
-pub fn load_burgers_uniform(
+pub fn load_burgers_uniform<T: HostFloat>(
     path: impl AsRef<Path>,
     config: &BurgersConfig,
-) -> Result<(OperatorDataset, OperatorDataset), LoadError> {
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>), LoadError> {
     if config.subsample_rate == 0 {
         return Err(LoadError::Invalid("subsample_rate must be > 0".into()));
     }
@@ -121,9 +125,9 @@ pub fn load_burgers_uniform(
         .into_shape_with_order(IxDyn(&[config.n_test(), s]))
         .map_err(|e| LoadError::Invalid(format!("reshape u_test: {e}")))?;
 
-    // 7. Wrap in OperatorDataset
-    let train_dataset = OperatorDataset::new(a_train, u_train);
-    let test_dataset = OperatorDataset::new(a_test, u_test);
+    // 7. Wrap in OperatorDataset, casting to the host dtype T
+    let train_dataset = OperatorDataset::from_f64(a_train, u_train);
+    let test_dataset = OperatorDataset::from_f64(a_test, u_test);
 
     println!(
         "burgers: {} train / {} test at s={}",
@@ -152,7 +156,7 @@ mod tests {
 
     #[test]
     fn missing_file_is_a_reader_error() {
-        let err = load_burgers_uniform("/definitely/not/here/burgers.mat", &cfg(32))
+        let err = load_burgers_uniform::<f32>("/definitely/not/here/burgers.mat", &cfg(32))
             .err()
             .expect("loading should fail");
         assert!(
@@ -165,7 +169,7 @@ mod tests {
     #[test]
     fn zero_subsample_rate_is_invalid_not_a_panic() {
         // Previously `config.s()` (8192 / 0) or `subsample` would panic.
-        let err = load_burgers_uniform("/definitely/not/here/burgers.mat", &cfg(0))
+        let err = load_burgers_uniform::<f32>("/definitely/not/here/burgers.mat", &cfg(0))
             .err()
             .expect("loading should fail");
         assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
