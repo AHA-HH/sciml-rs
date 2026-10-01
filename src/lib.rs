@@ -31,4 +31,5 @@ compile_error!(
     "sciml-rs needs a backend feature: flex (default), metal, cuda, rocm, vulkan or wgpu"
 );
 
+#[allow(clippy::redundant_field_names)]
 pub mod neural_operators;
