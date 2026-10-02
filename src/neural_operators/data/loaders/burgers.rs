@@ -70,7 +70,7 @@ pub fn load_burgers_uniform<T: HostFloat>(
     burgers_from_fields(a_data, u_data, config)
 }
 
-/// Steps 2-7 of [`load_burgers_uniform`] on fields already read: validate,
+/// Steps 2-6 of [`load_burgers_uniform`] on fields already read: validate,
 /// subsample, split, reshape and cast. Separate from the reader so the
 /// output can be tested without a `.mat` file.
 fn burgers_from_fields<T: HostFloat>(
