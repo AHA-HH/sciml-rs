@@ -15,7 +15,7 @@ use crate::neural_operators::data::{
     transforms::subsample::subsample,
 };
 use burn::config::Config;
-use ndarray::IxDyn;
+use ndarray::{ArrayD, IxDyn};
 use std::path::Path;
 
 #[derive(Config, Debug)]
@@ -67,7 +67,17 @@ pub fn load_burgers_uniform<T: HostFloat>(
     let reader = MatFileReader::new(path.as_ref())?;
     let a_data = reader.read_field("a")?;
     let u_data = reader.read_field("u")?;
+    burgers_from_fields(a_data, u_data, config)
+}
 
+/// Steps 2-7 of [`load_burgers_uniform`] on fields already read: validate,
+/// subsample, split, reshape and cast. Separate from the reader so the
+/// output can be tested without a `.mat` file.
+fn burgers_from_fields<T: HostFloat>(
+    a_data: ArrayD<f64>,
+    u_data: ArrayD<f64>,
+    config: &BurgersConfig,
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>), LoadError> {
     for (name, field) in [("a", &a_data), ("u", &u_data)] {
         if field.ndim() != 2 {
             return Err(LoadError::Invalid(format!(
@@ -167,5 +177,41 @@ mod tests {
             .err()
             .expect("loading should fail");
         assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
+    }
+
+    // --- issue #13: no grid channel in the stored inputs ---
+
+    #[test]
+    fn inputs_hold_the_subsampled_data_channel_only() {
+        let (n, raw, r) = (3, 8192, 1024); // s = 8
+        let config = BurgersConfig::new(
+            DatasetConfig {
+                n_train: 2,
+                n_test: 1,
+            },
+            r,
+        );
+        let a = ArrayD::from_shape_fn(IxDyn(&[n, raw]), |i| (i[0] * raw + i[1]) as f64);
+        let u = a.mapv(|v| -v);
+        let (train, test) = burgers_from_fields::<f64>(a, u, &config).expect("valid fields");
+
+        let s = config.s();
+        assert_eq!(train.inputs().shape(), [2, s, 1]);
+        assert_eq!(test.inputs().shape(), [1, s, 1]);
+        assert_eq!(train.targets().shape(), [2, s]);
+        assert_eq!(test.targets().shape(), [1, s]);
+        // Sample i of the split is raw sample i (train) or 2 + i (test),
+        // point k is raw point k * r; values pass through exactly.
+        for (ds, first) in [(&train, 0), (&test, 2)] {
+            for ((i, k, c), &v) in ds
+                .inputs()
+                .indexed_iter()
+                .map(|(ix, v)| ((ix[0], ix[1], ix[2]), v))
+            {
+                assert_eq!(c, 0);
+                assert_eq!(v, ((first + i) * raw + k * r) as f64, "input [{i}, {k}]");
+                assert_eq!(ds.targets()[[i, k]], -v, "target [{i}, {k}]");
+            }
+        }
     }
 }

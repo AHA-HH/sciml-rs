@@ -117,7 +117,19 @@ pub fn load_darcy_uniform<T: HostFloat>(
     };
     let (x_train, y_train) = load_split(train_path.as_ref(), "train", config.n_train())?;
     let (x_test, y_test) = load_split(test_path.as_ref(), "test", config.n_test())?;
+    darcy_from_fields(x_train, y_train, x_test, y_test, config)
+}
 
+/// The rest of [`load_darcy_uniform`] on truncated, subsampled fields:
+/// check the resolution, normalize, reshape and cast. Separate from the
+/// reader so the output can be tested without `.mat` files.
+fn darcy_from_fields<T: HostFloat>(
+    x_train: ArrayD<f64>,
+    y_train: ArrayD<f64>,
+    x_test: ArrayD<f64>,
+    y_test: ArrayD<f64>,
+    config: &DarcyConfig,
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>, DarcyNormalizers), LoadError> {
     let s = x_train.shape()[1];
     let n_train = x_train.shape()[0];
     let n_test = x_test.shape()[0];
@@ -261,5 +273,40 @@ mod tests {
         let field = ArrayD::from_shape_fn(IxDyn(&[2, 3, 3]), |i| i[2] as f64);
         let ptr = field.as_ptr();
         assert_eq!(take_subsampled(field, 2, 1).as_ptr(), ptr);
+    }
+
+    // --- issue #13: no grid channels in the stored inputs ---
+
+    #[test]
+    fn inputs_hold_the_normalized_coefficient_only() {
+        let config = cfg(210); // s = 3
+        let s = config.s();
+        let field = |n: usize, seed: f64| {
+            ArrayD::from_shape_fn(IxDyn(&[n, s, s]), |i| {
+                ((i[0] * s * s + i[1] * s + i[2]) as f64 * 0.7 + seed).sin()
+            })
+        };
+        let (x_train, y_train, x_test, y_test) =
+            (field(2, 0.0), field(2, 1.0), field(1, 2.0), field(1, 3.0));
+        let (train, test, norms) = darcy_from_fields::<f64>(
+            x_train.clone(),
+            y_train.clone(),
+            x_test.clone(),
+            y_test.clone(),
+            &config,
+        )
+        .expect("valid fields");
+
+        assert_eq!(train.inputs().shape(), [2, s, s, 1]);
+        assert_eq!(test.inputs().shape(), [1, s, s, 1]);
+        let as_input = |a: ArrayD<f64>| {
+            let n = a.shape()[0];
+            a.into_shape_with_order(IxDyn(&[n, s, s, 1])).unwrap()
+        };
+        // x encoded with the train normalizer, y_train encoded, y_test raw.
+        assert_eq!(*train.inputs(), as_input(norms.x.encode(x_train)));
+        assert_eq!(*test.inputs(), as_input(norms.x.encode(x_test)));
+        assert_eq!(*train.targets(), norms.y.encode(y_train));
+        assert_eq!(*test.targets(), y_test);
     }
 }
