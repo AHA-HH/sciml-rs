@@ -33,7 +33,10 @@ device for the input's own resolution and appends them after the data:
 Li et al.), and in general one channel per spatial axis in reverse axis
 order. The loaders therefore no longer store grids, which cuts input storage
 and host-to-device transfer by 2x for Burgers and 3x for Darcy. Checkpoints
-saved before this change load and predict unchanged.
+saved before this change load unchanged (same parameter names and shapes).
+Their predictions are bit-identical on the default `flex` backend; on other
+backends the generated grid may differ from the old one by up to 1 ulp
+(division rounding), so predictions agree only to within that.
 
 ## Requirements
 
