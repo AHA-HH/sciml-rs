@@ -1,6 +1,6 @@
 //! Data transforms
 //!
-//! Array-level preprocessing (subsampling, grid concatenation, reshaping) and
+//! Array-level preprocessing (subsampling, reshaping) and
 //! normalizers that fit statistics on the training set and encode/decode
 //! model inputs and predictions.
 

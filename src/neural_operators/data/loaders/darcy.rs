@@ -4,7 +4,8 @@
 //! resolution) on top of the shared `DatasetConfig`. `load_darcy_uniform`
 //! builds train/test `OperatorDataset`s from separate `.mat` files: reading,
 //! truncating to configured sizes, subsampling both spatial axes, fitting and
-//! applying normalization and appending 2D grid coordinates.
+//! applying normalization. Inputs carry the data channel only; the model
+//! appends the 2D grid coordinates itself (see `FNO::forward`).
 //!
 //! normalization asymmetry (matches the reference implementation exactly):
 //! `x_test` is encoded using the `x` normalizer fit on `x_train`, but
@@ -15,7 +16,6 @@
 use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
-    grids::{GridPlacement, append_grid, uniform_grid},
     io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     transforms::normalizers::{Normalizer, UnitGaussianNormalizer},
@@ -53,7 +53,9 @@ pub struct DarcyNormalizers {
     pub y: UnitGaussianNormalizer,
 }
 
-/// Builds the Darcy flow dataset with a uniform 2D grid channel appended.
+/// Builds the Darcy flow dataset: inputs `[n, s, s, 1]` (the normalized
+/// coefficient; no grid channels, the model generates them), targets
+/// `[n, s, s]`.
 ///
 /// Returns `(train_dataset, test_dataset, normalizers)`. `normalizers.y` is
 /// what the caller needs to decode predictions back to physical scale;
@@ -67,7 +69,7 @@ pub struct DarcyNormalizers {
 /// fewer samples than requested, or the subsample rate doesn't give
 /// `config.s()` points per axis.
 ///
-/// Reading, normalization and grids are computed in `f64`, and the
+/// Reading and normalization are computed in `f64`, and the
 /// normalizers keep `f64` statistics; the datasets are stored as `T`,
 /// rounded once at the end (see [`HostFloat`]).
 pub fn load_darcy_uniform<T: HostFloat>(
@@ -115,7 +117,19 @@ pub fn load_darcy_uniform<T: HostFloat>(
     };
     let (x_train, y_train) = load_split(train_path.as_ref(), "train", config.n_train())?;
     let (x_test, y_test) = load_split(test_path.as_ref(), "test", config.n_test())?;
+    darcy_from_fields(x_train, y_train, x_test, y_test, config)
+}
 
+/// The rest of [`load_darcy_uniform`] on truncated, subsampled fields:
+/// check the resolution, normalize, reshape and cast. Separate from the
+/// reader so the output can be tested without `.mat` files.
+fn darcy_from_fields<T: HostFloat>(
+    x_train: ArrayD<f64>,
+    y_train: ArrayD<f64>,
+    x_test: ArrayD<f64>,
+    y_test: ArrayD<f64>,
+    config: &DarcyConfig,
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>, DarcyNormalizers), LoadError> {
     let s = x_train.shape()[1];
     let n_train = x_train.shape()[0];
     let n_test = x_test.shape()[0];
@@ -151,14 +165,6 @@ pub fn load_darcy_uniform<T: HostFloat>(
     let x_test = x_test
         .into_shape_with_order(IxDyn(&[n_test, s, s, 1]))
         .map_err(|e| LoadError::Invalid(format!("reshape x_test: {e}")))?;
-
-    // append 2D grid coordinates as two more channels: [n, s, s, 1] -> [n, s, s, 3]
-    // Reversed 'ij' grids = Li's 'xy' meshgrid order: channel 1 varies along
-    // spatial axis 2, channel 2 along axis 1. Saved checkpoints depend on it.
-    let mut grid = uniform_grid(&[(0.0, 1.0); 2], &[s, s]);
-    grid.reverse();
-    let x_train = append_grid(x_train, &grid, GridPlacement::AfterData);
-    let x_test = append_grid(x_test, &grid, GridPlacement::AfterData);
 
     // package into OperatorDataset, casting to the host dtype T
     let train_dataset = OperatorDataset::from_f64(x_train, y_train);
@@ -267,5 +273,40 @@ mod tests {
         let field = ArrayD::from_shape_fn(IxDyn(&[2, 3, 3]), |i| i[2] as f64);
         let ptr = field.as_ptr();
         assert_eq!(take_subsampled(field, 2, 1).as_ptr(), ptr);
+    }
+
+    // --- issue #13: no grid channels in the stored inputs ---
+
+    #[test]
+    fn inputs_hold_the_normalized_coefficient_only() {
+        let config = cfg(210); // s = 3
+        let s = config.s();
+        let field = |n: usize, seed: f64| {
+            ArrayD::from_shape_fn(IxDyn(&[n, s, s]), |i| {
+                ((i[0] * s * s + i[1] * s + i[2]) as f64 * 0.7 + seed).sin()
+            })
+        };
+        let (x_train, y_train, x_test, y_test) =
+            (field(2, 0.0), field(2, 1.0), field(1, 2.0), field(1, 3.0));
+        let (train, test, norms) = darcy_from_fields::<f64>(
+            x_train.clone(),
+            y_train.clone(),
+            x_test.clone(),
+            y_test.clone(),
+            &config,
+        )
+        .expect("valid fields");
+
+        assert_eq!(train.inputs().shape(), [2, s, s, 1]);
+        assert_eq!(test.inputs().shape(), [1, s, s, 1]);
+        let as_input = |a: ArrayD<f64>| {
+            let n = a.shape()[0];
+            a.into_shape_with_order(IxDyn(&[n, s, s, 1])).unwrap()
+        };
+        // x encoded with the train normalizer, y_train encoded, y_test raw.
+        assert_eq!(*train.inputs(), as_input(norms.x.encode(x_train)));
+        assert_eq!(*test.inputs(), as_input(norms.x.encode(x_test)));
+        assert_eq!(*train.targets(), norms.y.encode(y_train));
+        assert_eq!(*test.targets(), y_test);
     }
 }

@@ -3,19 +3,19 @@
 //! `BurgersConfig` holds Burgers-specific settings (subsample rate, derived
 //! resolution) on top of the shared `DatasetConfig`. `load_burgers_uniform`
 //! builds the full `OperatorDataset` from a `.mat` source file: reading,
-//! subsampling, appending grid coordinates and splitting into train/test.
+//! subsampling and splitting into train/test. Inputs carry the data channel
+//! only; the model appends the grid coordinates itself (see `FNO::forward`).
 
 use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
-    grids::{GridPlacement, append_grid, uniform_grid},
     io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     split::train_test_split,
     transforms::subsample::subsample,
 };
 use burn::config::Config;
-use ndarray::IxDyn;
+use ndarray::{ArrayD, IxDyn};
 use std::path::Path;
 
 #[derive(Config, Debug)]
@@ -41,10 +41,10 @@ impl HasBaseConfig for BurgersConfig {
 ///
 /// Reads fields `a` (initial condition) and `u` (solution at t=1),
 /// subsamples the spatial axis by `config.subsample_rate`, splits off
-/// `n_train`/`n_test` samples and appends a uniform grid on [0, 1] as a
-/// second input channel.
+/// `n_train`/`n_test` samples. No grid channel is stored: the model
+/// generates the coordinates on the device for whatever resolution it is fed.
 ///
-/// Inputs end up `[n, s, 1 + 1]` and targets `[n, s]` - the rank difference
+/// Inputs end up `[n, s, 1]` and targets `[n, s]` - the rank difference
 /// the batcher's `RM1 = R - 1` invariant expects.
 ///
 /// Everything is computed in `f64`; the datasets are stored as `T`, rounded
@@ -67,7 +67,17 @@ pub fn load_burgers_uniform<T: HostFloat>(
     let reader = MatFileReader::new(path.as_ref())?;
     let a_data = reader.read_field("a")?;
     let u_data = reader.read_field("u")?;
+    burgers_from_fields(a_data, u_data, config)
+}
 
+/// Steps 2-6 of [`load_burgers_uniform`] on fields already read: validate,
+/// subsample, split, reshape and cast. Separate from the reader so the
+/// output can be tested without a `.mat` file.
+fn burgers_from_fields<T: HostFloat>(
+    a_data: ArrayD<f64>,
+    u_data: ArrayD<f64>,
+    config: &BurgersConfig,
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>), LoadError> {
     for (name, field) in [("a", &a_data), ("u", &u_data)] {
         if field.ndim() != 2 {
             return Err(LoadError::Invalid(format!(
@@ -103,7 +113,7 @@ pub fn load_burgers_uniform<T: HostFloat>(
     let (a_train, a_test) = train_test_split(a_data, config.n_train(), config.n_test());
     let (u_train, u_test) = train_test_split(u_data, config.n_train(), config.n_test());
 
-    // 4. Reshape inputs [n, s] -> [n, s, 1] to prepare for grid append
+    // 4. Reshape inputs [n, s] -> [n, s, 1]: one data channel
     let a_train = a_train
         .into_shape_with_order(IxDyn(&[config.n_train(), s, 1]))
         .map_err(|e| LoadError::Invalid(format!("reshape a_train: {e}")))?;
@@ -111,13 +121,7 @@ pub fn load_burgers_uniform<T: HostFloat>(
         .into_shape_with_order(IxDyn(&[config.n_test(), s, 1]))
         .map_err(|e| LoadError::Invalid(format!("reshape a_test: {e}")))?;
 
-    // 5. Generate uniform grid [0, 1] and append as second channel
-    // [n, s, 1] -> [n, s, 2]
-    let grid = uniform_grid(&[(0.0, 1.0)], &[s]);
-    let a_train = append_grid(a_train, &grid, GridPlacement::AfterData);
-    let a_test = append_grid(a_test, &grid, GridPlacement::AfterData);
-
-    // 6. Reshape targets [n, s] -> [n, s] ensure dynamic shape
+    // 5. Reshape targets [n, s] -> [n, s] ensure dynamic shape
     let u_train = u_train
         .into_shape_with_order(IxDyn(&[config.n_train(), s]))
         .map_err(|e| LoadError::Invalid(format!("reshape u_train: {e}")))?;
@@ -125,7 +129,7 @@ pub fn load_burgers_uniform<T: HostFloat>(
         .into_shape_with_order(IxDyn(&[config.n_test(), s]))
         .map_err(|e| LoadError::Invalid(format!("reshape u_test: {e}")))?;
 
-    // 7. Wrap in OperatorDataset, casting to the host dtype T
+    // 6. Wrap in OperatorDataset, casting to the host dtype T
     let train_dataset = OperatorDataset::from_f64(a_train, u_train);
     let test_dataset = OperatorDataset::from_f64(a_test, u_test);
 
@@ -173,5 +177,41 @@ mod tests {
             .err()
             .expect("loading should fail");
         assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
+    }
+
+    // --- issue #13: no grid channel in the stored inputs ---
+
+    #[test]
+    fn inputs_hold_the_subsampled_data_channel_only() {
+        let (n, raw, r) = (3, 8192, 1024); // s = 8
+        let config = BurgersConfig::new(
+            DatasetConfig {
+                n_train: 2,
+                n_test: 1,
+            },
+            r,
+        );
+        let a = ArrayD::from_shape_fn(IxDyn(&[n, raw]), |i| (i[0] * raw + i[1]) as f64);
+        let u = a.mapv(|v| -v);
+        let (train, test) = burgers_from_fields::<f64>(a, u, &config).expect("valid fields");
+
+        let s = config.s();
+        assert_eq!(train.inputs().shape(), [2, s, 1]);
+        assert_eq!(test.inputs().shape(), [1, s, 1]);
+        assert_eq!(train.targets().shape(), [2, s]);
+        assert_eq!(test.targets().shape(), [1, s]);
+        // Sample i of the split is raw sample i (train) or 2 + i (test),
+        // point k is raw point k * r; values pass through exactly.
+        for (ds, first) in [(&train, 0), (&test, 2)] {
+            for ((i, k, c), &v) in ds
+                .inputs()
+                .indexed_iter()
+                .map(|(ix, v)| ((ix[0], ix[1], ix[2]), v))
+            {
+                assert_eq!(c, 0);
+                assert_eq!(v, ((first + i) * raw + k * r) as f64, "input [{i}, {k}]");
+                assert_eq!(ds.targets()[[i, k]], -v, "target [{i}, {k}]");
+            }
+        }
     }
 }

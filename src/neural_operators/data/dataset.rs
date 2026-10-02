@@ -29,7 +29,7 @@ impl<T: HostFloat> OperatorDataset<T> {
     /// Builds a dataset from `f64` arrays, rounding each value to `T` once.
     ///
     /// The loaders' single cast point: everything before it (reading,
-    /// subsampling, normalization, grids) stays `f64`.
+    /// subsampling, normalization) stays `f64`.
     pub fn from_f64(inputs: ArrayD<f64>, targets: ArrayD<f64>) -> Self {
         Self::new(inputs.mapv(T::from_f64), targets.mapv(T::from_f64))
     }

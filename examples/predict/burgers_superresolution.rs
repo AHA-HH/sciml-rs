@@ -8,6 +8,8 @@
 //! spectral layers act on Fourier modes, and the mode count is fixed by the
 //! config rather than by the discretisation. So the same weights apply at any
 //! resolution, and test error should stay roughly flat as the grid refines.
+//! The model generates the coordinate channels for each input's resolution,
+//! so only the data is resampled here.
 //!
 //! Burgers' raw grid is 8192 = 2^13, and each subsample rate r gives
 //! s = 8192 / r. The rates must divide 8192 so the subsampled grid matches

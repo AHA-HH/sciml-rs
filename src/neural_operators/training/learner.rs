@@ -86,13 +86,13 @@ mod tests {
     }
 
     /// Batch of 3 samples on an 8-point grid; inputs carry the data channel
-    /// plus the grid channel, targets are bounded away from zero.
+    /// (the model appends the grid), targets are bounded away from zero.
     fn tiny_batch(device: &Device) -> Batch<3, 2> {
         let (b, s) = (3, 8);
-        let inputs: Vec<f32> = (0..b * s * 2).map(|i| (i as f32 * 0.37).sin()).collect();
+        let inputs: Vec<f32> = (0..b * s).map(|i| (i as f32 * 0.37).sin()).collect();
         let targets: Vec<f32> = (0..b * s).map(|i| 2.0 + (i as f32 * 0.7).cos()).collect();
         Batch {
-            inputs: Tensor::from_data(TensorData::new(inputs, [b, s, 2]), device),
+            inputs: Tensor::from_data(TensorData::new(inputs, [b, s, 1]), device),
             targets: Tensor::from_data(TensorData::new(targets, [b, s]), device),
         }
     }

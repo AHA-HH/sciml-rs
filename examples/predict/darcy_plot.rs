@@ -49,7 +49,8 @@ fn main() {
         &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),
     );
 
-    // One sample. input is [s, s, 3]: coefficient field, then the two grid channels.
+    // One sample. input is [s, s, 1]: the coefficient field only; the model
+    // appends the two grid channels itself.
     let item = test_data.get(0).expect("test set is non-empty");
     let s = dataset_cfg.s();
 
@@ -61,9 +62,9 @@ fn main() {
         .collect();
     let truth: Vec<f64> = item.target.iter().copied().collect();
 
-    // Forward one sample: [s, s, 3] -> [1, s, s, 3] -> [1, s, s, 1].
+    // Forward one sample: [s, s, 1] -> [1, s, s, 1] -> [1, s, s, 1].
     let x_flat: Vec<f64> = item.input.iter().copied().collect();
-    let x = Tensor::<4>::from_data(TensorData::new(x_flat, vec![1, s, s, 3]), &device);
+    let x = Tensor::<4>::from_data(TensorData::new(x_flat, vec![1, s, s, 1]), &device);
     let out = model.forward(x).reshape([s, s]);
 
     // Predictions come out normalized; decode before plotting.
