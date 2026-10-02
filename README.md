@@ -26,6 +26,15 @@ the end of every spatial axis before the spectral layers and crops them off
 afterwards; `train_darcy` uses 9, as in Li et al.'s `fourier_2d.py`. The padded
 size needn't be a power of two.
 
+Model inputs carry data channels only (`[batch, spatial.., data_channels]`).
+`FNO::forward` generates the uniform `[0, 1]` coordinate channels on the
+device for the input's own resolution and appends them after the data:
+`[data, x]` in 1D and `[data, x, y]` in 2D (`np.meshgrid` 'xy' order, as in
+Li et al.), and in general one channel per spatial axis in reverse axis
+order. The loaders therefore no longer store grids, which cuts input storage
+and host-to-device transfer by 2x for Burgers and 3x for Darcy. Checkpoints
+saved before this change load and predict unchanged.
+
 ## Requirements
 
 - Rust 1.85 or later ([rustup.rs](https://rustup.rs))

@@ -179,17 +179,12 @@ impl<const R: usize> FNO<R> {
     ///
     /// Each channel is one `arange` along its axis, divided by `n - 1`
     /// (`linspace` over the closed `[0, 1]`; a single point is 0), and
-    /// broadcast over the other axes. Channels come in **reverse axis order**:
+    /// broadcast over the other axes, in the reverse axis order documented on
+    /// [`Self::forward`]. `fc0`'s grid rows are trained against that order,
+    /// so saved checkpoints depend on it.
     ///
-    /// | D | channels                  | convention                         |
-    /// |---|---------------------------|------------------------------------|
-    /// | 1 | `x(s_1)`                  | old Burgers loader, Li's 1D script |
-    /// | 2 | `x(s_2), y(s_1)`          | old Darcy loader, Li's 2D 'xy'     |
-    /// | 3 | `x(s_3), y(s_2), z(s_1)`  | same rule; not Li's `fourier_3d.py`|
-    ///
-    /// `fc0`'s grid rows are trained against this order, so saved checkpoints
-    /// depend on it. Values match the old f64 `linspace` rounded to `dtype`
-    /// to within 1 ulp at 1.0; bit for bit under correctly rounded division
+    /// Values match the old loaders' f64 `linspace` rounded to `dtype` to
+    /// within 1 ulp at 1.0; bit for bit under correctly rounded division
     /// while `n - 1` is exact in `dtype` (`n <= 2^24` for f32).
     ///
     /// Built from scratch, so it is a constant: never tracked by autodiff.
@@ -218,9 +213,21 @@ impl<const R: usize> FNO<R> {
     /// `[B, spatial.., data_channels]` → `[B, spatial.., out_channels]`.
     ///
     /// The input carries data channels only: the `D` coordinate channels are
-    /// generated on the input's device for its own spatial shape and appended
-    /// after the data before the lifting `fc0` (see [`Self::grid_cf`] for the
-    /// order). A change of resolution needs no new grid from the caller.
+    /// generated on the input's device, in its dtype, for its own spatial
+    /// shape, and appended after the data before the lifting `fc0`. A change
+    /// of resolution needs no new grid from the caller. Each coordinate is a
+    /// uniform grid over the closed `[0, 1]`, one channel per spatial axis in
+    /// **reverse axis order**:
+    ///
+    /// | D | channels after the data   | convention                          |
+    /// |---|---------------------------|-------------------------------------|
+    /// | 1 | `x(s_1)`                  | Li et al.'s 1D script               |
+    /// | 2 | `x(s_2), y(s_1)`          | Li et al.'s 2D `np.meshgrid` 'xy'   |
+    /// | 3 | `x(s_3), y(s_2), z(s_1)`  | same rule; not Li's `fourier_3d.py` |
+    ///
+    /// where `x(s_a)` varies along spatial axis `a` only. These are the
+    /// channels the Burgers and Darcy loaders used to store, so checkpoints
+    /// trained on those inputs are unaffected.
     ///
     /// Channels-first inside: the input is permuted once while it is only
     /// `C_in` wide, and the output once while it is one channel wide, so the

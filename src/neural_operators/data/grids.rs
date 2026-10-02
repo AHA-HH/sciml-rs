@@ -1,4 +1,8 @@
 //! Uniform coordinate grid generation for N-dimensional spatial data.
+//!
+//! The FNO generates its own grid channels on the device (see
+//! `FNO::forward`), so the built-in loaders no longer call these. They
+//! remain for custom host-side pipelines and as an f64 reference.
 
 use ndarray::{Array1, ArrayD, Axis, IxDyn, concatenate, s};
 
