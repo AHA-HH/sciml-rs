@@ -1,6 +1,6 @@
 # sciml-rs
 
-A Neural Operator library in Rust, built on [Burn](https://burn.dev).
+A Neural Operator library in Rust, built on [Burn](https://burn.dev). 
 
 Tensor rank is a compile-time property, so the spatial dimensionality of a
 problem is fixed when the binary is built rather than checked at runtime.
@@ -11,7 +11,7 @@ problem is fixed when the binary is built rather than checked at runtime.
 | problem    | grid    | Burn    | PyTorch |
 |------------|---------|---------|---------|
 | 1D Burgers | s = 256 | 0.00188 | 0.00189 |
-| 2D Darcy   | s = 16  | 0.03403 | 0.03451 |
+| 2D Darcy   | s = 16  | 0.009 | 0.009 |
 
 Same hyperparameters across columns. The PyTorch port is a direct
 translation of Li et al.'s reference implementation in the official 
