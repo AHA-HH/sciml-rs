@@ -1431,6 +1431,13 @@ mod tests {
     #[test]
     fn grid_controls_3d() {
         check_grid_controls::<5>(vec![2, 2, 2], 3, &[4, 6, 5], None);
+    }
+
+    /// Separate from the unpadded 3D case so that a failure of the padded
+    /// 3D path (as `padded_forward_matches_reference_3d`) is reported apart
+    /// from the grid itself.
+    #[test]
+    fn grid_controls_3d_padded() {
         check_grid_controls::<5>(vec![2, 2, 2], 1, &[4, 6, 5], Some(2));
     }
 
