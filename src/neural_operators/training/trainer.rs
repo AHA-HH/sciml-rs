@@ -383,10 +383,10 @@ mod tests {
 
     // --- REVIEW1.md N5: schedule length and divisors come from the data ---
 
-    /// `n` Burgers-shaped samples: inputs `[n, 8, 2]`, targets `[n, 8]`,
+    /// `n` Burgers-shaped samples: inputs `[n, 8, 1]`, targets `[n, 8]`,
     /// targets nonzero so the relative L2 is well defined.
     fn tiny_dataset(n: usize) -> OperatorDataset<f64> {
-        let inputs = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 8, 2]), |i| {
+        let inputs = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 8, 1]), |i| {
             ((i[0] * 8 + i[1]) as f64 * 0.3 + i[2] as f64).sin()
         });
         let targets = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 8]), |i| {
@@ -520,7 +520,7 @@ mod tests {
         let probe = |m: &FNO<3>| -> Vec<u32> {
             let x = tiny_dataset(1);
             let x = Tensor::<3>::from_data(
-                TensorData::new(x.inputs().iter().map(|&v| v as f32).collect(), [1, 8, 2]),
+                TensorData::new(x.inputs().iter().map(|&v| v as f32).collect(), [1, 8, 1]),
                 &device.clone().inner(),
             );
             m.valid()

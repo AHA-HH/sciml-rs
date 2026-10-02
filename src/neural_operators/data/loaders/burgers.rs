@@ -3,12 +3,12 @@
 //! `BurgersConfig` holds Burgers-specific settings (subsample rate, derived
 //! resolution) on top of the shared `DatasetConfig`. `load_burgers_uniform`
 //! builds the full `OperatorDataset` from a `.mat` source file: reading,
-//! subsampling, appending grid coordinates and splitting into train/test.
+//! subsampling and splitting into train/test. Inputs carry the data channel
+//! only; the model appends the grid coordinates itself (see `FNO::forward`).
 
 use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
-    grids::{GridPlacement, append_grid, uniform_grid},
     io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     split::train_test_split,
@@ -41,10 +41,10 @@ impl HasBaseConfig for BurgersConfig {
 ///
 /// Reads fields `a` (initial condition) and `u` (solution at t=1),
 /// subsamples the spatial axis by `config.subsample_rate`, splits off
-/// `n_train`/`n_test` samples and appends a uniform grid on [0, 1] as a
-/// second input channel.
+/// `n_train`/`n_test` samples. No grid channel is stored: the model
+/// generates the coordinates on the device for whatever resolution it is fed.
 ///
-/// Inputs end up `[n, s, 1 + 1]` and targets `[n, s]` - the rank difference
+/// Inputs end up `[n, s, 1]` and targets `[n, s]` - the rank difference
 /// the batcher's `RM1 = R - 1` invariant expects.
 ///
 /// Everything is computed in `f64`; the datasets are stored as `T`, rounded
@@ -103,7 +103,7 @@ pub fn load_burgers_uniform<T: HostFloat>(
     let (a_train, a_test) = train_test_split(a_data, config.n_train(), config.n_test());
     let (u_train, u_test) = train_test_split(u_data, config.n_train(), config.n_test());
 
-    // 4. Reshape inputs [n, s] -> [n, s, 1] to prepare for grid append
+    // 4. Reshape inputs [n, s] -> [n, s, 1]: one data channel
     let a_train = a_train
         .into_shape_with_order(IxDyn(&[config.n_train(), s, 1]))
         .map_err(|e| LoadError::Invalid(format!("reshape a_train: {e}")))?;
@@ -111,13 +111,7 @@ pub fn load_burgers_uniform<T: HostFloat>(
         .into_shape_with_order(IxDyn(&[config.n_test(), s, 1]))
         .map_err(|e| LoadError::Invalid(format!("reshape a_test: {e}")))?;
 
-    // 5. Generate uniform grid [0, 1] and append as second channel
-    // [n, s, 1] -> [n, s, 2]
-    let grid = uniform_grid(&[(0.0, 1.0)], &[s]);
-    let a_train = append_grid(a_train, &grid, GridPlacement::AfterData);
-    let a_test = append_grid(a_test, &grid, GridPlacement::AfterData);
-
-    // 6. Reshape targets [n, s] -> [n, s] ensure dynamic shape
+    // 5. Reshape targets [n, s] -> [n, s] ensure dynamic shape
     let u_train = u_train
         .into_shape_with_order(IxDyn(&[config.n_train(), s]))
         .map_err(|e| LoadError::Invalid(format!("reshape u_train: {e}")))?;
@@ -125,7 +119,7 @@ pub fn load_burgers_uniform<T: HostFloat>(
         .into_shape_with_order(IxDyn(&[config.n_test(), s]))
         .map_err(|e| LoadError::Invalid(format!("reshape u_test: {e}")))?;
 
-    // 7. Wrap in OperatorDataset, casting to the host dtype T
+    // 6. Wrap in OperatorDataset, casting to the host dtype T
     let train_dataset = OperatorDataset::from_f64(a_train, u_train);
     let test_dataset = OperatorDataset::from_f64(a_test, u_test);
 

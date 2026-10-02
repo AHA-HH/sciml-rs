@@ -4,7 +4,8 @@
 //! resolution) on top of the shared `DatasetConfig`. `load_darcy_uniform`
 //! builds train/test `OperatorDataset`s from separate `.mat` files: reading,
 //! truncating to configured sizes, subsampling both spatial axes, fitting and
-//! applying normalization and appending 2D grid coordinates.
+//! applying normalization. Inputs carry the data channel only; the model
+//! appends the 2D grid coordinates itself (see `FNO::forward`).
 //!
 //! normalization asymmetry (matches the reference implementation exactly):
 //! `x_test` is encoded using the `x` normalizer fit on `x_train`, but
@@ -15,7 +16,6 @@
 use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
-    grids::{GridPlacement, append_grid, uniform_grid},
     io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
     loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
     transforms::normalizers::{Normalizer, UnitGaussianNormalizer},
@@ -53,7 +53,9 @@ pub struct DarcyNormalizers {
     pub y: UnitGaussianNormalizer,
 }
 
-/// Builds the Darcy flow dataset with a uniform 2D grid channel appended.
+/// Builds the Darcy flow dataset: inputs `[n, s, s, 1]` (the normalized
+/// coefficient; no grid channels, the model generates them), targets
+/// `[n, s, s]`.
 ///
 /// Returns `(train_dataset, test_dataset, normalizers)`. `normalizers.y` is
 /// what the caller needs to decode predictions back to physical scale;
@@ -67,7 +69,7 @@ pub struct DarcyNormalizers {
 /// fewer samples than requested, or the subsample rate doesn't give
 /// `config.s()` points per axis.
 ///
-/// Reading, normalization and grids are computed in `f64`, and the
+/// Reading and normalization are computed in `f64`, and the
 /// normalizers keep `f64` statistics; the datasets are stored as `T`,
 /// rounded once at the end (see [`HostFloat`]).
 pub fn load_darcy_uniform<T: HostFloat>(
@@ -151,14 +153,6 @@ pub fn load_darcy_uniform<T: HostFloat>(
     let x_test = x_test
         .into_shape_with_order(IxDyn(&[n_test, s, s, 1]))
         .map_err(|e| LoadError::Invalid(format!("reshape x_test: {e}")))?;
-
-    // append 2D grid coordinates as two more channels: [n, s, s, 1] -> [n, s, s, 3]
-    // Reversed 'ij' grids = Li's 'xy' meshgrid order: channel 1 varies along
-    // spatial axis 2, channel 2 along axis 1. Saved checkpoints depend on it.
-    let mut grid = uniform_grid(&[(0.0, 1.0); 2], &[s, s]);
-    grid.reverse();
-    let x_train = append_grid(x_train, &grid, GridPlacement::AfterData);
-    let x_test = append_grid(x_test, &grid, GridPlacement::AfterData);
 
     // package into OperatorDataset, casting to the host dtype T
     let train_dataset = OperatorDataset::from_f64(x_train, y_train);

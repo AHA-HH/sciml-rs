@@ -8,7 +8,7 @@ use burn::{
         Linear, LinearConfig,
         conv::{Conv1d, Conv1dConfig},
     },
-    tensor::{Device, activation::relu, ops::PadMode},
+    tensor::{DType, Device, FloatDType, Int, activation::relu, ops::PadMode},
 };
 
 use crate::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
@@ -19,7 +19,11 @@ pub struct FNOConfig {
     pub modes: Vec<usize>, // length D = R - 2
     #[config(default = 32)]
     pub hidden_channels: usize,
-    pub data_channels: usize, // problem specific, 1 (coefficients), 10 (3d problem, stacked timesteps)
+    /// Input data channels `C`, problem specific: 1 (coefficients), 10 (3D
+    /// problem, stacked timesteps). Grid coordinates are not counted:
+    /// [`FNO::forward`] appends the `D` coordinate channels itself, so the
+    /// lifting `fc0` takes `C + D` channels.
+    pub data_channels: usize,
     pub out_channels: usize,
     #[config(default = 4)]
     pub n_layers: usize,
@@ -169,7 +173,54 @@ impl<const R: usize> FNO<R> {
         x.slice(ranges)
     }
 
-    /// `[B, spatial.., C_in]` → `[B, spatial.., out_channels]`.
+    /// Uniform coordinate channels for a channels-first `[B, C, s_1..s_D]`
+    /// tensor of shape `dims`: returns `[B, D, s_1..s_D]` in `dtype` on
+    /// `device`, the same value in every batch row.
+    ///
+    /// Each channel is one `arange` along its axis, divided by `n - 1`
+    /// (`linspace` over the closed `[0, 1]`; a single point is 0), and
+    /// broadcast over the other axes. Channels come in **reverse axis order**:
+    ///
+    /// | D | channels                  | convention                         |
+    /// |---|---------------------------|------------------------------------|
+    /// | 1 | `x(s_1)`                  | old Burgers loader, Li's 1D script |
+    /// | 2 | `x(s_2), y(s_1)`          | old Darcy loader, Li's 2D 'xy'     |
+    /// | 3 | `x(s_3), y(s_2), z(s_1)`  | same rule; not Li's `fourier_3d.py`|
+    ///
+    /// `fc0`'s grid rows are trained against this order, so saved checkpoints
+    /// depend on it. Values match the old f64 `linspace` rounded to `dtype`
+    /// to within 1 ulp at 1.0; bit for bit under correctly rounded division
+    /// while `n - 1` is exact in `dtype` (`n <= 2^24` for f32).
+    ///
+    /// Built from scratch, so it is a constant: never tracked by autodiff.
+    fn grid_cf(dims: [usize; R], dtype: DType, device: &Device) -> Tensor<R> {
+        let mut full = dims;
+        full[1] = 1;
+        let channels: Vec<Tensor<R>> = (2..R)
+            .rev()
+            .map(|axis| {
+                let n = dims[axis];
+                let coords =
+                    Tensor::<1, Int>::arange(0..n as i64, device).cast(FloatDType::from(dtype));
+                let coords = if n > 1 {
+                    coords.div_scalar((n - 1) as f64)
+                } else {
+                    coords // [0], as linspace(0, 1, 1); avoids 0 / 0
+                };
+                let mut shape = [1; R];
+                shape[axis] = n;
+                coords.reshape(shape).expand(full)
+            })
+            .collect();
+        Tensor::cat(channels, 1)
+    }
+
+    /// `[B, spatial.., data_channels]` → `[B, spatial.., out_channels]`.
+    ///
+    /// The input carries data channels only: the `D` coordinate channels are
+    /// generated on the input's device for its own spatial shape and appended
+    /// after the data before the lifting `fc0` (see [`Self::grid_cf`] for the
+    /// order). A change of resolution needs no new grid from the caller.
     ///
     /// Channels-first inside: the input is permuted once while it is only
     /// `C_in` wide, and the output once while it is one channel wide, so the
@@ -178,6 +229,10 @@ impl<const R: usize> FNO<R> {
     /// With [`FNOConfig::padding`] `p > 0`, the lifted activation is
     /// zero-padded by `p` at the end of each spatial axis before the spectral
     /// layers and cropped back before `fc1`; the output shape is unchanged.
+    ///
+    /// # Panics
+    /// If the input's last axis is not [`FNOConfig::data_channels`] wide, e.g.
+    /// an input that still carries grid channels.
     pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
         // [B, s.., C] -> [B, C, s..]
         let perm_in: [usize; R] = core::array::from_fn(|i| match i {
@@ -185,7 +240,18 @@ impl<const R: usize> FNO<R> {
             1 => R - 1,
             i => i - 1,
         });
-        let mut x = Self::linear_cf(&self.fc0, x.permute(perm_in));
+        let x = x.permute(perm_in);
+
+        let dims = x.dims();
+        let data_channels = self.fc0.weight.dims()[0] - (R - 2);
+        assert_eq!(
+            dims[1], data_channels,
+            "FNO<{R}> expects data_channels = {data_channels} input channels, got {}; \
+             the model generates the grid coordinates, so inputs must not include them",
+            dims[1]
+        );
+        let grid = Self::grid_cf(dims, x.dtype(), &x.device());
+        let mut x = Self::linear_cf(&self.fc0, Tensor::cat(vec![x, grid], 1));
 
         let unpadded = x.dims();
         if self.padding > 0 {
@@ -228,7 +294,6 @@ mod tests {
         spatial: &[usize],
     ) {
         let device = Device::default();
-        let coord_channels = modes.len();
         assert_eq!(spatial.len(), R - 2, "spatial dims must match modes count");
 
         let config = FNOConfig {
@@ -242,10 +307,10 @@ mod tests {
         };
         let model: FNO<R> = config.init::<R>(&device);
 
-        // Channels-last on input, as fc0 expects.
+        // Channels-last data only; the model appends the grid.
         let mut x_shape = vec![1];
         x_shape.extend_from_slice(spatial);
-        x_shape.push(data_channels + coord_channels);
+        x_shape.push(data_channels);
         let x_shape: [usize; R] = x_shape.try_into().unwrap();
 
         let out = model.forward(Tensor::<R>::random(x_shape, Distribution::Default, &device));
@@ -274,7 +339,7 @@ mod tests {
 
     #[test]
     fn forward_shape_3d() {
-        // 10 stacked timesteps + x + y + t channels.
+        // 10 stacked timesteps; the model appends 3 coordinate channels.
         fno_forward_shape_check::<5>(vec![2, 2, 2], 4, 10, &[4, 4, 4]);
     }
 
@@ -408,9 +473,9 @@ mod tests {
             .load_from(&mut BurnpackStore::from_bytes(Some(bytes)))
             .expect("load weights");
 
-        // [batch, s, data + coord channels], channels-last.
-        let shape = vec![2, 16, 2];
-        let vals: Vec<f32> = (0..64).map(|i| (i as f32 * 0.29).sin()).collect();
+        // [batch, s, data channels], channels-last.
+        let shape = vec![2, 16, 1];
+        let vals: Vec<f32> = (0..32).map(|i| (i as f32 * 0.29).sin()).collect();
         let x_ad = Tensor::<3>::from_data(TensorData::new(vals.clone(), shape.clone()), &ad);
         let x_plain = Tensor::<3>::from_data(TensorData::new(vals, shape), &plain);
 
@@ -487,14 +552,10 @@ mod tests {
             .with_hidden_channels(hidden)
             .with_n_layers(2)
             .init::<R>(&device);
-        let mut shape = vec![2];
-        shape.extend_from_slice(spatial);
-        shape.push(data_channels + modes.len());
-        let shape: [usize; R] = shape.try_into().unwrap();
-        let x = Tensor::<R>::random(shape, Distribution::Normal(0.0, 1.0), &device);
+        let x = random_input::<R>(spatial, data_channels, &device);
 
         let new = model.forward(x.clone());
-        let old = reference_forward(&model, x);
+        let old = reference_forward(&model, with_old_grid(x));
         assert_eq!(new.dims(), old.dims());
         let err = rel_err(flat(new), flat(old));
         println!("FNO<{R}> forward rel err {err:e}");
@@ -522,6 +583,11 @@ mod tests {
     }
 
     #[test]
+    fn forward_matches_reference_2d_multichannel() {
+        check_forward::<4>(vec![3, 2], 3, 6, &[6, 8]);
+    }
+
+    #[test]
     fn forward_matches_reference_3d() {
         check_forward::<5>(vec![2, 2, 2], 3, 6, &[4, 6, 5]);
     }
@@ -537,14 +603,17 @@ mod tests {
             .with_hidden_channels(6)
             .with_n_layers(2)
             .init::<4>(&device);
-        let x0 = Tensor::<4>::random([2, 8, 6, 3], Distribution::Normal(0.0, 1.0), &device);
+        let x0 = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
         let probe = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
 
-        let grads_of = |f: &dyn Fn(Tensor<4>) -> Tensor<4>| {
-            let x = x0.clone().detach().require_grad();
+        // The reference differentiates w.r.t. the old grid-augmented input;
+        // only its data-channel slice is comparable to the new input grad.
+        let grads_of = |x0: Tensor<4>, f: &dyn Fn(Tensor<4>) -> Tensor<4>| {
+            let x = x0.detach().require_grad();
             let grads = (f(x.clone()) * probe.clone()).sum().backward();
-            let mut out: Vec<(String, Tensor<1>)> =
-                vec![("input".into(), flat(x.grad(&grads).expect("input grad")))];
+            let g_in = x.grad(&grads).expect("input grad").narrow(3, 0, 1);
+            assert_eq!(g_in.dims(), [2, 8, 6, 1]);
+            let mut out: Vec<(String, Tensor<1>)> = vec![("input".into(), flat(g_in))];
             for (name, l) in [
                 ("fc0", &model.fc0),
                 ("fc1", &model.fc1),
@@ -568,8 +637,8 @@ mod tests {
             out
         };
 
-        let new = grads_of(&|x| model.forward(x));
-        let old = grads_of(&|x| reference_forward(&model, x));
+        let new = grads_of(x0.clone(), &|x| model.forward(x));
+        let old = grads_of(with_old_grid(x0), &|x| reference_forward(&model, x));
         for ((name, g_new), (_, g_old)) in new.into_iter().zip(old) {
             let err = rel_err(g_new, g_old);
             println!("grad {name} rel err {err:e}");
@@ -775,15 +844,14 @@ mod tests {
     /// forward on the same weights.
     fn check_padding_off_is_bitwise<const R: usize>(modes: Vec<usize>, spatial: &[usize]) {
         let device = Device::default();
-        let c = 1 + modes.len();
         let cfg = padded_config(modes, 1, 6);
         let off: FNO<R> = cfg.clone().with_padding(None).init::<R>(&device);
         let zero = copy_weights(&off, cfg.with_padding(Some(0)).init::<R>(&device));
         assert_eq!(zero.padding, 0);
         assert_eq!(params(&off), params(&zero));
 
-        let x = random_input::<R>(spatial, c, &device);
-        let before = bits(pre_padding_forward(&off, x.clone()));
+        let x = random_input::<R>(spatial, 1, &device);
+        let before = bits(pre_padding_forward(&off, with_model_grid(x.clone())));
         assert_eq!(
             bits(off.forward(x.clone())),
             before,
@@ -830,9 +898,10 @@ mod tests {
                 .with_padding(Some(p))
                 .init::<R>(&device),
         );
-        let x = random_input::<R>(spatial, data_channels + modes.len(), &device);
+        let x = random_input::<R>(spatial, data_channels, &device);
 
         let out = model.forward(x.clone());
+        let x = with_old_grid(x); // the reference's input
         let mut expected = x.dims();
         expected[R - 1] = 1;
         assert_eq!(out.dims(), expected, "crop restores the input grid");
@@ -886,10 +955,14 @@ mod tests {
                 .with_padding(Some(3))
                 .init::<4>(&device),
         );
-        let x = random_input::<4>(&[8, 6], 3, &device);
+        let x = random_input::<4>(&[8, 6], 1, &device);
         let err = rel_err(
             flat(model.forward(x.clone())),
-            flat(reference_forward_padded(&model, x, Pad::Symmetric(3))),
+            flat(reference_forward_padded(
+                &model,
+                with_old_grid(x),
+                Pad::Symmetric(3),
+            )),
         );
         println!("FNO<4> vs Symmetric(3): rel err {err:e}");
         assert!(err <= TOL, "symmetric + centre crop differs: {err:e}");
@@ -940,14 +1013,17 @@ mod tests {
                 .with_padding(Some(3))
                 .init::<4>(&device),
         );
-        let x0 = Tensor::<4>::random([2, 8, 6, 3], Distribution::Normal(0.0, 1.0), &device);
+        let x0 = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
         let probe = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
 
-        let grads_of = |f: &dyn Fn(Tensor<4>) -> Tensor<4>| {
-            let x = x0.clone().detach().require_grad();
+        // The reference differentiates w.r.t. the old grid-augmented input;
+        // only its data-channel slice is comparable to the new input grad.
+        let grads_of = |x0: Tensor<4>, f: &dyn Fn(Tensor<4>) -> Tensor<4>| {
+            let x = x0.detach().require_grad();
             let grads = (f(x.clone()) * probe.clone()).sum().backward();
-            let mut out: Vec<(String, Tensor<1>)> =
-                vec![("input".into(), flat(x.grad(&grads).expect("input grad")))];
+            let g_in = x.grad(&grads).expect("input grad").narrow(3, 0, 1);
+            assert_eq!(g_in.dims(), [2, 8, 6, 1]);
+            let mut out: Vec<(String, Tensor<1>)> = vec![("input".into(), flat(g_in))];
             for (name, l) in [
                 ("fc0", &model.fc0),
                 ("fc1", &model.fc1),
@@ -983,8 +1059,10 @@ mod tests {
             out
         };
 
-        let new = grads_of(&|x| model.forward(x));
-        let old = grads_of(&|x| reference_forward_padded(&model, x, Pad::End(3)));
+        let new = grads_of(x0.clone(), &|x| model.forward(x));
+        let old = grads_of(with_old_grid(x0), &|x| {
+            reference_forward_padded(&model, x, Pad::End(3))
+        });
         assert_eq!(new.len(), old.len());
         for ((name, g_new), (_, g_old)) in new.into_iter().zip(old) {
             // A vanishing gradient would make the comparison vacuous.
@@ -1009,7 +1087,7 @@ mod tests {
     fn padded_input_gradient_finite_difference() {
         use burn::tensor::TensorData;
         let device = Device::default().autodiff();
-        let (n, c, p) = (8, 2, 3); // padded extent 11
+        let (n, c, p) = (8, 1, 3); // padded extent 11
         let model = with_unit_lift_bias(
             FNOConfig::new(vec![3], 1, 1)
                 .with_hidden_channels(4)
@@ -1087,7 +1165,7 @@ mod tests {
         let cfg = padded_config(vec![3, 2], 1, 6)
             .with_spectral_init(Some(SpectralInit::SymmetricUniform));
         let unpadded = with_unit_lift_bias(cfg.clone().init::<4>(&device));
-        let x = random_input::<4>(&[8, 6], 3, &device);
+        let x = random_input::<4>(&[8, 6], 1, &device);
 
         // Unpadded -> padded (17 x 15).
         let padded = copy_weights(
@@ -1098,7 +1176,11 @@ mod tests {
         let out = padded.forward(x.clone());
         let err = rel_err(
             flat(out.clone()),
-            flat(reference_forward_padded(&unpadded, x.clone(), Pad::End(9))),
+            flat(reference_forward_padded(
+                &unpadded,
+                with_old_grid(x.clone()),
+                Pad::End(9),
+            )),
         );
         assert!(
             err <= TOL,
@@ -1112,7 +1194,323 @@ mod tests {
         assert_eq!(params(&back), params(&padded));
         assert_eq!(
             bits(back.forward(x.clone())),
-            bits(pre_padding_forward(&padded, x))
+            bits(pre_padding_forward(&padded, with_model_grid(x)))
+        );
+    }
+
+    // --- issue #13: grid channels generated on the device ---
+
+    use crate::neural_operators::data::{
+        dataitem::HostFloat,
+        grids::{GridPlacement, append_grid, grid_from_axes, uniform_grid},
+    };
+    use ndarray::{Array1, ArrayD, Dimension, IxDyn};
+
+    /// `[B, s.., C] -> [B, C, s..]`.
+    fn perm_in<const R: usize>() -> [usize; R] {
+        core::array::from_fn(|i| match i {
+            0 => 0,
+            1 => R - 1,
+            i => i - 1,
+        })
+    }
+
+    /// `[B, C, s..] -> [B, s.., C]`.
+    fn perm_out<const R: usize>() -> [usize; R] {
+        core::array::from_fn(|i| match i {
+            0 => 0,
+            i if i == R - 1 => 1,
+            i => i + 1,
+        })
+    }
+
+    /// The grid the loaders used to store, built independently of the model
+    /// in f64: `uniform_grid` over `[0, 1]` per axis, in reverse axis order
+    /// (Darcy's `grid.reverse()`; a no-op for Burgers' single axis).
+    fn old_grid_f64(spatial: &[usize]) -> Vec<ArrayD<f64>> {
+        let mut grid = uniform_grid(&vec![(0.0, 1.0); spatial.len()], spatial);
+        grid.reverse();
+        grid
+    }
+
+    /// Channels-last `x` with `grids` appended after the data, the way the
+    /// loaders did it: `append_grid` in f64, then one rounding to f32
+    /// (`HostFloat::from_f64`). `x`'s own f32 values round-trip exactly.
+    fn with_grid<const R: usize>(x: Tensor<R>, grids: &[ArrayD<f64>]) -> Tensor<R> {
+        use burn::tensor::TensorData;
+        let dims = x.dims();
+        let device = x.device();
+        let vals: Vec<f64> = x.into_data().iter::<f32>().map(f64::from).collect();
+        let data = ArrayD::from_shape_vec(IxDyn(&dims), vals).unwrap();
+        let out = append_grid(data, grids, GridPlacement::AfterData);
+        let shape = out.shape().to_vec();
+        let out: Vec<f32> = out
+            .iter()
+            .map(|&v| <f32 as HostFloat>::from_f64(v))
+            .collect();
+        Tensor::<R>::from_data(TensorData::new(out, shape), &device)
+    }
+
+    /// The pre-#13 model input for data-only `x`.
+    fn with_old_grid<const R: usize>(x: Tensor<R>) -> Tensor<R> {
+        let spatial = x.dims()[1..R - 1].to_vec();
+        with_grid(x, &old_grid_f64(&spatial))
+    }
+
+    /// `x` with the model's own grid appended (channels-last), for bitwise
+    /// comparisons with forwards that expect a grid-augmented input.
+    fn with_model_grid<const R: usize>(x: Tensor<R>) -> Tensor<R> {
+        let x = x.permute(perm_in::<R>());
+        let grid = FNO::<R>::grid_cf(x.dims(), x.dtype(), &x.device());
+        Tensor::cat(vec![x, grid], 1).permute(perm_out::<R>())
+    }
+
+    /// T1: `grid_cf` against the old loader grid, per element and channel.
+    /// Returns the max |Δ| against the old grid rounded to f32.
+    ///
+    /// Contract (B2): |Δ| ≤ 1 ulp at 1.0 (`f32::EPSILON`); bit for bit is
+    /// expected under correctly rounded division. Endpoints are exact, a
+    /// single point is 0 (not 0/0), and every batch row is the same.
+    fn check_grid_values<const R: usize>(spatial: &[usize]) -> f32 {
+        let device = Device::default();
+        let d = R - 2;
+        let mut dims = [2; R];
+        dims[1] = 1;
+        dims[2..].copy_from_slice(spatial);
+        let grid = FNO::<R>::grid_cf(dims, DType::F32, &device);
+        let mut want = dims;
+        want[1] = d;
+        assert_eq!(grid.dims(), want, "grid shape for {spatial:?}");
+
+        let got: Vec<f32> = grid
+            .permute(perm_out::<R>())
+            .into_data()
+            .try_to_vec::<f32>()
+            .unwrap();
+        let per_row = got.len() / 2;
+        assert_eq!(
+            got[..per_row]
+                .iter()
+                .map(|v| v.to_bits())
+                .collect::<Vec<_>>(),
+            got[per_row..]
+                .iter()
+                .map(|v| v.to_bits())
+                .collect::<Vec<_>>(),
+            "batch rows differ for {spatial:?}"
+        );
+
+        let old = old_grid_f64(spatial);
+        let mut max_delta = 0f32;
+        for (at, idx) in ndarray::indices(spatial).into_iter().enumerate() {
+            for (k, old_k) in old.iter().enumerate() {
+                let g = got[at * d + k];
+                let want = <f32 as HostFloat>::from_f64(old_k[idx.slice()]);
+                assert!(g.is_finite(), "{spatial:?} channel {k} at {idx:?}: {g}");
+                max_delta = max_delta.max((g - want).abs());
+                // channel k varies along spatial axis d - 1 - k only
+                let axis = d - 1 - k;
+                let (i, n) = (idx[axis], spatial[axis]);
+                if i == 0 {
+                    assert_eq!(g, 0.0, "{spatial:?} channel {k} start at {idx:?}");
+                } else if i == n - 1 {
+                    assert_eq!(g, 1.0, "{spatial:?} channel {k} end at {idx:?}");
+                }
+            }
+        }
+        println!("grid {spatial:?}: max |grid_new - grid_old| = {max_delta:e}");
+        assert!(
+            max_delta <= f32::EPSILON,
+            "grid {spatial:?} deviates from the old f64 grid by {max_delta:e} > 1 ulp"
+        );
+        max_delta
+    }
+
+    #[test]
+    fn grid_matches_old_loader_grid() {
+        let mut worst = 0f32;
+        for s in [1, 2, 7, 256, 8192] {
+            worst = worst.max(check_grid_values::<3>(&[s]));
+        }
+        // Non-square: a transposed grid or swapped channels would differ.
+        worst = worst.max(check_grid_values::<4>(&[5, 7]));
+        worst = worst.max(check_grid_values::<4>(&[7, 5]));
+        worst = worst.max(check_grid_values::<4>(&[1, 3]));
+        worst = worst.max(check_grid_values::<5>(&[4, 6, 5]));
+        println!("grid: max |grid_new - grid_old| over all shapes = {worst:e}");
+    }
+
+    /// Hand-pinned 2 x 3 grid: channel 0 = x along axis 2 (length 3),
+    /// channel 1 = y along axis 1 (length 2), as `np.meshgrid` 'xy'.
+    #[test]
+    fn grid_2d_order_is_pinned() {
+        let device = Device::default();
+        let grid = FNO::<4>::grid_cf([1, 1, 2, 3], DType::F32, &device);
+        let got = grid.into_data().try_to_vec::<f32>().unwrap();
+        #[rustfmt::skip]
+        let want = [
+            0.0, 0.5, 1.0,
+            0.0, 0.5, 1.0, // channel 0: x
+            0.0, 0.0, 0.0,
+            1.0, 1.0, 1.0, // channel 1: y
+        ];
+        assert_eq!(got, want);
+    }
+
+    /// T2 controls: with the grid wrong, the same comparison as
+    /// `check_forward` / `check_padded_forward` must fail by ≥ 1e-3, so a
+    /// model that dropped, transposed or mis-scaled its grid is caught.
+    ///
+    /// The `[0, 1)` grid (`i / n`) is off from `i / (n - 1)` by at most
+    /// `1 / n`, so its control needs a coarse axis to clear 1e-3 reliably;
+    /// hence the small 1D grid below.
+    fn check_grid_controls<const R: usize>(
+        modes: Vec<usize>,
+        data_channels: usize,
+        spatial: &[usize],
+        padding: Option<usize>,
+    ) {
+        let device = Device::default();
+        device.seed(13);
+        let model = with_unit_lift_bias(
+            padded_config(modes, data_channels, 6)
+                .with_spectral_init(Some(SpectralInit::SymmetricUniform))
+                .with_padding(padding)
+                .init::<R>(&device),
+        );
+        let x = random_input::<R>(spatial, data_channels, &device);
+        let out = flat(model.forward(x.clone()));
+        let reference = |grids: &[ArrayD<f64>]| {
+            let x = with_grid(x.clone(), grids);
+            flat(match padding {
+                Some(p) if p > 0 => reference_forward_padded(&model, x, Pad::End(p)),
+                _ => reference_forward(&model, x),
+            })
+        };
+
+        let err = rel_err(out.clone(), reference(&old_grid_f64(spatial)));
+        println!("FNO<{R}> {spatial:?} pad {padding:?}: rel err vs old grid {err:e}");
+        assert!(
+            err <= TOL,
+            "FNO<{R}> differs from the old-grid forward: {err:e}"
+        );
+
+        let zeros: Vec<ArrayD<f64>> = old_grid_f64(spatial)
+            .iter()
+            .map(|g| ArrayD::zeros(g.raw_dim()))
+            .collect();
+        let half_open: Vec<ArrayD<f64>> = {
+            let axes: Vec<Array1<f64>> = spatial
+                .iter()
+                .map(|&n| Array1::from_shape_fn(n, |i| i as f64 / n as f64))
+                .collect();
+            let mut grid = grid_from_axes(&axes);
+            grid.reverse();
+            grid
+        };
+        let mut wrong = vec![("no grid", zeros), ("[0, 1) grid", half_open)];
+        if spatial.len() > 1 {
+            wrong.push((
+                "'ij' order",
+                uniform_grid(&vec![(0.0, 1.0); spatial.len()], spatial),
+            ));
+        }
+        for (name, grids) in wrong {
+            let err = rel_err(out.clone(), reference(&grids));
+            println!("FNO<{R}> {spatial:?} pad {padding:?} vs {name}: rel err {err:e}");
+            assert!(
+                err >= 1e-3,
+                "FNO<{R}> forward indistinguishable from {name}: {err:e}"
+            );
+        }
+    }
+
+    #[test]
+    fn grid_controls_1d() {
+        check_grid_controls::<3>(vec![4], 1, &[6], None);
+        check_grid_controls::<3>(vec![4], 1, &[6], Some(5));
+    }
+
+    #[test]
+    fn grid_controls_2d() {
+        check_grid_controls::<4>(vec![3, 2], 1, &[8, 6], None);
+        check_grid_controls::<4>(vec![3, 2], 3, &[8, 6], Some(3));
+    }
+
+    #[test]
+    fn grid_controls_3d() {
+        check_grid_controls::<5>(vec![2, 2, 2], 3, &[4, 6, 5], None);
+        check_grid_controls::<5>(vec![2, 2, 2], 1, &[4, 6, 5], Some(2));
+    }
+
+    /// T3: one set of weights at two resolutions; each forward matches the
+    /// old path with the grid built for that resolution.
+    fn check_resolutions<const R: usize>(modes: Vec<usize>, resolutions: &[&[usize]]) {
+        let device = Device::default();
+        let model: FNO<R> = padded_config(modes, 1, 6).init::<R>(&device);
+        for &spatial in resolutions {
+            let x = random_input::<R>(spatial, 1, &device);
+            let out = model.forward(x.clone());
+            assert_eq!(&out.dims()[1..R - 1], spatial);
+            let err = rel_err(flat(out), flat(reference_forward(&model, with_old_grid(x))));
+            println!("FNO<{R}> at {spatial:?}: rel err {err:e}");
+            assert!(err <= TOL, "FNO<{R}> at {spatial:?} differs: {err:e}");
+        }
+    }
+
+    #[test]
+    fn resolution_change_builds_that_grid() {
+        check_resolutions::<3>(vec![4], &[&[16], &[48]]);
+        check_resolutions::<4>(vec![3, 2], &[&[8, 6], &[16, 12]]);
+    }
+
+    /// T5: an old-style input that still carries the grid is rejected.
+    #[test]
+    #[should_panic(expected = "data_channels = 1 input channels, got 3")]
+    fn forward_rejects_grid_augmented_input() {
+        let device = Device::default();
+        let model: FNO<4> = padded_config(vec![3, 2], 1, 6).init::<4>(&device);
+        let _ = model.forward(random_input::<4>(&[8, 6], 3, &device));
+    }
+
+    /// T6: the lift still takes `data_channels + D` inputs, so checkpoints
+    /// written before #13 keep their parameter names and shapes.
+    #[test]
+    fn lift_width_includes_grid_channels() {
+        let device = Device::default();
+        let m1: FNO<3> = padded_config(vec![4], 1, 6).init::<3>(&device);
+        let m2: FNO<4> = padded_config(vec![3, 2], 1, 6).init::<4>(&device);
+        let m3: FNO<5> = padded_config(vec![2, 2, 2], 10, 6).init::<5>(&device);
+        assert_eq!(m1.fc0.weight.dims(), [2, 6]);
+        assert_eq!(m2.fc0.weight.dims(), [3, 6]);
+        assert_eq!(m3.fc0.weight.dims(), [13, 6]);
+        let fc0 = |p: Vec<(String, Vec<f32>)>| {
+            p.into_iter()
+                .find(|(n, _)| n == "fc0.weight")
+                .map(|(_, v)| v.len())
+        };
+        assert_eq!(fc0(params(&m2)), Some(3 * 6));
+    }
+
+    /// T6: weights saved by a model fed grid-augmented inputs give the same
+    /// predictions when loaded and fed the data alone.
+    #[test]
+    fn checkpoint_round_trip_matches_old_forward() {
+        let device = Device::default();
+        let cfg = padded_config(vec![3, 2], 1, 6);
+        let saved = with_unit_lift_bias(cfg.clone().init::<4>(&device));
+        let loaded = copy_weights(&saved, cfg.init::<4>(&device));
+        assert_eq!(params(&loaded), params(&saved));
+
+        let x = random_input::<4>(&[8, 6], 1, &device);
+        let new = loaded.forward(x.clone());
+        let old = pre_padding_forward(&saved, with_old_grid(x));
+        let bitwise = bits(new.clone()) == bits(old.clone());
+        let err = rel_err(flat(new), flat(old));
+        println!("checkpoint round trip: rel err {err:e}, bitwise {bitwise}");
+        assert!(
+            err <= TOL,
+            "loaded model differs from the old forward: {err:e}"
         );
     }
 }
