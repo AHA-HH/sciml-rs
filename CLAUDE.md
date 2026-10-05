@@ -13,10 +13,8 @@ compile-time parameter, so the spatial dimension D is fixed by the type: `FNO<3>
 - Design documents: `docs/design/<objective>.md`. Phase and task briefs:
   `docs/<objective>/phase<N>/README.md` and `T<k>-<name>.md`. `CONVENTIONS.md` wins on
   any conflict with a design document.
-- Active objectives and their current phase:
-  - 2d-chebyshev-poisson-fno: docs/2d-chebyshev-poisson-fno/phase0/README.md
-  - pytorch-parity: docs/pytorch-parity/phase0/README.md
-  - spectral-conv-perf: docs/spectral-conv-perf/phase0/README.md
+- Active objectives and their current phase: none yet; the single design document is
+  being written.
 
 ## Working agreement
 - Approval for one action is not approval for the next one of its kind. A request to
