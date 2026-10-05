@@ -10,8 +10,11 @@ Revisions:
   weight-import layer and a fixture framework. Those are withdrawn: none of them is
   needed to add the missing features.
 - **2026-10-05, second numerics review.** Added the CONVENTIONS v2 diff (§2.6, one bump in
-  T0.4) and the default-parameter pin (T0.3). Also fixed the module-structure rules, the
+  C0.4) and the default-parameter pin (C0.3). Also fixed the module-structure rules, the
   double activation, the factorised storage and the #702 resize case.
+- **2026-10-05, §7.** §7 is reduced to phases, components and exit gates. Task briefs
+  move to `/phase-plan`, written one phase at a time, following the pattern of
+  `tbetcke/fmm`. Task numbers T<n>.<k> are renamed to components C<n>.<k> throughout.
 
 > Where this document and `docs/CONVENTIONS.md` differ, the conventions file takes
 > precedence.
@@ -143,7 +146,7 @@ Flex already behaves this way:
   `rfft_large.rs:399-410`);
 - autodiff is consistent with this (`<B>/burn-signal/src/backends/autodiff.rs:112-115, :169-194`).
 
-The numerics review verified all of this by reading the sources. T0.2 tests it on flex
+The numerics review verified all of this by reading the sources. C0.2 tests it on flex
 and metal, which closes the open point in CONVENTIONS §4.
 
 ### 2.2 SpectralConv additions
@@ -156,7 +159,7 @@ and metal, which closes the open point in CONVENTIONS §4.
 - neuraloperator draws the complex weight with `normal_(0, σ)` (`:355`). The weight is a
   tltorch `DenseTensor`, because `factorization=None` becomes `"Dense"` (`:325-326`).
 - For a complex tensor, torch is believed to give each of the real and imaginary parts
-  variance σ²/2. **Unverified:** T1.1 confirms this with one PyTorch run, before the new
+  variance σ²/2. **Unverified:** C1.1 confirms this with one PyTorch run, before the new
   `SpectralInit` variant is fixed in CONVENTIONS §6.
 
 **Separable** (`:21-52, :328-337`).
@@ -231,7 +234,7 @@ axis. The result is scaled by the "forward" normalisation factor N_out/N_in.
   - The last axis is unshifted, with K_D//2 + 1 rows.
   - Reconstruction is a sequence of complex mode products (3–4 real matmuls each), not
     one expanded real einsum.
-- **Inputs needed for exact parity**, ported in T2.1 from the tltorch and tensorly
+- **Inputs needed for exact parity**, ported in C2.1 from the tltorch and tensorly
   versions that neuraloperator 2.0.0 installs:
   - **Rank resolution**: `validate_tucker_rank`, `validate_cp_rank` and
     `validate_tt_rank`, called at `tltorch/factorized_tensors/factorized_tensors.py:236,
@@ -241,7 +244,7 @@ axis. The result is scaled by the "forward" normalisation factor N_out/N_in.
     (σ / ∏√r_i)^(1/(order+1)) (`factorized_tensors.py:310-320`); CP is at `:132-139` and
     TT at `:417-425`.
   - These line numbers are from tltorch **main**. The pinned tltorch version is
-    unverified, so T2.1 confirms them first.
+    unverified, so C2.1 confirms them first.
 
 ### 2.3 FNO additions
 
@@ -282,7 +285,7 @@ v' = \mathrm{ReLU}(\mathcal K v + W v)
 `:335-336`.
 - That is harmless for ReLU, which is idempotent.
 - `activation: Some(Gelu)` with `channel_mlp: None` must compute GELU(GELU(𝒦v + Sv)) to
-  match. T1.4 pins a PyTorch reference with `use_channel_mlp=False` and GELU.
+  match. C1.4 pins a PyTorch reference with `use_channel_mlp=False` and GELU.
 
 **Features to add**, each as an `Option` field on `FNOConfig`. `None` keeps today's
 model.
@@ -336,7 +339,7 @@ adds Tucker with rank 0.1.
   (`<B>/burn-derive/src/lib.rs:34`).
 - No existing parameter is renamed or reshaped.
 - **`None` branches must make no RNG calls.** This includes building a module and then
-  discarding it. A stray draw shifts every later layer's weights for a given seed; T0.3
+  discarding it. A stray draw shifts every later layer's weights for a given seed; C0.3
   pins this.
 
 ### 2.4 Losses
@@ -388,8 +391,8 @@ correction factor sits outside the square root. This is not ported. PTDataset us
 - any change to its §1–§6 bumps `CONVENTION_VERSION`;
 - a new convention lands in that file *before* the code that relies on it.
 
-So every option below lands together, in one diff with one bump, in task T0.4. That
-happens before T0.2's note or any Phase 1 code, and needs the user's sign-off. Each line
+So every option below lands together, in one diff with one bump, in task C0.4. That
+happens before C0.2's note or any Phase 1 code, and needs the user's sign-off. Each line
 states the default, which is today's behaviour, and the alternative. Later tasks only
 cite these lines; they do not edit CONVENTIONS §1–§6.
 
@@ -414,7 +417,7 @@ cite these lines; they do not edit CONVENTIONS §1–§6.
 -- Not yet fixed by a test: how `irfft` treats a nonzero imaginary part in the DC bin and,
 -  for even s_D, the Nyquist bin s_D/2 of the last axis. ...
 +- `irfft` ignores the imaginary part of the DC bin and, for even s_D, of the Nyquist bin
-+  (test `irfft_ignores_dc_nyquist_imag`, T0.2), so neuraloperator main #702's Hermitian
++  (test `irfft_ignores_dc_nyquist_imag`, C0.2), so neuraloperator main #702's Hermitian
 +  enforcement needs no extra step on equal grids.
 +- Option `output_shape` (t ≠ s): spectrum built on the input grid, resized at the end of
 +  each non-last axis, imaginary part of input bin s_D//2 zeroed when t_D is even and
@@ -430,14 +433,14 @@ cite these lines; they do not edit CONVENTIONS §1–§6.
 +- Option factorised (Tucker/CP/TT): factors of the full centred block, each a re/im
 +  `Param` pair; corner vectors empty; reconstruction per design pytorch-parity §2.2.
 @@ §6 Spectral weight initialisation
-+| `NeuralopNormal` | re, im each N(0, σ²/2), σ = √(2/(I+O)); bias N(0, σ²) |  [σ²/2 confirmed in T1.1]
++| `NeuralopNormal` | re, im each N(0, σ²/2), σ = √(2/(I+O)); bias N(0, σ²) |  [σ²/2 confirmed in C1.1]
 @@ §8 Losses
 +- Options on `LpLoss`: `eps` (added to the denominator norm), `measure` (h_a = measure_a/s_a);
 +  `rel_nd` on `[B, C, s..]` reduces over batch and channel. `H1Loss` per pytorch-parity §2.4.
 ```
 
-The two lines marked as pending are written as "to be confirmed" in T0.4. The task that
-settles each one then updates it: T1.1 for the σ²/2 variance, T4.2 for Q7. Neither
+The two lines marked as pending are written as "to be confirmed" in C0.4. The task that
+settles each one then updates it: C1.1 for the σ²/2 variance, C4.2 for Q7. Neither
 changes a default, so neither needs another version bump.
 
 ---
@@ -547,7 +550,7 @@ The core of this design. "Where" names the file that changes. Every change is ad
 | `H1Loss` (`data_losses.py:266-474`) | none | new `losses/h1.rs` | ✓ | M |
 | `FiniteDiff` (`differentiation.py:15-71`) | none | new `losses/differentiation.rs` | ✓ | S |
 | `LpLoss` `eps`, `measure`, N-d input | no eps, closed-grid h (`losses/data_losses.rs:27-133`) | same file: options + `rel_nd` | ✓ | S |
-| `.pt` dataset files | `.mat`, `.npy`, `.npz` (`data/io/readers/`) | new `data/io/readers/pt.rs` | `pytorch-reader` (`<B>/burn-store/src/pytorch/store.rs:73`); reading a dict of tensors is unverified (T3.1) | M |
+| `.pt` dataset files | `.mat`, `.npy`, `.npz` (`data/io/readers/`) | new `data/io/readers/pt.rs` | `pytorch-reader` (`<B>/burn-store/src/pytorch/store.rs:73`); reading a dict of tensors is unverified (C3.1) | M |
 | Darcy (16-421) and Navier-Stokes (128) PT loaders | Darcy and Burgers `.mat` (`data/loaders/`) | new `data/loaders/pt_darcy.rs`, `pt_navier_stokes.rs` | — | M |
 | channel-wise normaliser | pointwise (`data/transforms/normalizers.rs:36-108`) | same file: `with_dims` | — | S |
 | AdamW | Adam + L2 (`training/trainer.rs:274-277`) | same file: `optimizer` option | `AdamWConfig` (`<B>/burn-optim/src/optim/adamw.rs:17`) | S |
@@ -683,13 +686,13 @@ known Metal quirk.
 - **Parameters.** New parameters are new optional module fields; no existing parameter
   is renamed or reshaped.
 - **Defaults are protected in two ways.**
-  - T0.3's parameter pin catches stray RNG draws.
+  - C0.3's parameter pin catches stray RNG draws.
   - The existing tests (pinned PyTorch and NumPy references, the init replay, the
     padding and grid tests) must pass with no change other than `field: None` added to
     struct literals.
 - **Struct literals.** Six exhaustive `FNOConfig` struct literals exist:
   `models/fno.rs:314, :365, :471` and the three train examples. Each gains `None` for the
-  new fields, in T1.4. The examples' behaviour is unchanged, and the benchmark gets its
+  new fields, in C1.4. The examples' behaviour is unchanged, and the benchmark gets its
   own example.
 
 ---
@@ -760,180 +763,186 @@ longitude. This targets torch_harmonics `RealSHT(norm="ortho", grid="equiangular
 (`@2.0.0 layers/spherical_convolution.py:220-243`).
 
 **`.pt` files.** burn-store contains a pickle reader. Whether it can read a plain dict
-of tensors is unverified (T3.1). The fallback is a one-off conversion to `.npz`, which
+of tensors is unverified (C3.1). The fallback is a one-off conversion to `.npz`, which
 the existing `NpzFileReader` reads (`data/io/readers/npz.rs:14`).
 
 ---
 
 ## 7. Phased implementation plan
 
-Rules for every phase:
-- One task is one branch, one worktree and one PR.
-- "Files" lists every file a task edits.
-- ∥ marks tasks that can run in parallel. They share no file, except where a shared
-  file is named explicitly.
-- `models/fno.rs` and `training/trainer.rs` are each edited by several tasks. Those tasks
-  are **sequenced**, never run in parallel.
-- New files need a `mod` line in their parent `mod.rs`. Tasks in the same phase that add
-  `mod` lines to the same `mod.rs` merge cleanly when the lines are kept in alphabetical
-  order. The phase README lists them.
+Each phase below lists its goal, its components (C<phase>.<k>, one line each), its
+dependencies and a measurable exit gate. The task briefs come later: `/phase-plan` writes
+them at the start of each phase, under `docs/pytorch-parity/phase<N>/`. Each brief gives
+the files the task touches and which tasks can run in parallel. This document gets a
+dated revision line at the start and end of every phase, recording what was measured or
+decided. That follows the pattern of `tbetcke/fmm` (`docs/design/laplace-fmm-plan.md`,
+`docs/phase*/`). Phases may be inserted when results call for it.
 
-### Phase 0: baseline and the one open FFT point
+Two constraints hold however the tasks are split:
+- **Sequencing.** Components that edit `models/fno.rs` (C1.4, C2.3) or
+  `training/trainer.rs` (C1.4, C3.2, C3.4) are sequenced, never run in parallel.
+- **Every phase leaves `main` green.**
 
-- **T0.1: PyTorch Darcy baseline (also the user's guided tour of neuraloperator).**
-  - Files: §8.3 of this document only. The script stays outside the repo (A1).
+### Phase 0: baseline, the open FFT point, protection of defaults
+
+**Goal.** Before any feature code, fix the PyTorch baseline, close CONVENTIONS §4's open
+point, protect today's defaults, and land the convention lines.
+
+**Components.**
+- **C0.1 PyTorch Darcy baseline.** This is also the user's guided tour of neuraloperator.
   - Run `examples/models/plot_FNO_darcy.py` at 2.0.0 (lines 52-162) with five seeds:
     `FNO(n_modes=(8,8), hidden_channels=32, projection_channel_ratio=2)`, AdamW lr 8e-3,
     cosine with T_max 30, H1 loss, 20 epochs, n_train 1000, batch 32.
-  - Record the final 16 and 32 L2/H1 errors, the parameter count and the hardware.
-  - ∥ T0.2.
-- **T0.2: `irfft` DC/Nyquist test.**
-  - Files: `layers/spectral_convolution.rs` (tests module only). The CONVENTIONS §4 line
-    comes from T0.4; this task fills in the test name.
-  - Compare against `numpy.fft.irfft` values pasted into the test, at a power-of-two
-    length, a non-power-of-two even length and an odd length.
-  - ∥ T0.1.
+  - Record the final 16/32 L2 and H1 errors, the parameter count and the hardware in
+    §8.3. The script stays outside the repo (A1).
+- **C0.2 `irfft` DC/Nyquist test.** Compare against `numpy.fft.irfft` values pasted
+  into the test, at a power-of-two length, a non-power-of-two even length and an odd
+  length (§2.1). Run on flex and metal.
+- **C0.3 Pin of the default FNO's parameters.**
+  - What: pin the bits of every parameter of a default `FNOConfig`, 1-D and 2-D, at a
+    fixed seed. Use a by-hand replay of `FNOConfig::init`'s draw order, or checksums
+    recorded at `478c2cb`. Put it in its own test binary, because Flex's RNG is
+    process-wide.
+  - Why: the existing tests cannot see a stray RNG draw at FNO level (§2.3).
+- **C0.4 CONVENTIONS version 2.** Lands the §2.6 diff, with one version bump. Needs the
+  user's sign-off.
 
-- **T0.3: pin the default FNO's parameters.** Required before any Phase 1 code.
-  - Files: a new test binary, `tests/fno_default_params.rs`. Each test binary is its own
-    process, which matters because Flex's RNG is process-wide.
-  - For a default `FNOConfig`, 1-D and 2-D, at a fixed seed, pin the bits of every
-    parameter. Use either a by-hand replay of `FNOConfig::init`'s draw order (`fc0`, then
-    per layer `conv[i]` re/im per corner, `w[i]`, then `fc1`, `fc2`) or checksums
-    recorded at `478c2cb`.
-  - Why it is needed: the existing tests cannot see a stray RNG draw at FNO level.
-    `tests/spectral_init.rs` replays draws for a bare `SpectralConv` only, and the
-    seeded FNO tests compare against the model's own weights.
-  - ∥ T0.1, T0.2.
-- **T0.4: CONVENTIONS version 2.** Lands the §2.6 diff, docs only, and needs the user's
-  sign-off.
-  - Files: `docs/CONVENTIONS.md`.
-  - ∥ T0.1, T0.3. T0.2 adds its test name and result after T0.4 merges.
+**Dependencies.** None within the phase. C0.2 fills in its test name in the §4 line
+after C0.4.
 
 **Exit gate.**
-- The baseline numbers are recorded.
-- CONVENTIONS version 2 is merged, with the §4 open point closed by T0.2.
-- The default-parameter pin (T0.3) is green.
+- The baseline is recorded.
+- CONVENTIONS v2 is merged, with §4 closed by C0.2.
+- C0.3 is green.
 - `cargo test` is green.
+- **C0.3 and C0.4 gate all of Phase 1.**
 
 ### Phase 1: FNO features
 
-- **T1.1: SpectralConv additions.** Bias, the `NeuralopNormal` init,
-  `modes_from_neuralop`, `clip_modes` and `separable`.
-  - Files: `layers/spectral_convolution.rs` and `tests/spectral_init.rs` (new cases
-    only). The CONVENTIONS §5 and §6 lines come from T0.4; this task confirms σ²/2.
-  - Depends on: Phase 0. ∥ T1.2, T1.3, T1.5.
-- **T1.2: new pointwise layers.** `ChannelMlp`, `Skip` and `BlockNorm`.
-  - Files: `layers/channel_mlp.rs`, `layers/skip.rs`, `layers/norm.rs`, and
-    `layers/mod.rs`.
-  - ∥ T1.1, T1.3, T1.5.
-- **T1.3: losses.** `H1Loss`, `FiniteDiff`, and the `LpLoss` options.
-  - Files: `losses/h1.rs`, `losses/differentiation.rs`, `losses/data_losses.rs`,
-    `losses/mod.rs`.
-  - ∥ T1.1, T1.2, T1.5.
-- **T1.4: FNO options.** Activation, lifting and projection, `out_channels`, symmetric
-  padding, grid, stabiliser, and wiring in the channel MLP, skips, norms and bias.
-  `FNOConfig::neuralop`.
-  - Files: `models/fno.rs`, `training/trainer.rs` (`flatten_pair` for `out_channels`),
-    the six `FNOConfig` struct literals (`fno.rs:314, :365, :471`;
-    `examples/train/{burgers,darcy,burgers_learner}.rs`), which gain `..: None`. Also a
-    PyTorch reference with `use_channel_mlp=False` and GELU (the double activation of
-    §2.3).
-  - Depends on: T1.1 and T1.2.
-- **T1.5: normaliser `with_dims`.**
-  - Files: `data/transforms/normalizers.rs`.
-  - ∥ T1.1, T1.2, T1.3.
+**Goal.** Every regular-grid FNO option of neuraloperator 2.0.0 except factorisation and
+incremental modes, all behind `Option` defaults (§2.2-§2.5).
+
+**Components.**
+- **C1.1 SpectralConv additions** (`layers/spectral_convolution.rs`): bias, the
+  `NeuralopNormal` init (confirms σ²/2), `modes_from_neuralop`, `clip_modes` and
+  `separable`.
+- **C1.2 New pointwise layers:** `ChannelMlp`, `Skip` and `BlockNorm`. `BlockNorm`
+  includes the BatchNorm running-variance correction of §6.
+- **C1.3 Losses:** `H1Loss`, `FiniteDiff`, and `LpLoss` `eps`/`measure`/`rel_nd`.
+- **C1.4 FNO options** (`models/fno.rs`):
+  - activation, lifting and projection, `out_channels`, symmetric padding, grid,
+    stabiliser;
+  - wiring in C1.1 and C1.2;
+  - `FNOConfig::neuralop`.
+
+  Notes:
+  - It includes a PyTorch reference with `use_channel_mlp=False` and GELU (the double
+    activation, §2.3).
+  - The six `FNOConfig` struct literals gain `None` for the new fields (§5.4).
+- **C1.5 Normaliser `with_dims`.**
+
+**Dependencies.**
+- Phase 0.
+- C1.4 depends on C1.1 and C1.2.
+- C1.1, C1.2, C1.3 and C1.5 are mutually independent.
 
 **Exit gate.**
 - Every new option matches its reference (§8.2).
-- All existing tests pass unmodified.
-- An `FNOConfig::neuralop` model for the T0.1 configuration has the **same parameter
-  count** as PyTorch's (`count_model_params` counts a complex parameter as 2).
+- C0.3 and the existing tests pass, with only `None` added to struct literals.
+- `FNOConfig::neuralop` for the C0.1 configuration has the same parameter count as
+  PyTorch's (a complex parameter counts as 2).
 
 ### Phase 2: TFNO and incremental modes
 
-- **T2.1: factorised weights.** Tucker, CP and TT, with both contractions.
-  - Files: `layers/factorized.rs`, a hook in `layers/spectral_convolution.rs`, and
-    `layers/mod.rs`.
-  - Depends on: T1.1.
-- **T2.2: `max_n_modes` / `set_modes`.**
-  - Files: `layers/spectral_convolution.rs`.
-  - Depends on: T2.1, which edits the same file, so the two are sequenced.
-- **T2.3: TFNO and `max_modes` on `FNOConfig`.** Adds `FNOConfig::tfno`.
-  - Files: `models/fno.rs`.
-  - Depends on: T1.4, T2.1 and T2.2.
+**Goal.** Factorised spectral weights, and a variable number of active modes (§2.2).
 
-**Exit gate.** TFNO's parameter count equals PyTorch's for the T0.1 configuration with
-`factorization="Tucker", rank=0.1`. Factorised layers match the dense contraction (§8.2).
+**Components.**
+- **C2.1 Factorised weights:** Tucker, CP and TT, with both contractions, using
+  tensorly's rank resolution and tltorch's factor initialisation.
+- **C2.2 `max_n_modes` / `set_modes`** in corner form.
+- **C2.3 TFNO and `max_modes` on `FNOConfig`:** `FNOConfig::tfno`.
+
+**Dependencies.**
+- C2.1 depends on C1.1.
+- C2.2 depends on C2.1, since they edit the same file.
+- C2.3 depends on C1.4, C2.1 and C2.2.
+
+**Exit gate.**
+- TFNO's parameter count equals PyTorch's for the C0.1 configuration with Tucker,
+  rank 0.1.
+- Factorised layers match the dense contraction (§8.2).
 
 ### Phase 3: training stack, datasets, benchmark
 
-- **T3.1: `.pt` reader.**
-  - Files: `data/io/readers/pt.rs` and `data/io/readers/mod.rs`.
-  - First check the pytorch-reader assumption (§6).
-  - ∥ T3.2.
-- **T3.2: optimiser and schedulers.** AdamW, StepLR, ReduceLROnPlateau, stepping per
-  epoch, and the loss enum (H1).
-  - Files: `training/trainer.rs`, `training/schedulers.rs` and `training/mod.rs`.
-  - Depends on: T1.3. ∥ T3.1.
-- **T3.3: PT loaders.** Darcy and Navier-Stokes.
-  - Files: `data/loaders/pt_darcy.rs`, `data/loaders/pt_navier_stokes.rs`,
-    `data/loaders/mod.rs` and `datasets/README.md`.
-  - Depends on: T3.1 and T1.5.
-- **T3.4: evaluation at several resolutions, and resuming training state.**
-  - Files: `training/trainer.rs` and `training/checkpoint.rs`.
-  - Depends on: T3.2, which edits the same file.
-- **T3.5: incremental training.**
-  - Files: `training/incremental.rs`.
-  - Depends on: T3.4 and T2.2.
-- **T3.6: Darcy benchmark example.**
-  - Files: `examples/train/darcy_neuralop.rs`, `examples/predict/darcy_neuralop.rs`,
-    and `Cargo.toml` (two `[[example]]` entries).
-  - Depends on: T1.4, T3.3 and T3.4.
+**Goal.** Train the neuraloperator configuration on neuraloperator's data, and reproduce
+the Darcy benchmark.
 
-**Exit gate.** The §8.3 benchmark criterion holds, and resuming continues
-bit-identically on flex.
+**Components.**
+- **C3.1 `.pt` reader.** First check the pytorch-reader assumption (§6), with `.npz`
+  conversion as the fallback.
+- **C3.2 Optimiser and schedulers:** AdamW, StepLR, ReduceLROnPlateau (stepped with the
+  summed training error), stepping per epoch, and the loss enum (H1).
+- **C3.3 PT loaders:** Darcy (16-421) and Navier-Stokes (128).
+- **C3.4 Evaluation at several resolutions**, and saving and resuming the training state.
+- **C3.5 Incremental training.**
+- **C3.6 Darcy benchmark example.**
 
-### Phase 4: UNO and SFNO (two independent strands)
+**Dependencies.**
+- C3.2 depends on C1.3.
+- C3.3 depends on C3.1 and C1.5.
+- C3.4 depends on C3.2.
+- C3.5 depends on C3.4 and C2.2.
+- C3.6 depends on C1.4, C3.3 and C3.4.
 
-- **T4.1: `layers/resample.rs`.**
-  - Depends on: Phase 1. ∥ T4.3.
-- **T4.2: `models/uno.rs`.** Uses `SpectralConv::forward_with_shape`.
-  - Files: `models/uno.rs`, `models/mod.rs`, and `layers/spectral_convolution.rs` (the
-    `output_shape` path).
-  - Depends on: T4.1, T2.2, and a decision on **Q7**.
-- **T4.3: `layers/spherical.rs` (SHT and `SphericalConv`).**
-  - ∥ T4.1.
-- **T4.4: `models/sfno.rs`.**
-  - Depends on: T4.3 and T1.4.
+**Exit gate.**
+- The §8.3 benchmark criterion holds.
+- Resuming continues bit-identically on flex.
+
+### Phase 4: UNO and SFNO
+
+**Goal.** The two grid models that need new transforms. The two strands are
+independent.
+
+**Components.**
+- **C4.1 `resample`:** 1-D linear and 2-D bicubic with `align_corners`, spectral for 3-D
+  and above.
+- **C4.2 UNO.** Uses the `output_shape` path of `SpectralConv`. **Blocked on Q7.**
+- **C4.3 SHT and `SphericalConv`.**
+- **C4.4 SFNO.**
+
+**Dependencies.**
+- C4.2 depends on C4.1, C2.2 and Q7.
+- C4.4 depends on C4.3 and C1.4.
 
 **Exit gate.** UNO and SFNO match their reference values (§8.2).
 
 ### Phase 5: geometry
 
-- **T5.1: neighbour search.**
-  - Files: `layers/gno/neighbor_search.rs` and `layers/gno/mod.rs`.
-  - ∥ T5.2.
-- **T5.2: `segment_csr`.**
-  - Files: `layers/gno/segment.rs`.
-  - ∥ T5.1.
-- **T5.3: `IntegralTransform` and `GNOBlock`.**
-  - Depends on: T5.1, T5.2 and T1.2.
-- **T5.4: `models/gino.rs` (GINO and FNOGNO).**
-  - Depends on: T5.3 and T1.4.
-- **T5.5: car-cfd loader and example.**
-  - Depends on: T5.4 and T3.1.
+**Goal.** GINO and FNOGNO on point clouds.
+
+**Components.**
+- **C5.1 Native neighbour search.**
+- **C5.2 `segment_csr`.**
+- **C5.3 `IntegralTransform` and `GNOBlock`.**
+- **C5.4 GINO and FNOGNO.**
+- **C5.5 Mini car-cfd loader and example.**
+
+**Dependencies.**
+- C5.3 depends on C5.1, C5.2 and C1.2.
+- C5.4 depends on C5.3 and C1.4.
+- C5.5 depends on C5.4 and C3.1.
 
 **Exit gate.** GINO trains on mini car-cfd and matches its reference values.
 
 ### Dependency summary
 
 ```
-T0.1, T0.2, T0.3, T0.4  (T0.3 and T0.4 gate all of Phase 1)
-  └─ T1.1 ─┬─ T1.4 ─ T2.3        T1.2 ─ T1.4        T1.3 ─ T3.2 ─ T3.4 ─ T3.5
-           └─ T2.1 ─ T2.2 ─┬─ T2.3                   T1.5 ─ T3.3 ─ T3.6
-                           └─ T4.2 (+ T4.1, Q7)      T3.1 ─ T3.3, T5.5
-  T4.3 ─ T4.4      T5.1, T5.2 ─ T5.3 ─ T5.4 ─ T5.5
+Phase 0 (C0.3, C0.4 gate Phase 1)
+  └─ C1.1 ─┬─ C1.4 ─ C2.3        C1.2 ─ C1.4, C5.3   C1.3 ─ C3.2 ─ C3.4 ─┬─ C3.5
+           └─ C2.1 ─ C2.2 ─┬─ C2.3                   C1.5 ─ C3.3 ────────┴─ C3.6
+                           ├─ C3.5                   C3.1 ─ C3.3, C5.5
+                           └─ C4.2 (+ C4.1, Q7)
+  C4.3 ─ C4.4      C5.1, C5.2 ─ C5.3 ─ C5.4 ─ C5.5
 ```
 
 ---
@@ -943,7 +952,7 @@ T0.1, T0.2, T0.3, T0.4  (T0.3 and T0.4 gate all of Phase 1)
 ### 8.1 Test layers
 
 1. **Defaults unchanged.**
-   - T0.3's default-parameter pin stays green.
+   - C0.3's default-parameter pin stays green.
    - Existing tests pass with only `None` added to struct literals.
 2. **Per feature, an independent reference in the test.** One of:
    - a formula or naive computation;
@@ -989,7 +998,7 @@ Why these values:
 
 **Setup.**
 - Model: `FNOConfig::neuralop(&[8, 8], 1, 1, 32)` with projection hidden ⌊2·32⌋.
-- Training: the T0.1 settings, five seeds.
+- Training: the C0.1 settings, five seeds.
 - Metrics: final 16_l2, 16_h1, 32_l2 and 32_h1.
 
 **Criterion.** For each metric separately:
@@ -1019,15 +1028,15 @@ were built from main with a different configuration, so they are not a target.
 
 | Item | Handling |
 |---|---|
-| A new option accidentally changes a default, including a stray RNG draw | T0.3 pins every default parameter's bits; `None` branches make no RNG calls (§2.3) |
-| `FNO::forward` becomes branch-heavy | options are grouped into small private helpers per block stage; T1.4's review checks readability |
-| Complex `normal_` variance assumption | T1.1 checks it with one PyTorch run before it is written into CONVENTIONS §6 |
+| A new option accidentally changes a default, including a stray RNG draw | C0.3 pins every default parameter's bits; `None` branches make no RNG calls (§2.3) |
+| `FNO::forward` becomes branch-heavy | options are grouped into small private helpers per block stage; C1.4's review checks readability |
+| Complex `normal_` variance assumption | C1.1 checks it with one PyTorch run before it is written into CONVENTIONS §6 |
 | `output_shape` resizing is not Fourier interpolation | Q7; only UNO depends on it |
 | Mode clipping at odd extents differs from neuraloperator | documented; clipping tests use even extents |
 | Gradient at x = y: sciml-rs gives 0, torch gives NaN (p > 1) | documented; tests avoid x = y |
-| Burn `BatchNorm` running variance is biased | `layers/norm.rs` applies the correction (T1.2) |
+| Burn `BatchNorm` running variance is biased | `layers/norm.rs` applies the correction (C1.2) |
 | AdamW on real/imaginary pairs differs from complex AdamW | accepted; the benchmark compares errors |
-| `.pt` dict unreadable by pytorch-reader | T3.1 falls back to a one-off conversion to `.npz` |
+| `.pt` dict unreadable by pytorch-reader | C3.1 falls back to a one-off conversion to `.npz` |
 | Bluestein cost at 421² or on padded grids | measured; FFT size padding is a later objective |
 | GPU scatter-add non-determinism | GNO tests on flex; tolerances on other backends |
 | O(N·M) memory in neighbour search | same algorithm as neuraloperator's fallback; queries are chunked if needed |
@@ -1043,7 +1052,7 @@ were built from main with a different configuration, so they are not a target.
   the existing modules.
 - **Q7 (open).** Should `output_shape` copy neuraloperator's end-resize (§2.2), or do
   correct Fourier interpolation? *Recommendation:* copy it by default, for parity, and
-  offer correct interpolation later as an opt-in option. This blocks T4.2 only.
+  offer correct interpolation later as an opt-in option. This blocks C4.2 only.
 - **Q8 (new).** Is importing neuraloperator checkpoints wanted later? It would need a
   name map and a centred-to-corner weight relayout. The relayout is well defined for even
   modes (§2.1); the review verified it. *Recommendation:* a separate later objective.
@@ -1055,20 +1064,27 @@ New options add lines to the existing CONVENTIONS sections, each stating the def
 
 | Section | Options it gains | Added by |
 |---|---|---|
-| §2 | the grid option | T1.4 |
-| §3 | symmetric fractional padding | T1.4 |
-| §4 | the DC/Nyquist result | T0.2 (test name) |
-| §5 | bias, clipping, separable, factorised weights, `max_n_modes` | T1.1, T2.x |
-| §6 | `NeuralopNormal` | T1.1 |
-| §8 | `eps`/`measure`/H1 | T1.3 |
+| §2 | the grid option | C1.4 |
+| §3 | symmetric fractional padding | C1.4 |
+| §4 | the DC/Nyquist result | C0.2 (test name) |
+| §5 | bias, clipping, separable, factorised weights, `max_n_modes` | C1.1, T2.x |
+| §6 | `NeuralopNormal` | C1.1 |
+| §8 | `eps`/`measure`/H1 | C1.3 |
 
 CONVENTIONS requires a bump for any change to §1–§6. So all of these lines land
-together, with a single bump to version 2, in **T0.4**, before any code that relies on
-them (§2.6). The table shows which task *implements and tests* each line. **T0.4 needs
+together, with a single bump to version 2, in **C0.4**, before any code that relies on
+them (§2.6). The table shows which task *implements and tests* each line. **C0.4 needs
 the user's sign-off.**
 
-**Self-contained once Phase 0 lands:** T1.1, T1.2, T1.3, T1.5, T3.1, T4.3, T5.1 and
-T5.2. Run the `numerics` agent on T0.2, T1.1, T1.3, T2.1 and T4.3.
+**Self-contained once Phase 0 lands:** C1.1, C1.2, C1.3, C1.5, C3.1, C4.3, C5.1 and
+C5.2. Run the `numerics` agent on C0.2, C1.1, C1.3, C2.1 and C4.3.
+
+**How the plan gets updated.**
+- Task briefs are written one phase at a time, with `/phase-plan pytorch-parity <N>` at
+  the start of phase N.
+- This document gets a dated revision line at the start and end of every phase.
+- A phase may be inserted when results call for it, as the fmm library did with its
+  Phase 3S.
 
 ---
 
