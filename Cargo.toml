@@ -46,6 +46,10 @@ path = "examples/predict/burgers_superresolution.rs"
 name = "darcy_plot"
 path = "examples/predict/darcy_plot.rs"
 
+[[example]]
+name = "bench_spectral_conv"
+path = "examples/bench/spectral_conv.rs"
+
 # Backends are additive: `Device::default()` picks the highest-priority one
 # compiled in (CUDA > Metal > ROCm > Vulkan > wgpu > Flex), and the
 # `BURN_DEVICE` env var overrides it at runtime. Burn's FFT extension 
