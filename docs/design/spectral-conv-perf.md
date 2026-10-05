@@ -2,6 +2,8 @@
 
 As of 2026-10-05.
 2026-10-05: numerics review applied. §2.7 no longer edits CONVENTIONS §1–§6, and the bases are built on the host in f64. Revised §2.1–§2.5, §5.2–§5.3, §6, §7, §8.2 and §9.
+2026-10-05: phase 0 planning (rebased on `main`, which now holds the pytorch-parity phase 0 briefs). C0.3 is dropped in favour of pytorch-parity T2, an external dependency of phase 2. Q5 is signed off, and C0.4 moves to phase 2 as C2.0. Added C0.5 (baseline report). The oracle is a child test module, not `tests/`. Revised §2.7, §5.1, §7, §8.1, §9.
+2026-10-05: phase 0 numerics review found that Metal `cfft` is wrong on even non-power-of-two non-last axes (new risk R8). The Metal part of the phase 0 exit gate now reports rather than gates. Revised §7, §9.1.
 
 > Where this document and `docs/CONVENTIONS.md` differ, the conventions file takes
 > precedence.
@@ -230,9 +232,10 @@ parameter shapes, corner order and draw order are unchanged. CONVENTIONS' preamb
 any change to §1–§6 bumps the version, with no exception for informative notes, and
 pytorch-parity plans its own v2 bump (§9.1 R5). So this objective keeps out of §1–§6
 altogether:
-- **§4 DC/Nyquist.** C0.3 adds the tests only. Updating the §4 "not yet fixed by a test"
-  bullet is left to pytorch-parity's v2 change (its T4 cites the same test names). If
-  this objective lands first, the bullet stays as it is until then.
+- **§4 DC/Nyquist.** This objective adds no tests of its own. The tests are pytorch-parity
+  phase 0 T2 (`irfft_ignores_dc_nyquist_imag`, `irfft_grad_is_zero_for_dc_nyquist_imag`),
+  and the §4 bullet is updated by its T4 (CONVENTIONS v2). Phase 2's exit gate depends on
+  T2 having merged (§7).
 - **Transform choice.** It goes in a new, non-normative section after §8, which the
   preamble's bump rule does not cover:
 
@@ -305,7 +308,7 @@ assembly matters.
 | `src/neural_operators/layers/spectral_convolution.rs` | `SpectralTransform` enum; stacked gather/scatter, packed mixing, DFT forward/inverse; `forward` dispatches. `complex_multiplication` is kept as the test oracle until phase 3 removes or retains it (§9.2 Q2) |
 | `src/neural_operators/models/fno.rs` | `FNOConfig::spectral_transform: Option<SpectralTransform>`, passed to each `SpectralConv` (phase 3) |
 | `examples/bench/spectral_conv.rs` (new) + `[[example]] bench_spectral_conv` in `Cargo.toml` | layer and training-step timings (phase 0) |
-| `tests/spectral_conv_oracle.rs` (new) | f64 naive-DFT oracle of the layer (phase 0) |
+| `src/neural_operators/layers/spectral_convolution_oracle.rs` (new, `#[cfg(test)]` child module of `spectral_convolution`) | f64 naive-DFT oracle of the layer (phase 0). It is a child module because the weights are private (`weights_re/im`, `:87-88`) and `corner_weights` is `pub(crate)` + `cfg(test)` (`:380`), so an integration test in `tests/` can neither set nor read them |
 | `docs/CONVENTIONS.md` | §4 test citation, §5 note (§2.7) |
 
 Nothing else changes: loaders, training, metrics, losses.
@@ -475,23 +478,23 @@ Goal: trusted references and numbers to beat, before any change to the layer.
   - reports median and IQR over ≥ 20 steps;
   - runs on flex and `--features metal`.
   - Baseline numbers are recorded in the phase 0 README.
-- **C0.2** `tests/spectral_conv_oracle.rs`: an f64 host naive DFT implementation of §2.1
+- **C0.2** `layers/spectral_convolution_oracle.rs` (§5.1): an f64 host naive DFT implementation of §2.1
   (no Burn FFTs), compared with `SpectralConv::forward` for:
   - D = 1, 2, 3;
   - s even, odd, and non-power-of-two (incl. 94);
   - modes at and below the limits, including a retained Nyquist (m_D = s_D/2 + 1, s_D even);
   - I ≠ O, B > 1, random weights.
-- **C0.3** The `irfft` DC/Nyquist tests (CONVENTIONS §4), using pytorch-parity T2's test
-  names and content verbatim. They cover a power-of-two length (native kernel), an even
-  non-power-of-two length and an odd length (Bluestein). Tests only: the §4 bullet is
-  updated by pytorch-parity's v2 change (§2.7, §9.1 R5).
-- **C0.4** New non-normative CONVENTIONS §9 "Implementation notes" (§2.7). Docs only;
-  needs sign-off.
+- ~~C0.3~~ Dropped (2026-10-05). The `irfft` DC/Nyquist tests are pytorch-parity phase 0
+  T2, an external dependency of phase 2 (§2.7, §9.1 R5).
+- ~~C0.4~~ Moved to phase 2 as C2.0 (Q5 signed off 2026-10-05).
+- **C0.5** Baseline report: run C0.1 and C0.2 on flex and Metal, and record the timings
+  and observed oracle errors in the phase 0 README and here (§7, §8.2). Docs only.
 
 Dependencies: none. **Exit gate:**
 - the C0.2 oracle passes on flex at §8.2 tolerances against **today's** code;
-- C0.3 passes on flex (and on Metal if available);
-- baseline timings are recorded for flex, and for Metal if available.
+- it is run with `--features metal` if available, and every case is reported. Failures
+  on the R8 shapes are expected and recorded, not gated;
+- baseline timings are recorded for flex, and for Metal if available (C0.5).
 
 ### Phase 1: restructured FFT path (b, c, d, e)
 
@@ -511,12 +514,15 @@ Dependencies: phase 0. **Exit gate:**
 ### Phase 2: truncated DFT path (a, f)
 
 Goal: the DFT path, selectable per layer.
+- **C2.0** New non-normative CONVENTIONS §9 "Implementation notes" (§2.7). Docs only.
+  Signed off 2026-10-05 (Q5); it lands before C2.2.
 - **C2.1** `utils/dft.rs` bases (§5.2), each tested against a direct f64 `cos`/`sin` table,
   and `F`/`H` round-trip tested at the mode limit.
 - **C2.2** `SpectralTransform`, `with_transform`, `dft_forward`, `dft_inverse`, and
   `forward` dispatch. The DFT path shares `packed_weight`/`mix` with phase 1.
 
-Dependencies: phase 1 (shared stacked layout). **Exit gate:**
+Dependencies: phase 1 (shared stacked layout); **pytorch-parity phase 0 T2 merged**
+(the `irfft` DC/Nyquist behaviour that `Dft` must reproduce, §2.1). **Exit gate:**
 - `Dft` matches `Fft` in forward and in input/weight gradients at §8.2 tolerances, for
   every case of C0.2;
 - the C0.2 oracle passes with `Dft`;
@@ -614,9 +620,10 @@ Phase 0 records the observed oracle errors of today's code. If Bluestein at s = 
 | R2 | Per-forward basis construction or weight packing costs more than it saves at small B | Phase 2 benchmark reports it separately; Q4 caching |
 | R3 | Metal `cat`-after-permute quirk returns in gather/scatter/packing | Metal test runs in phases 1–2 |
 | R4 | Bluestein's f32 error at s = 94 makes 1e-5 oracle tolerance fail on today's code | Phase 0 measurement; §8.2 revised from evidence |
-| R5 | **Overlap with pytorch-parity** (goldeye worktree): its phase 0 T2 adds the same `irfft` DC/Nyquist tests, and later phases add bias, separable and factorised weights (with empty corner vectors) to `spectral_convolution.rs`, plus CONVENTIONS v2 §5 lines | C0.3 copies T2's test names and content verbatim, so whichever lands second drops its duplicate. The stacked layout of §2.3 is built from the corner vectors, so factorised weights need a reconstruction step before `packed_weight`. Recorded here; the second objective to land rebases. User decision 2026-10-05: independent objectives |
+| R5 | **Overlap with pytorch-parity** (goldeye worktree): its phase 0 T2 adds the `irfft` DC/Nyquist tests, and later phases add bias, separable and factorised weights (with empty corner vectors) to `spectral_convolution.rs`, plus CONVENTIONS v2 §5 lines | This objective depends on T2 instead of duplicating it (phase 2 gate). The stacked layout of §2.3 is built from the corner vectors, so factorised weights need a reconstruction step before `packed_weight`. Recorded here; the second objective to land rebases. User decision 2026-10-05: independent objectives |
 | R6 | Size-1 batch broadcasting in `matmul` is slow on some backend (it materialises the basis) | Phase 2 benchmark; fall back to reshaping the data to rank 3 `[B·…, n, q]` |
-| R7 | Native power-of-two `irfft` kernels treat Im Y_0 differently from §2.1 on some backend, so `Dft` ≠ `Fft` there | C0.3 on flex/Metal; the DFT path follows NumPy/torch semantics regardless |
+| R8 | **Metal `cfft` is wrong today** on a non-last axis of even, non-power-of-two length when the trailing extent is even. Phase 0 review (2026-10-05): `signal::cfft` on `[2,3,94,48]` has error 2.3e1 relative to a naive DFT, and the T1 oracle gives O(1) errors for 2D (94, 94) and 3D (8, 6, 10). Flex is correct. Darcy (94 × 94) on Metal is presumably affected. The root cause is in the Burn fork (Bluestein path), not verified | Not retired by this objective. Phase 0 T3 records it, and the user decides before phase 1 whether the Metal 2D/Darcy gate stands or a fork fix comes first. The DFT path (phase 2) does not use `cfft`, so on Metal it could be correct where `Fft` is not; the "`Dft` matches `Fft`" gate is then evaluated on flex only |
+| R7 | Native power-of-two `irfft` kernels treat Im Y_0 differently from §2.1 on some backend, so `Dft` ≠ `Fft` there | pytorch-parity T2 on flex/Metal (phase 2 dependency); the DFT path follows NumPy/torch semantics regardless |
 
 ### 9.2 Open questions
 
@@ -634,21 +641,18 @@ Phase 0 records the observed oracle errors of today's code. If Bluestein at s = 
   *Recommendation:* not before phase 2 measures the build cost. If needed, cache them in a
   `#[module(skip)]` field keyed on s, never persisted.
 
-- **Q5.** Do you sign off the new non-normative CONVENTIONS §9 "Implementation notes"
-  (§2.7), as the way to record the transform choice without a version bump?
-  *Recommendation:* yes. The alternative is to fold the note into pytorch-parity's v2 bump.
+- **Q5.** *Resolved 2026-10-05:* the user signed off the new non-normative CONVENTIONS §9
+  "Implementation notes" (§2.7). It lands in phase 2 as C2.0.
 
-None of Q1–Q4 blocks phase 0. Q5 blocks C0.4 only.
+None of Q1–Q4 blocks phase 0.
 
 ### 9.3 Handing components to Claude Code
 
-- Self-contained, can run in parallel: C0.1, C0.2, C0.3 and C0.4. C0.3 is a verbatim copy of
-  pytorch-parity T2.
+- Self-contained, can run in parallel: C0.1 and C0.2. C0.5 follows both.
 - C1.1 and C1.2 can run in parallel. Both are gated on C0.2 having merged, since it is
   their oracle.
-- C2.1 is self-contained after phase 1. C2.2 needs C2.1.
+- C2.0 and C2.1 are self-contained after phase 1. C2.2 needs both, and pytorch-parity T2.
 - **Human sign-off needed:**
-  - C0.4: the new non-normative CONVENTIONS §9 (§2.7), which avoids a version bump;
   - the §8.2 tolerance revision, if phase 0 forces one;
   - Q1 before C3.1 lands;
   - choosing `Auto`'s rule (C3.2).
