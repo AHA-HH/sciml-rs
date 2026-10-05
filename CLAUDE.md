@@ -125,7 +125,5 @@ trusting prose when checking how an API behaves, especially Burn's, given the fo
 - Skills `/design-doc <objective>`, `/phase-plan <objective> <N>` and
   `/do-task <brief>`, and the `reviewer` agent, are user-level, from the agent-workflow
   toolkit; they hold no project knowledge and take it from this file.
-- The `numerics` agent is project-level (`.claude/agents/numerics.md`): it checks work
-  against `docs/CONVENTIONS.md` and the Burn fork.
 - Flow per objective: own branch and worktree → `/design-doc` → review → `/phase-plan`
   → one `/do-task` session per brief, one PR each.
