@@ -15,6 +15,7 @@ compile-time parameter, so the spatial dimension D is fixed by the type: `FNO<3>
   any conflict with a design document.
 - Active objectives and their current phase:
   - 2d-chebyshev-poisson-fno: docs/2d-chebyshev-poisson-fno/phase0/README.md
+  - pytorch-parity: docs/pytorch-parity/phase0/README.md
 
 ## Working agreement
 - Approval for one action is not approval for the next one of its kind. A request to
