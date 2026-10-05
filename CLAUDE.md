@@ -1,22 +1,19 @@
 # sciml-rs
 
-Neural operators in Rust, on [Burn](https://burn.dev). One crate (`sciml_rs`); the
-Fourier Neural Operator (FNO) is the model implemented so far. Tensor rank is a
-compile-time parameter, so the spatial dimension D is fixed by the type: `FNO<3>` with
-`modes: vec![16]` is 1D, `FNO<4>` with `modes: vec![12, 12]` is 2D (R = D + 2).
+Neural operators in Rust, on [Burn](https://burn.dev). One crate: package `sciml-rs`,
+library `sciml_rs`. The Fourier Neural Operator (FNO) is the model implemented so far.
+Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by the type:
+`FNO<3>` with `modes: vec![16]` is 1D, `FNO<4>` with `modes: vec![12, 12]` is 2D (R = D + 2).
 
 ## Source of truth
-- Conventions file: `docs/CONVENTIONS.md`. It defines tensor layouts, FFT normalisation, mode truncation,
-  grid channels, padding and initialisation. Never change a convention in code;
+- `docs/CONVENTIONS.md` defines tensor layouts, coordinate grids, padding, FFT
+  normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Design documents: `docs/design/<objective>.md`. Phase and task briefs:
-  `docs/<objective>/phase<N>/README.md` and `T<k>-<name>.md`. `CONVENTIONS.md` wins on
-  any conflict with a design document.
-- Active objectives and their current phase:
-  - 2d-chebyshev-poisson-fno: docs/2d-chebyshev-poisson-fno/phase0/README.md
-  - pytorch-parity: docs/pytorch-parity/phase0/README.md
-  - spectral-conv-perf: docs/spectral-conv-perf/phase0/README.md
+- Current phase and task briefs: docs/phase0/README.md (Phase 0, conventions and
+  feasibility; briefs T1–T4 beside it).
+- Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
+  RLST reference solver, FNO; signed off 2026-10-05, decisions in its §12). CONVENTIONS.md wins on any conflict.
 
 ## Working agreement
 - Approval for one action is not approval for the next one of its kind. A request to
@@ -27,71 +24,36 @@ compile-time parameter, so the spatial dimension D is fixed by the type: `FNO<3>
   they said, and leave the result uncommitted unless the current message asks for a
   commit. Never report an unrun check as passing; say plainly when something could not
   run (no GPU backend, no dataset, no gnuplot).
-- One task per branch and PR; stay inside the modules the task brief names.
+- One task per branch and PR; stay inside the modules the task names.
 - Keep changes targeted: no drive-by reformatting or refactors.
-- Each objective lives on its own branch and worktree. Do not edit another objective's
-  `docs/<objective>/` tree or design document from a worktree that is not its own.
 
 ## Working rules
 - Run `cargo fmt` after every Rust edit, before the other checks or committing. CI
   rejects unformatted code.
-- Tests first: write the acceptance tests from the task brief, then the implementation.
-- Every fast or new path is tested against a slower trusted one: a naive DFT or einsum
-  in the test, a published PyTorch reference value, or the existing implementation it
-  replaces. State the tolerance and what it is relative to.
-- Numeric changes must hold on the default `flex` backend; state whether other backends
-  were run. Tolerances are f32 unless a test says otherwise.
-- Saved checkpoints must keep loading: do not rename or reshape parameters, and add
-  new config fields as `Option<_>` so old configs still deserialise (see
-  `FNOConfig::spectral_init`, `FNOConfig::padding`).
-- Document every public item; follow the existing rustdoc style (explain the shape of
-  every tensor argument, and the panics).
-
-## Burn
-- Burn is a **fork**, pinned in `Cargo.toml`: `ax1s-x1zz/burn` at rev `ddfa9af`, features
-  `autodiff, signal, store, train`. docs.rs describes upstream, not this; read the
-  sources in `~/.cargo/git/checkouts/burn-*/ddfa9af/` (FFTs:
-  `crates/burn-signal/src/functions/fft.rs`).
-- Burn provides `signal::rfft`, `irfft` and a forward `cfft`, but no inverse complex
-  FFT; `utils/fft.rs::icfft_full_spectrum` supplies it. Non-power-of-two lengths go
-  through Bluestein, so any grid size works.
-- Backends are cargo features: `flex` (default, pure-Rust CPU), `metal`, `cuda`, `wgpu`.
-  They are additive; `Device::default()` picks CUDA > Metal > ROCm > Vulkan > wgpu >
-  Flex, and `BURN_DEVICE` overrides at runtime. The `ndarray` backend is not usable
-  (no FFT).
-- A known Metal quirk: a channels-first `cat` after a permute zeroed grid entries, which
-  is why `FNO::grid_cl` builds the grid channels-last. Prefer the existing data flow over
-  re-layouts on hot paths.
+- Document every public item; follow the existing rustdoc style (shape of every tensor
+  argument, and the panics).
 
 ## Layout
-```
-src/neural_operators/
-  data/        loaders (burgers, darcy), batchers, dataset, split, grids,
-               io (npy/npz/.mat readers), transforms (normalizers, subsample)
-  layers/      spectral_convolution.rs (SpectralConv, SpectralInit)
-  models/      fno.rs (FNOConfig, FNO)
-  losses/      data_losses.rs (LpLoss, Reduction)
-  training/    trainer, learner, per-problem trainers, metrics
-  metrics/     run artifacts on disk, gnuplot plots
-  utils/       fft.rs (icfft_full_spectrum)
-examples/      train/ and predict/ entry points; hyperparameters are literals at the top
-tests/         integration tests
-datasets/      .mat files, not committed (datasets/README.md)
-runs/          training output, not committed
-docs/          CONVENTIONS.md, design/, <objective>/phase<N>/
-```
-- `Cargo.lock` is not committed (library crate).
-- `.gitignore` covers `*.csv` and `*.png`, so run artifacts stay out.
+- `src/neural_operators/`: `models/fno.rs` (FNOConfig, FNO), `layers/spectral_convolution.rs`
+  (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, batchers, io for
+  npy/npz/.mat, transforms), `training/`, `metrics/` (run artifacts, gnuplot),
+  `utils/fft.rs` (icfft_full_spectrum).
+- Unit tests sit in `#[cfg(test)] mod tests` in each file. `tests/spectral_init.rs` reseeds
+  Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each
+  needs its own test binary, so keep such tests out of `src/`.
+- Examples are registered in `Cargo.toml`; hyperparameters are literals at the top of
+  each file. Training writes `runs/<name>_<unix_secs>/`.
+- `datasets/` (.mat files, see `datasets/README.md`) and `runs/` are git-ignored.
+- `Cargo.lock` is git-ignored (library crate). `.gitignore` covers `*.csv` and `*.png`.
 
 ## Build environment
-Stable Rust, edition 2024 (README: Rust 1.85+), with `rustfmt` and `clippy`. `gnuplot` is
-optional: plots are skipped when it is missing (`tests/run_artifacts_without_gnuplot.rs`).
-Examples need the datasets in `datasets/`; unit tests do not.
+Stable Rust, edition 2024 (Rust 1.85+), with `rustfmt` and `clippy`. `gnuplot` is
+optional: plots are skipped with a warning when it is missing. Examples need the datasets;
+tests do not. `.cargo/config.toml` links with `lld` on aarch64 Linux.
 
 ## Checks
-CI (GitHub Actions, `.github/workflows/run-tests.yml`, pushes and PRs to `main`) runs
-exactly:
-
+CI (GitHub Actions, `.github/workflows/run-tests.yml`, pushes and pull requests to `main`)
+runs exactly:
 ```sh
 cargo fmt -- --check
 cargo clippy --no-deps -- -D warnings
@@ -99,35 +61,41 @@ cargo clippy --no-deps --examples -- -D warnings
 cargo test
 cargo doc --no-deps
 ```
-
 Before finishing any task, also run `cargo clippy --all-targets -- -D warnings`. Keep
 clippy clean without blanket `#[allow]`s. For backend-sensitive changes, also run the
-relevant tests with `--features metal` (Apple) and say whether it was run.
+relevant tests with `--features metal` and say whether it was run.
 
-## Gotchas
-- An exact test filter needs the full module path:
-  `cargo test neural_operators::models::fno::tests::<name> -- --exact`. A short path
-  such as `models::fno::tests::<name> --exact` runs 0 tests and still reports `ok`;
-  check the "running N tests" line.
-- `runs/` fills up with every training example; it is git-ignored, do not commit it.
+An exact test filter needs the full module path:
+`cargo test neural_operators::models::fno::tests::<name> -- --exact`. A shorter path runs
+0 tests and still reports `ok`; check the "running N tests" line.
+
+## Burn
+- Burn is a fork pinned in `Cargo.toml`: `ax1s-x1zz/burn` at rev `ddfa9af`, features
+  `autodiff, signal, store, train`. docs.rs describes upstream, not this.
+- `signal` provides `rfft`, `irfft` and a forward `cfft` but no inverse complex FFT;
+  `utils/fft.rs::icfft_full_spectrum` supplies it. Non-power-of-two lengths go through
+  Bluestein, so any grid size works.
+- Backends are additive cargo features: `flex` (default, pure-Rust CPU), `metal`, `cuda`,
+  `wgpu`. `Device::default()` picks CUDA > Metal > ROCm > Vulkan > wgpu > Flex;
+  `BURN_DEVICE` overrides at runtime. `rocm`/`vulkan` are disabled, and `ndarray` is
+  unusable (no FFT). Building with no backend feature is a `compile_error!`.
+- Metal: a channels-first `cat` after a permute zeroed grid entries, so `FNO::grid_cl`
+  builds the grid channels-last (regression test in `fno.rs`).
+- `OperatorBatcher` does not choose a device: a DataLoader without `set_device` puts
+  batches on non-autodiff `Device::default()`, so training gets no gradients unless the
+  device is `.autodiff()`. Evaluation runs on `device.inner()`.
 
 ## Navigating the code
 Prefer LSP tools (go-to-definition, find-references) over `grep` for symbols. Use `grep`
-for comments, CI YAML and `Cargo.toml`. Read the implementation and tests rather than
-trusting prose when checking how an API behaves, especially Burn's, given the fork.
+for comments, CI YAML and `Cargo.toml`. Burn's sources are in
+`~/.cargo/git/checkouts/burn-*/ddfa9af/` (FFTs: `crates/burn-signal/src/functions/fft.rs`);
+other checkouts there are different revisions. Read the implementation and tests rather
+than trusting prose when checking how an API behaves.
 
 ## Commands
 - All tests: `cargo test`
 - Train: `cargo run --release --example train_burgers [--features metal]`
-  (also `train_darcy`, `train_burgers_learner`)
+  (also `train_darcy`; `train_burgers_learner` needs a real terminal for Burn's TUI)
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
-  (also `predict_darcy`, `burgers_resolution`, `burgers_superresolution`, `darcy_plot`)
-
-## Agent workflow
-- Skills `/design-doc <objective>`, `/phase-plan <objective> <N>` and
-  `/do-task <brief>`, and the `reviewer` agent, are user-level, from the agent-workflow
-  toolkit; they hold no project knowledge and take it from this file.
-- The `numerics` agent is project-level (`.claude/agents/numerics.md`): it checks work
-  against `docs/CONVENTIONS.md` and the Burn fork.
-- Flow per objective: own branch and worktree → `/design-doc` → review → `/phase-plan`
-  → one `/do-task` session per brief, one PR each.
+  (also `burgers_resolution`, `burgers_superresolution` on Burgers runs;
+  `predict_darcy`, `darcy_plot` on Darcy runs)

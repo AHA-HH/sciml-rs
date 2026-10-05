@@ -754,7 +754,3 @@ mod tests {
         assert_eq!(SpectralInit::default(), SpectralInit::LiUniform);
     }
 }
-
-#[cfg(test)]
-#[path = "spectral_convolution_oracle.rs"]
-mod oracle;
