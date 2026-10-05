@@ -11,7 +11,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
 - Current phase and task briefs:
-- Background:
+- Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
+  RLST reference solver, FNO; signed off 2026-10-05, decisions in its §12). CONVENTIONS.md wins on any conflict.
 
 ## Working agreement
 - Approval for one action is not approval for the next one of its kind. A request to
