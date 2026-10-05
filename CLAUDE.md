@@ -88,7 +88,7 @@ optional: plots are skipped when it is missing (`tests/run_artifacts_without_gnu
 Examples need the datasets in `datasets/`; unit tests do not.
 
 ## Checks
-CI (Forgejo Actions, `.forgejo/workflows/run-tests.yml`, pushes and PRs to `main`) runs
+CI (GitHub Actions, `.github/workflows/run-tests.yml`, pushes and PRs to `main`) runs
 exactly:
 
 ```sh
