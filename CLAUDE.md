@@ -6,10 +6,12 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 `FNO<3>` with `modes: vec![16]` is 1D, `FNO<4>` with `modes: vec![12, 12]` is 2D (R = D + 2).
 
 ## Source of truth
-- `docs/CONVENTIONS.md` (not yet written) will define tensor layouts, FFT normalisation,
-  mode truncation, grid channels, padding and initialisation. Until it exists, the code
-  and its doc comments are the reference (`FNO::forward`, `FNO::grid_cl`,
-  `SpectralConv::check_modes_fit`, `SpectralInit`); do not change any of them silently.
+- `docs/CONVENTIONS.md` defines tensor layouts, coordinate grids, padding, FFT
+  normalisation, mode truncation and initialisation. Never change a convention in code;
+  propose the change in the PR description and bump `CONVENTION_VERSION` there.
+- Cite conventions in doc comments as `CONVENTIONS §n`.
+- Current phase and task briefs:
+- Background:
 
 ## Working agreement
 - Approval for one action is not approval for the next one of its kind. A request to
