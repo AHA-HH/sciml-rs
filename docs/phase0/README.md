@@ -51,8 +51,8 @@ Filled in as tasks merge. Phase 0 is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| rlst version pinned | | T2 |
-| Public Sylvester routine in that version? | | T2 |
+| rlst version pinned | 0.9 (resolved to 0.9.0 on 2026-10-06; `Cargo.lock` is git-ignored, so later 0.9.x can resolve) | T2 |
+| Public Sylvester routine in that version? | Yes: `rlst::SylvesterSolve::solve_sylvester` (`src/traits/linalg/decompositions.rs:268–284`); caller checks `status()` and `scale()` | T2 |
 | Solve route for option A (Sylvester or fast diagonalisation) | | T4 |
 | FV or Q1 for option C | | T4 |
 | CG tolerance for option C | | T4 |

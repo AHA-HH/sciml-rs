@@ -96,3 +96,28 @@ jobs:
           run: |
             cargo clippy --no-deps -- -D warnings
             cargo clippy --no-deps --examples -- -D warnings
+
+  run-tests-chebyshev:
+    name: run-tests-chebyshev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          components: clippy, rustfmt
+          toolchain: stable
+
+      - uses: actions/checkout@v6
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install OpenBLAS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev
+
+      - name: Clippy (chebyshev)
+        run: cargo clippy --no-deps --features chebyshev --all-targets -- -D warnings
+
+      - name: Run tests (chebyshev)
+        run: cargo test --features chebyshev
