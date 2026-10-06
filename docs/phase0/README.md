@@ -56,9 +56,9 @@ Filled in as tasks merge. Phase 0 is done when every row has a value.
 | Solve route for option A (Sylvester or fast diagonalisation) | | T4 |
 | FV or Q1 for option C | | T4 |
 | CG tolerance for option C | | T4 |
-| Floater–Hormann degree d | | T3 |
-| Uniform size rule (s = n − 1 or s = n) | | T3 |
-| GRF tail table confirmed; tolerance 5e-3 kept? | | T3 |
+| Floater–Hormann degree d | d = 2, rule evaluated on the solution u per design §7 (max 3.6e-5 at n = 65, 1D Λ ≤ 4.9); on f no d ≤ 8 meets 1e-4 (design §12, decision 8) | T3 |
+| Uniform size rule (s = n − 1 or s = n) | s = n − 1 (s = n gains ≤ 1.05× on u, ≤ 1.04× on f at d = 2; rule needs 10×) | T3 |
+| GRF tail table confirmed; tolerance 5e-3 kept? | Confirmed (ε_K = 1.86e-2, 4.92e-3, 1.26e-3, 3.19e-4); kept, ε_32 = 4.92e-3 | T3 |
 | CONVENTIONS §12 merged | | T1 |
 
 ## Exit checklist
