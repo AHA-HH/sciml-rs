@@ -31,5 +31,19 @@ compile_error!(
     "sciml-rs needs a backend feature: flex (default), metal, cuda, rocm, vulkan or wgpu"
 );
 
+// rlst calls BLAS and LAPACK but leaves the provider to the final binary
+// (rlst 0.9.0 `src/doc/getting_started.rs`). The provider crates are only
+// linked, never called; naming them here pulls them into every binary that
+// depends on this crate. Cargo.toml only declares providers for macOS and Linux.
+#[cfg(all(feature = "chebyshev", any(target_os = "macos", target_os = "linux")))]
+extern crate blas_src;
+#[cfg(all(feature = "chebyshev", any(target_os = "macos", target_os = "linux")))]
+extern crate lapack_src;
+#[cfg(all(
+    feature = "chebyshev",
+    not(any(target_os = "macos", target_os = "linux"))
+))]
+compile_error!("the chebyshev feature has a BLAS/LAPACK provider only on macOS and Linux");
+
 #[allow(clippy::redundant_field_names)]
 pub mod neural_operators;
