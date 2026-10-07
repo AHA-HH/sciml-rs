@@ -531,6 +531,16 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
    (§9).
 7. **FFTW: accepted.** Possibly later, as an optional, non-default backend, subject to
    supervisor approval, confirmed licensing and a measured performance benefit.
+8. **Transfer degree: measured on u (2026-10-06, Phase 0 T3).**
+   - On the GRF forcing f, no Floater–Hormann degree d ≤ 8 met the T3 rule (round trip
+     ≤ 1e-4 at n = 65, 129, 257 with Lebesgue constant < 10). The top modes of K(n) have
+     about 4 uniform points per wavelength.
+   - The rule is therefore evaluated on the solution u, the transfer error of §7, since
+     T_uc only acts on predicted u.
+   - On u, **d = 2**: the worst case is 3.6e-5 at n = 65, and the 1D Lebesgue constant
+     (maximum row sum of |T_uc|) is at most 4.9.
+   - s = n − 1, the GRF tail table and the 5e-3 tolerance stand as stated.
+   - Details: `spikes/transfers/REPORT.md`.
 
 ## References
 
