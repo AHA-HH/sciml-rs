@@ -53,9 +53,9 @@ Filled in as tasks merge. Phase 0 is done when every row has a value.
 | --- | --- | --- |
 | rlst version pinned | 0.9 (resolved to 0.9.0 on 2026-10-06; `Cargo.lock` is git-ignored, so later 0.9.x can resolve) | T2 |
 | Public Sylvester routine in that version? | Yes: `rlst::SylvesterSolve::solve_sylvester` (`src/traits/linalg/decompositions.rs:268–284`); caller checks `status()` and `scale()` | T2 |
-| Solve route for option A (Sylvester or fast diagonalisation) | | T4 |
-| FV or Q1 for option C | | T4 |
-| CG tolerance for option C | | T4 |
+| Solve route for option A (Sylvester or fast diagonalisation) | Fast diagonalisation (A-fd): 0.61 ms per solve at n = 257, max error ≤ 1.2e-12 for n = 33..257; Sylvester with Schur reuse agrees only to 1.2e-12 and is 9.8× slower. rlst 0.9.0 `eig(RightEigenvectors)` panics, so use `BothEigenvectors` (`spikes/solver/REPORT.md`) | T4 |
+| FV or Q1 for option C | Q1 (consistent mass and load): both show order 2.00; Q1 wins the CG-iteration tie-break at n = 257 by < 1.5% (4731 vs 4752), though it is 22–31% slower per solve | T4 |
+| CG tolerance for option C | 1e-6 (relative residual): CG error ≤ 1.2e-4 × discretisation error at n = 257 | T4 |
 | Floater–Hormann degree d | d = 2, rule evaluated on the solution u per design §7 (max 3.6e-5 at n = 65, 1D Λ ≤ 4.9); on f no d ≤ 8 meets 1e-4 (design §12, decision 8) | T3 |
 | Uniform size rule (s = n − 1 or s = n) | s = n − 1 (s = n gains ≤ 1.05× on u, ≤ 1.04× on f at d = 2; rule needs 10×) | T3 |
 | GRF tail table confirmed; tolerance 5e-3 kept? | Confirmed (ε_K = 1.86e-2, 4.92e-3, 1.26e-3, 3.19e-4); kept, ε_32 = 4.92e-3 | T3 |
