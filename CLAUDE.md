@@ -42,6 +42,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, batchers, io for
   npy/npz/.mat, transforms), `training/`, `metrics/` (run artifacts, gnuplot),
   `utils/fft.rs` (icfft_full_spectrum).
+- `src/neural_operators/chebyshev/` (behind the `chebyshev` feature; needs system libfftw3):
+  CGL `nodes`, `diff_matrix`/`diff2_matrix`, `clenshaw_curtis`, `l2_norm`/`rel_l2_error`.
 - `spikes/`: standalone packages for Phase 0 measurements; never built by CI.
 - Unit tests sit in `#[cfg(test)] mod tests` in each file. `tests/spectral_init.rs` reseeds
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each

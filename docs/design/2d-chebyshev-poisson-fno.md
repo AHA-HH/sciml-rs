@@ -762,11 +762,10 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - T1 is therefore behind `chebyshev` and runs only in the `run-tests-chebyshev` CI job,
       which installs `libfftw3-dev pkg-config`.
     - Licensing: FFTW is GPL-2.0+; the crate stays MIT OR Apache-2.0, and only
-      `--features chebyshev` builds link GPL code. Outcome: **PENDING**.
-    - Supervisor approval (decision 7's condition): **PENDING**. This decision is not in
-      force, and the amendment is not merged, until both are recorded here. Decision 7's
-      "measured benefit" is waived: the reason is reuse of RLST's tested transforms, not
-      speed.
+      `--features chebyshev` builds link GPL code. Outcome: **accepted** (2026-10-08).
+    - Approval (decision 7's condition): **approved** by the project owner, 2026-10-08;
+      no separate supervisor sign-off is needed. Decision 7's "measured benefit" is
+      waived: the reason is reuse of RLST's tested transforms, not speed.
 
 ## References
 
