@@ -40,20 +40,30 @@ pub struct CollocationSolver {
     inv_denom: DynArray<f64, 2>,
 }
 
+impl std::fmt::Debug for CollocationSolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CollocationSolver")
+            .field("nx", &self.nx)
+            .field("ny", &self.ny)
+            .finish_non_exhaustive()
+    }
+}
+
 impl CollocationSolver {
     /// Builds the solver for an `[n_x, n_y]` CGL grid: takes the interior blocks of
     /// [`diff2_matrix`] and eigendecomposes each, O(n³) once.
     ///
     /// # Panics
-    /// If `nx < 3` or `ny < 3` (no interior nodes), if an eigenvalue or eigenvector
-    /// entry has an imaginary part above `IMAG_TOL`, or if LAPACK fails.
+    /// If `nx < 3` or `ny < 3` (no interior nodes); if an eigenvalue has an imaginary
+    /// part above 1e-10 · max|λ|, or an entry of a unit-norm eigenvector one above 1e-10;
+    /// or if LAPACK fails.
     pub fn new(nx: usize, ny: usize) -> Self {
         assert!(
             nx >= 3 && ny >= 3,
             "CollocationSolver::new: nx and ny must be >= 3 (interior nodes), got [{nx}, {ny}]"
         );
-        let (lx, vx) = real_eig(&interior_d2(nx));
-        let (ly, vy) = real_eig(&interior_d2(ny));
+        let (lx, vx, _) = real_eig(&interior_d2(nx));
+        let (ly, vy, _) = real_eig(&interior_d2(ny));
         let vx_inv = vx
             .inverse()
             .expect("CollocationSolver::new: V_x is singular");
@@ -80,7 +90,8 @@ impl CollocationSolver {
     /// Solves on the interior nodes: Ĝ = V_x⁻¹ F V_y⁻ᵀ, Û = Ĝ ⊙ (1 / −(λ_i + μ_j)),
     /// U = V_x Û V_yᵀ (design §4.2).
     ///
-    /// `f_interior: [n_x − 2, n_y − 2]` is f at the interior nodes, 'ij'. Returns u at
+    /// `f_interior: [n_x − 2, n_y − 2]` is f at the interior nodes, 'ij' (CONVENTIONS
+    /// §12). Returns u at
     /// the same nodes, same shape.
     ///
     /// # Panics
@@ -128,8 +139,9 @@ fn interior_d2(n: usize) -> Array2<f64> {
     diff2_matrix(n).slice(s![1..n - 1, 1..n - 1]).to_owned()
 }
 
-/// Real eigenvalues and eigenvectors (columns) of `d`.
-fn real_eig(d: &Array2<f64>) -> (Vec<f64>, DynArray<f64, 2>) {
+/// Real eigenvalues and eigenvectors (columns) of `d`, and the discarded imaginary
+/// parts: (max |Im λ| / max |λ|, max |Im v|).
+fn real_eig(d: &Array2<f64>) -> (Vec<f64>, DynArray<f64, 2>, (f64, f64)) {
     let m = d.nrows();
     // `RightEigenvectors` panics in rlst 0.9.0: `eig` passes `ldvl = n` without a
     // left-vector buffer and the geev wrapper asserts `ldvl == 1`. The left vectors are
@@ -154,7 +166,11 @@ fn real_eig(d: &Array2<f64>) -> (Vec<f64>, DynArray<f64, 2>) {
         "CollocationSolver::new: complex eigenpairs of the interior D² \
          (max |Im λ| = {im_lam:e}, max |Im v| = {im_v:e})"
     );
-    ((0..m).map(|i| lam[[i]].re).collect(), v_re)
+    (
+        (0..m).map(|i| lam[[i]].re).collect(),
+        v_re,
+        (im_lam / scale, im_v),
+    )
 }
 
 /// ndarray → rlst (column-major) copy.
@@ -225,6 +241,27 @@ mod tests {
         -(x + 2.0 * y).exp() * (uxx + uyy)
     }
 
+    // Polynomial of degree 5 in x, sin(8y) in y: exact in x from n_x = 6, but needs
+    // n_y ≈ 33 for the floor, so it tells the two axes apart.
+    // u = p(x) q(y), p = (1 − x²)(1 + x), q = (1 − y²) sin 8y;
+    // p'' = −2 − 6x, q'' = −2 sin 8y − 32y cos 8y − 64(1 − y²) sin 8y.
+    fn aniso_u(x: f64, y: f64) -> f64 {
+        (1.0 - x * x) * (1.0 + x) * (1.0 - y * y) * (8.0 * y).sin()
+    }
+    fn aniso_f(x: f64, y: f64) -> f64 {
+        let (p, pxx) = ((1.0 - x * x) * (1.0 + x), -2.0 - 6.0 * x);
+        let (s, c) = ((8.0 * y).sin(), (8.0 * y).cos());
+        let q = (1.0 - y * y) * s;
+        let qyy = -2.0 * s - 32.0 * y * c - 64.0 * (1.0 - y * y) * s;
+        -(pxx * q + p * qyy)
+    }
+    fn aniso_t_u(x: f64, y: f64) -> f64 {
+        aniso_u(y, x)
+    }
+    fn aniso_t_f(x: f64, y: f64) -> f64 {
+        aniso_f(y, x)
+    }
+
     const SIN: Manufactured = Manufactured {
         name: "sin(πx)sin(πy)",
         u: sin_u,
@@ -239,6 +276,17 @@ mod tests {
         name: "(1−x²)(1−y²)e^(x+2y)",
         u: exp_u,
         f: exp_f,
+    };
+
+    const ANISO: Manufactured = Manufactured {
+        name: "(1−x²)(1+x)(1−y²)sin 8y",
+        u: aniso_u,
+        f: aniso_f,
+    };
+    const ANISO_T: Manufactured = Manufactured {
+        name: "ANISO with x and y swapped",
+        u: aniso_t_u,
+        f: aniso_t_f,
     };
 
     /// `g` on the `[nx, ny]` CGL grid, 'ij'.
@@ -330,27 +378,55 @@ mod tests {
 
     #[test]
     fn rectangular_grid() {
-        for (nx, ny, m) in [(17, 33, &POLY), (33, 17, &POLY), (33, 65, &EXP)] {
+        // ANISO is only resolved with n_y ≈ 33, so it reaches the floor on [17, 33] but
+        // not on [33, 17]; its transpose does the opposite. A swapped axis fails both.
+        for (nx, ny, m) in [(17, 33, &ANISO), (33, 17, &ANISO_T), (33, 65, &EXP)] {
             let (e_max, e_l2) = errors(nx, ny, m);
+            println!(
+                "{:26} on [{nx}, {ny}]: max {e_max:.1e}, L² {e_l2:.1e}",
+                m.name
+            );
             assert!(
                 e_max <= 1e-12 && e_l2 <= 1e-12,
                 "{} on [{nx}, {ny}]: max {e_max:e}, L² {e_l2:e}",
                 m.name
             );
         }
+        for (nx, ny, m) in [(33, 17, &ANISO), (17, 33, &ANISO_T)] {
+            let (e_max, _) = errors(nx, ny, m);
+            println!("{:26} on [{nx}, {ny}]: max {e_max:.1e}", m.name);
+            assert!(e_max >= 1e-6, "{} on [{nx}, {ny}]: {e_max:e}", m.name);
+        }
     }
 
     #[test]
     fn factorisation_reused() {
         let n = 33;
-        let f1 = sample(n, n, sin_f);
-        let f2 = sample(n, n, exp_f);
+        let (f1, f2) = (sample(n, n, sin_f), sample(n, n, exp_f));
         let solver = CollocationSolver::new(n, n);
-        let (u1, u2) = (solver.solve_full(f1.view()), solver.solve_full(f2.view()));
-        let fresh1 = CollocationSolver::new(n, n).solve_full(f1.view());
-        let fresh2 = CollocationSolver::new(n, n).solve_full(f2.view());
-        assert!(rel_max(&u1, &fresh1) <= 1e-14);
-        assert!(rel_max(&u2, &fresh2) <= 1e-14);
+        // Interleaved solves on one struct: no state carries over between calls.
+        let u1 = solver.solve_full(f1.view());
+        let u2 = solver.solve_full(f2.view());
+        let u1_again = solver.solve_full(f1.view());
+        assert_eq!(u1, u1_again);
+        assert_eq!(u1, CollocationSolver::new(n, n).solve_full(f1.view()));
+        assert_eq!(u2, CollocationSolver::new(n, n).solve_full(f2.view()));
+        // Each reused solve is correct, not just repeatable.
+        assert!(rel_max(&u1, &sample(n, n, sin_u)) <= 1e-12);
+        assert!(rel_max(&u2, &sample(n, n, exp_u)) <= 1e-12);
+        // The stored factorisation is a linear map: solve(f1 − 3 f2) = u1 − 3 u2.
+        let combo = solver.solve_full((&f1 - &(3.0 * &f2)).view());
+        let e = rel_max(&combo, &(&u1 - &(3.0 * &u2)));
+        assert!(e <= 1e-13, "linearity: {e:e}");
+    }
+
+    #[test]
+    fn eigenpairs_are_real() {
+        for n in [9, 17, 33, 65, 129] {
+            let (_, _, (im_lam, im_v)) = real_eig(&interior_d2(n));
+            println!("n = {n:3}: max |Im λ| / max |λ| = {im_lam:e}, max |Im v| = {im_v:e}");
+            assert!(im_lam <= IMAG_TOL && im_v <= IMAG_TOL, "n = {n}");
+        }
     }
 
     #[test]
