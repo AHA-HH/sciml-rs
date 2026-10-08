@@ -60,8 +60,17 @@ cuda = ["burn/cuda"]
 wgpu = ["burn/wgpu"]
 # RLST (dense and sparse linear algebra for the Chebyshev reference solver) plus a
 # BLAS/LAPACK provider chosen by target: Accelerate on macOS, system OpenBLAS on Linux.
-# No rlst feature is enabled (no FFTW, burn or MPI).
-chebyshev = ["dep:rlst", "dep:blas-src", "dep:lapack-src", "dep:openblas-src"]
+# rlst's `fftw` and `fftw_system` back its Chebyshev transforms (design decision 12).
+# FFTW is GPL-2.0+; it comes from the system libfftw3 via pkg-config and is linked only
+# into builds with this feature. No other rlst feature is enabled (no burn or MPI).
+chebyshev = [
+    "dep:rlst",
+    "rlst/fftw",
+    "rlst/fftw_system",
+    "dep:blas-src",
+    "dep:lapack-src",
+    "dep:openblas-src",
+]
 
 [dependencies]
 burn = { git = "https://github.com/ax1s-x1zz/burn", rev = "ddfa9af03ab9fb4b8491889e55c9d0ceffbfda22", features = ["autodiff", "signal", "store", "train"] }

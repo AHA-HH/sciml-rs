@@ -111,10 +111,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install OpenBLAS and libclang
+      - name: Install OpenBLAS, FFTW and libclang
         run: |
           sudo apt-get update
-          sudo apt-get install -y libopenblas-dev libclang-dev
+          sudo apt-get install -y libopenblas-dev libfftw3-dev pkg-config libclang-dev
 
       - name: Clippy (chebyshev)
         run: cargo clippy --no-deps --features chebyshev --all-targets -- -D warnings
