@@ -60,15 +60,15 @@ Filled in as tasks merge. Phase 0 is done when every row has a value.
 | Floater–Hormann degree d | d = 2, rule evaluated on the solution u per design §7 (max 3.6e-5 at n = 65, 1D Λ ≤ 4.9); on f no d ≤ 8 meets 1e-4 (design §12, decision 8) | T3 |
 | Uniform size rule (s = n − 1 or s = n) | s = n − 1 (s = n gains ≤ 1.05× on u, ≤ 1.04× on f at d = 2; rule needs 10×) | T3 |
 | GRF tail table confirmed; tolerance 5e-3 kept? | Confirmed (ε_K = 1.86e-2, 4.92e-3, 1.26e-3, 3.19e-4); kept, ε_32 = 4.92e-3 | T3 |
-| CONVENTIONS §12 merged | | T1 |
+| CONVENTIONS §12 merged | §12 added at `CONVENTION_VERSION` 1, with d = 2 and s = n − 1 | T1 |
 
 ## Exit checklist
 
-- [ ] T2 merged; the `chebyshev` CI job is green on Ubuntu, and the feature tests pass
+- [x] T2 merged; the `chebyshev` CI job is green on Ubuntu, and the feature tests pass
       locally on macOS.
-- [ ] T3 and T4 merged, each with its `REPORT.md`.
-- [ ] Every row of Results filled in.
+- [x] T3 and T4 merged, each with its `REPORT.md`.
+- [x] Every row of Results filled in.
 - [ ] T1 merged: `docs/CONVENTIONS.md` has §12, and `CONVENTION_VERSION` is still 1.
-- [ ] Any result that contradicts the design is recorded in the design's §12 under
+- [x] Any result that contradicts the design is recorded in the design's §12 under
       "Recorded decisions", dated, before Phase 1 is planned.
 - [ ] The "Current phase" bullet in `CLAUDE.md` points to `docs/phase1/README.md`.

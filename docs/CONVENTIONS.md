@@ -5,8 +5,9 @@
 This file is the single source of truth for tensor layouts, coordinate grids, padding,
 Fourier transforms, mode truncation and weight initialisation in `sciml-rs`, and records
 the data normalisation and losses the training code uses. Code cites it as
-`CONVENTIONS §n`. Any change to §1–§6 bumps `CONVENTION_VERSION`, which can make a saved
-checkpoint load but predict differently. §10 and §11 describe preprocessing and losses; a
+`CONVENTIONS §n`. Any change to §1–§6 or §12 bumps `CONVENTION_VERSION`: §1–§6 can make a
+saved checkpoint load but predict differently, and §12 fixes the layout of Chebyshev
+dataset files and the grid transfers. §10 and §11 describe preprocessing and losses; a
 change to them does not bump the version (§9).
 
 Summary of the choices: channels-last at the model boundary and channels-first inside;
@@ -212,9 +213,10 @@ a published PyTorch/NumPy value), with its tolerance stated relative to that ref
 names and shapes, the grid-channel order, the spectral layout and the initialisation draw
 order, which saved checkpoints depend on. A design document that needs a new convention
 proposes it as a diff to this file, and the change lands here before any code that
-relies on it. §7 and §8 change only with the tests they describe. §10 and §11 do not bump
-the version; a change to them is noted in the pull request and changes the code that
-implements it in the same pull request.
+relies on it. §12 fixes how dataset files and grid transfers are laid out; a change to it
+bumps `CONVENTION_VERSION`. §7 and §8 change only with the tests they describe. §10 and
+§11 do not bump the version; a change to them is noted in the pull request and changes
+the code that implements it in the same pull request.
 
 ## 10. Data normalisation
 
@@ -260,3 +262,70 @@ h_a = \frac{1}{s_a - 1}
 `abs_3d_known_value`, `abs_gradient_matches_analytic`,
 `rel_gradient_at_exact_match_is_zero_not_nan`, `abs_gradient_at_exact_match_is_zero_not_nan`,
 `rel_zero_target_is_inf_or_nan_as_documented`.
+
+## 12. Chebyshev grids and transfers
+
+Chebyshev datasets (design `docs/design/2d-chebyshev-poisson-fno.md`) are stored on a
+Chebyshev grid and reach the unchanged model (§1–§6) on a uniform grid. This section fixes
+both grids, the transfers between them and the norms on the Chebyshev grid. The degree d
+and the uniform size rule were measured in Phase 0 T3 (`spikes/transfers/REPORT.md`).
+Unlike §1–§11, §12 precedes the code that implements it (§9); its tests are planned.
+
+- Domain Ω = [−1, 1]². The model's coordinates ξ ∈ [0, 1] (§2) map to it by x = 2ξ − 1.
+- Chebyshev–Gauss–Lobatto nodes, n per axis (n = 2^k + 1), in **ascending** order, both
+  endpoints included:
+
+  ```math
+  x_j = -\cos\Big(\frac{\pi j}{n - 1}\Big), \qquad j = 0, \dots, n - 1
+  ```
+
+  RLST's `chebychev_points(Kind::Second, n)` is descending; the tests reverse it to
+  compare.
+- Fields are stored 'ij': `F[i, j] = f(x_i, y_j)`, the first spatial axis is x and the
+  second is y, as in `data::grids`. The same holds on the uniform grid.
+- Uniform grid: s = n − 1 points per axis, both endpoints included, so it is §2's grid
+  mapped to Ω (n = 33, 65, 129, 257 gives s = 32, 64, 128, 256):
+
+  ```math
+  \tilde x_j = -1 + \frac{2j}{s - 1}, \qquad j = 0, \dots, s - 1
+  ```
+
+- Both transfers are rational barycentric interpolants with nodes z_k and weights w_k,
+  evaluated as dense 1D matrices per (n, s), built once in f64 and applied along each
+  axis, T F Tᵀ. A target equal to a node takes that node's value.
+
+  ```math
+  p(x) = \frac{\sum_k \frac{w_k}{x - z_k}\, f_k}{\sum_k \frac{w_k}{x - z_k}}
+  ```
+
+- Chebyshev → uniform, T_cu: polynomial interpolation on the CGL nodes, second-kind
+  weights, w_j = (−1)^j δ_j with δ_0 = δ_{n−1} = 1/2 and δ_j = 1 otherwise.
+- Uniform → Chebyshev, T_uc: Floater–Hormann interpolation of degree **d = 2** on the
+  uniform nodes (N = s − 1), with weights
+
+  ```math
+  w_k = (-1)^{k-d} \sum_{i \in J_k} \prod_{\substack{j = i \\ j \ne k}}^{i + d}
+  \frac{1}{\lvert \tilde x_k - \tilde x_j \rvert}, \qquad
+  J_k = \{\, i : \max(0, k - d) \le i \le \min(k, N - d) \,\}
+  ```
+
+  d is chosen on the solution u, the field T_uc acts on (design §12, decision 8).
+- Norms on the Chebyshev grid use tensor-product Clenshaw–Curtis weights w_i, exact for
+  polynomials of degree ≤ n − 1:
+
+  ```math
+  \lVert v \rVert_{L^2(\Omega)}^2 \approx \sum_{i, j} w_i\, w_j\, v(x_i, y_j)^2
+  ```
+
+  Norms on the uniform grid stay `LpLoss` (§11).
+- Reference data (nodes, transfer matrices, solver output, dataset files) are f64 on the
+  host; the model sees f32 after normalisation (§8, §10).
+
+### Verification
+All planned; they land in Phase 1 T1 and Phase 2 T1 (design §10, §11).
+- Phase 1 T1 (planned): `cgl_nodes_ascending_match_rlst_reversed`,
+  `clenshaw_curtis_exact_on_polynomials`.
+- Phase 2 T1 (planned): `uniform_grid_has_endpoints_and_n_minus_1_points`,
+  `cheb_bary_weights_match_closed_form`, `cheb_to_uniform_matches_rlst_barycentric`,
+  `fh_reproduces_polynomials_to_degree_d`,
+  `transfers_preserve_ij_layout`.
