@@ -41,6 +41,11 @@ mod tests {
                 if j > 0 {
                     assert!(x[j] > x[j - 1], "n={n}: not ascending at j={j}");
                 }
+                // Symmetric about 0; for odd n the middle node is 0 up to round-off.
+                assert!(
+                    (x[j] + x[n - 1 - j]).abs() <= 1e-15,
+                    "n={n} j={j}: not symmetric"
+                );
             }
         }
     }

@@ -61,6 +61,27 @@ mod tests {
     }
 
     #[test]
+    fn clenshaw_curtis_symmetric_and_positive() {
+        for n in [2, 3, 4, 9, 33, 65, 129, 257] {
+            let w = clenshaw_curtis(n);
+            for j in 0..n {
+                assert!(w[j] > 0.0, "n={n} j={j}: {}", w[j]);
+                assert!(
+                    (w[j] - w[n - 1 - j]).abs() <= 1e-15,
+                    "n={n} j={j}: {} vs {}",
+                    w[j],
+                    w[n - 1 - j]
+                );
+            }
+        }
+        // n = 3 is Simpson's rule.
+        let w = clenshaw_curtis(3);
+        for (v, e) in w.iter().zip([1.0 / 3.0, 4.0 / 3.0, 1.0 / 3.0]) {
+            assert!((v - e).abs() <= 1e-15, "{w}");
+        }
+    }
+
+    #[test]
     #[should_panic(expected = "n must be >= 2")]
     fn clenshaw_curtis_panics_below_two() {
         clenshaw_curtis(1);

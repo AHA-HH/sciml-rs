@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn diff_matrix_matches_closed_form() {
-        for n in [2, 3, 9, 33, 65] {
+        for n in [2, 3, 9, 33, 65, 129, 257] {
             let d = diff_matrix(n);
             let exact = cheb_closed_form(n);
             let scale = max_abs(&exact);
@@ -104,7 +104,7 @@ mod tests {
     // errors of 7.2e-10 at n = 65 from round-off alone (T1 brief).
     #[test]
     fn d2_exact_on_polynomials() {
-        for n in [9, 17, 33, 65] {
+        for n in [9, 17, 33, 65, 129, 257] {
             let nn = (n - 1) as f64;
             let x = Array1::from_shape_fn(n, |j| -(PI * j as f64 / nn).cos());
             let d2 = diff2_matrix(n);
@@ -133,9 +133,40 @@ mod tests {
         }
     }
 
+    // Much tighter than the ‖D²‖_∞-scaled bound above: catches a wrong derivative
+    // order or a wrong reordering of D².
+    #[test]
+    fn diff2_matrix_equals_d_squared() {
+        for n in [2, 3, 9, 33, 65, 129, 257] {
+            let d = diff_matrix(n);
+            let d2 = diff2_matrix(n);
+            let err = max_abs(&(&d.dot(&d) - &d2)) / max_abs(&d2).max(1.0);
+            assert!(err <= 1e-12, "n={n}: ‖D·D − D²‖_max relative {err:e}");
+        }
+    }
+
+    #[test]
+    fn diff2_matrix_small_n() {
+        // n = 2: interpolants are linear, so D² = 0.
+        assert!(max_abs(&diff2_matrix(2)) <= 1e-14);
+        // n = 3: nodes −1, 0, 1 and the quadratic interpolant has p'' = v_0 − 2v_1 + v_2.
+        let d2 = diff2_matrix(3);
+        for row in d2.rows() {
+            for (v, e) in row.iter().zip([1.0, -2.0, 1.0]) {
+                assert!((v - e).abs() <= 1e-14, "{d2}");
+            }
+        }
+    }
+
     #[test]
     #[should_panic(expected = "n must be >= 2")]
     fn diff_matrix_panics_below_two() {
         diff_matrix(1);
+    }
+
+    #[test]
+    #[should_panic(expected = "n must be >= 2")]
+    fn diff2_matrix_panics_below_two() {
+        diff2_matrix(1);
     }
 }
