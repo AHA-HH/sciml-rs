@@ -8,10 +8,14 @@
 //! with D_xx, D_yy the interior blocks of D² along x and y. Each block is diagonalised
 //! once, D_xx = V_x Λ V_x⁻¹ and D_yy = V_y M V_y⁻¹, so a solve is four matrix products
 //! and a pointwise division (design §12, decision 10).
+//!
+//! V⁻¹ comes from the left eigenvectors, not from an LU-based inverse: OpenBLAS's
+//! threaded `getrf` (m·n ≥ 10⁴, so n ≥ 103 here) can put a scratch array on the calling
+//! thread's stack and overflow a 2 MB thread, as test and rayon worker threads have.
 
 use ndarray::{Array2, ArrayView2, s};
 use rlst::dense::linalg::lapack::eigenvalue_decomposition::EigMode;
-use rlst::{DynArray, EigenvalueDecomposition, Inverse};
+use rlst::{DynArray, EigenvalueDecomposition};
 
 use crate::neural_operators::chebyshev::diff2_matrix;
 
@@ -19,6 +23,10 @@ use crate::neural_operators::chebyshev::diff2_matrix;
 /// to the largest |λ| for eigenvalues, absolute for the entries of the unit-norm
 /// eigenvectors. Phase 0 T4 measured exactly 0.
 const IMAG_TOL: f64 = 1e-10;
+
+/// Smallest accepted |u_jᵀ v_j| for unit-norm left and right eigenvectors, i.e. the
+/// reciprocal of the largest accepted eigenvalue condition number.
+const BIORTH_TOL: f64 = 1e-12;
 
 /// Collocation solver for −Δu = f on [−1, 1]², u = 0 on the boundary, on an
 /// `[n_x, n_y]` CGL grid stored 'ij' (CONVENTIONS §12; design §4.1–4.2).
@@ -55,34 +63,29 @@ impl CollocationSolver {
     ///
     /// # Panics
     /// If `nx < 3` or `ny < 3` (no interior nodes); if an eigenvalue has an imaginary
-    /// part above 1e-10 · max|λ|, or an entry of a unit-norm eigenvector one above 1e-10;
-    /// or if LAPACK fails.
+    /// part above 1e-10 · max|λ|, or an entry of a unit-norm left or right eigenvector
+    /// one above 1e-10; if a left and right eigenvector pair has |u_jᵀ v_j| below 1e-12
+    /// (eigenvalue condition number above 1e12); or if LAPACK fails.
     pub fn new(nx: usize, ny: usize) -> Self {
         assert!(
             nx >= 3 && ny >= 3,
             "CollocationSolver::new: nx and ny must be >= 3 (interior nodes), got [{nx}, {ny}]"
         );
-        let (lx, vx, _) = real_eig(&interior_d2(nx));
-        let (ly, vy, _) = real_eig(&interior_d2(ny));
-        let vx_inv = vx
-            .inverse()
-            .expect("CollocationSolver::new: V_x is singular");
-        let vy_inv = vy
-            .inverse()
-            .expect("CollocationSolver::new: V_y is singular");
-        let mut inv_denom = DynArray::<f64, 2>::from_shape([lx.len(), ly.len()]);
-        for (i, a) in lx.iter().enumerate() {
-            for (j, b) in ly.iter().enumerate() {
+        let ex = real_eig(&interior_d2(nx));
+        let ey = real_eig(&interior_d2(ny));
+        let mut inv_denom = DynArray::<f64, 2>::from_shape([ex.lam.len(), ey.lam.len()]);
+        for (i, a) in ex.lam.iter().enumerate() {
+            for (j, b) in ey.lam.iter().enumerate() {
                 inv_denom[[i, j]] = -1.0 / (a + b);
             }
         }
         Self {
             nx,
             ny,
-            vy_t: transpose(&vy),
-            vy_inv_t: transpose(&vy_inv),
-            vx,
-            vx_inv,
+            vy_t: transpose(&ey.v),
+            vy_inv_t: transpose(&ey.v_inv),
+            vx: ex.v,
+            vx_inv: ex.v_inv,
             inv_denom,
         }
     }
@@ -91,8 +94,7 @@ impl CollocationSolver {
     /// U = V_x Û V_yᵀ (design §4.2).
     ///
     /// `f_interior: [n_x − 2, n_y − 2]` is f at the interior nodes, 'ij' (CONVENTIONS
-    /// §12). Returns u at
-    /// the same nodes, same shape.
+    /// §12). Returns u at the same nodes, same shape.
     ///
     /// # Panics
     /// If `f_interior` is not `[n_x − 2, n_y − 2]`.
@@ -139,38 +141,86 @@ fn interior_d2(n: usize) -> Array2<f64> {
     diff2_matrix(n).slice(s![1..n - 1, 1..n - 1]).to_owned()
 }
 
-/// Real eigenvalues and eigenvectors (columns) of `d`, and the discarded imaginary
-/// parts: (max |Im λ| / max |λ|, max |Im v|).
-fn real_eig(d: &Array2<f64>) -> (Vec<f64>, DynArray<f64, 2>, (f64, f64)) {
+/// Real eigendecomposition d = V diag(λ) V⁻¹ of an interior D² block.
+struct RealEig {
+    /// Eigenvalues λ_j.
+    lam: Vec<f64>,
+    /// Right eigenvectors v_j as columns, unit 2-norm.
+    v: DynArray<f64, 2>,
+    /// V⁻¹, with row j = u_jᵀ / (u_jᵀ v_j).
+    v_inv: DynArray<f64, 2>,
+    /// Discarded imaginary parts: max |Im λ| / max |λ|.
+    im_lam: f64,
+    /// Discarded imaginary parts: max |Im| over the entries of V and U.
+    im_vec: f64,
+    /// min_j |u_jᵀ v_j|, the reciprocal of the largest eigenvalue condition number.
+    min_biorth: f64,
+}
+
+/// Real eigenvalues, right eigenvectors and V⁻¹ of `d: [m, m]`.
+///
+/// LAPACK's left eigenvectors satisfy u_jᵀ d = λ_j u_jᵀ and are paired with v_j by
+/// column. For distinct eigenvalues u_iᵀ v_j = 0 when i ≠ j, so
+/// V⁻¹ = diag(1 / u_jᵀ v_j) Uᵀ without a factorisation.
+fn real_eig(d: &Array2<f64>) -> RealEig {
     let m = d.nrows();
-    // `RightEigenvectors` panics in rlst 0.9.0: `eig` passes `ldvl = n` without a
-    // left-vector buffer and the geev wrapper asserts `ldvl == 1`. The left vectors are
-    // computed and discarded, a setup-only cost.
-    let (lam, v, _) = to_dyn(d.view())
+    // `RightEigenvectors` alone would also panic in rlst 0.9.0 (`eig` passes `ldvl = n`
+    // without a left-vector buffer and the geev wrapper asserts `ldvl == 1`), but the
+    // left vectors are needed for V⁻¹ in any case.
+    let (lam, v, u) = to_dyn(d.view())
         .eig(EigMode::BothEigenvectors)
         .expect("CollocationSolver::new: eig of the interior D² failed");
     let v = v.expect("CollocationSolver::new: eig returned no right eigenvectors");
+    let u = u.expect("CollocationSolver::new: eig returned no left eigenvectors");
     let scale = (0..m).fold(0.0_f64, |a, i| a.max(lam[[i]].norm()));
     let mut im_lam = 0.0_f64;
-    let mut im_v = 0.0_f64;
+    let mut im_vec = 0.0_f64;
     let mut v_re = DynArray::<f64, 2>::from_shape([m, m]);
+    let mut v_inv = DynArray::<f64, 2>::from_shape([m, m]);
+    let mut min_biorth = f64::INFINITY;
     for j in 0..m {
         im_lam = im_lam.max(lam[[j]].im.abs());
+        let mut s_j = 0.0;
         for i in 0..m {
             v_re[[i, j]] = v[[i, j]].re;
-            im_v = im_v.max(v[[i, j]].im.abs());
+            im_vec = im_vec.max(v[[i, j]].im.abs()).max(u[[i, j]].im.abs());
+            s_j += u[[i, j]].re * v[[i, j]].re;
+        }
+        min_biorth = min_biorth.min(s_j.abs());
+        for i in 0..m {
+            v_inv[[j, i]] = u[[i, j]].re / s_j;
         }
     }
-    assert!(
-        im_lam <= IMAG_TOL * scale && im_v <= IMAG_TOL,
-        "CollocationSolver::new: complex eigenpairs of the interior D² \
-         (max |Im λ| = {im_lam:e}, max |Im v| = {im_v:e})"
-    );
-    (
-        (0..m).map(|i| lam[[i]].re).collect(),
-        v_re,
-        (im_lam / scale, im_v),
-    )
+    RealEig {
+        lam: (0..m).map(|i| lam[[i]].re).collect(),
+        v: v_re,
+        v_inv,
+        im_lam: im_lam / scale,
+        im_vec,
+        min_biorth,
+    }
+    .checked()
+}
+
+impl RealEig {
+    /// Panics if a discarded imaginary part exceeds `IMAG_TOL` or a left and right
+    /// eigenvector pair is closer than `BIORTH_TOL` to orthogonal; returns `self`.
+    fn checked(self) -> Self {
+        assert!(
+            self.im_lam <= IMAG_TOL && self.im_vec <= IMAG_TOL,
+            "CollocationSolver::new: complex eigenpairs of the interior D² \
+             (max |Im λ| / max |λ| = {:e}, max |Im v|, |Im u| = {:e})",
+            self.im_lam,
+            self.im_vec
+        );
+        assert!(
+            self.min_biorth >= BIORTH_TOL,
+            "CollocationSolver::new: ill-conditioned eigenvalue of the interior D² \
+             (min |u_jᵀ v_j| = {:e})",
+            self.min_biorth
+        );
+        self
+    }
 }
 
 /// ndarray → rlst (column-major) copy.
@@ -361,18 +411,64 @@ mod tests {
         }
     }
 
+    /// Runs `f` on a thread with a 64 MB stack and re-raises its panic. The dense LU of
+    /// option B goes through OpenBLAS's threaded `getrf`, which can overflow the 2 MB
+    /// test thread (see the module docs).
+    fn with_large_stack(f: impl FnOnce() + Send + 'static) {
+        let handle = std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(f)
+            .expect("spawn a large-stack test thread");
+        if let Err(panic) = handle.join() {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
     #[test]
     fn agrees_with_kronecker_lu() {
-        let forcing = |x: f64, y: f64| x.exp() * (2.0 * y).cos() + x * y;
-        for n in [9, 17, 33] {
-            let f = sample(n, n, forcing)
-                .slice(s![1..n - 1, 1..n - 1])
-                .to_owned();
-            let a = CollocationSolver::new(n, n).solve(f.view());
-            let b = kron_lu(n, n, &f);
-            let e = rel_max(&a, &b);
-            println!("A against B, n = {n:2}: {e:.1e}");
-            assert!(e <= 1e-10, "n = {n}: {e:e}");
+        with_large_stack(|| {
+            let forcing = |x: f64, y: f64| x.exp() * (2.0 * y).cos() + x * y;
+            for n in [9, 17, 33] {
+                let f = sample(n, n, forcing)
+                    .slice(s![1..n - 1, 1..n - 1])
+                    .to_owned();
+                let a = CollocationSolver::new(n, n).solve(f.view());
+                let b = kron_lu(n, n, &f);
+                let e = rel_max(&a, &b);
+                println!("A against B, n = {n:2}: {e:.1e}");
+                assert!(e <= 1e-10, "n = {n}: {e:e}");
+            }
+        });
+    }
+
+    /// max |a| over the entries.
+    fn max_abs(a: &Array2<f64>) -> f64 {
+        a.iter().fold(0.0_f64, |m, v| m.max(v.abs()))
+    }
+
+    /// Infinity norm (max row sum of |entries|).
+    fn norm_inf(a: &Array2<f64>) -> f64 {
+        a.rows()
+            .into_iter()
+            .map(|r| r.iter().map(|v| v.abs()).sum::<f64>())
+            .fold(0.0, f64::max)
+    }
+
+    #[test]
+    fn residual_at_round_off() {
+        // Scaled residual of −D_xx U − U D_yyᵀ = F on the interior:
+        // ‖R‖ / ((‖D_xx‖_∞ + ‖D_yy‖_∞) ‖U‖ + ‖F‖), max norms.
+        for m in [&SIN, &POLY, &EXP] {
+            for n in [9, 17, 33, 65, 129] {
+                let d = interior_d2(n);
+                let f = sample(n, n, m.f).slice(s![1..n - 1, 1..n - 1]).to_owned();
+                let u = CollocationSolver::new(n, n).solve(f.view());
+                let r = -(d.dot(&u) + u.dot(&d.t())) - &f;
+                let scale = 2.0 * norm_inf(&d) * max_abs(&u) + max_abs(&f);
+                let e = max_abs(&r) / scale;
+                println!("{:22} n = {n:3}: scaled residual {e:.1e}", m.name);
+                assert!(e <= 1e-14, "{} at n = {n}: {e:e}", m.name);
+            }
         }
     }
 
@@ -423,9 +519,33 @@ mod tests {
     #[test]
     fn eigenpairs_are_real() {
         for n in [9, 17, 33, 65, 129] {
-            let (_, _, (im_lam, im_v)) = real_eig(&interior_d2(n));
-            println!("n = {n:3}: max |Im λ| / max |λ| = {im_lam:e}, max |Im v| = {im_v:e}");
-            assert!(im_lam <= IMAG_TOL && im_v <= IMAG_TOL, "n = {n}");
+            let e = real_eig(&interior_d2(n));
+            println!(
+                "n = {n:3}: max |Im λ| / max |λ| = {:e}, max |Im v|, |Im u| = {:e}",
+                e.im_lam, e.im_vec
+            );
+            assert!(e.im_lam <= IMAG_TOL && e.im_vec <= IMAG_TOL, "n = {n}");
+        }
+    }
+
+    #[test]
+    fn left_vectors_give_v_inverse() {
+        for n in [9, 17, 33, 65, 129] {
+            let d = interior_d2(n);
+            let e = real_eig(&d);
+            let (v, v_inv) = (from_dyn(&e.v), from_dyn(&e.v_inv));
+            let eye = Array2::<f64>::eye(n - 2);
+            let left = max_abs(&(v_inv.dot(&v) - &eye));
+            let right = max_abs(&(v.dot(&v_inv) - &eye));
+            let lam = Array2::from_diag(&ndarray::Array1::from(e.lam.clone()));
+            let recon = max_abs(&(v.dot(&lam).dot(&v_inv) - &d)) / max_abs(&d);
+            println!(
+                "n = {n:3}: min |u_jᵀ v_j| {:.1e}, |V⁻¹V − I| {left:.1e}, \
+                 |VV⁻¹ − I| {right:.1e}, |VΛV⁻¹ − D| / |D| {recon:.1e}",
+                e.min_biorth
+            );
+            assert!(left <= 1e-10 && right <= 1e-10, "n = {n}");
+            assert!(recon <= 1e-12, "n = {n}: {recon:e}");
         }
     }
 
