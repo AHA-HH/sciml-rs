@@ -45,7 +45,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - `src/neural_operators/chebyshev/` (behind the `chebyshev` feature; needs system libfftw3):
   CGL `nodes`, `diff_matrix`/`diff2_matrix`, `clenshaw_curtis`, `l2_norm`/`rel_l2_error`.
 - `src/neural_operators/pde/poisson/` (behind `chebyshev`): `collocation`
-  (`CollocationSolver`, solver A, fast diagonalisation).
+  (`CollocationSolver`, solver A, fast diagonalisation); `sparse` (`SparseSolver`, solver C,
+  Q1 + unpreconditioned CG, validation oracle only); `manufactured` (test-only fixtures).
 - `spikes/`: standalone packages for Phase 0 measurements; never built by CI.
 - Unit tests sit in `#[cfg(test)] mod tests` in each file. `tests/spectral_init.rs` reseeds
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each
