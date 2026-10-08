@@ -7,5 +7,7 @@ pub mod layers;
 pub mod losses;
 pub mod metrics;
 pub mod models;
+#[cfg(feature = "chebyshev")]
+pub mod pde;
 pub mod training;
 pub mod utils;
