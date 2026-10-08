@@ -68,7 +68,7 @@ Filled in as tasks merge. Phase 0 is done when every row has a value.
       locally on macOS.
 - [x] T3 and T4 merged, each with its `REPORT.md`.
 - [x] Every row of Results filled in.
-- [ ] T1 merged: `docs/CONVENTIONS.md` has §12, and `CONVENTION_VERSION` is still 1.
+- [x] T1 merged: `docs/CONVENTIONS.md` has §12, and `CONVENTION_VERSION` is still 1.
 - [x] Any result that contradicts the design is recorded in the design's §12 under
       "Recorded decisions", dated, before Phase 1 is planned.
-- [ ] The "Current phase" bullet in `CLAUDE.md` points to `docs/phase1/README.md`.
+- [x] The "Current phase" bullet in `CLAUDE.md` points to `docs/phase1/README.md`.

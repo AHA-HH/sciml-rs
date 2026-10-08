@@ -1,7 +1,7 @@
 # Learning the 2D Poisson solution operator on a Chebyshev grid
 
-As of 2026-10-05. Status: **signed off** on 2026-10-05 by the author (AHA-HH). The
-decisions are recorded in Section 12. This document is the specification for the phase
+As of 2026-10-05. Status: **signed off** on 2026-10-05 by the author (AHA-HH);
+amended 2026-10-08 after Phase 0 (decision 10). The decisions are recorded in Section 12. This document is the specification for the phase
 plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -13,9 +13,10 @@ existing sections.
 
 In one paragraph: forcings f are Gaussian random fields, sampled exactly at
 Chebyshev–Gauss–Lobatto nodes from a truncated sine series. Reference solutions u are
-computed in f64 by Chebyshev collocation, solved as a dense Sylvester equation with RLST.
-A sparse, symmetric second-order discretisation solved by RLST's conjugate gradients serves
-as an independent cross-check and as the iterative path towards larger problems. Both fields
+computed in f64 by Chebyshev collocation, solved by fast diagonalisation on RLST's dense
+eigendecomposition, and checked against the exact sine-series solution. A sparse, symmetric
+second-order discretisation (Q1) solved by RLST's conjugate gradients serves as an
+independent cross-check. Both fields
 are interpolated barycentrically to a uniform grid, and the existing FNO is trained there
 unchanged. Predictions are mapped back to the Chebyshev nodes with Floater–Hormann rational
 interpolation. Solver, transfer and model errors are reported separately. Resolutions are
@@ -100,6 +101,11 @@ Citations are to its sources.
     (`decompositions.rs:268–283`, `dense/linalg/lapack/sylvester.rs:94–99`). Callers
     must check `status()` and `scale()`.
   - LU, Cholesky, symmetric `eigh` and general `eig` are also available.
+    `eig(EigMode::RightEigenvectors)` panics on every input in 0.9.0;
+    `BothEigenvectors` works (Phase 0 T4, `spikes/solver/REPORT.md`).
+  - Phase 0 T4 chose fast diagonalisation over `solve_sylvester`, which recomputes both
+    Schur forms on every call and, even with reuse, is 9.8× slower per solve at n = 257
+    (decision 10).
 - **Sparse matrices and iterative solvers.**
   - `CsrMatrix::from_aij` assembles from triplets, summing duplicates
     (`sparse/csr_mat.rs:135–141`).
@@ -127,7 +133,7 @@ Citations are to its sources.
 | # | Requirement | How the design meets it | Change? |
 | --- | --- | --- | --- |
 | 1 | Learn f ↦ u for −Δu = f on Ω = [−1, 1]², u = 0 on ∂Ω, with data on a Chebyshev grid | §3, §6 | – |
-| 2 | Reference solver in Rust, on RLST | Collocation as a Sylvester / fast-diagonalisation solve on RLST's dense primitives; sparse SPD + `CgIteration` as validation oracle (§4) | new module |
+| 2 | Reference solver in Rust, on RLST | Collocation solved by fast diagonalisation on RLST's `eig`; sparse SPD Q1 + `CgIteration` as validation oracle (§4) | new module |
 | 3 | No FFTW in the build | Nodes, differentiation matrices and transfers built in this crate; RLST's `fftw` features off (§9) | – |
 | 4 | Default build and licence unchanged | RLST and the BLAS provider behind an optional feature `chebyshev` (§9) | `Cargo.toml` |
 | 5 | Existing FNO unchanged in the baseline | Interpolate to a uniform grid (§6) | none |
@@ -188,6 +194,9 @@ S_K = \frac{1}{4}\sum_{k, l = 1}^{K} \lambda_{kl}, \quad \xi_{kl} \sim \mathcal{
   truncation of the same sample at a larger K, apart from the normalisation factor.
 - **Exact evaluation:** the series is evaluated at the nodes directly, with no FFT and
   no interpolation, at a cost of O(K² n²) per sample.
+- **Explicit K override:** K(n) below is the default. A dataset may set K explicitly,
+  recorded in its sidecar; this is used only for the K = 32 evaluation sets of §5.3, so
+  that a model trained at 65² is tested on the same fields at finer grids.
 - **Truncation scales with resolution:** K(n) = min((n − 1)/2, 64). That gives K = 16 at
   33², 32 at 65², and 64 at 129² and 257². K = 64 is the maximum production truncation,
   so the 129² and 257² datasets contain the same fields, which is what the resolution
@@ -227,7 +236,7 @@ with equal weights, as today.
 
 | Option | Matrix | RLST routine | Accuracy | Cost (n per axis) |
 | --- | --- | --- | --- | --- |
-| A. Chebyshev collocation, interior equations as a Sylvester equation | dense, non-symmetric, κ = O(n⁴) | `solve_sylvester` | spectral | O(n³) |
+| A. Chebyshev collocation, interior equations as a Sylvester equation | dense, non-symmetric, κ = O(n⁴) | `eig` (fast diagonalisation); `solve_sylvester` measured and ruled out | spectral | O(n³) setup, O(n³) per solve in four GEMMs |
 | B. Collocation as one Kronecker-sum system | dense (n − 2)² square | LU `solve` | spectral | O(n⁶): only n ≤ 65 |
 | C. Second-order finite volume or Q1 FEM on the CGL tensor mesh | sparse, **SPD**, 5 or 9 points | `CsrMatrix` + `CgIteration` | O(h_max²) | O(n² · iterations); no preconditioner, so about n iterations or more |
 | D. Collocation solved by GMRES, preconditioned by C (Orszag 1980) | dense apply + sparse preconditioner | `GmresIteration` + custom `OperatorBase` | spectral | needs an inner solve with C at every iteration |
@@ -246,25 +255,34 @@ that rectangular grids work. Boundary values are zero, so they drop out.
 ### 4.2 Decision
 
 - **Authoritative training labels: A.** Spectral accuracy, f64, O(n³).
-  - The equation is solved as a Sylvester equation, or equivalently by fast
-    diagonalisation, built on RLST's dense primitives.
-  - The design does not assume that RLST provides a public Sylvester routine.
-    `solve_sylvester` was found and run in rlst 0.9.0 (§1.3), but Phase 0 T2 re-verifies
-    it against the pinned version's public API.
-  - Whatever RLST provides, the problem-specific wrapper lives in this crate,
-    `pde::poisson::collocation`. It uses `solve_sylvester` if it is public, and otherwise
-    fast diagonalisation from RLST's `eig` and dense matrix products.
-  - The factorisation of D_xx and D_yy is computed once and reused for every sample. At
-    257² this is what keeps thousands of solves cheap.
-- **Independent validation oracle and future iterative path: C.**
-  - A sparse SPD finite-volume or Q1 finite-element discretisation on the CGL tensor mesh,
-    solved with RLST's CG. It runs on selected cases (the manufactured solutions and a
-    sample of the GRF forcings), not on every sample.
+  - The equation is solved by fast diagonalisation (Phase 0 T4, decision 10): at setup,
+    D_xx = V Λ V⁻¹ from rlst's `eig(BothEigenvectors)` (`RightEigenvectors` panics in
+    rlst 0.9.0; the left vectors are discarded); each solve is Ĝ = V_x⁻¹ F V_y⁻ᵀ, a
+    pointwise division by −(λ_i + μ_j), and U = V_x Û V_yᵀ.
+  - The Sylvester route is ruled out: `solve_sylvester` recomputes both Schur forms on
+    every call, and even with the Schur forms reused (`trsyl` directly) it is 9.8× slower
+    per solve at n = 257 and agrees with fast diagonalisation only to 1.2e-12.
+  - The problem-specific wrapper lives in this crate, `pde::poisson::collocation`.
+  - The eigendecomposition of D_xx and D_yy is computed once and reused for every sample.
+    At 257² setup is 36 ms and a solve 0.6 ms, so 1200 samples take about 1.6 s with the
+    GRF evaluation.
+- **Independent validation oracle: C.**
+  - A sparse SPD Q1 finite-element discretisation (consistent mass and load) on the CGL
+    tensor mesh, solved with RLST's CG to relative residual 1e-6 (Phase 0 T4). It runs on
+    selected cases (the manufactured solutions and a sample of the GRF forcings), not on
+    every sample. Finite volume was equally second order and slightly faster and more
+    accurate, but the T4 rule (fewest CG iterations) chose Q1; the margin is under 1.5%.
   - The two solutions are compared on a common grid: C's solution lives on the CGL nodes
     themselves, so no interpolation is needed. The difference must decrease at C's second
     order as n grows.
-  - C never produces training labels. It is also the path that extends to 3D and
-    distributed grids, where dense solves stop scaling.
+  - C never produces training labels. It is the discretisation that extends to 3D and
+    distributed grids, where dense solves stop scaling, but not yet as it stands:
+    unpreconditioned CG needs about 3× more iterations per doubling of n (2189–4731 at
+    257² for tol 1e-13), so scaling needs a preconditioner first.
+  - Q1 is hand-written: on the tensor CGL mesh the matrix is exactly K₁ ⊗ M₁ + M₁ ⊗ K₁
+    from the 1D P1 stiffness and mass. The `nd` crates (ndelement, ndmesh,
+    ndfunctionspace) are the intended finite-element layer once C needs unstructured, 3D
+    or distributed meshes, but they cannot be used yet (decision 11).
 - **Not now: B** (only as a test oracle at n ≤ 33), **D** (only if A's cost becomes a
   problem), and **E** (needs transforms we do not have).
 
@@ -272,8 +290,13 @@ that rectangular grids work. Boundary values are zero, so they drop out.
 
 - **Manufactured solutions.** u = sin(πx) sin(πy), with f = 2π² u; the polynomial
   u = (1 − x²)(1 − y²)(x + y²); and a non-symmetric one, u = (1 − x²)(1 − y²) e^(x + 2y).
-- **Option A** reaches its f64 floor by n = 33 on the first two. A convergence study
-  over n = 9..129 must show spectral decay down to a stated floor.
+- **Option A** reaches its f64 floor by n = 33 on the first two (T4: 1.1e-14 and
+  1.2e-14). A convergence study over n = 9..129 must show spectral decay down to a stated
+  floor.
+- **Option A on GRF forcings** matches the exact sine-series solution of the truncated
+  forcing, u = Σ c_kl / μ_kl · sin · sin with c_kl the forcing coefficients: T4 measured at
+  most 7.4e-10 relative CC-L² at n = 65 and 1.9e-12 at n ≥ 129 (2.5e-7 at n = 33,
+  stage 1). This is both a test oracle and a per-sample label check (§5.1).
 - **Option C** must show order 2 on the same functions.
 - **A against B** agree to round-off at n ≤ 33.
 - **D^(2)** is checked against Trefethen's `cheb` formulas, and on polynomials, where it
@@ -287,7 +310,15 @@ A new example, `generate_poisson` (feature `chebyshev`), writes for each resolut
 
 - one `.npz` per split, with fields `f` and `u`, `[N, n, n]`, f64;
 - fields `x` and `y` holding the nodes;
-- a JSON sidecar recording (K, τ, α), the seeds, n and the git commit.
+- a JSON sidecar recording (K, τ, α), whether K was set explicitly (§3.3), the seeds, n,
+  the git commit and the label check below.
+
+**Label check.** For every sample the generator also evaluates the exact sine-series
+solution of the truncated forcing (coefficients c_kl / μ_kl, §4.3) at the nodes and
+computes the relative Clenshaw–Curtis L² discrepancy ‖u_A − u_series‖ / ‖u_series‖. The
+maximum and mean per split go into the sidecar. For n ≥ 65 the generator aborts if any
+sample exceeds 1e-8 (T4 observed at most 7.4e-10 at 65 and 1.9e-12 at n ≥ 129). Stage 1
+(n = 33) records the value but does not check it.
 
 Sample i of a split uses seed `base_seed + i`, and the train and test bases differ.
 Reading uses the existing `.npz` reader. Writing uses `ndarray-npy` (already a
@@ -311,6 +342,20 @@ raw (CONVENTIONS §10). It reads `.npz` and applies the Chebyshev → uniform tr
 
 Sizes: 1000 train / 200 test per resolution (as Li et al.), from the same seeds at every
 resolution.
+
+**K = 32 evaluation sets.** For the resolution study (§7), two extra test sets hold the
+65² test fields (K = 32, explicit override, the 65² test seeds) at finer grids:
+
+| Set | Chebyshev n | K | Samples | Purpose |
+| --- | --- | --- | --- | --- |
+| 3e | 129 | 32 | 200 test | evaluate a 65²-trained model at 129² |
+| 4e | 257 | 32 | 200 test | evaluate a 65²-trained model at 257² |
+
+The K = 64 sets of stages 3–4 stay for the 129 → 257 study. Generation is cheap (about
+1.6 s for 1200 samples at 257², T4), so these sets can be made wherever Phase 4 needs them.
+
+**Storage** (f64, f + u, 1200 samples): about 80 MB at 65², 320 MB at 129² and 1.27 GB
+at 257². Each 200-sample K = 32 set is about 53 MB at 129² and 211 MB at 257².
 
 **Note on the uniform sizes.** The FFT in this crate accepts any length (Bluestein,
 CONVENTIONS §4), and padding already makes the extent non-power-of-two. A uniform grid of
@@ -354,17 +399,29 @@ Decision 2.
 - Training on the uniform grid as today: `LpLoss::rel` (p = 2), Adam with cosine
   schedule, FNO modes [12, 12], width 32, 4 layers. Padding `Some(p)` because the problem
   is not periodic; p is chosen in Phase 3 (Darcy uses 9 at s = 85).
-- **Errors reported**, each as a relative L² error over the test set (mean and maximum):
+- **Errors reported**, over the test set (mean and maximum); 1–4 are relative L² errors:
   1. **solver:** A against manufactured solutions (§4.3), and A against C as h → 0;
   2. **transfer:** T_uc(T_cu u) − u on the Chebyshev grid, for the test u;
   3. **model:** prediction against T_cu u on the uniform grid (the training metric);
   4. **total:** T_uc(prediction) against u on the Chebyshev grid, with Clenshaw–Curtis
-     weights (§3.4).
+     weights (§3.4);
+  5. **boundary:** T_uc(prediction) on the boundary nodes of the Chebyshev grid, where the
+     exact value is 0, reported as max |û| / max |u| and as an RMS over ∂Ω.
+- **Boundary condition.** The FNO does not enforce u = 0 on ∂Ω, so the Phase 3 baseline
+  uses the unchanged FNO and measures the boundary error (error 5) separately. A
+  hard-constraint ablation, the output multiplied by (1 − x²)(1 − y²) after
+  denormalisation, is considered only if Phase 3 T2's boundary error is meaningful against
+  the total error. Phase 3 T2 sets that threshold.
 - **Expectation, to calibrate tests and not as a target:** FNO relative L² errors around
   1e-2 on smooth elliptic problems (Li et al. 2021, Darcy 0.0108 at 85²). Transfer errors
-  should sit well below that; Phase 0 confirms it.
-- **Resolution study (stage 4):** train at 65 or 129, evaluate at 129 and 257 on the same
-  seeds.
+  sit well below that: Phase 0 T3 measured the round trip on u at most 3.6e-5 at 65²,
+  4.4e-6 at 129² and 4.8e-7 at 257² (d = 2), so about 1e-5 against a model error of about
+  1e-2.
+- **Resolution study (stage 4), in two parts, on the same seeds throughout:**
+  1. train at 65 (K = 32), evaluate on the K = 32 sets at 129 and 257 (§5.3);
+  2. train at 129 (K = 64), evaluate at 257 (K = 64).
+
+  Holding K fixed within each part means only the grid changes, not the fields.
 
 ## 8. Conventions diff
 
@@ -410,8 +467,9 @@ it. Decision 4.
 - **Backends:** the data side is CPU only. Training must hold on flex; metal locally and
   cuda on HPC are run and reported.
 - **3D carry-over (noted only):** nodes, differentiation matrices, transfers and
-  quadrature are 1D operators applied per axis. The Sylvester form does not extend to 3D
-  directly (3D needs fast diagonalisation or option C/D), and option C does extend.
+  quadrature are 1D operators applied per axis. Fast diagonalisation, the route chosen for
+  A, extends to 3D (one eigendecomposition per axis); the Sylvester form would not.
+  Option C extends too, given a preconditioner (§4.2).
 
 ## 10. Phases and tasks
 
@@ -443,12 +501,12 @@ flowchart LR
     P3T1["T1 train_poisson, 65²"] --> P3T2["T2 predict_poisson"]
   end
   subgraph P4["Phase 4: HPC"]
-    P4T1["T1 129² on GPU"] --> P4T2["T2 257² resolution study"]
+    P4T1["T1 129² on GPU"] --> P4T2["T2 resolution study"]
   end
   P5["Phase 5 (optional): θ-map"]
   P0T1 --> P1T1
   P1T1 --> P2T1
-  P1T3 --> P2T2
+  P1T2 --> P2T2
   P2T3 --> P3T1
   P3T2 --> P4T1
   P4T2 -.-> P5
@@ -469,7 +527,8 @@ flowchart LR
 
 - **Exit:** the checklist in `docs/phase0/README.md`; CONVENTIONS §12 merged at
   `CONVENTION_VERSION` 1.
-- **Status (2026-10-08):** T2, T3 and T4 merged; T1 next.
+- **Status (2026-10-08):** done. T2, T3, T4 and T1 merged; the design amended after
+  Phase 0 (decision 10).
 
 ### Phase 1: verified reference solver
 
@@ -501,42 +560,50 @@ flowchart LR
 | Task | Delivers | Depends on |
 | --- | --- | --- |
 | T1 | `chebyshev::transfer` (barycentric, FH) with oracle tests | Phase 1 T1 |
-| T2 | GRF sampler (§3.3) and the `generate_poisson` example; `.npz` + JSON output | Phase 1 T2 |
+| T2 | GRF sampler (§3.3) with the explicit K override and the `generate_poisson` example; `.npz` + JSON output; the per-sample series label check (§5.1) | Phase 1 T2 |
 | T3 | Poisson loader (§5.2) | T1, T2 |
 
-- **Exit:** the §11 rows for both transfers, the GRF sampler and the loader pass; datasets
-  for stages 1–2 (n = 33, 65) generated locally; error 2 of §7 measured on them.
+- **Exit:** the §11 rows for both transfers, the GRF sampler, the generator's label check
+  and the loader pass; datasets for stages 1–2 (n = 33, 65) generated locally; error 2 of
+  §7 measured on them. The K = 32 evaluation sets (§5.3) are generated where Phase 4 needs
+  them; they are cheap, so anywhere.
 
 ### Phase 3: training and evaluation, local
 
-- **Goal:** the first end-to-end FNO run on Chebyshev data, with all four errors of §7.
+- **Goal:** the first end-to-end FNO run on Chebyshev data, with all five errors of §7.
 - **Needs:** Phase 2 done; stage 2 dataset (65²).
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
 | T1 | `train_poisson` example and trainer; first run at 65²; padding p chosen | – |
-| T2 | `predict_poisson`: the four errors of §7 on the Chebyshev grid | T1 |
+| T2 | `predict_poisson`: the five errors of §7 on the Chebyshev grid, including the boundary error; the threshold at which the boundary error counts as meaningful | T1 |
 
 - **Exit:** the §11 pipeline row (65² training converges below the threshold T1 sets),
-  run on flex and metal; the four errors reported for a stage 2 run.
+  run on flex and metal; the five errors reported for a stage 2 run. The exit states
+  whether the boundary-condition ablation of §7 is warranted. If it is, it becomes a new
+  Phase 3 task, planned then; nothing is added for it now.
 
 ### Phase 4: HPC
 
 - **Goal:** production accuracy and performance on GPU, and the resolution study.
-- **Needs:** Phase 3 done; stage 3–4 datasets generated (on HPC or transferred).
+- **Needs:** Phase 3 done; stage 3–4 datasets and the K = 32 evaluation sets generated
+  (on HPC or transferred).
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
 | T1 | Production runs at 129² on GPU | – |
-| T2 | Resolution study at 257² after profiling | T1 |
+| T2 | Resolution study after profiling, in two parts (§7): 65 (K = 32) → 129, 257 on the K = 32 sets; 129 (K = 64) → 257 | T1 |
 
-- **Exit:** cuda runs reported at 129²; train at 65 or 129, evaluate at 129 and 257 on
+- **Exit:** cuda runs reported at 129²; both parts of the resolution study reported on
   the same seeds (§7).
 
 ### Phase 5 (optional, non-blocking)
 
 θ-map comparison (option 2), with its own convention diff. It starts only after Phase 4
-and does not block completion.
+and does not block completion. The question is whether a Chebyshev-native model learns
+or generalises across resolutions better than the interpolating baseline. The motivation
+is model quality and resolution behaviour, not transfer error: Phase 0 measured the
+transfer error at about 1e-5, three orders below the expected model error (decision 10).
 
 Module names are proposals. New code lives under `src/neural_operators/chebyshev/` and
 `src/neural_operators/pde/poisson/` (feature-gated where it uses RLST), and
@@ -550,10 +617,12 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 | D, D² | Trefethen's `cheb`; exact on polynomials of degree < n | 1e-10 relative to ‖D‖ |
 | Clenshaw–Curtis weights | exact integrals of polynomials of degree ≤ n − 1 | 1e-14 |
 | Collocation solver (A) | manufactured solutions; option B at n ≤ 33 | stated floor from the convergence study |
+| Collocation solver (A) on GRF | exact sine-series solution | 1e-8 relative CC-L² for n ≥ 65 |
 | Sparse solver (C) | manufactured solutions: order 2 ± 0.1; residual ≤ CG tolerance | – |
 | Chebyshev → uniform | RLST barycentric evaluation; analytic functions | 1e-12 relative |
 | Uniform → Chebyshev (FH) | analytic functions; the measured rate for degree d | from Phase 0 |
 | GRF sampler | same seed gives the same field at every n (nodes in common); empirical covariance against the formula | statistical, stated in the brief |
+| `generate_poisson` label check | exact sine-series solution, every sample; recorded in the sidecar | aborts above 1e-8 relative CC-L² for n ≥ 65 |
 | Loader | shapes, normaliser asymmetry as in Darcy's tests | exact |
 | Pipeline | 65² training converges below a threshold set from Phase 3 T1 | f32 |
 
@@ -561,7 +630,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 
 | # | Question | Recommendation |
 | --- | --- | --- |
-| 1 | Reference solver | Collocation solved as a Sylvester equation (option A) for the data; sparse SPD finite volume or Q1 with RLST CG (option C) as the cross-check and the iterative path (§4.2) |
+| 1 | Reference solver | Collocation solved as a Sylvester equation (option A) for the data; sparse SPD finite volume or Q1 with RLST CG (option C) as the cross-check and the iterative path (§4.2). Measured in Phase 0: fast diagonalisation and Q1 (decision 10) |
 | 2 | How Chebyshev data meet the FNO | Interpolate to uniform with the unchanged FNO (option 1); θ-map as an optional Phase 5 (§6) |
 | 3 | GRF basis | Sine (Dirichlet) KL basis, so f = 0 on ∂Ω and no corner singularity; τ = 3, α = 2, K = 64 (§3.3) |
 | 4 | Conventions | Add §12 at version 1; changes to it bump from then on (§8) |
@@ -628,6 +697,49 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
    - §10 now carries the roadmap: per phase a goal, entry needs, ordered tasks with their
      dependencies, an exit criterion and the Phase 0 results each phase uses. Task
      contents are unchanged.
+10. **Amendments after Phase 0 (2026-10-08).** The architecture stands: labels from
+    solver A, interpolation to a uniform grid, FNO unchanged. Transfer error (about 1e-5,
+    T3) is far below the expected model error (about 1e-2), and A-fd is accurate to 1e-12
+    with 1200 samples at 257² generated in about 1.6 s (T4). Where this decision differs
+    from decision 1, it supersedes it.
+    - **Solver A's route: fast diagonalisation** with `eig(BothEigenvectors)`. Sylvester
+      is ruled out: 9.8× slower per solve at n = 257 even with reuse, no factorisation
+      reuse through `solve_sylvester`, and agreement only to 1.2e-12 (§4.2).
+    - **Solver C: Q1** (consistent mass and load), CG to relative residual 1e-6, as the
+      T4 rule chose. Finite volume's edge (22–31% faster per solve, 1.3–3.5× more
+      accurate) is noted and not adopted. C is a validation oracle; unpreconditioned CG
+      grows about 3× per doubling of n, so it is a scaling path only with a
+      preconditioner (§4.2).
+    - **Resolution study in two parts:** K = 32 evaluation sets at 129² and 257² (200
+      samples, the 65² test seeds, explicit K override) so a 65-trained model is tested
+      on the same fields at finer grids; the K = 64 sets stay for 129 → 257 (§3.3, §5.3,
+      §7).
+    - **Exact sine-series solution** as a test oracle and as a per-sample label check in
+      `generate_poisson`: aborts above 1e-8 for n ≥ 65, where T4 observed at most 7.4e-10
+      (§4.3, §5.1, §11).
+    - **Phase 5 reframed:** does a Chebyshev-native model learn or generalise better?
+      Not "remove transfer error", which is already small (§10).
+    - **Boundary condition:** the Phase 3 baseline keeps the unchanged FNO, which does not
+      enforce u = 0, and reports the boundary error as a fifth error. The hard constraint
+      (output × (1 − x²)(1 − y²) after denormalisation) is a later ablation, taken up only
+      if Phase 3 T2 finds the boundary error meaningful against the total error. The
+      baseline stays the unchanged FNO of decision 2, and the constraint's benefit is
+      measured rather than assumed (§7, §10).
+    - **Editorial:** the §10 graph edge P1T3 → P2T2 is corrected to P1T2 → P2T2, matching
+      Phase 2's "Needs" row; §1, §1.3, §2, §4 and the Phase 0 status are updated to the
+      measured results.
+11. **Finite-element library for C: `nd`, deferred (2026-10-08).**
+    - `nd` (codeberg.org/nd-project/nd; ndelement, ndmesh and ndfunctionspace 0.4.0,
+      BSD-3) is the intended finite-element layer for solver C once it needs unstructured,
+      3D or distributed meshes. It supplies elements, meshes and DOF maps; assembly stays
+      in this crate.
+    - It is not used now: every nd crate depends on rlst 0.6, whose build dependency
+      `cc = "=1.2"` cannot share a build with rlst 0.9's `cc = "^1.5"` (Cargo resolves one
+      `cc` 1.x per build). This was checked by building nd 0.4 next to rlst 0.9; Cargo
+      fails before compiling. nd's `main` is still on rlst 0.6.
+    - Phase 1 T3 hand-writes Q1 on the tensor mesh (§4.2).
+    - Trigger to adopt: an nd release on rlst ≥ 0.9, or C needing a mesh the tensor
+      assembly cannot express.
 
 ## References
 
