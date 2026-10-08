@@ -12,14 +12,15 @@ Phase 1 builds the numerical base that the datasets stand on:
 - solver C, Q1 finite elements with CG, the independent cross-check;
 - evidence that A and C agree with manufactured solutions and with each other as h → 0.
 
-Nothing in this phase changes the model or the training code. The toolkit (T1) is not
-feature-gated, so it is built and tested by the default CI job. The solvers (T2, T3) use
-RLST and sit behind the `chebyshev` feature.
+Nothing in this phase changes the model or the training code. All three tasks use RLST and
+sit behind the `chebyshev` feature; the toolkit (T1) wraps RLST's FFTW-backed `chebychev`
+module (design decision 12), so it is built and tested only by the `run-tests-chebyshev`
+CI job.
 
 ## Read first
 
 - Design §3.2 (nodes), §3.4 (norms), §4 (solver options, decision, verification), §11
-  (tests), §12 decisions 1 and 10.
+  (tests), §12 decisions 1, 10 and 12.
 - `docs/CONVENTIONS.md` §12.
 - `spikes/solver/REPORT.md` (T4) and, for the nodes and weights, `spikes/transfers/REPORT.md`
   (T3).
@@ -55,8 +56,8 @@ copied as-is.
 
 ## Module layout
 
-- `src/neural_operators/chebyshev/` (T1): ndarray in and out, no feature gate.
-- `src/neural_operators/pde/poisson/{collocation,sparse}.rs` (T2, T3): behind
+- `src/neural_operators/chebyshev/` (T1) and
+  `src/neural_operators/pde/poisson/{collocation,sparse}.rs` (T2, T3): behind
   `#[cfg(feature = "chebyshev")]`. The public API takes and returns ndarray types; rlst's
   `DynArray` stays internal.
 - Each new module is registered in `src/neural_operators/mod.rs`, and the task that adds
@@ -81,7 +82,6 @@ Filled in as tasks merge. Phase 1 is done when every row has a value.
 - [ ] The design §11 rows for CGL nodes, D/D², Clenshaw–Curtis, the collocation solver
       and the sparse solver pass under `cargo test --features chebyshev`, locally on macOS
       and in the `run-tests-chebyshev` CI job.
-- [ ] The default CI job runs the T1 tests (no feature needed).
 - [ ] A and C agree at order 2 on the common CGL grid as h → 0 (error 1 of design §7).
 - [ ] Every row of Results filled in.
 - [ ] Any result that contradicts the design is recorded in the design's §12 under
