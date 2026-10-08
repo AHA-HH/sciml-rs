@@ -69,7 +69,7 @@ Filled in as tasks merge. Phase 1 is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| D and D² tolerances used, and the n tested | D: 1e-10 relative to max\|D\| against Trefethen's `cheb`, n = 2, 3, 9, 33, 65 (measured ≤ 1.4e-14; rows sum to ≤ 5.8e-16 · max\|D\|, so no diagonal reset). D²: 1e-10 · ‖D²‖_∞ · ‖x^k‖_∞ on x^k, k < n, n = 9, 17, 33, 65 (measured ≤ 8.3e-16). Nodes and Clenshaw–Curtis 1e-14 absolute (CC measured ≤ 4.4e-16, n = 2..65). n = 2 and 3 work through RLST. | T1 |
+| D and D² tolerances used, and the n tested | D: 1e-10 relative to max\|D\| against Trefethen's `cheb`, n = 2, 3, 9, 33, 65, 129, 257 (measured ≤ 5.0e-13; rows sum to ≤ 9.9e-16 · max\|D\|, so no diagonal reset). D²: 1e-10 · ‖D²‖_∞ · ‖x^k‖_∞ on x^k, k < n, n = 9, 17, 33, 65, 129, 257 (measured ≤ 2.5e-15). Nodes 1e-14 absolute, n = 2, 3, 9, 33, 257 (measured ≤ 3.3e-16). Clenshaw–Curtis 1e-14 absolute on x^k, k < n, n = 2, 3, 9, 33, 65 (measured ≤ 4.4e-16). n = 2 and 3 work through RLST. | T1 |
 | A's measured floor per n (manufactured solutions) | | T2 |
 | A against B at n ≤ 33 | | T2 |
 | C's observed orders (three solutions, n = 33 → 65 → 129) | | T3 |

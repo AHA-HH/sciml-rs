@@ -2,6 +2,8 @@
 
 use ndarray::{ArrayView1, ArrayView2};
 
+use super::check_n;
+
 /// Discrete L²(Ω) norm of a field on the CGL tensor grid (CONVENTIONS §12, design §3.4):
 ///
 /// ‖v‖² ≈ Σ_{i,j} wx_i · wy_j · v[i, j]²
@@ -11,8 +13,11 @@ use ndarray::{ArrayView1, ArrayView2};
 /// when v² is a polynomial of degree ≤ n_x − 1 in x and ≤ n_y − 1 in y.
 ///
 /// # Panics
-/// If `v`'s shape is not `[wx.len(), wy.len()]`.
+/// If `wx` or `wy` has fewer than 2 entries, or `v`'s shape is not
+/// `[wx.len(), wy.len()]`.
 pub fn l2_norm(v: ArrayView2<f64>, wx: ArrayView1<f64>, wy: ArrayView1<f64>) -> f64 {
+    check_n("l2_norm", wx.len());
+    check_n("l2_norm", wy.len());
     assert_eq!(
         v.dim(),
         (wx.len(), wy.len()),
@@ -31,13 +36,16 @@ pub fn l2_norm(v: ArrayView2<f64>, wx: ArrayView1<f64>, wy: ArrayView1<f64>) -> 
 /// NaN or infinity when ‖b‖ = 0.
 ///
 /// # Panics
-/// If `a` and `b` differ in shape, or their shape is not `[wx.len(), wy.len()]`.
+/// If `wx` or `wy` has fewer than 2 entries, `a` and `b` differ in shape, or their
+/// shape is not `[wx.len(), wy.len()]`.
 pub fn rel_l2_error(
     a: ArrayView2<f64>,
     b: ArrayView2<f64>,
     wx: ArrayView1<f64>,
     wy: ArrayView1<f64>,
 ) -> f64 {
+    check_n("rel_l2_error", wx.len());
+    check_n("rel_l2_error", wy.len());
     assert_eq!(a.dim(), b.dim(), "rel_l2_error: shapes differ");
     l2_norm((&a - &b).view(), wx, wy) / l2_norm(b, wx, wy)
 }
@@ -46,7 +54,7 @@ pub fn rel_l2_error(
 mod tests {
     use super::super::{clenshaw_curtis, nodes};
     use super::*;
-    use ndarray::{Array2, s};
+    use ndarray::{Array1, Array2, s};
 
     #[test]
     fn l2_norm_of_constant_is_area() {
@@ -95,5 +103,20 @@ mod tests {
             w.view(),
             w.view(),
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "n must be >= 2")]
+    fn l2_norm_panics_for_n_below_2() {
+        let w = Array1::from_elem(1, 2.0);
+        l2_norm(Array2::zeros((1, 1)).view(), w.view(), w.view());
+    }
+
+    #[test]
+    #[should_panic(expected = "n must be >= 2")]
+    fn rel_l2_error_panics_for_n_below_2() {
+        let w = Array1::<f64>::zeros(0);
+        let v = Array2::zeros((0, 0));
+        rel_l2_error(v.view(), v.view(), w.view(), w.view());
     }
 }
