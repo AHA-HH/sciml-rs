@@ -255,104 +255,11 @@ fn transpose(a: &DynArray<f64, 2>) -> DynArray<f64, 2> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::chebyshev::{clenshaw_curtis, nodes, rel_l2_error};
+    use crate::neural_operators::chebyshev::{clenshaw_curtis, rel_l2_error};
+    use crate::neural_operators::pde::poisson::manufactured::{
+        ANISO, ANISO_T, EXP, Manufactured, POLY, SIN, exp_f, exp_u, rel_max, sample, sin_f, sin_u,
+    };
     use rlst::Solve;
-    use std::f64::consts::PI;
-
-    /// A manufactured pair (u, f = −Δu) of design §4.3.
-    struct Manufactured {
-        name: &'static str,
-        u: fn(f64, f64) -> f64,
-        f: fn(f64, f64) -> f64,
-    }
-
-    fn sin_u(x: f64, y: f64) -> f64 {
-        (PI * x).sin() * (PI * y).sin()
-    }
-    fn sin_f(x: f64, y: f64) -> f64 {
-        2.0 * PI * PI * sin_u(x, y)
-    }
-    fn poly_u(x: f64, y: f64) -> f64 {
-        (1.0 - x * x) * (1.0 - y * y) * (x + y * y)
-    }
-    // u_xx = (1 − y²)(−6x − 2y²), u_yy = (1 − x²)(2 − 2x − 12y²).
-    fn poly_f(x: f64, y: f64) -> f64 {
-        let uxx = (1.0 - y * y) * (-6.0 * x - 2.0 * y * y);
-        let uyy = (1.0 - x * x) * (2.0 - 2.0 * x - 12.0 * y * y);
-        -(uxx + uyy)
-    }
-    fn exp_u(x: f64, y: f64) -> f64 {
-        (1.0 - x * x) * (1.0 - y * y) * (x + 2.0 * y).exp()
-    }
-    // u_xx = e^(x+2y)(1 − y²)(−1 − 4x − x²), u_yy = e^(x+2y)(1 − x²)(2 − 8y − 4y²).
-    fn exp_f(x: f64, y: f64) -> f64 {
-        let uxx = (1.0 - y * y) * (-1.0 - 4.0 * x - x * x);
-        let uyy = (1.0 - x * x) * (2.0 - 8.0 * y - 4.0 * y * y);
-        -(x + 2.0 * y).exp() * (uxx + uyy)
-    }
-
-    // Polynomial of degree 5 in x, sin(8y) in y: exact in x from n_x = 6, but needs
-    // n_y ≈ 33 for the floor, so it tells the two axes apart.
-    // u = p(x) q(y), p = (1 − x²)(1 + x), q = (1 − y²) sin 8y;
-    // p'' = −2 − 6x, q'' = −2 sin 8y − 32y cos 8y − 64(1 − y²) sin 8y.
-    fn aniso_u(x: f64, y: f64) -> f64 {
-        (1.0 - x * x) * (1.0 + x) * (1.0 - y * y) * (8.0 * y).sin()
-    }
-    fn aniso_f(x: f64, y: f64) -> f64 {
-        let (p, pxx) = ((1.0 - x * x) * (1.0 + x), -2.0 - 6.0 * x);
-        let (s, c) = ((8.0 * y).sin(), (8.0 * y).cos());
-        let q = (1.0 - y * y) * s;
-        let qyy = -2.0 * s - 32.0 * y * c - 64.0 * (1.0 - y * y) * s;
-        -(pxx * q + p * qyy)
-    }
-    fn aniso_t_u(x: f64, y: f64) -> f64 {
-        aniso_u(y, x)
-    }
-    fn aniso_t_f(x: f64, y: f64) -> f64 {
-        aniso_f(y, x)
-    }
-
-    const SIN: Manufactured = Manufactured {
-        name: "sin(πx)sin(πy)",
-        u: sin_u,
-        f: sin_f,
-    };
-    const POLY: Manufactured = Manufactured {
-        name: "(1−x²)(1−y²)(x+y²)",
-        u: poly_u,
-        f: poly_f,
-    };
-    const EXP: Manufactured = Manufactured {
-        name: "(1−x²)(1−y²)e^(x+2y)",
-        u: exp_u,
-        f: exp_f,
-    };
-
-    const ANISO: Manufactured = Manufactured {
-        name: "(1−x²)(1+x)(1−y²)sin 8y",
-        u: aniso_u,
-        f: aniso_f,
-    };
-    const ANISO_T: Manufactured = Manufactured {
-        name: "ANISO with x and y swapped",
-        u: aniso_t_u,
-        f: aniso_t_f,
-    };
-
-    /// `g` on the `[nx, ny]` CGL grid, 'ij'.
-    fn sample(nx: usize, ny: usize, g: impl Fn(f64, f64) -> f64) -> Array2<f64> {
-        let (x, y) = (nodes(nx), nodes(ny));
-        Array2::from_shape_fn((nx, ny), |(i, j)| g(x[i], y[j]))
-    }
-
-    /// max |a − b| / max |b|.
-    fn rel_max(a: &Array2<f64>, b: &Array2<f64>) -> f64 {
-        let err = a
-            .iter()
-            .zip(b)
-            .fold(0.0_f64, |m, (p, q)| m.max((p - q).abs()));
-        err / b.iter().fold(0.0_f64, |m, q| m.max(q.abs()))
-    }
 
     /// Relative max and Clenshaw–Curtis relative L² errors of solver A on `m`.
     fn errors(nx: usize, ny: usize, m: &Manufactured) -> (f64, f64) {
