@@ -258,8 +258,9 @@ that rectangular grids work. Boundary values are zero, so they drop out.
 - **Authoritative training labels: A.** Spectral accuracy, f64, O(n³).
   - The equation is solved by fast diagonalisation (Phase 0 T4, decision 10): at setup,
     D_xx = V Λ V⁻¹ from rlst's `eig(BothEigenvectors)` (`RightEigenvectors` panics in
-    rlst 0.9.0; the left vectors are discarded); each solve is Ĝ = V_x⁻¹ F V_y⁻ᵀ, a
-    pointwise division by −(λ_i + μ_j), and U = V_x Û V_yᵀ.
+    rlst 0.9.0); V⁻¹ = diag(1 / u_jᵀ v_j) Uᵀ is formed from the left eigenvectors U,
+    with no LU (decision 13); each solve is Ĝ = V_x⁻¹ F V_y⁻ᵀ, a pointwise division by
+    −(λ_i + μ_j), and U = V_x Û V_yᵀ.
   - The Sylvester route is ruled out: `solve_sylvester` recomputes both Schur forms on
     every call, and even with the Schur forms reused (`trsyl` directly) it is 9.8× slower
     per solve at n = 257 and agrees with fast diagonalisation only to 1.2e-12.
@@ -554,6 +555,9 @@ flowchart LR
 - **Exit:** the §11 rows for nodes, D/D², Clenshaw–Curtis, the collocation solver and the
   sparse solver pass under `--features chebyshev`; A and C agree on the common CGL grid
   as h → 0 (error 1 of §7).
+- **Status (2026-10-08):** done. T1, T2 and T3 merged (#13–#15); A and C agree at order
+  1.993–1.999. One deviation recorded after the fact (decision 13); the §11 row for A on
+  GRF forcings moves to Phase 2 T2.
 
 ### Phase 2: datasets and transfers
 
@@ -766,6 +770,32 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - Approval (decision 7's condition): **approved** by the project owner, 2026-10-08;
       no separate supervisor sign-off is needed. Decision 7's "measured benefit" is
       waived: the reason is reuse of RLST's tested transforms, not speed.
+13. **Phase 1 close-out and Phase 2 planning (2026-10-08).**
+    - **Solver A's V⁻¹ from the left eigenvectors.** §4.2 and the Phase 1 T2 brief said
+      the left eigenvectors of `eig(BothEigenvectors)` are discarded and V⁻¹ is computed.
+      T2 instead forms V⁻¹ = diag(1 / u_jᵀ v_j) Uᵀ from them, with no factorisation:
+      OpenBLAS's threaded `getrf` overflowed a 2 MB test-thread stack in CI. Measured
+      for n = 9 to 129: min |u_jᵀ v_j| ≥ 0.90 and ‖V⁻¹V − I‖ ≤ 4.4e-15; the
+      constructor panics below |u_jᵀ v_j| = 1e-12. §4.2 is updated. The route (fast
+      diagonalisation, decision 10) is unchanged.
+    - **A on GRF forcings.** The §11 row "Collocation solver (A) on GRF" (1e-8 against
+      the exact sine series for n ≥ 65) had no test at the end of Phase 1, because the
+      GRF sampler belongs to Phase 2. It is now a test in Phase 2 T2.
+    - **Transfers and the Poisson loader build without `chebyshev`.** They need only
+      ndarray and closed-form nodes, so training (Phase 3 and 4, including HPC) needs no
+      FFTW or BLAS. `chebyshev::transfer` and `data::loaders::poisson` are ungated, and
+      the `chebyshev` module is always compiled, with its RLST-backed parts behind the
+      feature. The RLST oracle tests stay gated. This refines §10's "feature-gated where
+      it uses RLST" and does not change it.
+    - **GRF randomness and the sidecar.** ξ is drawn with `rand_chacha`'s `ChaCha8Rng`
+      and `rand_distr`'s `StandardNormal`, both pinned to exact versions because
+      `Cargo.lock` is git-ignored, so a seed gives the same field on every machine (§5.3
+      regenerates sets on HPC). The JSON sidecar is written with `serde_json`. All three
+      are optional dependencies under `chebyshev`.
+    - **Error 2 in the sidecar.** `generate_poisson` records the transfer round-trip
+      error of §7 (T_uc(T_cu u) − u, relative Clenshaw–Curtis L², d = 2, s = n − 1),
+      max and mean per split, next to the label check. The transferred fields are still
+      not stored (§5.2).
 
 ## References
 

@@ -78,12 +78,12 @@ Filled in as tasks merge. Phase 1 is done when every row has a value.
 
 ## Exit checklist
 
-- [ ] T1, T2 and T3 merged.
-- [ ] The design §11 rows for CGL nodes, D/D², Clenshaw–Curtis, the collocation solver
+- [x] T1, T2 and T3 merged.
+- [x] The design §11 rows for CGL nodes, D/D², Clenshaw–Curtis, the collocation solver
       and the sparse solver pass under `cargo test --features chebyshev`, locally on macOS
       and in the `run-tests-chebyshev` CI job.
-- [ ] A and C agree at order 2 on the common CGL grid as h → 0 (error 1 of design §7).
-- [ ] Every row of Results filled in.
-- [ ] Any result that contradicts the design is recorded in the design's §12 under
+- [x] A and C agree at order 2 on the common CGL grid as h → 0 (error 1 of design §7).
+- [x] Every row of Results filled in.
+- [x] Any result that contradicts the design is recorded in the design's §12 under
       "Recorded decisions", dated, before Phase 2 is planned.
-- [ ] The "Current phase" bullet in `CLAUDE.md` points to `docs/phase2/README.md`.
+- [x] The "Current phase" bullet in `CLAUDE.md` points to `docs/phase2/README.md`.
