@@ -1,7 +1,7 @@
 # Learning the 2D Poisson solution operator on a Chebyshev grid
 
 As of 2026-10-05. Status: **signed off** on 2026-10-05 by the author (AHA-HH);
-amended 2026-10-08 after Phase 0 (decision 10). The decisions are recorded in Section 12. This document is the specification for the phase
+amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (decision 12). The decisions are recorded in Section 12. This document is the specification for the phase
 plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -21,10 +21,10 @@ are interpolated barycentrically to a uniform grid, and the existing FNO is trai
 unchanged. Predictions are mapped back to the Chebyshev nodes with Floater–Hormann rational
 interpolation. Solver, transfer and model errors are reported separately. Resolutions are
 staged: 33² for tests, 65² for the first local training run, 129² for the first HPC run,
-and 257² for the resolution study. Chebyshev nodes, differentiation matrices and grid
-transfers are built in this repository. RLST supplies only its non-FFTW linear algebra and
-solvers, behind an optional cargo feature, so the default build and its licence are
-unchanged.
+and 257² for the resolution study. Grid transfers are built in this repository; the
+Chebyshev toolkit (nodes, differentiation matrices, Clenshaw–Curtis weights) wraps RLST's
+FFTW-backed coefficient transforms (decision 12). RLST, and with it FFTW, sits behind an
+optional cargo feature, so the default build and its licence are unchanged.
 
 ## 1. Assessment
 
@@ -116,7 +116,8 @@ Citations are to its sources.
     (`traits/abstract_operator.rs:26–53`).
   - A sparse direct solve exists only in the separate, GPL `rlst-suitesparse`.
 - **Chebyshev tools.** The `chebychev` module (values ↔ coefficients, derivatives) needs
-  the `fftw` feature (`lib.rs:30–31`) and is not used here. The `interpolation` module
+  the `fftw` feature (`lib.rs:30–31`). It was not used at sign-off; since decision 12 the
+  Phase 1 toolkit builds D, D² and the Clenshaw–Curtis weights from it. The `interpolation` module
   needs no FFTW (`lib.rs:39`). It has `chebychev_points`, **descending** on [−1, 1]
   (`interpolation.rs:90–116`), barycentric weights, and 1D/2D/3D barycentric evaluation.
   This design uses it only as an independent test oracle (Section 11). RLST has no
@@ -134,7 +135,7 @@ Citations are to its sources.
 | --- | --- | --- | --- |
 | 1 | Learn f ↦ u for −Δu = f on Ω = [−1, 1]², u = 0 on ∂Ω, with data on a Chebyshev grid | §3, §6 | – |
 | 2 | Reference solver in Rust, on RLST | Collocation solved by fast diagonalisation on RLST's `eig`; sparse SPD Q1 + `CgIteration` as validation oracle (§4) | new module |
-| 3 | No FFTW in the build | Nodes, differentiation matrices and transfers built in this crate; RLST's `fftw` features off (§9) | – |
+| 3 | ~~No FFTW in the build~~ Superseded by decision 12: no FFTW in the default build | Transfers built in this crate; the Chebyshev toolkit uses RLST's `fftw` + `fftw_system`, only under `chebyshev` (§9) | `Cargo.toml` |
 | 4 | Default build and licence unchanged | RLST and the BLAS provider behind an optional feature `chebyshev` (§9) | `Cargo.toml` |
 | 5 | Existing FNO unchanged in the baseline | Interpolate to a uniform grid (§6) | none |
 | 6 | Staged resolutions: 33² tests, 65² first local run, 129² first HPC run, 257² resolution study | §5.3 | – |
@@ -449,18 +450,23 @@ it. Decision 4.
 
 - **Optional feature `chebyshev`.**
   ```toml
-  chebyshev = ["dep:rlst", "dep:blas-src", "dep:lapack-src"]
+  chebyshev = ["dep:rlst", "rlst/fftw", "rlst/fftw_system", "dep:blas-src", "dep:lapack-src",
+               "dep:openblas-src"]
   rlst = { version = "0.9", optional = true, default-features = false }
   ```
   `blas-src`/`lapack-src` use `accelerate` on macOS and `openblas` (system) on Linux,
   selected by target. Without the feature, the crate builds exactly as today.
-- **Not enabled:** RLST's `fftw*`, `burn` and `mpi` features, and `rlst-suitesparse`
-  (GPL).
+- **FFTW (decision 12):** RLST's `fftw` and `fftw_system` are enabled under `chebyshev`
+  and link the system libfftw3 found by pkg-config (Homebrew `fftw` on macOS,
+  `libfftw3-dev` on Linux). FFTW is GPL-2.0+, so `--features chebyshev` builds link GPL
+  code; the default build does not.
+- **Not enabled:** RLST's `fftw_source`, `fftw_mkl`, `burn` and `mpi` features, and
+  `rlst-suitesparse` (GPL).
 - **CI:**
   - the existing job is unchanged;
   - a new job runs `cargo clippy --features chebyshev --all-targets` and
     `cargo test --features chebyshev` on Ubuntu, after
-    `apt-get install libopenblas-dev`. The workflow already carries that step,
+    `apt-get install libopenblas-dev libfftw3-dev pkg-config`. The workflow already carries that step,
     commented out.
 - **Precision:** the solver, transfers and dataset files are f64 on the host. The model is
   f32 (CONVENTIONS §8).
@@ -541,7 +547,7 @@ flowchart LR
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
-| T1 | `chebyshev::{nodes, diff_matrix, clenshaw_curtis}` and their tests | – |
+| T1 | `chebyshev::{nodes, diff_matrix, clenshaw_curtis}` on RLST's coefficient transforms, behind `chebyshev` (decision 12), and their tests | – |
 | T2 | `poisson::collocation` (option A) and the manufactured-solution convergence tests | T1 |
 | T3 | `poisson::sparse` (option C) with the CG solve and the order-2 test; the A-vs-C check | T1, T2 |
 
@@ -613,7 +619,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 
 | Component | Trusted reference | Tolerance (f64 unless noted) |
 | --- | --- | --- |
-| CGL nodes, barycentric weights | RLST `interpolation` (reversed), closed forms | 1e-14 absolute |
+| CGL nodes, barycentric weights | closed forms; RLST `interpolation` (reversed) for barycentric weights | 1e-14 absolute |
 | D, D² | Trefethen's `cheb`; exact on polynomials of degree < n | 1e-10 relative to ‖D‖ |
 | Clenshaw–Curtis weights | exact integrals of polynomials of degree ≤ n − 1 | 1e-14 |
 | Collocation solver (A) | manufactured solutions; option B at n ≤ 33 | stated floor from the convergence study |
@@ -635,8 +641,8 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 | 3 | GRF basis | Sine (Dirichlet) KL basis, so f = 0 on ∂Ω and no corner singularity; τ = 3, α = 2, K = 64 (§3.3) |
 | 4 | Conventions | Add §12 at version 1; changes to it bump from then on (§8) |
 | 5 | Uniform grid sizes | Keep 32/64/128/256 as stated, and have Phase 0 T3 also measure s = n (33/65/…); switch if it is clearly better (§5.3) |
-| 6 | RLST and BLAS | rlst 0.9 behind the optional feature `chebyshev`, `default-features = false`; Accelerate on macOS, OpenBLAS on Linux; no FFTW, burn, MPI or SuiteSparse |
-| 7 | FFTW later | Only as an optional, non-default backend, after supervisor approval, confirmed licensing and a measured benefit |
+| 6 | RLST and BLAS | rlst 0.9 behind the optional feature `chebyshev`, `default-features = false`; Accelerate on macOS, OpenBLAS on Linux; no FFTW, burn, MPI or SuiteSparse (FFTW: superseded by decision 12) |
+| 7 | FFTW later | Only as an optional, non-default backend, after supervisor approval, confirmed licensing and a measured benefit (taken up by decision 12) |
 
 Further choices made in this design. They were not asked individually and stand unless
 overruled later:
@@ -740,6 +746,27 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - Phase 1 T3 hand-writes Q1 on the tensor mesh (§4.2).
     - Trigger to adopt: an nd release on rlst ≥ 0.9, or C needing a mesh the tensor
       assembly cannot express.
+12. **FFTW for the Chebyshev toolkit (2026-10-08).** Supersedes "non-FFTW only" in
+    decision 6 and the deferral in decision 7; requirement 3 now reads "no FFTW in the
+    default build".
+    - The `chebyshev` feature enables RLST's `fftw` and `fftw_system` (system libfftw3 via
+      pkg-config; `fftw_source` would build FFTW in CI). The default build is unchanged.
+    - Phase 1 T1 wraps RLST's `chebychev` module instead of hand-writing the toolkit:
+      `nodes` reverses `chebychev_points(Kind::Second, n)`; D and D² come from
+      `chebychev_coeffs_from_data_second_kind` → `chebychev_derivative_second_kind` →
+      `chebychev_data_from_coeffs_second_kind` applied to unit vectors; the Clenshaw–Curtis
+      weights integrate the coefficients of unit vectors. Nodes stay ascending, so
+      CONVENTIONS §12 is unchanged. The grid norm stays hand-written (RLST has none).
+    - The closed forms (−cos(πj/(n − 1)), Trefethen's `cheb`, exact polynomial integrals)
+      become the test oracles (§11).
+    - T1 is therefore behind `chebyshev` and runs only in the `run-tests-chebyshev` CI job,
+      which installs `libfftw3-dev pkg-config`.
+    - Licensing: FFTW is GPL-2.0+; the crate stays MIT OR Apache-2.0, and only
+      `--features chebyshev` builds link GPL code. Outcome: **PENDING**.
+    - Supervisor approval (decision 7's condition): **PENDING**. This decision is not in
+      force, and the amendment is not merged, until both are recorded here. Decision 7's
+      "measured benefit" is waived: the reason is reuse of RLST's tested transforms, not
+      speed.
 
 ## References
 
