@@ -395,12 +395,19 @@ Decision 2.
 - Training on the uniform grid as today: `LpLoss::rel` (p = 2), Adam with cosine
   schedule, FNO modes [12, 12], width 32, 4 layers. Padding `Some(p)` because the problem
   is not periodic; p is chosen in Phase 3 (Darcy uses 9 at s = 85).
-- **Errors reported**, each as a relative L² error over the test set (mean and maximum):
+- **Errors reported**, over the test set (mean and maximum); 1–4 are relative L² errors:
   1. **solver:** A against manufactured solutions (§4.3), and A against C as h → 0;
   2. **transfer:** T_uc(T_cu u) − u on the Chebyshev grid, for the test u;
   3. **model:** prediction against T_cu u on the uniform grid (the training metric);
   4. **total:** T_uc(prediction) against u on the Chebyshev grid, with Clenshaw–Curtis
-     weights (§3.4).
+     weights (§3.4);
+  5. **boundary:** T_uc(prediction) on the boundary nodes of the Chebyshev grid, where the
+     exact value is 0, reported as max |û| / max |u| and as an RMS over ∂Ω.
+- **Boundary condition.** The FNO does not enforce u = 0 on ∂Ω, so the Phase 3 baseline
+  uses the unchanged FNO and measures the boundary error (error 5) separately. A
+  hard-constraint ablation, the output multiplied by (1 − x²)(1 − y²) after
+  denormalisation, is considered only if Phase 3 T2's boundary error is meaningful against
+  the total error. Phase 3 T2 sets that threshold.
 - **Expectation, to calibrate tests and not as a target:** FNO relative L² errors around
   1e-2 on smooth elliptic problems (Li et al. 2021, Darcy 0.0108 at 85²). Transfer errors
   sit well below that: Phase 0 T3 measured the round trip on u at most 3.6e-5 at 65²,
@@ -559,16 +566,18 @@ flowchart LR
 
 ### Phase 3: training and evaluation, local
 
-- **Goal:** the first end-to-end FNO run on Chebyshev data, with all four errors of §7.
+- **Goal:** the first end-to-end FNO run on Chebyshev data, with all five errors of §7.
 - **Needs:** Phase 2 done; stage 2 dataset (65²).
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
 | T1 | `train_poisson` example and trainer; first run at 65²; padding p chosen | – |
-| T2 | `predict_poisson`: the four errors of §7 on the Chebyshev grid | T1 |
+| T2 | `predict_poisson`: the five errors of §7 on the Chebyshev grid, including the boundary error; the threshold at which the boundary error counts as meaningful | T1 |
 
 - **Exit:** the §11 pipeline row (65² training converges below the threshold T1 sets),
-  run on flex and metal; the four errors reported for a stage 2 run.
+  run on flex and metal; the five errors reported for a stage 2 run. The exit states
+  whether the boundary-condition ablation of §7 is warranted. If it is, it becomes a new
+  Phase 3 task, planned then; nothing is added for it now.
 
 ### Phase 4: HPC
 
@@ -706,6 +715,12 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       (§4.3, §5.1, §11).
     - **Phase 5 reframed:** does a Chebyshev-native model learn or generalise better?
       Not "remove transfer error", which is already small (§10).
+    - **Boundary condition:** the Phase 3 baseline keeps the unchanged FNO, which does not
+      enforce u = 0, and reports the boundary error as a fifth error. The hard constraint
+      (output × (1 − x²)(1 − y²) after denormalisation) is a later ablation, taken up only
+      if Phase 3 T2 finds the boundary error meaningful against the total error. The
+      baseline stays the unchanged FNO of decision 2, and the constraint's benefit is
+      measured rather than assumed (§7, §10).
     - **Editorial:** the §10 graph edge P1T3 → P2T2 is corrected to P1T2 → P2T2, matching
       Phase 2's "Needs" row; §1, §1.3, §2, §4 and the Phase 0 status are updated to the
       measured results.
