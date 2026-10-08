@@ -279,6 +279,10 @@ that rectangular grids work. Boundary values are zero, so they drop out.
     distributed grids, where dense solves stop scaling, but not yet as it stands:
     unpreconditioned CG needs about 3× more iterations per doubling of n (2189–4731 at
     257² for tol 1e-13), so scaling needs a preconditioner first.
+  - Q1 is hand-written: on the tensor CGL mesh the matrix is exactly K₁ ⊗ M₁ + M₁ ⊗ K₁
+    from the 1D P1 stiffness and mass. The `nd` crates (ndelement, ndmesh,
+    ndfunctionspace) are the intended finite-element layer once C needs unstructured, 3D
+    or distributed meshes, but they cannot be used yet (decision 11).
 - **Not now: B** (only as a test oracle at n ≤ 33), **D** (only if A's cost becomes a
   problem), and **E** (needs transforms we do not have).
 
@@ -724,6 +728,18 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - **Editorial:** the §10 graph edge P1T3 → P2T2 is corrected to P1T2 → P2T2, matching
       Phase 2's "Needs" row; §1, §1.3, §2, §4 and the Phase 0 status are updated to the
       measured results.
+11. **Finite-element library for C: `nd`, deferred (2026-10-08).**
+    - `nd` (codeberg.org/nd-project/nd; ndelement, ndmesh and ndfunctionspace 0.4.0,
+      BSD-3) is the intended finite-element layer for solver C once it needs unstructured,
+      3D or distributed meshes. It supplies elements, meshes and DOF maps; assembly stays
+      in this crate.
+    - It is not used now: every nd crate depends on rlst 0.6, whose build dependency
+      `cc = "=1.2"` cannot share a build with rlst 0.9's `cc = "^1.5"` (Cargo resolves one
+      `cc` 1.x per build). This was checked by building nd 0.4 next to rlst 0.9; Cargo
+      fails before compiling. nd's `main` is still on rlst 0.6.
+    - Phase 1 T3 hand-writes Q1 on the tensor mesh (§4.2).
+    - Trigger to adopt: an nd release on rlst ≥ 0.9, or C needing a mesh the tensor
+      assembly cannot express.
 
 ## References
 

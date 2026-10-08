@@ -61,5 +61,7 @@ check the "running N tests" lines.
 
 ## Do not
 - Add a preconditioner, GMRES (option D) or finite volume; C is Q1 (decision 10).
+- Add the `nd` crates: nd 0.4 depends on rlst 0.6 and cannot build alongside rlst 0.9
+  (design decision 11). Assemble Q1 by hand as K₁ ⊗ M₁ + M₁ ⊗ K₁.
 - Use C to produce labels, or add C to any data path.
 - Change solver A beyond a bug fix stated in the PR.
