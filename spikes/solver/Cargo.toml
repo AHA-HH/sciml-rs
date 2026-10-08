@@ -1,0 +1,25 @@
+[package]
+name = "solver-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Phase 0 T4: Chebyshev collocation and sparse SPD Poisson solver measurements (spike, not part of sciml-rs)"
+
+# Standalone: never part of the sciml-rs crate or its CI.
+[workspace]
+
+[dependencies]
+# Same rlst and BLAS/LAPACK providers as the root crate's `chebyshev` feature (T2).
+rlst = { version = "=0.9.0", default-features = false }
+ndarray = "=0.17.2"
+# T3's GRF sampler and CGL/Clenshaw–Curtis helpers, so the draws match T3 exactly.
+transfers-spike = { path = "../transfers" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+blas-src = { version = "0.14", features = ["accelerate"] }
+lapack-src = { version = "0.13", features = ["accelerate"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+blas-src = { version = "0.14", features = ["openblas"] }
+lapack-src = { version = "0.13", features = ["openblas"] }
+openblas-src = { version = "0.10", features = ["system"] }
