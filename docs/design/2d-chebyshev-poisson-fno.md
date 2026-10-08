@@ -415,48 +415,128 @@ it. Decision 4.
 
 ## 10. Phases and tasks
 
+This section is the project roadmap. Each phase gets a `docs/phase<N>/README.md` and one
+brief per task when it is planned; those briefs refine the rows below and do not change
+their order.
+
+**Task numbering.** From Phase 1 on, task numbers are execution order: T<k> depends only
+on tasks with a lower number in the same phase, or on earlier phases. Tasks that can run
+in parallel get consecutive numbers and say so in "Depends on". Phase 0 is the one
+exception: it keeps the numbers it was signed off with and runs T2, then T3 and T4, then
+T1 (decision 9).
+
+```mermaid
+flowchart LR
+  subgraph P0["Phase 0: conventions and feasibility"]
+    P0T2["T2 rlst feature"] --> P0T3["T3 transfer spike"]
+    P0T2 --> P0T4["T4 solver spike"]
+    P0T3 --> P0T1["T1 CONVENTIONS §12"]
+    P0T4 --> P0T1
+  end
+  subgraph P1["Phase 1: verified reference solver"]
+    P1T1["T1 nodes, D, Clenshaw–Curtis"] --> P1T2["T2 collocation (A)"] --> P1T3["T3 sparse Q1 + CG (C)"]
+  end
+  subgraph P2["Phase 2: datasets and transfers"]
+    P2T1["T1 transfers"] --> P2T2["T2 GRF + generate_poisson"] --> P2T3["T3 Poisson loader"]
+  end
+  subgraph P3["Phase 3: training and evaluation, local"]
+    P3T1["T1 train_poisson, 65²"] --> P3T2["T2 predict_poisson"]
+  end
+  subgraph P4["Phase 4: HPC"]
+    P4T1["T1 129² on GPU"] --> P4T2["T2 257² resolution study"]
+  end
+  P5["Phase 5 (optional): θ-map"]
+  P0T1 --> P1T1
+  P1T1 --> P2T1
+  P1T3 --> P2T2
+  P2T3 --> P3T1
+  P3T2 --> P4T1
+  P4T2 -.-> P5
+```
+
 ### Phase 0: conventions and feasibility
 
-| Task | Delivers | Modules |
-| --- | --- | --- |
-| T1 | CONVENTIONS §12 (Section 8), signed off | `docs/CONVENTIONS.md` |
-| T2 | Feature `chebyshev`, rlst 0.9 dependency, BLAS selection, CI job; verify which dense primitives (Sylvester, `eig`, LU) and CG are public in the pinned version; a smoke test running CG and the Sylvester or eigen route | `Cargo.toml`, `.github/workflows/`, `tests/` |
-| T3 | Transfer spike: barycentric and FH round-trip errors for n ∈ {33, 65, 129, 257} on smooth and GRF fields; choose d; compare s = n − 1 with s = n; confirm the GRF tail table and tolerance (§3.3) | spike, report |
-| T4 | Solver spike: A and C at n = 33..257, error and time; factorisation reuse | spike, report |
+- **Goal:** settle conventions, dependencies and the choices the design left open, by
+  measurement, before production code is written.
+- **Needs:** this design, signed off.
+
+| Task | Delivers | Modules | Depends on |
+| --- | --- | --- | --- |
+| T1 | CONVENTIONS §12 (Section 8), signed off | `docs/CONVENTIONS.md` | T3, T4 |
+| T2 | Feature `chebyshev`, rlst 0.9 dependency, BLAS selection, CI job; verify which dense primitives (Sylvester, `eig`, LU) and CG are public in the pinned version; a smoke test running CG and the Sylvester or eigen route | `Cargo.toml`, `.github/workflows/`, `tests/` | – |
+| T3 | Transfer spike: barycentric and FH round-trip errors for n ∈ {33, 65, 129, 257} on smooth and GRF fields; choose d; compare s = n − 1 with s = n; confirm the GRF tail table and tolerance (§3.3) | spike, report | – (T2's dependency setup) |
+| T4 | Solver spike: A and C at n = 33..257, error and time; factorisation reuse | spike, report | T2 |
+
+- **Exit:** the checklist in `docs/phase0/README.md`; CONVENTIONS §12 merged at
+  `CONVENTION_VERSION` 1.
+- **Status (2026-10-08):** T2, T3 and T4 merged; T1 next.
 
 ### Phase 1: verified reference solver
 
-| Task | Delivers |
-| --- | --- |
-| T1 | `chebyshev::{nodes, diff_matrix, clenshaw_curtis}` and their tests |
-| T2 | `poisson::collocation` (option A) and the manufactured-solution convergence tests |
-| T3 | `poisson::sparse` (option C) with the CG solve and the order-2 test; the A-vs-C check |
+- **Goal:** a tested Chebyshev toolkit and both reference solvers, agreeing with each
+  other and with manufactured solutions.
+- **Needs:** Phase 0 done.
+- **Inputs from Phase 0:** option A is solved by fast diagonalisation, with rlst's
+  `eig(BothEigenvectors)` (`RightEigenvectors` panics in rlst 0.9.0); option C uses Q1
+  (consistent mass and load) and CG to relative residual 1e-6 (`spikes/solver/REPORT.md`).
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | `chebyshev::{nodes, diff_matrix, clenshaw_curtis}` and their tests | – |
+| T2 | `poisson::collocation` (option A) and the manufactured-solution convergence tests | T1 |
+| T3 | `poisson::sparse` (option C) with the CG solve and the order-2 test; the A-vs-C check | T1, T2 |
+
+- **Exit:** the §11 rows for nodes, D/D², Clenshaw–Curtis, the collocation solver and the
+  sparse solver pass under `--features chebyshev`; A and C agree on the common CGL grid
+  as h → 0 (error 1 of §7).
 
 ### Phase 2: datasets and transfers
 
-| Task | Delivers |
-| --- | --- |
-| T1 | `chebyshev::transfer` (barycentric, FH) with oracle tests |
-| T2 | GRF sampler (§3.3) and the `generate_poisson` example; `.npz` + JSON output |
-| T3 | Poisson loader (§5.2) |
+- **Goal:** Poisson datasets at every stage of §5.3, and a loader that hands the FNO
+  uniform-grid tensors.
+- **Needs:** Phase 1 T1 (nodes, weights) for T1; Phase 1 T2 (solver A) for T2.
+- **Inputs from Phase 0:** Floater–Hormann degree d = 2; uniform size s = n − 1; GRF tail
+  table and 5e-3 tolerance confirmed (`spikes/transfers/REPORT.md`, decision 8).
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | `chebyshev::transfer` (barycentric, FH) with oracle tests | Phase 1 T1 |
+| T2 | GRF sampler (§3.3) and the `generate_poisson` example; `.npz` + JSON output | Phase 1 T2 |
+| T3 | Poisson loader (§5.2) | T1, T2 |
+
+- **Exit:** the §11 rows for both transfers, the GRF sampler and the loader pass; datasets
+  for stages 1–2 (n = 33, 65) generated locally; error 2 of §7 measured on them.
 
 ### Phase 3: training and evaluation, local
 
-| Task | Delivers |
-| --- | --- |
-| T1 | `train_poisson` example and trainer; first run at 65² |
-| T2 | `predict_poisson`: the four errors of §7 on the Chebyshev grid |
+- **Goal:** the first end-to-end FNO run on Chebyshev data, with all four errors of §7.
+- **Needs:** Phase 2 done; stage 2 dataset (65²).
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | `train_poisson` example and trainer; first run at 65²; padding p chosen | – |
+| T2 | `predict_poisson`: the four errors of §7 on the Chebyshev grid | T1 |
+
+- **Exit:** the §11 pipeline row (65² training converges below the threshold T1 sets),
+  run on flex and metal; the four errors reported for a stage 2 run.
 
 ### Phase 4: HPC
 
-| Task | Delivers |
-| --- | --- |
-| T1 | Production runs at 129² on GPU |
-| T2 | Resolution study at 257² after profiling |
+- **Goal:** production accuracy and performance on GPU, and the resolution study.
+- **Needs:** Phase 3 done; stage 3–4 datasets generated (on HPC or transferred).
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | Production runs at 129² on GPU | – |
+| T2 | Resolution study at 257² after profiling | T1 |
+
+- **Exit:** cuda runs reported at 129²; train at 65 or 129, evaluate at 129 and 257 on
+  the same seeds (§7).
 
 ### Phase 5 (optional, non-blocking)
 
-θ-map comparison (option 2), with its own convention diff.
+θ-map comparison (option 2), with its own convention diff. It starts only after Phase 4
+and does not block completion.
 
 Module names are proposals. New code lives under `src/neural_operators/chebyshev/` and
 `src/neural_operators/pde/poisson/` (feature-gated where it uses RLST), and
@@ -541,6 +621,13 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
      (maximum row sum of |T_uc|) is at most 4.9.
    - s = n − 1, the GRF tail table and the 5e-3 tolerance stand as stated.
    - Details: `spikes/transfers/REPORT.md`.
+9. **Task numbering and roadmap (2026-10-08).**
+   - From Phase 1 on, task numbers within a phase are execution order (§10).
+   - Phase 0 keeps its signed-off numbers (T2, T3, T4 merged under them) and runs T2,
+     then T3 and T4, then T1.
+   - §10 now carries the roadmap: per phase a goal, entry needs, ordered tasks with their
+     dependencies, an exit criterion and the Phase 0 results each phase uses. Task
+     contents are unchanged.
 
 ## References
 

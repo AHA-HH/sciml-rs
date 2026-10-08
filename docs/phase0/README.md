@@ -31,7 +31,8 @@ Nothing in this phase changes the model, the training code or the default build.
 
 Order: T2 first, then T3 and T4 in either order or in parallel, and T1 last. T1 keeps
 its design number but comes last: §12 is written once, with T3's measured values, so that
-filling them in later does not count as a change to §12 (design decision 4).
+filling them in later does not count as a change to §12 (design decision 4). Later phases
+number their tasks in execution order (design §10, decision 9).
 
 One task per branch and PR: `phase0/T<k>-<name>`. Each task is worked from its brief
 alone, plus the files the brief lists under "Read first".
