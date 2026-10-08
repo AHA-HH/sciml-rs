@@ -14,6 +14,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   feasibility; briefs T1–T4 beside it).
 - Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
   RLST reference solver, FNO; signed off 2026-10-05, decisions in its §12). CONVENTIONS.md wins on any conflict.
+- Roadmap: design §10 (every phase's goal, ordered tasks, dependencies and exit).
 
 ## Working agreement
 - Approval for one action is not approval for the next one of its kind. A request to
@@ -25,6 +26,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   commit. Never report an unrun check as passing; say plainly when something could not
   run (no GPU backend, no dataset, no gnuplot).
 - One task per branch and PR; stay inside the modules the task names.
+- Task numbers within a phase are execution order, from Phase 1 on (design §10). Phase 0
+  keeps its signed-off numbers and runs T2, then T3 and T4, then T1.
 - Keep changes targeted: no drive-by reformatting or refactors.
 
 ## Working rules
