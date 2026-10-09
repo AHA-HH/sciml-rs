@@ -866,6 +866,24 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       relative boundary RMS (error 5, the CC-weighted RMS over ∂Ω divided by the RMS of
       u over Ω) is at least 10% of the mean error 4. The rule is fixed before T3 runs.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
+17. **Phase 3 T2: padding cost, partial sweep and deferred flex run (2026-10-09).**
+    - **Padding is slow on this Burn fork.** Any p > 0 makes the FFT length
+      non-power-of-two (72² at p = 8), which goes through Burn's Bluestein path. That path
+      rebuilds its chirp on the host on every call. With the Darcy hyperparameters,
+      p = 8 took about 101 s/epoch on metal and 520 s/epoch on flex, against 3.5 s/epoch on
+      metal at p = 0. A full sweep plus the flex run would take days.
+    - **T2 merges with p = 0 only.** The full-length metal run at p = 0 reached a final test
+      relative L² of 1.16e-2 (train 3.47e-3), which meets the 2e-2 threshold of decision 16
+      on metal. `PADDING = 0` is provisional, and T3 evaluates this run.
+    - **Deferred, still required before the Phase 3 exit:** the sweep over p ∈ {4, 8, 16}
+      (full length, metal), run on mains power after T2 merges. If a larger p wins by the
+      decision 16 rule, `PADDING` changes and T3 is re-run on the new run.
+    - **The flex run moves to Phase 4.** The full-length flex run at the chosen p, and
+      the threshold on flex, are no longer part of the Phase 3 exit. Phase 3 closes on
+      metal, and the §11 pipeline row and the §10 Phase 3 exit read "on metal" until
+      then. Phase 4 plans the flex run, after a fix to Bluestein in Burn if one is made
+      (that fix would be its own task). Until then, flex is covered by the smoke test only.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
 
 ## References
 

@@ -58,6 +58,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   (`generate_poisson`), which writes `datasets/poisson/`.
 - `data/loaders/poisson` is ungated: `load_poisson_uniform` reads those `.npz` files and
   applies T_cu at load time, giving Darcy-shaped datasets on the uniform grid s = n − 1.
+- `training/trainers/poisson` (`train_poisson`, the Darcy trainer on those datasets), driven
+  by `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
 - `spikes/`: standalone packages for Phase 0 measurements; never built by CI.
 - Unit tests sit in `#[cfg(test)] mod tests` in each file. `tests/spectral_init.rs` reseeds
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each
@@ -117,6 +119,8 @@ than trusting prose when checking how an API behaves.
 - All tests: `cargo test`
 - Train: `cargo run --release --example train_burgers [--features metal]`
   (also `train_darcy`; `train_burgers_learner` needs a real terminal for Burn's TUI)
+- Train on Poisson stage 2: `cargo run --release --example train_poisson [--features metal] [-- <padding>]`
+  (the optional argument overrides `PADDING`; needs `datasets/poisson/`)
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution`, `burgers_superresolution` on Burgers runs;
   `predict_darcy`, `darcy_plot` on Darcy runs)
