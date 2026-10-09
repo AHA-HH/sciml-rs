@@ -799,6 +799,19 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       error of §7 (T_uc(T_cu u) − u, relative Clenshaw–Curtis L², d = 2, s = n − 1),
       max and mean per split, next to the label check. The transferred fields are still
       not stored (§5.2).
+14. **Phase 2 T2: error 2 and the label check over full splits (2026-10-09).**
+    - **Error 2 at n = 65 exceeds the Phase 0 maximum.** Over the generated stage 2 splits
+      (seeds 0–999 train, 1 000 000–1 000 199 test, d = 2, s = 64) the round trip
+      T_uc(T_cu u) − u has max 1.04e-4 (train) and 7.8e-5 (test), mean 2.1e-5 and
+      2.0e-5. Phase 0 T3 measured at most 3.6e-5 over 20 samples, and its d rule was
+      ≤ 1e-4, so the 20-sample maximum understated the tail. d = 2 and s = n − 1 stand:
+      the mean is close to Phase 0's 1.7e-5, the test-split maximum is within the rule,
+      and the worst case is still about 100× below the expected model error of about 1e-2
+      (§7). Stage 1 (n = 33): max 8.1e-4, mean 1.8e-4 (Phase 0: 3.2e-4 / 1.4e-4), exempt.
+    - **The label check is looser than Phase 0's figure but within its bound.** At
+      n = 65 the maximum over 1000 samples is 2.2e-9 (Phase 0 T4: 7.4e-10), 5× below the
+      enforced 1e-8; at n = 33, 2.2e-6 (Phase 0: 2.5e-7), recorded only (§5.1).
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
 
 ## References
 

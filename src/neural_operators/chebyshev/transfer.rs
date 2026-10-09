@@ -487,7 +487,9 @@ mod tests {
             }
         }
 
-        // Phase 0 T3 table 2: T_uc alone on sin(πx) sin(πy) at n = 65, d = 2 is 1.2e-5.
+        // Phase 0 T3 table 2: T_uc alone on sin(πx) sin(πy) at n = 65, d = 2 is 1.2e-5. The
+        // round trip T_uc(T_cu u) measured here has the same error, since T_cu is exact to
+        // about 1e-16 on this function.
         #[test]
         fn round_trip_matches_spike() {
             let n = 65;

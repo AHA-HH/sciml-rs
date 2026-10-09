@@ -46,6 +46,11 @@ path = "examples/predict/burgers_superresolution.rs"
 name = "darcy_plot"
 path = "examples/predict/darcy_plot.rs"
 
+[[example]]
+name = "generate_poisson"
+path = "examples/generate/poisson.rs"
+required-features = ["chebyshev"]
+
 # Backends are additive: `Device::default()` picks the highest-priority one
 # compiled in (CUDA > Metal > ROCm > Vulkan > wgpu > Flex), and the
 # `BURN_DEVICE` env var overrides it at runtime. Burn's FFT extension 
@@ -63,6 +68,10 @@ wgpu = ["burn/wgpu"]
 # rlst's `fftw` and `fftw_system` back its Chebyshev transforms (design decision 12).
 # FFTW is GPL-2.0+; it comes from the system libfftw3 via pkg-config and is linked only
 # into builds with this feature. No other rlst feature is enabled (no burn or MPI).
+# The Poisson dataset generator also needs the GRF RNG (`rand_chacha`'s ChaCha8Rng and
+# `rand_distr`'s StandardNormal) and `serde_json` for its sidecars; all three are pinned
+# exactly because `Cargo.lock` is git-ignored and a seed must give the same field on
+# every machine (design §12, decision 13).
 chebyshev = [
     "dep:rlst",
     "rlst/fftw",
@@ -70,6 +79,9 @@ chebyshev = [
     "dep:blas-src",
     "dep:lapack-src",
     "dep:openblas-src",
+    "dep:rand_chacha",
+    "dep:rand_distr",
+    "dep:serde_json",
 ]
 
 [dependencies]
@@ -79,6 +91,10 @@ ndarray-npy = "0.10"
 matfile = "0.5"
 gnuplot = "0.0.46"
 rlst = { version = "0.9", optional = true, default-features = false }
+# Bumping rand_chacha or rand_distr changes the dataset format: update `grf::RNG` too.
+rand_chacha = { version = "=0.10.0", optional = true }
+rand_distr = { version = "=0.6.0", optional = true }
+serde_json = { version = "=1.0.151", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 blas-src = { version = "0.14", features = ["accelerate"], optional = true }
