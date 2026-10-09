@@ -96,14 +96,14 @@ Filled in as tasks merge. Phase 3 is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| `clencurt` against the RLST-backed `clenshaw_curtis` (max abs difference, per n), and the exact-integral tolerance | | T1 |
+| `clencurt` against the RLST-backed `clenshaw_curtis` (max abs difference, per n), and the exact-integral tolerance | max 1.1e-16 over n = 2..=129 (worst at n = 7, 11, 13); n = 2: 0, 3: 5.6e-17, 9: 5.6e-17, 33: 2.1e-17, 65: 1.4e-17, 129: 1.0e-17; asserted ≤ 1e-14. Exact integrals of x^k, k ≤ n − 1, n ∈ {2, 3, 9, 33, 65}: within 1e-14 | T1 |
 | Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, wall time per run) | | T2 |
 | Chosen p, and the full run at 65²: final train / test relative L², time per epoch, on metal and on flex | | T2 |
 | Pipeline threshold (test relative L² ≤ 2e-2) met on metal / on flex | | T2 |
 | The five errors on the stage 2 test split, mean / max: 1 (quoted), 2, 3, 4, 5 (max ratio and relative RMS) | | T3 |
 | Error 2 recomputed against the sidecar, and error 3 against the run's final test_l2 | | T3 |
 | Boundary verdict: relative boundary RMS / error 4, and whether the ablation is warranted | | T3 |
-| Wall time of the new tests under debug `cargo test` and `cargo test --features chebyshev` | | T1–T3 |
+| Wall time of the new tests under debug `cargo test` and `cargo test --features chebyshev` | T1: 9 ungated tests 0.00 s; 11 with `chebyshev` 0.46 s (macOS) | T1–T3 |
 
 ## Exit checklist
 
