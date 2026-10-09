@@ -97,12 +97,12 @@ Filled in as tasks merge. Phase 2 is done when every row has a value.
 | T_cu on analytic functions, per n (relative, uniform grid) | trapezoidal relative L², s = n − 1: sin(πx) sin(πy) 4.1e-16 / 4.5e-16 / 5.7e-16, (1 − x²)(1 − y²)e^(x + 2y) 3.7e-16 / 4.3e-16 / 5.6e-16 at n = 33 / 65 / 129 | T1 |
 | FH d = 2: observed order on sin(πx) sin(πy), n = 33 → 65 → 129; round trip against the Phase 0 table | CC relative L² 1.2e-4 → 1.2e-5 → 1.5e-6, orders 3.32 and 3.05; round trip at n = 65: 1.23e-5 (Phase 0: 1.2e-5) | T1 |
 | Λ(T_uc), d = 2, per n | 3.32 / 3.91 / 4.38 / 4.87 at n = 33 / 65 / 129 / 257 (as Phase 0) | T1 |
-| A against the exact series on GRF forcings, n = 33, 65, 129 (relative CC-L², max over samples) | | T2 |
-| GRF checks: mean square (N, value ± s.e.), point covariance against the formula, ε_K | | T2 |
-| Stage 1 (n = 33, K = 16) and stage 2 (n = 65, K = 32) datasets: generation time, file sizes, label check max / mean per split | | T2 |
-| Error 2 (round trip on u, d = 2) per split, stages 1 and 2: max / mean | | T2 |
+| A against the exact series on GRF forcings, n = 33, 65, 129 (relative CC-L², max over samples) | seeds 0–4, K(n): 3.9e-7 / 4.8e-10 / 5.9e-13 (bound 1e-8 for n ≥ 65); over the generated splits, 2.2e-6 at n = 33 and 2.2e-9 at n = 65 (1000 train samples) | T2 |
+| GRF checks: mean square (N, value ± s.e.), point covariance against the formula, ε_K | mean square at K = 32, N = 1000: 0.991 ± 0.013; covariance at n = 17, K = 8, N = 2000, three node pairs: 1.49, 0.96, 0.67 s.e. from the formula (bound 5); ε_K 1.86e-2 / 4.92e-3 / 1.26e-3 / 3.20e-4 at K = 16 / 32 / 64 / 128, S_∞ recomputed at m = 1000 to 1.0e-6 relative | T2 |
+| Stage 1 (n = 33, K = 16) and stage 2 (n = 65, K = 32) datasets: generation time, file sizes, label check max / mean per split | release, Apple M2 Pro; train / test. n = 33: 0.09 s / 0.02 s, 17.4 MB / 3.5 MB, label 2.2e-6 / 3.3e-7 and 1.3e-6 / 3.2e-7 (recorded, not enforced). n = 65: 0.25 s / 0.06 s, 67.6 MB / 13.5 MB, label 2.2e-9 / 4.0e-10 and 1.5e-9 / 3.8e-10 (enforced at 1e-8) | T2 |
+| Error 2 (round trip on u, d = 2) per split, stages 1 and 2: max / mean | n = 33: train 8.1e-4 / 1.8e-4, test 7.0e-4 / 1.8e-4. n = 65: train 1.04e-4 / 2.1e-5, test 7.8e-5 / 2.0e-5 | T2 |
 | Load time of the stage 2 dataset (release), and the loaded shapes | | T3 |
-| Wall time of the new tests under debug `cargo test --features chebyshev` and under `cargo test` | T1 (`chebyshev::transfer::tests`): 0.15 s, 20 tests, with the feature; 0.10 s, 15 tests, without | T1–T3 |
+| Wall time of the new tests under debug `cargo test --features chebyshev` and under `cargo test` | T1 (`chebyshev::transfer::tests`): 0.15 s, 20 tests, with the feature; 0.10 s, 15 tests, without. T2 (`pde::poisson::{grf, dataset}::tests`, `tests::convention_version_matches_conventions_md`): 3.1 s, 12 tests, with the feature (whole suite 109.5 s, unchanged); under 0.01 s, 1 test, without | T1–T3 |
 
 ## Exit checklist
 

@@ -47,3 +47,24 @@ compile_error!("the chebyshev feature has a BLAS/LAPACK provider only on macOS a
 
 #[allow(clippy::redundant_field_names)]
 pub mod neural_operators;
+
+/// The version of `docs/CONVENTIONS.md` this code implements (CONVENTIONS §9).
+///
+/// Recorded in the sidecar of every generated dataset. It changes only with that file:
+/// a change to CONVENTIONS §1–§6 or §12 bumps both, and a test checks they agree.
+pub const CONVENTION_VERSION: u32 = 1;
+
+#[cfg(test)]
+mod tests {
+    use super::CONVENTION_VERSION;
+
+    #[test]
+    fn convention_version_matches_conventions_md() {
+        let doc = include_str!("../docs/CONVENTIONS.md");
+        let stated = format!("`CONVENTION_VERSION = {CONVENTION_VERSION}`");
+        assert!(
+            doc.lines().take(5).any(|l| l.contains(&stated)),
+            "docs/CONVENTIONS.md does not state {stated} in its header"
+        );
+    }
+}
