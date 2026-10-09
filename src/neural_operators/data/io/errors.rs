@@ -31,7 +31,7 @@ impl std::error::Error for ReaderError {}
 pub type ReaderResult<T> = Result<T, ReaderError>;
 
 /// Errors returned by the dataset loaders (`load_burgers_uniform`,
-/// `load_darcy_uniform`).
+/// `load_darcy_uniform`, `load_poisson_uniform`).
 #[derive(Debug)]
 pub enum LoadError {
     /// A source file could not be opened, parsed, or lacks a required field.

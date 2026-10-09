@@ -54,6 +54,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`
   (`generate`, `label_check`, `write_split`), driven by `examples/generate/poisson.rs`
   (`generate_poisson`), which writes `datasets/poisson/`.
+- `data/loaders/poisson` is ungated: `load_poisson_uniform` reads those `.npz` files and
+  applies T_cu at load time, giving Darcy-shaped datasets on the uniform grid s = n − 1.
 - `spikes/`: standalone packages for Phase 0 measurements; never built by CI.
 - Unit tests sit in `#[cfg(test)] mod tests` in each file. `tests/spectral_init.rs` reseeds
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each
