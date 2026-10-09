@@ -781,12 +781,15 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - **A on GRF forcings.** The §11 row "Collocation solver (A) on GRF" (1e-8 against
       the exact sine series for n ≥ 65) had no test at the end of Phase 1, because the
       GRF sampler belongs to Phase 2. It is now a test in Phase 2 T2.
-    - **Transfers and the Poisson loader build without `chebyshev`.** They need only
-      ndarray and closed-form nodes, so training (Phase 3 and 4, including HPC) needs no
-      FFTW or BLAS. `chebyshev::transfer` and `data::loaders::poisson` are ungated, and
-      the `chebyshev` module is always compiled, with its RLST-backed parts behind the
-      feature. The RLST oracle tests stay gated. This refines §10's "feature-gated where
-      it uses RLST" and does not change it.
+    - **Transfers and the Poisson loader build without `chebyshev`.** (Clarified
+      2026-10-09.) They need only ndarray and closed-form nodes, so training (Phase 3
+      and 4, including HPC) needs no FFTW or BLAS. Generating datasets still needs
+      `chebyshev`; stage 3–4 and K = 32 sets are either generated on HPC, which then
+      needs system libfftw3 and OpenBLAS, or generated elsewhere and transferred
+      (Phase 4 "Needs"). `chebyshev::transfer` and `data::loaders::poisson` are
+      ungated, and the `chebyshev` module is always compiled, with its RLST-backed parts
+      behind the feature. The RLST oracle tests stay gated. This refines §10's
+      "feature-gated where it uses RLST" and does not change it.
     - **GRF randomness and the sidecar.** ξ is drawn with `rand_chacha`'s `ChaCha8Rng`
       and `rand_distr`'s `StandardNormal`, both pinned to exact versions because
       `Cargo.lock` is git-ignored, so a seed gives the same field on every machine (§5.3
