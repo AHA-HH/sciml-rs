@@ -48,7 +48,8 @@ Recorded in design §12, decision 13.
 
 - **The transfers and the loader build without `chebyshev`.** They need only ndarray and
   closed-form nodes, so the Phase 3 and 4 training runs (including HPC) need no FFTW or
-  BLAS. The GRF sampler and the generator use solver A and stay gated.
+  BLAS. The GRF sampler and the generator use solver A and stay gated, so generating on
+  HPC needs those libraries there.
 - **`rand_chacha` + `rand_distr` + `serde_json`, pinned to exact versions.** `ChaCha8Rng`
   has a documented, portable stream, so a seed gives the same field on every machine.
   That matters because §5.3 regenerates sets on HPC and `Cargo.lock` is git-ignored.
