@@ -32,6 +32,7 @@ pub use norm::{l2_norm, rel_l2_error};
 pub use points::nodes;
 #[cfg(feature = "chebyshev")]
 pub use quadrature::clenshaw_curtis;
+pub(crate) use transfer::cgl_nodes;
 pub use transfer::{apply, cheb_to_uniform, uniform_nodes, uniform_to_cheb};
 
 #[cfg(feature = "chebyshev")]
