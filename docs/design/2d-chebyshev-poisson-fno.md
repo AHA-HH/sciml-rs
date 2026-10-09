@@ -876,10 +876,13 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       relative L² of 1.16e-2 (train 3.47e-3), which meets the 2e-2 threshold of decision 16
       on metal. `PADDING = 0` is provisional, and T3 evaluates this run.
     - **Deferred, still required before the Phase 3 exit:** the sweep over p ∈ {4, 8, 16}
-      (full length, metal) and the full-length flex run at the chosen p. They run either
-      on mains power overnight or after a fix to Bluestein in Burn, which would be its own
-      task. If a larger p wins by the decision 16 rule, `PADDING` changes and T3 is re-run
-      on the new run.
+      (full length, metal), run on mains power after T2 merges. If a larger p wins by the
+      decision 16 rule, `PADDING` changes and T3 is re-run on the new run.
+    - **The flex run moves to Phase 4.** The full-length flex run at the chosen p, and
+      the threshold on flex, are no longer part of the Phase 3 exit. Phase 3 closes on
+      metal, and the §11 pipeline row and the §10 Phase 3 exit read "on metal" until
+      then. Phase 4 plans the flex run, after a fix to Bluestein in Burn if one is made
+      (that fix would be its own task). Until then, flex is covered by the smoke test only.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
 
 ## References

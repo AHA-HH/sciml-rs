@@ -98,8 +98,8 @@ Filled in as tasks merge. Phase 3 is done when every row has a value.
 | --- | --- | --- |
 | `clencurt` against the RLST-backed `clenshaw_curtis` (max abs difference, per n), and the exact-integral tolerance | | T1 |
 | Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, wall time per run) | p = 0: 1.16e-2 (metal, 1763 s). p = 4, 8, 16 deferred (design §12, decision 17): a p = 8 probe ran at about 101 s/epoch on metal | T2 |
-| Chosen p, and the full run at 65²: final train / test relative L², time per epoch, on metal and on flex | p = 0 (provisional, decision 17). Metal: 3.47e-3 / 1.16e-2, 3.5 s/epoch (first epoch 8.5 s), run `runs/poisson_fno_p0_1791563533` (T3 evaluates this run). Flex: deferred | T2 |
-| Pipeline threshold (test relative L² ≤ 2e-2) met on metal / on flex | Metal: met (1.16e-2). Flex: deferred | T2 |
+| Chosen p, and the full run at 65²: final train / test relative L², time per epoch, on metal and on flex | p = 0 (provisional, decision 17). Metal: 3.47e-3 / 1.16e-2, 3.5 s/epoch (first epoch 8.5 s), run `runs/poisson_fno_p0_1791563533` (T3 evaluates this run). Flex: moved to Phase 4 (decision 17) | T2 |
+| Pipeline threshold (test relative L² ≤ 2e-2) met on metal / on flex | Metal: met (1.16e-2). Flex: moved to Phase 4 (decision 17) | T2 |
 | The five errors on the stage 2 test split, mean / max: 1 (quoted), 2, 3, 4, 5 (max ratio and relative RMS) | | T3 |
 | Error 2 recomputed against the sidecar, and error 3 against the run's final test_l2 | | T3 |
 | Boundary verdict: relative boundary RMS / error 4, and whether the ablation is warranted | | T3 |
@@ -111,7 +111,8 @@ Filled in as tasks merge. Phase 3 is done when every row has a value.
 - [ ] The design §11 row for the closed-form Clenshaw–Curtis weights passes under
       `cargo test --features chebyshev`, and the ungated tests pass under `cargo test`,
       locally on macOS and in both CI jobs.
-- [ ] The §11 pipeline row met: test relative L² ≤ 2e-2 at 65², on flex and on metal.
+- [ ] The §11 pipeline row met: test relative L² ≤ 2e-2 at 65², on metal. The flex run
+      moved to Phase 4 (design §12, decision 17).
 - [ ] The five errors of §7 reported for the stage 2 run and recorded above.
 - [ ] The boundary verdict stated. If the ablation is warranted, it is planned then as a
       new Phase 3 task.
