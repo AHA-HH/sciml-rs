@@ -269,7 +269,8 @@ Chebyshev datasets (design `docs/design/2d-chebyshev-poisson-fno.md`) are stored
 Chebyshev grid and reach the unchanged model (§1–§6) on a uniform grid. This section fixes
 both grids, the transfers between them and the norms on the Chebyshev grid. The degree d
 and the uniform size rule were measured in Phase 0 T3 (`spikes/transfers/REPORT.md`).
-Unlike §1–§11, §12 precedes the code that implements it (§9); its tests are planned.
+§12 was written before the code that implements it (§9); its tests landed in Phase 1 T1
+and Phase 2 T1.
 
 - Domain Ω = [−1, 1]². The model's coordinates ξ ∈ [0, 1] (§2) map to it by x = 2ξ − 1.
 - Chebyshev–Gauss–Lobatto nodes, n per axis (n = 2^k + 1), in **ascending** order, both
@@ -322,10 +323,12 @@ Unlike §1–§11, §12 precedes the code that implements it (§9); its tests ar
   host; the model sees f32 after normalisation (§8, §10).
 
 ### Verification
-All planned; they land in Phase 1 T1 and Phase 2 T1 (design §10, §11).
-- Phase 1 T1 (planned): `cgl_nodes_ascending_match_rlst_reversed`,
-  `clenshaw_curtis_exact_on_polynomials`.
-- Phase 2 T1 (planned): `uniform_grid_has_endpoints_and_n_minus_1_points`,
-  `cheb_bary_weights_match_closed_form`, `cheb_to_uniform_matches_rlst_barycentric`,
-  `fh_reproduces_polynomials_to_degree_d`,
+Tests marked † need the `chebyshev` feature.
+- CGL nodes and Clenshaw–Curtis weights (Phase 1 T1):
+  `cgl_nodes_ascending_match_rlst_reversed`†, `clenshaw_curtis_exact_on_polynomials`†.
+- Grids and transfers (Phase 2 T1, `chebyshev::transfer`):
+  `uniform_grid_has_endpoints_and_n_minus_1_points`,
+  `cgl_closed_form_is_ascending_and_antisymmetric`, `cgl_closed_form_matches_nodes`†,
+  `cheb_bary_weights_match_closed_form`†, `cheb_to_uniform_matches_rlst_barycentric`†,
+  `fh_reproduces_polynomials_to_degree_d`, `coincident_target_gives_unit_row`,
   `transfers_preserve_ij_layout`.

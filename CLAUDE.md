@@ -43,8 +43,11 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, batchers, io for
   npy/npz/.mat, transforms), `training/`, `metrics/` (run artifacts, gnuplot),
   `utils/fft.rs` (icfft_full_spectrum).
-- `src/neural_operators/chebyshev/` (behind the `chebyshev` feature; needs system libfftw3):
-  CGL `nodes`, `diff_matrix`/`diff2_matrix`, `clenshaw_curtis`, `l2_norm`/`rel_l2_error`.
+- `src/neural_operators/chebyshev/`: CGL `nodes`, `diff_matrix`/`diff2_matrix`,
+  `clenshaw_curtis`, `l2_norm`/`rel_l2_error` are behind the `chebyshev` feature (need
+  system libfftw3).
+- `chebyshev/transfer` is ungated (ndarray only): `uniform_nodes`, `cheb_to_uniform` (T_cu),
+  `uniform_to_cheb` (T_uc, Floater–Hormann), `apply`.
 - `src/neural_operators/pde/poisson/` (behind `chebyshev`): `collocation`
   (`CollocationSolver`, solver A, fast diagonalisation); `sparse` (`SparseSolver`, solver C,
   Q1 + unpreconditioned CG, validation oracle only); `manufactured` (test-only fixtures).

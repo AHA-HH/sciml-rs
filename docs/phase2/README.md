@@ -94,15 +94,15 @@ Filled in as tasks merge. Phase 2 is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| T_cu on analytic functions, per n (relative, uniform grid) | | T1 |
-| FH d = 2: observed order on sin(πx) sin(πy), n = 33 → 65 → 129; round trip against the Phase 0 table | | T1 |
-| Λ(T_uc), d = 2, per n | | T1 |
+| T_cu on analytic functions, per n (relative, uniform grid) | trapezoidal relative L², s = n − 1: sin(πx) sin(πy) 4.1e-16 / 4.5e-16 / 5.7e-16, (1 − x²)(1 − y²)e^(x + 2y) 3.7e-16 / 4.3e-16 / 5.6e-16 at n = 33 / 65 / 129 | T1 |
+| FH d = 2: observed order on sin(πx) sin(πy), n = 33 → 65 → 129; round trip against the Phase 0 table | CC relative L² 1.2e-4 → 1.2e-5 → 1.5e-6, orders 3.32 and 3.05; round trip at n = 65: 1.23e-5 (Phase 0: 1.2e-5) | T1 |
+| Λ(T_uc), d = 2, per n | 3.32 / 3.91 / 4.38 / 4.87 at n = 33 / 65 / 129 / 257 (as Phase 0) | T1 |
 | A against the exact series on GRF forcings, n = 33, 65, 129 (relative CC-L², max over samples) | | T2 |
 | GRF checks: mean square (N, value ± s.e.), point covariance against the formula, ε_K | | T2 |
 | Stage 1 (n = 33, K = 16) and stage 2 (n = 65, K = 32) datasets: generation time, file sizes, label check max / mean per split | | T2 |
 | Error 2 (round trip on u, d = 2) per split, stages 1 and 2: max / mean | | T2 |
 | Load time of the stage 2 dataset (release), and the loaded shapes | | T3 |
-| Wall time of the new tests under debug `cargo test --features chebyshev` and under `cargo test` | | T1–T3 |
+| Wall time of the new tests under debug `cargo test --features chebyshev` and under `cargo test` | T1 (`chebyshev::transfer::tests`): 0.15 s, 20 tests, with the feature; 0.10 s, 15 tests, without | T1–T3 |
 
 ## Exit checklist
 
