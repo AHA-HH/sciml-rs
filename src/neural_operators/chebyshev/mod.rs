@@ -5,15 +5,18 @@
 //! types only.
 //!
 //! - Always built: the grid transfers between the CGL grid and the model's uniform grid
-//!   (`uniform_nodes`, `cheb_to_uniform`, `uniform_to_cheb`, `apply`). They use
-//!   closed-form nodes and weights and depend on ndarray alone, so training on
-//!   Chebyshev data needs no RLST, BLAS or FFTW (design §12, decision 13).
+//!   (`uniform_nodes`, `cheb_to_uniform`, `uniform_to_cheb`, `apply`), and the
+//!   closed-form Clenshaw–Curtis weights with the relative L² error built from them
+//!   (`clencurt`, `cc_rel_l2_error`). They use closed-form nodes and weights and depend
+//!   on ndarray alone, so training and evaluation on Chebyshev data need no RLST, BLAS
+//!   or FFTW (design §12, decisions 13 and 15).
 //! - Behind the `chebyshev` feature: the nodes, D, D², the Clenshaw–Curtis weights and
 //!   the tensor-product L² norm built from them (`nodes`, `diff_matrix`, `diff2_matrix`,
 //!   `clenshaw_curtis`, `l2_norm`, `rel_l2_error`). They wrap RLST's FFTW-backed
 //!   `chebychev` transforms (design §12, decision 12) and need a system libfftw3. RLST
 //!   works in descending node order; every function here returns ascending order.
 
+mod clencurt;
 #[cfg(feature = "chebyshev")]
 mod differentiation;
 #[cfg(feature = "chebyshev")]
@@ -24,6 +27,7 @@ mod points;
 mod quadrature;
 mod transfer;
 
+pub use clencurt::{cc_rel_l2_error, clencurt};
 #[cfg(feature = "chebyshev")]
 pub use differentiation::{diff_matrix, diff2_matrix};
 #[cfg(feature = "chebyshev")]

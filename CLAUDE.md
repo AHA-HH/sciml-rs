@@ -48,6 +48,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   system libfftw3).
 - `chebyshev/transfer` is ungated (ndarray only): `uniform_nodes`, `cheb_to_uniform` (T_cu),
   `uniform_to_cheb` (T_uc, Floater–Hormann), `apply`.
+- `chebyshev/clencurt` is ungated (ndarray only): `clencurt` (closed-form Clenshaw–Curtis
+  weights, Trefethen) and `cc_rel_l2_error` (relative CC-L² error on the CGL tensor grid).
 - `src/neural_operators/pde/poisson/` (behind `chebyshev`): `collocation`
   (`CollocationSolver`, solver A, fast diagonalisation); `sparse` (`SparseSolver`, solver C,
   Q1 + unpreconditioned CG, validation oracle only); `manufactured` (test-only fixtures).
