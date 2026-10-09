@@ -106,15 +106,16 @@ Filled in as tasks merge. Phase 2 is done when every row has a value.
 
 ## Exit checklist
 
-- [ ] T1, T2 and T3 merged.
-- [ ] The design §11 rows for Chebyshev → uniform, uniform → Chebyshev (FH), the
+- [x] T1, T2 and T3 merged.
+- [x] The design §11 rows for Chebyshev → uniform, uniform → Chebyshev (FH), the
       collocation solver on GRF, the GRF sampler, the `generate_poisson` label check and
       the loader pass: the ungated ones under `cargo test` and the gated ones under
       `cargo test --features chebyshev`, locally on macOS and in both CI jobs.
-- [ ] Stage 1 and 2 datasets (n = 33, 65; 1000 train / 200 test) generated locally, with
+- [x] Stage 1 and 2 datasets (n = 33, 65; 1000 train / 200 test) generated locally, with
       label checks within 1e-8 at n = 65.
-- [ ] Error 2 of design §7 measured on the stage 1 and 2 test splits and recorded above.
-- [ ] Every row of Results filled in.
-- [ ] Any result that contradicts the design is recorded in the design's §12 under
-      "Recorded decisions", dated, before Phase 3 is planned.
+- [x] Error 2 of design §7 measured on the stage 1 and 2 test splits and recorded above.
+- [x] Every row of Results filled in.
+- [x] Any result that contradicts the design is recorded in the design's §12 under
+      "Recorded decisions", dated, before Phase 3 is planned (decisions 14 and 15).
 - [ ] The "Current phase" bullet in `CLAUDE.md` points to `docs/phase3/README.md`.
+      Ticked when Phase 3 is planned.
