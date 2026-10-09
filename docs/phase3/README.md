@@ -97,13 +97,13 @@ Filled in as tasks merge. Phase 3 is done when every row has a value.
 | Item | Value | Source |
 | --- | --- | --- |
 | `clencurt` against the RLST-backed `clenshaw_curtis` (max abs difference, per n), and the exact-integral tolerance | | T1 |
-| Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, wall time per run) | | T2 |
-| Chosen p, and the full run at 65²: final train / test relative L², time per epoch, on metal and on flex | | T2 |
-| Pipeline threshold (test relative L² ≤ 2e-2) met on metal / on flex | | T2 |
+| Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, wall time per run) | p = 0: 1.16e-2 (metal, 1763 s). p = 4, 8, 16 deferred (design §12, decision 17): a p = 8 probe ran at about 101 s/epoch on metal | T2 |
+| Chosen p, and the full run at 65²: final train / test relative L², time per epoch, on metal and on flex | p = 0 (provisional, decision 17). Metal: 3.47e-3 / 1.16e-2, 3.5 s/epoch (first epoch 8.5 s), run `runs/poisson_fno_p0_1791563533` (T3 evaluates this run). Flex: deferred | T2 |
+| Pipeline threshold (test relative L² ≤ 2e-2) met on metal / on flex | Metal: met (1.16e-2). Flex: deferred | T2 |
 | The five errors on the stage 2 test split, mean / max: 1 (quoted), 2, 3, 4, 5 (max ratio and relative RMS) | | T3 |
 | Error 2 recomputed against the sidecar, and error 3 against the run's final test_l2 | | T3 |
 | Boundary verdict: relative boundary RMS / error 4, and whether the ablation is warranted | | T3 |
-| Wall time of the new tests under debug `cargo test` and `cargo test --features chebyshev` | | T1–T3 |
+| Wall time of the new tests under debug `cargo test` and `cargo test --features chebyshev` | T2 `train_poisson_smoke`: 0.11 s on flex (8.9 s with `--features metal`) | T1–T3 |
 
 ## Exit checklist
 

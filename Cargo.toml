@@ -27,6 +27,10 @@ name = "train_darcy"
 path = "examples/train/darcy.rs"
 
 [[example]]
+name = "train_poisson"
+path = "examples/train/poisson.rs"
+
+[[example]]
 name = "predict_burgers"
 path = "examples/predict/burgers.rs"
 

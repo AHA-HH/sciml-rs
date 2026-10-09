@@ -5,3 +5,4 @@
 
 pub mod burgers;
 pub mod darcy;
+pub mod poisson;
