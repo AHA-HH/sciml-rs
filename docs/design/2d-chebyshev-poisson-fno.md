@@ -2,8 +2,9 @@
 
 As of 2026-10-05. Status: **signed off** on 2026-10-05 by the author (AHA-HH);
 amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (decision 12),
-and 2026-10-09 after Phase 2 (decisions 14 and 15). The decisions are recorded in Section 12. This document is the specification for the phase
-plans.
+2026-10-09 after Phase 2 (decisions 14 and 15), and 2026-10-09 for Phase 3 planning
+(decision 16). The decisions are recorded in Section 12. This document is the
+specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
 grid. The experiment learns the solution operator f ↦ u of the Poisson equation on a square
@@ -401,7 +402,8 @@ Decision 2.
 
 - Training on the uniform grid as today: `LpLoss::rel` (p = 2), Adam with cosine
   schedule, FNO modes [12, 12], width 32, 4 layers. Padding `Some(p)` because the problem
-  is not periodic; p is chosen in Phase 3 (Darcy uses 9 at s = 85).
+  is not periodic; p is chosen in Phase 3 T2 by a full-length sweep over {0, 4, 8, 16}
+  (Darcy uses 9 at s = 85; decision 16).
 - **Errors reported**, over the test set (mean and maximum); 1–4 are relative L² errors:
   1. **solver:** A against manufactured solutions (§4.3), and A against C as h → 0;
   2. **transfer:** T_uc(T_cu u) − u on the Chebyshev grid, for the test u;
@@ -413,8 +415,9 @@ Decision 2.
 - **Boundary condition.** The FNO does not enforce u = 0 on ∂Ω, so the Phase 3 baseline
   uses the unchanged FNO and measures the boundary error (error 5) separately. A
   hard-constraint ablation, the output multiplied by (1 − x²)(1 − y²) after
-  denormalisation, is considered only if Phase 3 T2's boundary error is meaningful against
-  the total error. Phase 3 T2 sets that threshold.
+  denormalisation, is considered only if Phase 3 T3's boundary error is meaningful against
+  the total error: the mean relative boundary RMS (error 5) is at least 10% of the mean
+  error 4 (decision 16).
 - **Expectation, to calibrate tests and not as a target:** FNO relative L² errors around
   1e-2 on smooth elliptic problems (Li et al. 2021, Darcy 0.0108 at 85²). Transfer errors
   sit well below that: Phase 0 T3 measured the round trip on u at most 3.6e-5 at 65²,
@@ -506,7 +509,8 @@ flowchart LR
     P2T1["T1 transfers"] --> P2T2["T2 GRF + generate_poisson"] --> P2T3["T3 Poisson loader"]
   end
   subgraph P3["Phase 3: training and evaluation, local"]
-    P3T1["T1 train_poisson, 65²"] --> P3T2["T2 predict_poisson"]
+    P3T1["T1 ungated CC weights"] --> P3T3["T3 predict_poisson"]
+    P3T2["T2 train_poisson, 65²"] --> P3T3
   end
   subgraph P4["Phase 4: HPC"]
     P4T1["T1 129² on GPU"] --> P4T2["T2 resolution study"]
@@ -515,8 +519,8 @@ flowchart LR
   P0T1 --> P1T1
   P1T1 --> P2T1
   P1T2 --> P2T2
-  P2T3 --> P3T1
-  P3T2 --> P4T1
+  P2T3 --> P3T2
+  P3T3 --> P4T1
   P4T2 -.-> P5
 ```
 
@@ -586,16 +590,20 @@ flowchart LR
 
 - **Goal:** the first end-to-end FNO run on Chebyshev data, with all five errors of §7.
 - **Needs:** Phase 2 done; stage 2 dataset (65²).
+- **Inputs from Phase 2:** error 2 on the stage 2 test split, max 7.8e-5 and mean 2.0e-5
+  (decision 14); the three gaps of decision 15. Plan: `docs/phase3/README.md`.
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
-| T1 | `train_poisson` example and trainer; first run at 65²; padding p chosen | – |
-| T2 | `predict_poisson`: the five errors of §7 on the Chebyshev grid, including the boundary error; the threshold at which the boundary error counts as meaningful; ungated Clenshaw–Curtis weights and norm (decision 15) | T1 |
+| T1 | Ungated Clenshaw–Curtis weights (closed form) and relative CC-L² error, tested against the RLST-backed weights (decision 15) | – |
+| T2 | `train_poisson` example and trainer; padding p chosen by a full-length sweep; first run at 65² on metal and flex | – (parallel with T1) |
+| T3 | `predict_poisson`: raw Chebyshev u from the test split, the five errors of §7 on the Chebyshev grid including the boundary error, and the boundary-ablation verdict | T1, T2 |
 
-- **Exit:** the §11 pipeline row (65² training converges below the threshold T1 sets),
-  run on flex and metal; the five errors reported for a stage 2 run. The exit states
-  whether the boundary-condition ablation of §7 is warranted. If it is, it becomes a new
-  Phase 3 task, planned then; nothing is added for it now.
+- **Exit:** the §11 pipeline row (65² training reaches test relative L² ≤ 2e-2,
+  decision 16), run on flex and metal; the five errors reported for a stage 2 run. The
+  exit states whether the boundary-condition ablation of §7 is warranted, by the rule of
+  decision 16. If it is, it becomes a new Phase 3 task, planned then; nothing is added
+  for it now.
 
 ### Phase 4: HPC
 
@@ -630,7 +638,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 | CGL nodes, barycentric weights | closed forms; RLST `interpolation` (reversed) for barycentric weights | 1e-14 absolute |
 | D, D² | Trefethen's `cheb`; exact on polynomials of degree < n | 1e-10 relative to ‖D‖ |
 | Clenshaw–Curtis weights | exact integrals of polynomials of degree ≤ n − 1 | 1e-14 |
-| Clenshaw–Curtis weights, closed form (ungated, decision 15) | the RLST-backed weights under `chebyshev` | 1e-14 |
+| Clenshaw–Curtis weights, closed form (ungated, decisions 15 and 16; Phase 3 T1) | the RLST-backed weights under `chebyshev` | 1e-14 |
 | Collocation solver (A) | manufactured solutions; option B at n ≤ 33 | stated floor from the convergence study |
 | Collocation solver (A) on GRF | exact sine-series solution | 1e-8 relative CC-L² for n ≥ 65 |
 | Sparse solver (C) | manufactured solutions: order 2 ± 0.1; residual ≤ CG tolerance | – |
@@ -639,7 +647,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 | GRF sampler | same seed gives the same field at every n (nodes in common); empirical covariance against the formula | statistical, stated in the brief |
 | `generate_poisson` label check | exact sine-series solution, every sample; recorded in the sidecar | aborts above 1e-8 relative CC-L² for n ≥ 65 |
 | Loader | shapes, normaliser asymmetry as in Darcy's tests | exact |
-| Pipeline | 65² training converges below a threshold set from Phase 3 T1 | f32 |
+| Pipeline | 65² training on flex and metal (Phase 3 T2) | test relative L² ≤ 2e-2, f32 (decision 16) |
 
 ## 12. Questions for sign-off
 
@@ -737,8 +745,8 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - **Boundary condition:** the Phase 3 baseline keeps the unchanged FNO, which does not
       enforce u = 0, and reports the boundary error as a fifth error. The hard constraint
       (output × (1 − x²)(1 − y²) after denormalisation) is a later ablation, taken up only
-      if Phase 3 T2 finds the boundary error meaningful against the total error. The
-      baseline stays the unchanged FNO of decision 2, and the constraint's benefit is
+      if Phase 3 T2 (now T3, decision 16) finds the boundary error meaningful against the
+      total error. The baseline stays the unchanged FNO of decision 2, and the constraint's benefit is
       measured rather than assumed (§7, §10).
     - **Editorial:** the §10 graph edge P1T3 → P2T2 is corrected to P1T2 → P2T2, matching
       Phase 2's "Needs" row; §1, §1.3, §2, §4 and the Phase 0 status are updated to the
@@ -823,19 +831,40 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - **Ungated Clenshaw–Curtis weights.** Error 4 (§7) uses Clenshaw–Curtis weights, and
       today the only ones are `chebyshev::clenshaw_curtis`, behind the FFTW-backed
       `chebyshev` feature. Evaluation would then need FFTW, against the aim of decision
-      13. Phase 3 T2 adds closed-form weights (Trefethen's `clencurt`, O(n²), ndarray
-      only) and an ungated relative CC-L² error, tested against the RLST-backed weights
+      13. Phase 3 T2 (now T1, decision 16) adds closed-form weights (Trefethen's
+      `clencurt`, O(n²), ndarray only) and an ungated relative CC-L² error, tested against the RLST-backed weights
       under the feature (§11). Training and evaluation, on HPC too, then need no FFTW;
       only generation does. The gated `clenshaw_curtis`, `l2_norm` and `rel_l2_error`
       are unchanged.
     - **Raw Chebyshev u for evaluation.** `load_poisson_uniform` returns only the
-      uniform-grid fields. Phase 3 T2 reads the test split's raw `u` for errors 2, 4 and 5,
-      from the `.npz` or through a small loader addition; the loader's existing
+      uniform-grid fields. Phase 3 T2 (now T3, decision 16) reads the test split's raw
+      `u` for errors 2, 4 and 5, from the `.npz` or through a small loader addition; the loader's existing
       behaviour does not change.
     - **Pipeline threshold.** The §11 Pipeline row and the Phase 3 exit take their
-      threshold from Phase 3 T1, the run they judge. The Phase 3 plan fixes the number
-      before T1 runs (proposal: test relative L² ≤ 2e-2 at 65², against Darcy's 1.08e-2
+      threshold from Phase 3 T1 (now T2, decision 16), the run they judge. The Phase 3
+      plan fixes the number before T1 runs (proposal: test relative L² ≤ 2e-2 at 65², against Darcy's 1.08e-2
       at 85²).
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
+16. **Phase 3 planning (2026-10-09).** Plan: `docs/phase3/README.md`.
+    - **Three tasks instead of two.** §10's T2 mixed library code (the ungated
+      Clenshaw–Curtis weights of decision 15) with evaluation. The library part becomes
+      T1, which needs no dataset or training run and can proceed in parallel with
+      training; training becomes T2 and evaluation T3. The order of the work is unchanged:
+      training before evaluation, and the weights before the errors that use them. In
+      decisions 10 and 15, "Phase 3 T1" now reads T2 and "Phase 3 T2" reads T1 (weights)
+      or T3 (evaluation).
+    - **Pipeline threshold: test relative L² ≤ 2e-2 at 65²**, the decision 15 proposal,
+      fixed before T2 runs. It must hold on flex and on metal (§11). If it is missed, the
+      result is recorded here before anything is retuned.
+    - **Padding p by a full-length sweep:** p ∈ {0, 4, 8, 16}, the Darcy hyperparameters
+      and 500 epochs each. The lowest final test relative L² wins, and values within 2% of
+      each other go to the smaller p.
+    - **Error 1** (solver) is quoted from the Phase 1 results, not recomputed:
+      `predict_poisson` is ungated, and solvers A and C need `chebyshev`. **Error 2** is
+      recomputed in evaluation and cross-checked against the dataset sidecar.
+    - **Boundary threshold:** the hard-constraint ablation (§7) is warranted if the mean
+      relative boundary RMS (error 5, the CC-weighted RMS over ∂Ω divided by the RMS of
+      u over Ω) is at least 10% of the mean error 4. The rule is fixed before T3 runs.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
 
 ## References

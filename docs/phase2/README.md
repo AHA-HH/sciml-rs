@@ -117,5 +117,5 @@ Filled in as tasks merge. Phase 2 is done when every row has a value.
 - [x] Every row of Results filled in.
 - [x] Any result that contradicts the design is recorded in the design's §12 under
       "Recorded decisions", dated, before Phase 3 is planned (decisions 14 and 15).
-- [ ] The "Current phase" bullet in `CLAUDE.md` points to `docs/phase3/README.md`.
+- [x] The "Current phase" bullet in `CLAUDE.md` points to `docs/phase3/README.md`.
       Ticked when Phase 3 is planned.
