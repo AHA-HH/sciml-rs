@@ -1,7 +1,8 @@
 # Learning the 2D Poisson solution operator on a Chebyshev grid
 
 As of 2026-10-05. Status: **signed off** on 2026-10-05 by the author (AHA-HH);
-amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (decision 12). The decisions are recorded in Section 12. This document is the specification for the phase
+amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (decision 12),
+and 2026-10-09 after Phase 2 (decisions 14 and 15). The decisions are recorded in Section 12. This document is the specification for the phase
 plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -577,6 +578,9 @@ flowchart LR
   and the loader pass; datasets for stages 1–2 (n = 33, 65) generated locally; error 2 of
   §7 measured on them. The K = 32 evaluation sets (§5.3) are generated where Phase 4 needs
   them; they are cheap, so anywhere.
+- **Status (2026-10-09):** done. T1, T2 and T3 merged (#18–#20); stage 1–2 datasets
+  generated; error 2 and the label check over the full splits recorded (decision 14).
+  Inputs to Phase 3 recorded in decision 15.
 
 ### Phase 3: training and evaluation, local
 
@@ -586,7 +590,7 @@ flowchart LR
 | Task | Delivers | Depends on |
 | --- | --- | --- |
 | T1 | `train_poisson` example and trainer; first run at 65²; padding p chosen | – |
-| T2 | `predict_poisson`: the five errors of §7 on the Chebyshev grid, including the boundary error; the threshold at which the boundary error counts as meaningful | T1 |
+| T2 | `predict_poisson`: the five errors of §7 on the Chebyshev grid, including the boundary error; the threshold at which the boundary error counts as meaningful; ungated Clenshaw–Curtis weights and norm (decision 15) | T1 |
 
 - **Exit:** the §11 pipeline row (65² training converges below the threshold T1 sets),
   run on flex and metal; the five errors reported for a stage 2 run. The exit states
@@ -626,6 +630,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 | CGL nodes, barycentric weights | closed forms; RLST `interpolation` (reversed) for barycentric weights | 1e-14 absolute |
 | D, D² | Trefethen's `cheb`; exact on polynomials of degree < n | 1e-10 relative to ‖D‖ |
 | Clenshaw–Curtis weights | exact integrals of polynomials of degree ≤ n − 1 | 1e-14 |
+| Clenshaw–Curtis weights, closed form (ungated, decision 15) | the RLST-backed weights under `chebyshev` | 1e-14 |
 | Collocation solver (A) | manufactured solutions; option B at n ≤ 33 | stated floor from the convergence study |
 | Collocation solver (A) on GRF | exact sine-series solution | 1e-8 relative CC-L² for n ≥ 65 |
 | Sparse solver (C) | manufactured solutions: order 2 ± 0.1; residual ≤ CG tolerance | – |
@@ -811,6 +816,26 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - **The label check is looser than Phase 0's figure but within its bound.** At
       n = 65 the maximum over 1000 samples is 2.2e-9 (Phase 0 T4: 7.4e-10), 5× below the
       enforced 1e-8; at n = 33, 2.2e-6 (Phase 0: 2.5e-7), recorded only (§5.1).
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
+15. **Phase 2 close-out and inputs to Phase 3 (2026-10-09).** Phase 2 needs no redesign:
+    the architecture, d = 2, s = n − 1 and CONVENTIONS (version 1) stand. Three gaps
+    found while closing it go to Phase 3:
+    - **Ungated Clenshaw–Curtis weights.** Error 4 (§7) uses Clenshaw–Curtis weights, and
+      today the only ones are `chebyshev::clenshaw_curtis`, behind the FFTW-backed
+      `chebyshev` feature. Evaluation would then need FFTW, against the aim of decision
+      13. Phase 3 T2 adds closed-form weights (Trefethen's `clencurt`, O(n²), ndarray
+      only) and an ungated relative CC-L² error, tested against the RLST-backed weights
+      under the feature (§11). Training and evaluation, on HPC too, then need no FFTW;
+      only generation does. The gated `clenshaw_curtis`, `l2_norm` and `rel_l2_error`
+      are unchanged.
+    - **Raw Chebyshev u for evaluation.** `load_poisson_uniform` returns only the
+      uniform-grid fields. Phase 3 T2 reads the test split's raw `u` for errors 2, 4 and 5,
+      from the `.npz` or through a small loader addition; the loader's existing
+      behaviour does not change.
+    - **Pipeline threshold.** The §11 Pipeline row and the Phase 3 exit take their
+      threshold from Phase 3 T1, the run they judge. The Phase 3 plan fixes the number
+      before T1 runs (proposal: test relative L² ≤ 2e-2 at 65², against Darcy's 1.08e-2
+      at 85²).
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
 
 ## References
