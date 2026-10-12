@@ -57,7 +57,11 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   (`generate`, `label_check`, `write_split`), driven by `examples/generate/poisson.rs`
   (`generate_poisson`), which writes `datasets/poisson/`.
 - `data/loaders/poisson` is ungated: `load_poisson_uniform` reads those `.npz` files and
-  applies T_cu at load time, giving Darcy-shaped datasets on the uniform grid s = n − 1.
+  applies T_cu at load time, giving Darcy-shaped datasets on the uniform grid s = n − 1;
+  `load_poisson_cheb` reads one split's raw `u` on the CGL grid, untransferred.
+- `metrics/poisson` is ungated (ndarray, f64): `poisson_errors` gives design §7's errors 2–5
+  on the Chebyshev grid, driven by `examples/predict/poisson.rs` (`predict_poisson`), which
+  writes `errors.json` into the run directory.
 - `training/trainers/poisson` (`train_poisson`, the Darcy trainer on those datasets), driven
   by `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
 - `spikes/`: standalone packages for Phase 0 measurements; never built by CI.
@@ -124,3 +128,5 @@ than trusting prose when checking how an API behaves.
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution`, `burgers_superresolution` on Burgers runs;
   `predict_darcy`, `darcy_plot` on Darcy runs)
+- Evaluate a Poisson run (the five errors, the boundary verdict):
+  `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`

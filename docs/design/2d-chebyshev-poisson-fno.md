@@ -884,6 +884,14 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       then. Phase 4 plans the flex run, after a fix to Bluestein in Burn if one is made
       (that fix would be its own task). Until then, flex is covered by the smoke test only.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
+    - **Amendment (2026-10-10): the p = 0 run was replaced.** "This run" above was
+      `runs/poisson_fno_p0_1791563533`. It and the stage 2 dataset were lost with T2's
+      worktree (both git-ignored). T3 regenerated the dataset, whose label check and
+      error 2 came out identical, and re-ran p = 0 on metal with unchanged code: train /
+      test relative L² 3.45e-3 / 1.116e-2 (was 3.47e-3 / 1.16e-2), still within the 2e-2
+      threshold. T3 evaluates the new run, `runs/poisson_fno_p0_1791628852`
+      (`docs/phase3/README.md`, Results). Nothing else in this decision changes.
+    - Amendment outcome: **accepted** by the author (AHA-HH), 2026-10-12.
 
 ## References
 

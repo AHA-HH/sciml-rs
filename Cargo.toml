@@ -39,6 +39,10 @@ name = "predict_darcy"
 path = "examples/predict/darcy.rs"
 
 [[example]]
+name = "predict_poisson"
+path = "examples/predict/poisson.rs"
+
+[[example]]
 name = "burgers_resolution"
 path = "examples/predict/burgers_resolutions.rs"
 

@@ -15,6 +15,9 @@
 //! round-trip error of design §7 (error 2) is recorded per split in the dataset's `.json`
 //! sidecar by the generator; this loader does not read the sidecar.
 //!
+//! `load_poisson_cheb` reads one split's raw solutions `u` on the CGL grid, untransferred,
+//! with the same validation: the reference for the errors on the Chebyshev grid (design §7).
+//!
 //! Normalization asymmetry (CONVENTIONS §10, as in `load_darcy_uniform`): `x_test` is
 //! encoded with the `x` normalizer fit on `x_train`, but `y_test` is left un-encoded:
 //! predictions are decoded back to physical scale before comparison, not targets encoded
@@ -29,7 +32,7 @@ use crate::neural_operators::data::{
     transforms::normalizers::{Normalizer, UnitGaussianNormalizer},
 };
 use burn::config::Config;
-use ndarray::{Array2, Array3, ArrayD, Axis, Ix3, IxDyn, s};
+use ndarray::{Array1, Array2, Array3, ArrayD, Axis, Ix3, IxDyn, s};
 use std::path::Path;
 
 /// Tolerance on the stored `x`, `y` nodes against the closed-form CGL nodes.
@@ -115,51 +118,109 @@ pub fn load_poisson_uniform<T: HostFloat>(
     let nodes = cgl_nodes(n);
     let load_split = |path: &Path, split: &str, count: usize| -> Result<_, LoadError> {
         let reader = NpzFileReader::new(path);
-        for name in ["x", "y"] {
-            let field = reader.read_field(name)?;
-            if field.shape() != [n] {
-                return Err(LoadError::Invalid(format!(
-                    "{split} field '{name}' must be [{n}] (the CGL nodes), got shape {:?}",
-                    field.shape()
-                )));
-            }
-            let err = field
-                .iter()
-                .zip(&nodes)
-                .map(|(a, b)| (a - b).abs())
-                // unlike f64::max, keeps a NaN deviation so NaN nodes are rejected
-                .fold(0.0, |m, d| if d.is_nan() || d > m { d } else { m });
-            if err.is_nan() || err > NODE_TOL {
-                return Err(LoadError::Invalid(format!(
-                    "{split} field '{name}' must hold the {n} ascending CGL nodes, \
-                     max deviation {err:e}"
-                )));
-            }
-        }
-        let mut out = Vec::with_capacity(2);
-        for name in ["f", "u"] {
-            let field = reader.read_field(name)?;
-            if field.ndim() != 3 || field.shape()[1..] != [n, n] {
-                return Err(LoadError::Invalid(format!(
-                    "{split} field '{name}' must be [samples, {n}, {n}], got shape {:?}",
-                    field.shape()
-                )));
-            }
-            if count > field.shape()[0] {
-                return Err(LoadError::Invalid(format!(
-                    "requested {count} {split} samples but '{name}' has {}",
-                    field.shape()[0]
-                )));
-            }
-            out.push(transfer_samples(field, count, &t_cu));
-        }
-        let u = out.pop().expect("two fields");
-        let f = out.pop().expect("two fields");
+        check_nodes(&reader, split, n, &nodes)?;
+        let f = read_samples(&reader, split, "f", n, count)?;
+        let f = transfer_samples(f, count, &t_cu);
+        let u = read_samples(&reader, split, "u", n, count)?;
+        let u = transfer_samples(u, count, &t_cu);
         Ok((f, u))
     };
     let (f_train, u_train) = load_split(train_path.as_ref(), "train", config.n_train())?;
     let (f_test, u_test) = load_split(test_path.as_ref(), "test", config.n_test())?;
     poisson_from_fields(f_train, u_train, f_test, u_test, n)
+}
+
+/// Reads the first `count` raw solutions `u` of one split on the n × n CGL grid,
+/// untransferred: the reference field of the errors on the Chebyshev grid (design §7,
+/// CONVENTIONS §12). Returns `[count, n, n]` with `u[i, a, b] = u_i(x_a, y_b)`.
+///
+/// The file is validated as [`load_poisson_uniform`] validates it: `x`, `y` must be the
+/// ascending CGL nodes `[n]` and `u` must be `[samples, n, n]`. `f` is not read. The
+/// sidecar is not read either.
+///
+/// # Errors
+/// [`LoadError::Reader`] if the file can't be read or lacks `u`/`x`/`y`;
+/// [`LoadError::Invalid`] if `n < 3`, `u` isn't `[samples, n, n]`, `x` or `y` isn't `[n]`
+/// or differs from the CGL nodes by more than 1e-14, or the file has fewer than `count`
+/// samples. Messages name the file in place of the split.
+pub fn load_poisson_cheb(
+    path: impl AsRef<Path>,
+    n: usize,
+    count: usize,
+) -> Result<Array3<f64>, LoadError> {
+    if n < 3 {
+        return Err(LoadError::Invalid(format!(
+            "n must be >= 3 (the uniform grid s = n - 1 needs both endpoints), got {n}"
+        )));
+    }
+    let path = path.as_ref();
+    let label = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |f| f.to_string_lossy().into(),
+    );
+    let reader = NpzFileReader::new(path);
+    check_nodes(&reader, &label, n, &cgl_nodes(n))?;
+    let u = read_samples(&reader, &label, "u", n, count)?
+        .into_dimensionality::<Ix3>()
+        .expect("read_samples checked rank 3");
+    Ok(u.slice_move(s![..count, .., ..]))
+}
+
+/// Checks that the fields `x` and `y` are `[n]` and within [`NODE_TOL`] of the CGL
+/// `nodes`. `split` only labels the error messages.
+fn check_nodes(
+    reader: &NpzFileReader,
+    split: &str,
+    n: usize,
+    nodes: &Array1<f64>,
+) -> Result<(), LoadError> {
+    for name in ["x", "y"] {
+        let field = reader.read_field(name)?;
+        if field.shape() != [n] {
+            return Err(LoadError::Invalid(format!(
+                "{split} field '{name}' must be [{n}] (the CGL nodes), got shape {:?}",
+                field.shape()
+            )));
+        }
+        let err = field
+            .iter()
+            .zip(nodes)
+            .map(|(a, b)| (a - b).abs())
+            // unlike f64::max, keeps a NaN deviation so NaN nodes are rejected
+            .fold(0.0, |m, d| if d.is_nan() || d > m { d } else { m });
+        if err.is_nan() || err > NODE_TOL {
+            return Err(LoadError::Invalid(format!(
+                "{split} field '{name}' must hold the {n} ascending CGL nodes, \
+                 max deviation {err:e}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Reads the field `name`, checks that it is `[samples, n, n]` with at least `count`
+/// samples, and returns it whole. `split` only labels the error messages.
+fn read_samples(
+    reader: &NpzFileReader,
+    split: &str,
+    name: &str,
+    n: usize,
+    count: usize,
+) -> Result<ArrayD<f64>, LoadError> {
+    let field = reader.read_field(name)?;
+    if field.ndim() != 3 || field.shape()[1..] != [n, n] {
+        return Err(LoadError::Invalid(format!(
+            "{split} field '{name}' must be [samples, {n}, {n}], got shape {:?}",
+            field.shape()
+        )));
+    }
+    if count > field.shape()[0] {
+        return Err(LoadError::Invalid(format!(
+            "requested {count} {split} samples but '{name}' has {}",
+            field.shape()[0]
+        )));
+    }
+    Ok(field)
 }
 
 /// The first `count` samples of a `[samples, n, n]` Chebyshev field, each transferred to
@@ -482,6 +543,62 @@ mod tests {
         expect_invalid(
             load_poisson_uniform(&train_path, &test_path, &cfg(N_TRAIN, N_TEST + 1)),
             "requested 3 test samples but 'f' has 2",
+        );
+    }
+
+    #[test]
+    fn cheb_loader_reads_raw_u() {
+        let dir = fresh_dir("cheb_reads");
+        let (train_path, test_path) = write_valid_pair(&dir);
+        let x = cgl_nodes(N);
+
+        let u = load_poisson_cheb(&test_path, N, N_TEST).unwrap();
+        assert_eq!(u.shape(), [N_TEST, N, N]);
+        assert_eq!(u.into_dyn(), poly_field(N_TEST, 0.5, &x, &x) * -2.0);
+
+        // fewer than stored: the first `count` samples
+        let u = load_poisson_cheb(&train_path, N, 2).unwrap();
+        assert_eq!(u.shape(), [2, N, N]);
+        assert_eq!(u.into_dyn(), poly_field(2, 0.0, &x, &x) * -2.0);
+    }
+
+    #[test]
+    fn cheb_loader_missing_file_is_a_reader_error() {
+        let err = load_poisson_cheb("/nope/test.npz", N, 1).expect_err("loading should fail");
+        assert!(
+            matches!(err, LoadError::Reader(ReaderError::FileNotFound(_))),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains("test.npz"), "{err}");
+    }
+
+    /// Asserts that `result` is a [`LoadError::Invalid`] whose message contains `needle`.
+    fn expect_cheb_invalid(result: Result<Array3<f64>, LoadError>, needle: &str) {
+        let err = result.expect_err("loading should fail");
+        assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
+        assert!(err.to_string().contains(needle), "{err}");
+    }
+
+    #[test]
+    fn cheb_loader_non_cgl_nodes_are_invalid() {
+        let dir = fresh_dir("cheb_nodes");
+        let x = uniform_nodes(N);
+        let f = poly_field(N_TEST, 0.0, &x, &x);
+        let path = write_npz(&dir, "bad.npz", &f, &f, &x, &cgl_nodes(N));
+        expect_cheb_invalid(
+            load_poisson_cheb(&path, N, N_TEST),
+            "bad.npz field 'x' must hold the 9 ascending CGL nodes",
+        );
+        expect_cheb_invalid(load_poisson_cheb(&path, 2, 1), "n must be >= 3");
+    }
+
+    #[test]
+    fn cheb_loader_too_few_samples_is_invalid() {
+        let dir = fresh_dir("cheb_too_few");
+        let (_, test_path) = write_valid_pair(&dir);
+        expect_cheb_invalid(
+            load_poisson_cheb(&test_path, N, N_TEST + 1),
+            "requested 3 test.npz samples but 'u' has 2",
         );
     }
 
