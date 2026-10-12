@@ -8,7 +8,8 @@ Phase 3 trains the FNO on Chebyshev data for the first time and measures how goo
 - closed-form Clenshaw–Curtis weights and a relative CC-L² error that build without
   `chebyshev`, so evaluation needs no FFTW (decision 15);
 - a `train_poisson` example and trainer, the padding p chosen by a full-length sweep, and
-  the first run at 65² on metal and flex;
+  the first run at 65² on metal and flex (the sweep beyond p = 0 and the flex run moved
+  to Phase 4, design §12, decision 17);
 - a `predict_poisson` example that reports the five errors of design §7 on the Chebyshev
   grid, including the boundary error, and states whether the boundary-condition ablation
   is warranted.
@@ -48,12 +49,14 @@ Recorded in design §12, decision 16.
 - **Three tasks, not two.** §10 had the ungated Clenshaw–Curtis weights inside the
   evaluation task. They are library code that needs no dataset or run, so they become T1,
   which can run in parallel with training (T2). Evaluation is T3.
-- **Pipeline threshold: test relative L² ≤ 2e-2 at 65²**, on flex and on metal. It is
+- **Pipeline threshold: test relative L² ≤ 2e-2 at 65²**, on flex and on metal (flex
+  moved to Phase 4, decision 17). It is
   fixed now, before T2 runs. If it is missed, the result is recorded in design §12 before
   anything is retuned.
 - **Padding by a full-length sweep:** p ∈ {0, 4, 8, 16}, the Darcy hyperparameters and
   500 epochs each. The lowest final test relative L² wins, and values within 2% of each
-  other go to the smaller p.
+  other go to the smaller p. Phase 3 ran p = 0 only; p = 4, 8, 16 moved to Phase 4
+  (decision 17, amended 2026-10-12).
 - **Error 1 is quoted, not recomputed:** `predict_poisson` is ungated, and solvers A and C
   need `chebyshev`. Error 2 is recomputed in evaluation and cross-checked against the
   sidecar.
@@ -65,7 +68,7 @@ Recorded in design §12, decision 16.
 | Task | Brief | Delivers | Depends on |
 | --- | --- | --- | --- |
 | T1 | [T1-cc-weights.md](T1-cc-weights.md) | `chebyshev::{clencurt, cc_rel_l2_error}`, ungated, tested against the RLST-backed weights | Phase 2 |
-| T2 | [T2-train-poisson.md](T2-train-poisson.md) | `training::trainers::poisson`, the `train_poisson` example, the padding sweep, the 65² run on metal and flex | Phase 2 (parallel with T1) |
+| T2 | [T2-train-poisson.md](T2-train-poisson.md) | `training::trainers::poisson`, the `train_poisson` example, the padding sweep, the 65² run on metal and flex (sweep beyond p = 0 and flex: Phase 4, decision 17) | Phase 2 (parallel with T1) |
 | T3 | [T3-predict-poisson.md](T3-predict-poisson.md) | `load_poisson_cheb`, `metrics::poisson` (the five errors), the `predict_poisson` example, the boundary verdict | T1, T2 |
 
 Task numbers are execution order (design §10); T1 and T2 can run in parallel. One task per
@@ -97,8 +100,8 @@ Filled in as tasks merge. Phase 3 is done when every row has a value.
 | Item | Value | Source |
 | --- | --- | --- |
 | `clencurt` against the RLST-backed `clenshaw_curtis` (max abs difference, per n), and the exact-integral tolerance | max 1.1e-16 over n = 2..=129 (worst at n = 7, 11, 13); n = 2: 0, 3: 5.6e-17, 9: 5.6e-17, 33: 2.1e-17, 65: 1.4e-17, 129: 1.0e-17; asserted ≤ 1e-14. Exact integrals of x^k, k ≤ n − 1, n ∈ {2, 3, 9, 33, 65}: within 1e-14 | T1 |
-| Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, wall time per run) | p = 0: 1.16e-2 (metal, 1763 s). p = 4, 8, 16 deferred (design §12, decision 17): a p = 8 probe ran at about 101 s/epoch on metal | T2 |
-| Chosen p, and the full run at 65²: final train / test relative L², time per epoch, on metal and on flex | p = 0 (provisional, decision 17). Metal: 3.47e-3 / 1.16e-2, 3.5 s/epoch (first epoch 8.5 s), run `runs/poisson_fno_p0_1791563533`. That run and the dataset were lost with T2's worktree (both git-ignored), so T3 regenerated the dataset (identical label check and error 2) and re-ran p = 0 on metal with unchanged code: train / test 3.45e-3 / 1.116e-2, 3.6 s/epoch (first epoch 30.6 s, while other builds were running), run `runs/poisson_fno_p0_1791628852`, which T3 evaluates. Flex: moved to Phase 4 (decision 17) | T2 |
+| Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, wall time per run) | p = 0: 1.16e-2 (metal, 1763 s). p = 4, 8, 16 moved to Phase 4 (design §12, decision 17, amended 2026-10-12): a p = 8 probe ran at about 101 s/epoch on metal, about 40 h for the three on metal | T2 |
+| Chosen p, and the full run at 65²: final train / test relative L², time per epoch, on metal and on flex | p = 0 for Phase 3, revisited by the Phase 4 sweep (decision 17). Metal: 3.47e-3 / 1.16e-2, 3.5 s/epoch (first epoch 8.5 s), run `runs/poisson_fno_p0_1791563533`. That run and the dataset were lost with T2's worktree (both git-ignored), so T3 regenerated the dataset (identical label check and error 2) and re-ran p = 0 on metal with unchanged code: train / test 3.45e-3 / 1.116e-2, 3.6 s/epoch (first epoch 30.6 s, while other builds were running), run `runs/poisson_fno_p0_1791628852`, which T3 evaluates. Flex: moved to Phase 4 (decision 17) | T2 |
 | Pipeline threshold (test relative L² ≤ 2e-2) met on metal / on flex | Metal: met (1.16e-2). Flex: moved to Phase 4 (decision 17) | T2 |
 | The five errors on the stage 2 test split, mean / max: 1 (quoted), 2, 3, 4, 5 (max ratio and relative RMS) | Run `runs/poisson_fno_p0_1791628852` (metal, 200 test samples). 1: quoted, A floor ≤ 1e-12, A vs C order 1.993–1.999. 2: 2.03e-5 / 7.81e-5. 3: 1.116e-2 / 3.67e-2. 4: 1.117e-2 / 3.67e-2. 5: max ratio 7.19e-5 / 1.60e-4, relative RMS 8.84e-5 / 1.62e-4 (∮ û² ds integrates each edge separately, so each corner carries the end weight of both its edges: the reading the brief now states) | T3 |
 | Error 2 recomputed against the sidecar, and error 3 against the run's final test_l2 | Error 2: relative difference 3.3e-16 (mean) and 1.2e-15 (max) from the test sidecar (tolerance 1e-12). Error 3: mean 1.115918e-2 against `test_l2` 1.115918e-2 at epoch 499, relative difference 1.0e-7 (tolerance 1e-5) | T3 |
@@ -107,17 +110,17 @@ Filled in as tasks merge. Phase 3 is done when every row has a value.
 
 ## Exit checklist
 
-- [ ] T1, T2 and T3 merged.
-- [ ] The design §11 row for the closed-form Clenshaw–Curtis weights passes under
+- [x] T1, T2 and T3 merged.
+- [x] The design §11 row for the closed-form Clenshaw–Curtis weights passes under
       `cargo test --features chebyshev`, and the ungated tests pass under `cargo test`,
       locally on macOS and in both CI jobs.
-- [ ] The §11 pipeline row met: test relative L² ≤ 2e-2 at 65², on metal. The flex run
-      moved to Phase 4 (design §12, decision 17).
-- [ ] The five errors of §7 reported for the stage 2 run and recorded above.
-- [ ] The boundary verdict stated. If the ablation is warranted, it is planned then as a
+- [x] The §11 pipeline row met: test relative L² ≤ 2e-2 at 65², on metal. The flex run
+      and the padding sweep beyond p = 0 moved to Phase 4 (design §12, decision 17).
+- [x] The five errors of §7 reported for the stage 2 run and recorded above.
+- [x] The boundary verdict stated. If the ablation is warranted, it is planned then as a
       new Phase 3 task.
-- [ ] Every row of Results filled in.
-- [ ] Any result that contradicts the design is recorded in the design's §12 under
+- [x] Every row of Results filled in.
+- [x] Any result that contradicts the design is recorded in the design's §12 under
       "Recorded decisions", dated, before Phase 4 is planned.
 - [ ] The "Current phase" bullet in `CLAUDE.md` points to `docs/phase4/README.md`.
       Ticked when Phase 4 is planned.
