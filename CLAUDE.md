@@ -10,9 +10,9 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: Phase 3 (training and evaluation, local), docs/phase3/README.md; one
-  brief per task, T1–T3 (design §12, decision 16). Phases 0–2 are done:
-  docs/phase0/README.md, docs/phase1/README.md, docs/phase2/README.md.
+- Current phase: Phase 4 (HPC), docs/phase4/README.md; one brief per task, T1–T4
+  (design §12, decision 18). Phases 0–3 are done: docs/phase0/README.md,
+  docs/phase1/README.md, docs/phase2/README.md, docs/phase3/README.md.
 - Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
   RLST reference solver, FNO; signed off 2026-10-05, amended 2026-10-08 and 2026-10-09,
   decisions in its §12). CONVENTIONS.md wins on any conflict.

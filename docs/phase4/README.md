@@ -1,0 +1,121 @@
+# Phase 4: HPC
+
+As of 2026-10-12. Design: `docs/design/2d-chebyshev-poisson-fno.md` (signed off
+2026-10-05, amended 2026-10-08, 2026-10-09, 2026-10-10 and 2026-10-12; decisions in its
+§12). `docs/CONVENTIONS.md` wins on any conflict.
+
+Phase 4 finishes what Phase 3 deferred, then scales up:
+- a `poisson_plot` example that shows one test sample's forcing f, solution u, prediction
+  û and error map on the Chebyshev grid (agreed 2026-10-12 as the first task);
+- the padding sweep over p ∈ {4, 8, 16} at 65² and the full-length flex run at the chosen
+  p, carried over from Phase 3 (design §12, decision 17);
+- production runs at 129² on GPU (cuda, on HPC);
+- the resolution study of design §7, in two parts on the same seeds.
+
+Nothing in this phase changes the model, CONVENTIONS, solver A, the transfers, the
+dataset format or the five errors. Training and evaluation stay ungated; only generating
+datasets needs `chebyshev`.
+
+## Read first
+
+- Design §5.3 (stages, the K = 32 evaluation sets, storage), §7 (training, the five
+  errors, the resolution study), §9 (backends), §10 (Phase 4), §11 (the pipeline row),
+  §12 decisions 16, 17 and 18.
+- `docs/CONVENTIONS.md` §3 (padding), §4 (FFT, Bluestein), §10 and §12.
+- `docs/phase3/README.md` Results (the p = 0 run, the five errors, the boundary verdict).
+- `CLAUDE.md`: Working agreement, Checks, Burn (backends, the autodiff device note).
+
+## Inputs from Phase 3
+
+| Item | Value | Source |
+| --- | --- | --- |
+| Stage 2 dataset | n = 65, s = 64, K = 32; 1000 train / 200 test; `datasets/poisson/poisson_n65_K32_{train,test}.{npz,json}`, git-ignored; present in the main checkout | Phase 2 T2 |
+| p = 0 run at 65², metal | train / test relative L² 3.45e-3 / 1.116e-2, 3.6 s/epoch; run `runs/poisson_fno_p0_1791628852`, since lost with T3's worktree | Phase 3 T2, T3 |
+| Five errors of that run, mean / max | 2: 2.03e-5 / 7.81e-5; 3: 1.116e-2 / 3.67e-2; 4: 1.117e-2 / 3.67e-2; 5: max ratio 7.19e-5 / 1.60e-4, relative RMS 8.84e-5 / 1.62e-4 | Phase 3 T3 |
+| Boundary verdict | 0.008 against the 0.10 threshold: ablation not warranted | Phase 3 T3 |
+| Padding cost | p = 8: about 101 s/epoch on metal, 520 s/epoch on flex (Bluestein at m = 256, chirp rebuilt per call); about 40 h for p ∈ {4, 8, 16} on metal | decision 17 |
+| Decision 16 sweep rule | full length (500 epochs, Darcy hyperparameters); lowest final test relative L² wins; values within 2% go to the smaller p | decision 16 |
+| Pipeline threshold | test relative L² ≤ 2e-2 at 65²; met on metal, flex outstanding | decisions 16, 17 |
+| Examples | `train_poisson [-- <padding>]`, `predict_poisson -- <run_dir>`, both hard-wired to stage 2 (`N = 65`, the n65_K32 files); `darcy_plot`, the plot template | today's code |
+
+## Planning decisions
+
+Recorded in design §12, decision 18.
+
+- **Four tasks, in this order:** T1 `poisson_plot`; T2 the padding sweep and the flex run
+  at 65²; T3 production runs at 129² on cuda; T4 the resolution study. §10's T1 and T2
+  become T3 and T4.
+- **`poisson_plot` plots on the CGL nodes at their coordinates**, not on the node index,
+  so the clustering at the edges shows. f and u come from the raw split; û is
+  T_uc(prediction), as in error 4.
+- **Runs cited in Results live in the main checkout's `runs/`.** Two runs were lost with
+  their worktrees in Phase 3. From now on `train_poisson` runs used in Results are moved
+  (or written) to the main checkout's `runs/`, and the datasets are read from there, by copy
+  or symlink into the worktree. Nothing about this is committed.
+- **The sweep runs on metal, locally,** before anything runs on cuda: about 40 h, on
+  mains power. cuda comes in with T3. The flex run uses the chosen p; if that is
+  p > 0, its cost (about 72 h at 520 s/epoch) is stated before it starts, and a fix to
+  Bluestein in Burn becomes its own task first if the author asks for one (decision 17).
+- **Stages are chosen by argument, not by editing constants.** T3 lets `train_poisson`
+  and `predict_poisson` select the stage (n = 65, 129, 257) from a short table of file
+  names; the stage 2 defaults and the padding argument keep working unchanged.
+- **The resolution study evaluates without retraining** a 65² model on sets 3e and 4e
+  (K = 32) and a 129² model on stage 4 (K = 64), and reports errors 3 and 4 at each
+  resolution. The pointwise normalisers are refit on the same training fields
+  (same seeds and K) generated at the new n, so K = 32 train splits at 129 and 257 are
+  generated for that alone; the weights are never refit.
+
+## Tasks
+
+| Task | Brief | Delivers | Depends on |
+| --- | --- | --- | --- |
+| T1 | [T1-poisson-plot.md](T1-poisson-plot.md) | `load_poisson_cheb_field`, the `poisson_plot` example, a regenerated p = 0 run at 65² | Phase 3 |
+| T2 | [T2-padding-sweep.md](T2-padding-sweep.md) | the sweep p ∈ {4, 8, 16} at 65², the chosen `PADDING`, the full-length flex run, `predict_poisson` on the chosen run | T1 (the run at p = 0) |
+| T3 | [T3-runs-129.md](T3-runs-129.md) | stage selection in `train_poisson` / `predict_poisson`, the stage 3 dataset, production runs at 129² on cuda | T2 (the chosen p) |
+| T4 | [T4-resolution-study.md](T4-resolution-study.md) | sets 3e, 4e and stage 4, K = 32 train splits at 129 and 257 for the normalisers, a `poisson_resolution` example, both parts of the study | T3 |
+
+Task numbers are execution order (design §10). One task per branch and PR:
+`phase4/T<k>-<name>`. Each task is worked from its brief alone, plus the files the brief
+lists under "Read first".
+
+## Module layout
+
+- `load_poisson_cheb_field` (T1): a new public function in `data/loaders/poisson.rs`;
+  `load_poisson_cheb` delegates to it with `"u"`.
+- `examples/predict/poisson_plot.rs` (T1, `poisson_plot`) and
+  `examples/predict/poisson_resolution.rs` (T4, `poisson_resolution`), registered in
+  `Cargo.toml` with no required features.
+- `examples/train/poisson.rs` and `examples/predict/poisson.rs` gain a stage argument (T3).
+- `examples/generate/poisson.rs`: the stage 3, 4, 3e and 4e lines are uncommented as T3
+  and T4 need them.
+- The task that adds an example adds its command to the Commands section of `CLAUDE.md`.
+
+## Results
+
+Filled in as tasks merge. Phase 4 is done when every row has a value.
+
+| Item | Value | Source |
+| --- | --- | --- |
+| `poisson_plot`: run plotted, sample, output file; the regenerated p = 0 run's train / test relative L² against Phase 3's 3.45e-3 / 1.116e-2 | | T1 |
+| Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, s/epoch, wall time) | | T2 |
+| Chosen p, by the decision 16 rule; `PADDING` changed or not | | T2 |
+| Flex run at the chosen p: final train / test relative L², s/epoch; threshold 2e-2 met on flex | | T2 |
+| Five errors and boundary verdict on the chosen run (if p ≠ 0) | | T2 |
+| Stage 3 dataset: label check and error 2, train / test | | T3 |
+| 129² runs on cuda: train / test relative L², s/epoch, GPU model, the five errors | | T3 |
+| Resolution study part 1: errors 3 and 4 of the 65² model at 65, 129, 257 (K = 32) | | T4 |
+| Resolution study part 2: errors 3 and 4 of the 129² model at 129, 257 (K = 64) | | T4 |
+| Wall time of the new tests under debug `cargo test` | | T1–T4 |
+
+## Exit checklist
+
+- [ ] T1, T2, T3 and T4 merged.
+- [ ] `poisson_plot` writes its figure for a stage 2 run, and the run is recorded above.
+- [ ] The padding sweep reported, p chosen by the decision 16 rule, and the §11 pipeline
+      row met on flex as well as metal.
+- [ ] cuda runs reported at 129², with the five errors.
+- [ ] Both parts of the resolution study reported on the same seeds (§7).
+- [ ] Every row of Results filled in.
+- [ ] Any result that contradicts the design is recorded in the design's §12 under
+      "Recorded decisions", dated, before Phase 5 is planned or the project closes.
+- [ ] The "Current phase" bullet in `CLAUDE.md` is updated for what comes next.
