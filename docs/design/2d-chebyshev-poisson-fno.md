@@ -2,8 +2,9 @@
 
 As of 2026-10-05. Status: **signed off** on 2026-10-05 by the author (AHA-HH);
 amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (decision 12),
-2026-10-09 after Phase 2 (decisions 14 and 15), and 2026-10-09 for Phase 3 planning
-(decision 16). The decisions are recorded in Section 12. This document is the
+2026-10-09 after Phase 2 (decisions 14 and 15), 2026-10-09 for Phase 3 planning
+(decision 16), and 2026-10-09, 2026-10-10 and 2026-10-12 for the padding cost and the
+Phase 3 close-out (decision 17). The decisions are recorded in Section 12. This document is the
 specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -596,11 +597,12 @@ flowchart LR
 | Task | Delivers | Depends on |
 | --- | --- | --- |
 | T1 | Ungated Clenshaw–Curtis weights (closed form) and relative CC-L² error, tested against the RLST-backed weights (decision 15) | – |
-| T2 | `train_poisson` example and trainer; padding p chosen by a full-length sweep; first run at 65² on metal and flex | – (parallel with T1) |
+| T2 | `train_poisson` example and trainer; padding p = 0 (the sweep moved to Phase 4, decision 17); first run at 65² on metal | – (parallel with T1) |
 | T3 | `predict_poisson`: raw Chebyshev u from the test split, the five errors of §7 on the Chebyshev grid including the boundary error, and the boundary-ablation verdict | T1, T2 |
 
 - **Exit:** the §11 pipeline row (65² training reaches test relative L² ≤ 2e-2,
-  decision 16), run on flex and metal; the five errors reported for a stage 2 run. The
+  decision 16), run on metal (the flex run and the padding sweep: Phase 4, decision 17);
+  the five errors reported for a stage 2 run. The
   exit states whether the boundary-condition ablation of §7 is warranted, by the rule of
   decision 16. If it is, it becomes a new Phase 3 task, planned then; nothing is added
   for it now.
@@ -610,6 +612,14 @@ flowchart LR
 - **Goal:** production accuracy and performance on GPU, and the resolution study.
 - **Needs:** Phase 3 done; stage 3–4 datasets and the K = 32 evaluation sets generated
   (on HPC or transferred).
+- **Carried over from Phase 3 (decision 17):** the padding sweep p ∈ {4, 8, 16} at 65²
+  (full length, the decision 16 rule against p = 0), and the full-length flex run at
+  65² at the chosen p with the 2e-2 threshold on flex. They become tasks when Phase 4 is
+  planned.
+- **Also to plan first (2026-10-12):** a `poisson_plot` example, modelled on
+  `darcy_plot`, that plots one test sample's forcing f, the solution u, the prediction û
+  and the error map on the Chebyshev grid, to be the first Phase 4 task. Its number, and
+  the renumbering of the tasks below, are decided when Phase 4 is planned.
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
@@ -647,7 +657,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 | GRF sampler | same seed gives the same field at every n (nodes in common); empirical covariance against the formula | statistical, stated in the brief |
 | `generate_poisson` label check | exact sine-series solution, every sample; recorded in the sidecar | aborts above 1e-8 relative CC-L² for n ≥ 65 |
 | Loader | shapes, normaliser asymmetry as in Darcy's tests | exact |
-| Pipeline | 65² training on flex and metal (Phase 3 T2) | test relative L² ≤ 2e-2, f32 (decision 16) |
+| Pipeline | 65² training on metal (Phase 3 T2); on flex in Phase 4 (decision 17) | test relative L² ≤ 2e-2, f32 (decision 16) |
 
 ## 12. Questions for sign-off
 
@@ -891,6 +901,24 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       test relative L² 3.45e-3 / 1.116e-2 (was 3.47e-3 / 1.16e-2), still within the 2e-2
       threshold. T3 evaluates the new run, `runs/poisson_fno_p0_1791628852`
       (`docs/phase3/README.md`, Results). Nothing else in this decision changes.
+    - Amendment outcome: **accepted** by the author (AHA-HH), 2026-10-12.
+    - **Amendment (2026-10-12): the padding sweep moves to Phase 4.** The sweep over
+      p ∈ {4, 8, 16} is no longer part of the Phase 3 exit. Every one of these p makes
+      the FFT length non-power-of-two (68, 72, 80), so each transform goes through
+      Bluestein at m = 256 with the chirp and the kernel rebuilt on the host and uploaded
+      on every call: about 101 s/epoch at p = 8, about 40 h for the sweep on metal. On
+      cuda, or after a fix to Bluestein in Burn (caching the chirp and the kernel's
+      spectrum per length, or a mixed-radix path), the sweep is cheap.
+      - Phase 3 closes with `PADDING = 0`: test relative L² 1.116e-2 on metal, run
+        `runs/poisson_fno_p0_1791628852`, with the five errors and the boundary verdict
+        of T3 on that run.
+      - Phase 4 plans the sweep together with the flex run, by the decision 16 rule (full
+        length, lowest final test relative L², values within 2% go to the smaller p),
+        against the p = 0 result above. If a larger p wins, `PADDING` changes and
+        `predict_poisson` is re-run on the new run. A Bluestein fix, if made, is its own
+        task.
+      - The §10 Phase 3 exit and the §11 pipeline row now read "on metal"; the text of
+        decision 16 stays as recorded.
     - Amendment outcome: **accepted** by the author (AHA-HH), 2026-10-12.
 
 ## References

@@ -19,6 +19,10 @@ The first FNO trained on Chebyshev data: the stage 2 set at 65², transferred to
 uniform 64² grid, with padding chosen by measurement, reaching test relative L² ≤ 2e-2
 on metal and flex.
 
+Note (2026-10-12): T2 merged with p = 0 on metal. The sweep over p = 4, 8, 16
+(deliverable 3), the flex run (deliverable 4) and the flex half of the threshold moved to
+Phase 4 (design §12, decision 17 and its amendments).
+
 ## Deliverables
 1. **`src/neural_operators/training/trainers/poisson.rs`**: `train_poisson<T: HostFloat>(
    train, test, y_normalizer, model_cfg, train_cfg, device) -> (FNO<4>, Vec<EpochMetrics>)`,

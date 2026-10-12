@@ -20,6 +20,10 @@ Phase 3, task 3. Branch `phase3/T3-predict-poisson`. Depends on T1 (`clencurt`,
 For a saved T2 run, the five errors of design §7 on the stage 2 test split, mean and max
 over the samples, and the verdict on whether the boundary-condition ablation is warranted.
 
+Note (2026-10-12): T3 evaluated the p = 0 run on metal only. The flex run, and any re-run
+of `predict_poisson` on a larger p, moved to Phase 4 (design §12, decision 17 and its
+amendments).
+
 ## Deliverables
 1. **`load_poisson_cheb(path, n, count) -> Result<Array3<f64>, LoadError>`** in
    `data/loaders/poisson.rs`: the first `count` raw solutions `u` `[count, n, n]` of one
