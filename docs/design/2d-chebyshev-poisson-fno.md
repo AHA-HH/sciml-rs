@@ -3,8 +3,8 @@
 As of 2026-10-05. Status: **signed off** on 2026-10-05 by the author (AHA-HH);
 amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (decision 12),
 2026-10-09 after Phase 2 (decisions 14 and 15), 2026-10-09 for Phase 3 planning
-(decision 16), and 2026-10-09, 2026-10-10 and 2026-10-12 for the padding cost and the
-Phase 3 close-out (decision 17). The decisions are recorded in Section 12. This document is the
+(decision 16), 2026-10-09, 2026-10-10 and 2026-10-12 for the padding cost and the
+Phase 3 close-out (decision 17), and 2026-10-12 for Phase 4 planning (decision 18). The decisions are recorded in Section 12. This document is the
 specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -514,7 +514,7 @@ flowchart LR
     P3T2["T2 train_poisson, 65²"] --> P3T3
   end
   subgraph P4["Phase 4: HPC"]
-    P4T1["T1 129² on GPU"] --> P4T2["T2 resolution study"]
+    P4T1["T1 poisson_plot"] --> P4T2["T2 padding sweep, flex run"] --> P4T3["T3 129² on GPU"] --> P4T4["T4 resolution study"]
   end
   P5["Phase 5 (optional): θ-map"]
   P0T1 --> P1T1
@@ -522,7 +522,7 @@ flowchart LR
   P1T2 --> P2T2
   P2T3 --> P3T2
   P3T3 --> P4T1
-  P4T2 -.-> P5
+  P4T4 -.-> P5
 ```
 
 ### Phase 0: conventions and feasibility
@@ -609,25 +609,23 @@ flowchart LR
 
 ### Phase 4: HPC
 
-- **Goal:** production accuracy and performance on GPU, and the resolution study.
+- **Goal:** what Phase 3 deferred, then production accuracy and performance on GPU, and
+  the resolution study.
 - **Needs:** Phase 3 done; stage 3–4 datasets and the K = 32 evaluation sets generated
   (on HPC or transferred).
-- **Carried over from Phase 3 (decision 17):** the padding sweep p ∈ {4, 8, 16} at 65²
-  (full length, the decision 16 rule against p = 0), and the full-length flex run at
-  65² at the chosen p with the 2e-2 threshold on flex. They become tasks when Phase 4 is
-  planned.
-- **Also to plan first (2026-10-12):** a `poisson_plot` example, modelled on
-  `darcy_plot`, that plots one test sample's forcing f, the solution u, the prediction û
-  and the error map on the Chebyshev grid, to be the first Phase 4 task. Its number, and
-  the renumbering of the tasks below, are decided when Phase 4 is planned.
+- **Inputs from Phase 3:** the p = 0 run at 65² on metal (test relative L² 1.116e-2), its
+  five errors and boundary verdict (ablation not warranted); the padding sweep and the
+  flex run carried over (decision 17). Plan: `docs/phase4/README.md` (decision 18).
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
-| T1 | Production runs at 129² on GPU | – |
-| T2 | Resolution study after profiling, in two parts (§7): 65 (K = 32) → 129, 257 on the K = 32 sets; 129 (K = 64) → 257 | T1 |
+| T1 | `poisson_plot`: one test sample's f, u, û and error map on the Chebyshev grid; a regenerated p = 0 run at 65² | – |
+| T2 | Padding sweep p ∈ {4, 8, 16} at 65² (decision 16 rule against p = 0), the chosen `PADDING`, the full-length flex run with the 2e-2 threshold (decision 17) | T1 |
+| T3 | Stage selection in `train_poisson` / `predict_poisson`; production runs at 129² on GPU | T2 |
+| T4 | Resolution study after profiling, in two parts (§7): 65 (K = 32) → 129, 257 on the K = 32 sets; 129 (K = 64) → 257 | T3 |
 
-- **Exit:** cuda runs reported at 129²; both parts of the resolution study reported on
-  the same seeds (§7).
+- **Exit:** the §11 pipeline row met on flex as well as metal; p chosen; cuda runs
+  reported at 129²; both parts of the resolution study reported on the same seeds (§7).
 
 ### Phase 5 (optional, non-blocking)
 
@@ -920,6 +918,31 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       - The §10 Phase 3 exit and the §11 pipeline row now read "on metal"; the text of
         decision 16 stays as recorded.
     - Amendment outcome: **accepted** by the author (AHA-HH), 2026-10-12.
+18. **Phase 4 planning (2026-10-12).** Plan: `docs/phase4/README.md`.
+    - **Four tasks instead of two.** The work carried over by decision 17 and the
+      `poisson_plot` example agreed on 2026-10-12 come first: T1 `poisson_plot`, T2 the
+      padding sweep p ∈ {4, 8, 16} and the flex run at 65². §10's T1 (129² on GPU) and
+      T2 (resolution study) become T3 and T4.
+    - **`poisson_plot` plots on the CGL nodes at their coordinates**, with û =
+      T_uc(prediction) as in error 4, and f and u read raw from the split.
+    - **Runs cited in Results are kept outside the worktrees**, in the main checkout's
+      `runs/`, after two runs were lost with their worktrees in Phase 3. T1 regenerates
+      the p = 0 run at 65² with unchanged code.
+    - **The sweep runs on metal, locally** (about 40 h, on mains power), before
+      anything runs on cuda, under the decision 16 rule against the p = 0 result. Chosen
+      by the author, 2026-10-12. The flex run's cost is
+      measured and stated before it starts; a Bluestein fix in Burn stays its own task,
+      planned only if the author asks for it (decision 17).
+    - **Stages by argument:** T3 lets `train_poisson` and `predict_poisson` select
+      n ∈ {65, 129, 257}; stage 2 stays the default.
+    - **Normalisers in the resolution study: refit, not interpolated.** The pointwise
+      normalisers are fitted at the training s, so at a finer s they are refit on the
+      same training fields (same seeds and K) generated at the new n. T4 generates K = 32
+      train splits at n = 129 and 257 (about 270 MB and 1 GB) for this alone; the model
+      weights are never refit. Interpolating the fitted fields was rejected because it
+      adds an approximation the study would then have to separate out. Chosen by the
+      author, 2026-10-12.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-12.
 
 ## References
 
