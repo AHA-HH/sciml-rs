@@ -35,8 +35,9 @@ over the samples, and the verdict on whether the boundary-condition ablation is 
    - **error 4 (total):** `cc_rel_l2_error(T_uc(prediction), u)`;
    - **error 5 (boundary):** with û = T_uc(prediction), max over ∂Ω of |û| / max over Ω
      of |u|; and the relative boundary RMS, √(∮ û² ds / 8) / √(∫∫ u² dA / 4), with
-     `clencurt` weights along each of the four edges (each corner counted once) and over
-     Ω.
+     `clencurt` weights along each of the four edges and over Ω. Each edge is integrated
+     separately, so each corner carries the end weight of both its edges; the edge weights
+     then sum to the perimeter 8, and a constant û = c gives RMS exactly c.
    T_cu and T_uc are built once per call. Shapes and panics documented.
 3. **`examples/predict/poisson.rs`**, registered as `predict_poisson`, no required
    features: `cargo run --release --example predict_poisson -- runs/<dir>`.
