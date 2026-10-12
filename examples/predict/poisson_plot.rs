@@ -1,0 +1,198 @@
+//! Plots one test sample of a saved Poisson run on the Chebyshev grid: the forcing f, the
+//! reference solution u, the FNO prediction û = T_uc(prediction) and the error û − u
+//! (design §7, error 4; §12, decision 18).
+//!
+//! Run with: cargo run --release --example poisson_plot -- runs/poisson_fno_p<p>_<timestamp> [<sample>]
+//! (sample indexes the test split, default 0; add `--features metal` for the GPU).
+//!
+//! Loads the model as `predict_poisson` does (model_cfg.json, model_weights.bpk,
+//! data_cfg.json, y_normalizer.json), runs the one sample and decodes it to f64. f and u
+//! are the raw split's CGL fields (`load_poisson_cheb_field`). Each panel draws the n²
+//! CGL nodes at their (x, y) coordinates, not on the node index, so the clustering
+//! towards the edges shows. Writes prediction.png into the run directory; if gnuplot is
+//! missing it warns and exits 0, as `darcy_plot` does. Needs the stage 2 dataset: see
+//! datasets/README.md.
+
+use std::f64::consts::PI;
+use std::path::{Path, PathBuf};
+
+use burn::{
+    prelude::*,
+    store::{BurnpackStore, ModuleSnapshot},
+    tensor::Device,
+};
+use gnuplot::{
+    AutoOption::Fix, AxesCommon, Color, Figure, PaletteType, PointSize, PointSymbol,
+    VariablePaletteColor,
+};
+use ndarray::{Array2, ArrayView2, Axis, s};
+use sciml_rs::neural_operators::{
+    chebyshev::{apply, cc_rel_l2_error, uniform_to_cheb},
+    data::{
+        loaders::{
+            base_dataset::HasBaseConfig,
+            poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform},
+        },
+        transforms::normalizers::{Normalizer, NormalizerRecord, UnitGaussianNormalizer},
+    },
+    metrics::poisson::TRANSFER_DEGREE,
+    models::fno::FNOConfig,
+};
+
+/// The stage 2 files `train_poisson` reads; the run's data_cfg.json must match `N`.
+const N: usize = 65;
+const TRAIN_FILE: &str = "poisson_n65_K32_train.npz";
+const TEST_FILE: &str = "poisson_n65_K32_test.npz";
+/// Figure size in pixels.
+const WIDTH: u32 = 1400;
+const HEIGHT: u32 = 1300;
+/// Size of each node's square, as a multiple of gnuplot's default point size.
+const POINT_SIZE: f64 = 0.9;
+/// Blue–white–red, for the error panel's range symmetric about 0.
+const DIVERGING: [(f32, f32, f32, f32); 3] = [
+    (0.0, 0.23, 0.30, 0.75),
+    (0.5, 1.0, 1.0, 1.0),
+    (1.0, 0.71, 0.02, 0.15),
+];
+
+/// The `n` ascending CGL nodes x_j = −cos(πj/(n − 1)), in the antisymmetric sine form the
+/// library uses (CONVENTIONS §12).
+fn cgl_nodes(n: usize) -> Vec<f64> {
+    let nn = (n - 1) as f64;
+    (0..n)
+        .map(|j| (PI * (2.0 * j as f64 - nn) / (2.0 * nn)).sin())
+        .collect()
+}
+
+/// (min, max) of the values of all `fields`.
+fn range<'a>(fields: impl IntoIterator<Item = ArrayView2<'a, f64>>) -> (f64, f64) {
+    fields
+        .into_iter()
+        .flat_map(|f| f.into_iter().copied())
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+            (lo.min(v), hi.max(v))
+        })
+}
+
+fn main() {
+    let mut args = std::env::args().skip(1);
+    let dir = PathBuf::from(
+        args.next()
+            .expect("usage: poisson_plot <run_dir> [<sample>]"),
+    );
+    let sample: usize = args.next().map_or(0, |a| {
+        a.parse().expect("sample must be a non-negative integer")
+    });
+    // Inference only: no autodiff, so forward passes record no backward graph.
+    let device = Device::default();
+
+    let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
+    let mut model = model_cfg.init::<4>(&device);
+    let mut store = BurnpackStore::from_file(dir.join("model_weights.bpk"));
+    model.load_from(&mut store).expect("load model weights");
+
+    let dataset_cfg = PoissonConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
+    assert_eq!(dataset_cfg.n, N, "this example reads the n = {N} files");
+    let n_test = dataset_cfg.base().n_test;
+    assert!(
+        sample < n_test,
+        "sample {sample} is out of range: the run has {n_test} test samples"
+    );
+    let s = dataset_cfg.s();
+
+    let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
+    let (_, test_data, _) = load_poisson_uniform::<f32>(
+        datasets.join(TRAIN_FILE),
+        datasets.join(TEST_FILE),
+        &dataset_cfg,
+    )
+    .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
+    let load_cheb = |field| {
+        load_poisson_cheb_field(datasets.join(TEST_FILE), field, N, sample + 1)
+            .unwrap_or_else(|e| panic!("could not load the CGL field '{field}': {e}"))
+            .index_axis_move(Axis(0), sample)
+    };
+    let f = load_cheb("f");
+    let u = load_cheb("u");
+
+    // Forward one sample: [1, s, s, 1] in, normalized [1, s, s, 1] out
+    let input = test_data.inputs().slice(s![sample..=sample, .., .., ..]);
+    let data: Vec<f32> = input.iter().copied().collect();
+    let x = Tensor::<4>::from_data(TensorData::new(data, input.shape().to_vec()), &device);
+    let out = model
+        .forward(x)
+        .into_data()
+        .try_to_vec::<f32>()
+        .expect("f32 model output");
+    let pred = Array2::from_shape_vec((s, s), out)
+        .expect("output is [1, s, s, 1]")
+        .mapv(f64::from);
+    // Decode to physical scale in f64, then transfer to the CGL grid as error 4 does
+    let y_norm = UnitGaussianNormalizer::from_record(
+        &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),
+    );
+    let pred = y_norm
+        .decode(pred.into_dyn())
+        .into_dimensionality::<ndarray::Ix2>()
+        .expect("decoded prediction is [s, s]");
+    let t_uc = uniform_to_cheb(s, N, TRANSFER_DEGREE);
+    let u_hat = apply(t_uc.view(), t_uc.view(), pred.view());
+    let err = &u_hat - &u;
+    let error4 = cc_rel_l2_error(u_hat.view(), u.view());
+    println!("sample {sample}: error 4 (total, CC norm) = {error4:.4e}");
+
+    // Node coordinates in 'ij' order: field[a, b] sits at (x_a, y_b)
+    let nodes = cgl_nodes(N);
+    let xs: Vec<f64> = nodes
+        .iter()
+        .flat_map(|&x| std::iter::repeat_n(x, N))
+        .collect();
+    let ys: Vec<f64> = (0..N).flat_map(|_| nodes.iter().copied()).collect();
+
+    let (f_lo, f_hi) = range([f.view()]);
+    let (u_lo, u_hi) = range([u.view(), u_hat.view()]);
+    let e_max = err.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let run = dir
+        .file_name()
+        .map_or_else(|| dir.display().to_string(), |d| d.to_string_lossy().into());
+
+    let mut fig = Figure::new();
+    // plain text: run names and T_uc hold '_', which enhanced text reads as a subscript
+    fig.set_enhanced_text(false);
+    fig.set_multiplot_layout(2, 2).set_title(&format!(
+        "{run}, test sample {sample}: error 4 = {error4:.3e}"
+    ));
+    for (field, title, (lo, hi), diverging) in [
+        (&f, "forcing f", (f_lo, f_hi), false),
+        (&u, "reference u", (u_lo, u_hi), false),
+        (&u_hat, "prediction û = T_uc(FNO)", (u_lo, u_hi), false),
+        (&err, "error û − u", (-e_max, e_max), true),
+    ] {
+        let axes = fig.axes2d();
+        axes.set_title(title, &[])
+            .set_x_range(Fix(-1.0), Fix(1.0))
+            .set_y_range(Fix(-1.0), Fix(1.0))
+            .set_aspect_ratio(Fix(1.0))
+            .set_x_label("x", &[])
+            .set_y_label("y", &[])
+            .set_cb_range(Fix(lo), Fix(hi));
+        if diverging {
+            axes.set_palette(PaletteType::Custom(&DIVERGING));
+        }
+        axes.points(
+            &xs,
+            &ys,
+            &[
+                PointSymbol('S'),
+                PointSize(POINT_SIZE),
+                Color(VariablePaletteColor(field.iter().copied().collect())),
+            ],
+        );
+    }
+
+    let path = dir.join("prediction.png");
+    match fig.save_to_png(&path, WIDTH, HEIGHT) {
+        Ok(()) => println!("plot written to {}", path.display()),
+        Err(e) => eprintln!("plot failed ({e}) — is gnuplot installed?"),
+    }
+}
