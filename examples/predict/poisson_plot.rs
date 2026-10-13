@@ -7,11 +7,11 @@
 //!
 //! Loads the model as `predict_poisson` does (model_cfg.json, model_weights.bpk,
 //! data_cfg.json, y_normalizer.json), runs the one sample and decodes it to f64. f and u
-//! are the raw split's CGL fields (`load_poisson_cheb_field`). Each panel draws the n²
-//! CGL nodes at their (x, y) coordinates, not on the node index, so the clustering
-//! towards the edges shows. Writes prediction.png into the run directory; if gnuplot is
-//! missing it warns and exits 0, as `darcy_plot` does. Needs the stage 2 dataset: see
-//! datasets/README.md.
+//! are the raw split's CGL fields (`load_poisson_cheb_field`). Each panel draws every one
+//! of the n² CGL nodes as a filled cell at its (x, y) coordinates, reaching halfway to its
+//! neighbours, so the cells tile [−1, 1]² and the clustering towards the edges shows.
+//! Writes prediction.png into the run directory; if gnuplot is missing it warns and exits
+//! 0, as `darcy_plot` does. Needs the stage 2 dataset: see datasets/README.md.
 
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
@@ -21,10 +21,7 @@ use burn::{
     store::{BurnpackStore, ModuleSnapshot},
     tensor::Device,
 };
-use gnuplot::{
-    AutoOption::Fix, AxesCommon, Color, Figure, PaletteType, PointSize, PointSymbol,
-    VariablePaletteColor,
-};
+use gnuplot::{AutoOption::Fix, AxesCommon, Color, Figure, PaletteType, VariablePaletteColor};
 use ndarray::{Array2, ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
     chebyshev::{apply, cc_rel_l2_error, uniform_to_cheb},
@@ -46,8 +43,6 @@ const TEST_FILE: &str = "poisson_n65_K32_test.npz";
 /// Figure size in pixels.
 const WIDTH: u32 = 1400;
 const HEIGHT: u32 = 1300;
-/// Size of each node's square, as a multiple of gnuplot's default point size.
-const POINT_SIZE: f64 = 0.9;
 /// Blue–white–red, for the error panel's range symmetric about 0.
 const DIVERGING: [(f32, f32, f32, f32); 3] = [
     (0.0, 0.23, 0.30, 0.75),
@@ -62,6 +57,20 @@ fn cgl_nodes(n: usize) -> Vec<f64> {
     (0..n)
         .map(|j| (PI * (2.0 * j as f64 - nn) / (2.0 * nn)).sin())
         .collect()
+}
+
+/// The cell of each of the `n` ascending CGL nodes, as (low, high) edges: node
+/// x_j = −cos(jh), h = π/(n − 1) (CONVENTIONS §12), owns [−cos((j − ½)h), −cos((j + ½)h)],
+/// the angle clamped to [0, π]. The cells meet without gaps and the outer edges are ±1.
+fn cgl_cell_edges(n: usize) -> (Vec<f64>, Vec<f64>) {
+    let h = PI / (n - 1) as f64;
+    // −cos θ in the sine form, as `cgl_nodes`, so the edges are antisymmetric
+    let edge = |k: usize| ((k as f64 - 0.5) * h).clamp(0.0, PI) - PI / 2.0;
+    let edges: Vec<f64> = (0..=n).map(|k| edge(k).sin()).collect();
+    let (lo, hi) = (edges[..n].to_vec(), edges[1..].to_vec());
+    debug_assert!(lo[0] == -1.0 && hi[n - 1] == 1.0);
+    debug_assert!((1..n).all(|j| hi[j - 1] == lo[j]));
+    (lo, hi)
 }
 
 /// (min, max) of the values of all `fields`.
@@ -148,6 +157,13 @@ fn main() {
         .flat_map(|&x| std::iter::repeat_n(x, N))
         .collect();
     let ys: Vec<f64> = (0..N).flat_map(|_| nodes.iter().copied()).collect();
+    // Cell edges in the same order: x edges repeat within a row, y edges cycle
+    let (lo, hi) = cgl_cell_edges(N);
+    let per_row =
+        |e: &[f64]| -> Vec<f64> { e.iter().flat_map(|&v| std::iter::repeat_n(v, N)).collect() };
+    let cycled = |e: &[f64]| -> Vec<f64> { (0..N).flat_map(|_| e.iter().copied()).collect() };
+    let (x_lo, x_hi) = (per_row(&lo), per_row(&hi));
+    let (y_lo, y_hi) = (cycled(&lo), cycled(&hi));
 
     let (f_lo, f_hi) = range([f.view()]);
     let (u_lo, u_hi) = range([u.view(), u_hat.view()]);
@@ -179,14 +195,15 @@ fn main() {
         if diverging {
             axes.set_palette(PaletteType::Custom(&DIVERGING));
         }
-        axes.points(
+        // Solid fill, each border in its cell's own colour: no seams between cells
+        axes.box_xy_error_low_high(
             &xs,
             &ys,
-            &[
-                PointSymbol('S'),
-                PointSize(POINT_SIZE),
-                Color(VariablePaletteColor(field.iter().copied().collect())),
-            ],
+            &x_lo,
+            &x_hi,
+            &y_lo,
+            &y_hi,
+            &[Color(VariablePaletteColor(field.iter().copied().collect()))],
         );
     }
 
