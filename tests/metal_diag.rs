@@ -1,8 +1,14 @@
-//! Metal-only diagnostics: Flex vs Metal, op by op, behind the Burn bug reports in
-//! `upstream/burn/` (the fused-`cat` stride and new-shape replay bugs) and the 2D
-//! replay check `replay_2d_poisson`. Prints comparisons; most tests assert nothing.
-//! Run with `cargo test [--release] --features metal --test metal_diag -- --nocapture`.
-#![cfg(feature = "metal")]
+//! GPU diagnostics: Flex vs the GPU (CUDA with `--features cuda`, otherwise Metal), op
+//! by op, behind the Burn bug reports in `upstream/burn/` (the fused-`cat` stride and
+//! new-shape replay bugs) and the 2D replay check `replay_2d_poisson`. Prints
+//! comparisons; most tests assert nothing.
+//!
+//! Asserting tests: the GPU `repro_*` tests reproduce the Burn bugs, so on a fused
+//! backend that has them they **fail** (that is the finding); their `*_flex` twins
+//! must pass. `replay_2d_poisson` must pass before trusting a GPU padding sweep.
+//! Run with `cargo test [--release] --features metal --test metal_diag -- --nocapture`
+//! (or `--features cuda`).
+#![cfg(any(feature = "metal", feature = "cuda"))]
 
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig, PaddingConfig1d, conv::Conv1dConfig};
@@ -12,7 +18,15 @@ use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
 use sciml_rs::neural_operators::models::fno::FNOConfig;
 use sciml_rs::neural_operators::utils::fft::icfft_full_spectrum;
 
-fn metal() -> Device {
+/// The GPU under test: CUDA when the `cuda` feature is on, otherwise Metal.
+#[cfg(feature = "cuda")]
+fn gpu() -> Device {
+    Device::cuda(0)
+}
+
+/// The GPU under test: CUDA when the `cuda` feature is on, otherwise Metal.
+#[cfg(not(feature = "cuda"))]
+fn gpu() -> Device {
     Device::metal(Default::default())
 }
 
@@ -39,7 +53,7 @@ fn cmp<const R: usize, const S: usize>(
     x: Tensor<R>,
     op: impl Fn(Tensor<R>) -> Tensor<S>,
 ) {
-    let m = metal();
+    let m = gpu();
     let f = v(op(x.clone()));
     let m1 = v(op(x.clone().to_device(&m)));
     let m2 = v(op(x.to_device(&m)));
@@ -49,7 +63,7 @@ fn cmp<const R: usize, const S: usize>(
         ""
     };
     println!(
-        "{name:<48} metal/flex {:.2e}  metal/metal {:.2e}{flag}",
+        "{name:<48} gpu/flex {:.2e}  gpu/gpu {:.2e}{flag}",
         rel(&m1, &f),
         rel(&m1, &m2)
     );
@@ -163,24 +177,20 @@ fn matmuls() {
         );
     }
     let lin: Linear = LinearConfig::new(6, 6).init(&f);
-    let lin2 = lin.clone().to_device(&metal());
+    let lin2 = lin.clone().to_device(&gpu());
     let x = rnd([2, 6, 8, 7, 6]);
     let a = v(lin.forward(x.clone()));
-    let b = v(lin2.forward(x.to_device(&metal())));
-    println!(
-        "{:<48} metal/flex {:.2e}",
-        "Linear [2,6,8,7,6]",
-        rel(&b, &a)
-    );
+    let b = v(lin2.forward(x.to_device(&gpu())));
+    println!("{:<48} gpu/flex {:.2e}", "Linear [2,6,8,7,6]", rel(&b, &a));
     let conv = Conv1dConfig::new(6, 6, 1)
         .with_padding(PaddingConfig1d::Valid)
         .init(&f);
-    let conv2 = conv.clone().to_device(&metal());
+    let conv2 = conv.clone().to_device(&gpu());
     let x = rnd([2, 6, 336]);
     let a = v(conv.forward(x.clone()));
-    let b = v(conv2.forward(x.to_device(&metal())));
+    let b = v(conv2.forward(x.to_device(&gpu())));
     println!(
-        "{:<48} metal/flex {:.2e}",
+        "{:<48} gpu/flex {:.2e}",
         "Conv1d k=1 [2,6,336]",
         rel(&b, &a)
     );
@@ -195,13 +205,13 @@ fn spectral_and_fno() {
         ([2, 6, 8, 8, 8], vec![2, 2, 2]),
     ] {
         let sc = SpectralConv::<5>::new(&f, 6, 6, &modes);
-        let sm = sc.clone().to_device(&metal());
+        let sm = sc.clone().to_device(&gpu());
         let x = rnd(s);
         let a = v(sc.forward(x.clone()));
-        let b1 = v(sm.forward(x.clone().to_device(&metal())));
-        let b2 = v(sm.forward(x.to_device(&metal())));
+        let b1 = v(sm.forward(x.clone().to_device(&gpu())));
+        let b2 = v(sm.forward(x.to_device(&gpu())));
         println!(
-            "{:<48} metal/flex {:.2e}  metal/metal {:.2e}",
+            "{:<48} gpu/flex {:.2e}  gpu/gpu {:.2e}",
             format!("SpectralConv<5> {s:?}"),
             rel(&b1, &a),
             rel(&b1, &b2)
@@ -209,12 +219,12 @@ fn spectral_and_fno() {
     }
     for (s, modes) in [([2, 6, 8, 6], vec![3, 2]), ([2, 6, 17, 15], vec![3, 2])] {
         let sc = SpectralConv::<4>::new(&f, 6, 6, &modes);
-        let sm = sc.clone().to_device(&metal());
+        let sm = sc.clone().to_device(&gpu());
         let x = rnd(s);
         let a = v(sc.forward(x.clone()));
-        let b = v(sm.forward(x.to_device(&metal())));
+        let b = v(sm.forward(x.to_device(&gpu())));
         println!(
-            "{:<48} metal/flex {:.2e}",
+            "{:<48} gpu/flex {:.2e}",
             format!("SpectralConv<4> {s:?}"),
             rel(&b, &a)
         );
@@ -225,12 +235,12 @@ fn spectral_and_fno() {
             .with_n_layers(2)
             .with_padding(p)
             .init::<5>(&f);
-        let mm = m.clone().to_device(&metal());
+        let mm = m.clone().to_device(&gpu());
         let x = rnd([2, 4, 6, 5, 3]);
         let a = v(m.forward(x.clone()));
-        let b = v(mm.forward(x.to_device(&metal())));
+        let b = v(mm.forward(x.to_device(&gpu())));
         println!(
-            "{:<48} metal/flex {:.2e}",
+            "{:<48} gpu/flex {:.2e}",
             format!("FNO<5> pad {p:?}"),
             rel(&b, &a)
         );
@@ -241,12 +251,12 @@ fn spectral_and_fno() {
             .with_n_layers(2)
             .with_padding(p)
             .init::<4>(&f);
-        let mm = m.clone().to_device(&metal());
+        let mm = m.clone().to_device(&gpu());
         let x = rnd([2, 8, 6, 1]);
         let a = v(m.forward(x.clone()));
-        let b = v(mm.forward(x.to_device(&metal())));
+        let b = v(mm.forward(x.to_device(&gpu())));
         println!(
-            "{:<48} metal/flex {:.2e}",
+            "{:<48} gpu/flex {:.2e}",
             format!("FNO<4> pad {p:?}"),
             rel(&b, &a)
         );
@@ -409,12 +419,12 @@ fn sweep_sizes() {
             },
         );
         let sc = SpectralConv::<4>::new(&f, 8, 8, &[12, 12]);
-        let sm = sc.clone().to_device(&metal());
+        let sm = sc.clone().to_device(&gpu());
         let x = rnd([2, 8, n, n]);
         let a = v(sc.forward(x.clone()));
-        let b = v(sm.forward(x.to_device(&metal())));
+        let b = v(sm.forward(x.to_device(&gpu())));
         println!(
-            "{:<48} metal/flex {:.2e}",
+            "{:<48} gpu/flex {:.2e}",
             format!("SpectralConv<4> {n}x{n} modes 12"),
             rel(&b, &a)
         );
@@ -425,12 +435,12 @@ fn sweep_sizes() {
             .with_n_layers(2)
             .with_padding(p)
             .init::<4>(&f);
-        let mm = m.clone().to_device(&metal());
+        let mm = m.clone().to_device(&gpu());
         let x = rnd([2, 64, 64, 1]);
         let a = v(m.forward(x.clone()));
-        let b = v(mm.forward(x.to_device(&metal())));
+        let b = v(mm.forward(x.to_device(&gpu())));
         println!(
-            "{:<48} metal/flex {:.2e}",
+            "{:<48} gpu/flex {:.2e}",
             format!("FNO<4> 64x64 pad {p:?}"),
             rel(&b, &a)
         );
@@ -464,9 +474,9 @@ fn vs_naive_dft() {
             v(Tensor::cat(vec![r, i], 1))
         };
         println!(
-            "cfft [{n}, {w}] ax0   flex/naive {:.2e}   metal/naive {:.2e}",
+            "cfft [{n}, {w}] ax0   flex/naive {:.2e}   gpu/naive {:.2e}",
             rel(&run(&Device::flex()), &want),
-            rel(&run(&metal()), &want)
+            rel(&run(&gpu()), &want)
         );
     }
 }
@@ -561,11 +571,11 @@ fn bluestein_bisect() {
         );
         let x = rnd([n, w]);
         let f = bluestein_stages(x.clone(), &Device::flex());
-        let m = bluestein_stages(x, &metal());
+        let m = bluestein_stages(x, &gpu());
         for ((name, a), (_, b)) in f.iter().zip(&m) {
             let e = rel(b, a);
             println!(
-                "  {name:<40} metal/flex {e:.2e}{}",
+                "  {name:<40} gpu/flex {e:.2e}{}",
                 if e > 1e-5 { "  <-- BAD" } else { "" }
             );
         }
@@ -655,9 +665,9 @@ fn bluestein_fusion() {
             ("cuts 1+2", &[1, 2]),
         ];
         for (name, cuts) in cases {
-            let e = rel(&bluestein_cut(x.clone(), &metal(), cuts), &want);
+            let e = rel(&bluestein_cut(x.clone(), &gpu(), cuts), &want);
             println!(
-                "  {name:<32} metal/flex {e:.2e}{}",
+                "  {name:<32} gpu/flex {e:.2e}{}",
                 if e > 1e-5 { "  <-- BAD" } else { "" }
             );
         }
@@ -697,9 +707,9 @@ fn pow2_non_last() {
             let (r, i) = (host(&r, d), host(&i, d));
             v(Tensor::cat(vec![r, i], 1))
         };
-        let ec = rel(&run_c(&metal()), &run_c(&Device::flex()));
-        let er = rel(&run_r(&metal()), &run_r(&Device::flex()));
-        let es = rel(&run_r_sync(&metal()), &run_r_sync(&Device::flex()));
+        let ec = rel(&run_c(&gpu()), &run_c(&Device::flex()));
+        let er = rel(&run_r(&gpu()), &run_r(&Device::flex()));
+        let es = rel(&run_r_sync(&gpu()), &run_r_sync(&Device::flex()));
         let bad = |e: f32| if e > 1e-5 { " BAD" } else { "" };
         println!(
             "[{n:>3}, {w:>2}] ax0   cfft {ec:.2e}{}   rfft {er:.2e}{}   rfft+read {es:.2e}{}",
@@ -756,8 +766,8 @@ fn broadcast_mul() {
                 let b = host(&make(host(&b0, d)), d);
                 v(host(&a, d) * b)
             };
-            let e = rel(&run(&metal()), &run(&Device::flex()));
-            let es = rel(&run_sync(&metal()), &run_sync(&Device::flex()));
+            let e = rel(&run(&gpu()), &run(&Device::flex()));
+            let es = rel(&run_sync(&gpu()), &run_sync(&Device::flex()));
             println!(
                 "w={w:<2} b = {name:<36} a*b {e:.2e}{}   (b materialised {es:.2e})",
                 if e > 1e-5 { " BAD" } else { "" }
@@ -795,7 +805,7 @@ fn broadcast_cat_min() {
     ];
     for (name, op) in ops {
         let run = |d: &Device| v(op(host(&a, d), host(&p, d), host(&q, d)));
-        let (m, f) = (run(&metal()), run(&Device::flex()));
+        let (m, f) = (run(&gpu()), run(&Device::flex()));
         let e = rel(&m, &f);
         println!("{name:<36} {e:.2e}{}", if e > 1e-5 { " BAD" } else { "" });
         if e > 1e-5 {
@@ -809,7 +819,7 @@ fn broadcast_cat_min() {
 /// Bug-report repro: fixed values, asserts.
 #[test]
 fn repro_fused_cat_broadcast() {
-    let device = Device::metal(Default::default());
+    let device = gpu();
     let a = Tensor::<2>::from_floats([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]], &device);
     let p = Tensor::<2>::from_floats([[10.0], [20.0]], &device);
     let q = Tensor::<2>::from_floats([[30.0], [40.0]], &device);
@@ -823,7 +833,7 @@ fn repro_fused_cat_broadcast() {
 /// Bug-report repro: Bluestein cfft along a non-last axis vs a naive DFT.
 #[test]
 fn repro_cfft_bluestein() {
-    let device = Device::metal(Default::default());
+    let device = gpu();
     let (n, w) = (6usize, 4usize);
     let vals: Vec<f32> = (0..n * w).map(|k| ((k * 7 % 11) as f32) - 5.0).collect();
     let re = Tensor::<2>::from_data(TensorData::new(vals.clone(), [n, w]), &device);
@@ -936,19 +946,19 @@ fn learner_triage() {
         .with_hidden_channels(4)
         .with_n_layers(1)
         .init::<3>(&f);
-    let mm = model.clone().to_device(&metal());
+    let mm = model.clone().to_device(&gpu());
     let (b, s) = (3, 8);
     let xin: Vec<f32> = (0..b * s).map(|i| (i as f32 * 0.37).sin()).collect();
     let tin: Vec<f32> = (0..b * s).map(|i| 2.0 + (i as f32 * 0.7).cos()).collect();
     let x = |d: &Device| Tensor::<3>::from_data(TensorData::new(xin.clone(), [b, s, 1]), d);
     let t = |d: &Device| Tensor::<2>::from_data(TensorData::new(tin.clone(), [b, s]), d);
-    let m = metal();
+    let m = gpu();
 
     let of = v(model.forward(x(&f)));
     let o1 = v(mm.forward(x(&m)));
     let o2 = v(mm.forward(x(&m)));
     println!(
-        "forward       metal/flex {:.2e}  metal/metal {:.2e}",
+        "forward       gpu/flex {:.2e}  gpu/gpu {:.2e}",
         rel(&o1, &of),
         rel(&o1, &o2)
     );
@@ -978,10 +988,7 @@ fn learner_triage() {
         let o = Tensor::<2>::from_data(TensorData::new(o.to_vec(), [b, s]), d);
         v(o - t(d)).to_vec()
     };
-    println!(
-        "diff metal/flex {:.2e}",
-        rel(&diff(&m, &of), &diff(&f, &of))
-    );
+    println!("diff gpu/flex {:.2e}", rel(&diff(&m, &of), &diff(&f, &of)));
     let norms = |d: &Device| {
         let y = t(d);
         v(y.clone().powf_scalar(2.0).sum_dim(1))
@@ -996,7 +1003,7 @@ fn learner_triage() {
 /// Same as the learner test: model initialised on Metal itself.
 #[test]
 fn learner_triage_init_on_metal() {
-    let m = metal();
+    let m = gpu();
     for trial in 0..3 {
         m.seed(7);
         let model = FNOConfig::new(vec![2], 1, 1)
@@ -1027,7 +1034,7 @@ fn learner_triage_init_on_metal() {
 /// A different-shape 1D FNO forward first, then the tiny learner model.
 #[test]
 fn learner_triage_after_warmup() {
-    let m = metal();
+    let m = gpu();
     let f = Device::flex();
     // Warm-up, like padded_forward_matches_reference_1d: FNO<3>, [2, 16, 1], p = 5.
     let warm = FNOConfig::new(vec![4], 1, 1)
@@ -1059,7 +1066,7 @@ fn learner_triage_after_warmup() {
             TensorData::new(xin.clone(), [b, s, 1]),
             &m,
         )));
-        println!("run {run}: metal/flex {:.2e}", rel(&o, &of));
+        println!("run {run}: gpu/flex {:.2e}", rel(&o, &of));
     }
 }
 
@@ -1092,10 +1099,10 @@ fn grid_cat_expand() {
         for expand in [true, false] {
             let f = grid_chain(&Device::flex(), expand, b, n);
             let errs: Vec<String> = (0..6)
-                .map(|_| format!("{:.1e}", rel(&grid_chain(&metal(), expand, b, n), &f)))
+                .map(|_| format!("{:.1e}", rel(&grid_chain(&gpu(), expand, b, n), &f)))
                 .collect();
             println!(
-                "b={b} n={n:<2} expand={expand:<5} metal/flex runs: {}",
+                "b={b} n={n:<2} expand={expand:<5} gpu/flex runs: {}",
                 errs.join(" ")
             );
         }
@@ -1106,7 +1113,7 @@ fn grid_cat_expand() {
 #[test]
 fn lazy_init_clone_check() {
     use burn::module::Module;
-    let m = metal();
+    let m = gpu();
     m.seed(7);
     let model = FNOConfig::new(vec![2], 1, 1)
         .with_hidden_channels(4)
@@ -1142,7 +1149,7 @@ fn lazy_init_clone_check() {
 /// After a 1D FNO warm-up on Metal, check the tiny model's building blocks.
 #[test]
 fn after_warmup_blocks() {
-    let m = metal();
+    let m = gpu();
     let f = Device::flex();
     let warm = FNOConfig::new(vec![4], 1, 1)
         .with_hidden_channels(6)
@@ -1280,7 +1287,7 @@ fn toy_forward(t: &Toy, x: Tensor<3>, parts: &str) -> Tensor<3> {
 #[test]
 fn toy_repeat() {
     let parts = std::env::var("PARTS").unwrap_or_else(|_| "sr".into());
-    let m = metal();
+    let m = gpu();
     let warm = toy_to(&toy_new(6, 2, 4, 1), &m);
     for _ in 0..3 {
         let _ = v(toy_forward(&warm, rnd([2, 2, 21]).to_device(&m), &parts));
@@ -1318,7 +1325,7 @@ fn toy_forward_grid(t: &Toy, x: Tensor<3>, parts: &str) -> Tensor<3> {
 #[test]
 fn toy_repeat_grid() {
     let parts = std::env::var("PARTS").unwrap_or_else(|_| "sr".into());
-    let m = metal();
+    let m = gpu();
     let warm = toy_to(&toy_new(6, 2, 4, 1), &m);
     for _ in 0..3 {
         let _ = v(toy_forward_grid(
@@ -1371,7 +1378,7 @@ fn min_chain(x: Tensor<3>, var: &str) -> Tensor<3> {
 #[test]
 fn min_repeat() {
     let var = std::env::var("MIN").unwrap_or_default();
-    let m = metal();
+    let m = gpu();
     if !var.contains("nowarm") {
         for _ in 0..3 {
             let _ = v(min_chain(rnd([2, 21, 1]).to_device(&m), &var));
@@ -1408,7 +1415,7 @@ fn repro_fusion_cache_new_shape() {
         Ok("mid") => (2, 5, 2, 4),
         _ => (2, 21, 3, 8),
     };
-    let device = Device::metal(Default::default());
+    let device = gpu();
     let upload = |b: usize, n: usize| {
         let vals: Vec<f32> = (0..b * n).map(|i| 10.0 * (i + 1) as f32).collect();
         Tensor::<3>::from_data(TensorData::new(vals, [b, n, 1]), &device)
@@ -1456,7 +1463,7 @@ fn min_repeat_grid2() {
         (2, 5)
     };
     let (b, n) = if cfg.contains("b3n8") { (3, 8) } else { (1, 4) };
-    let m = metal();
+    let m = gpu();
     for _ in 0..warms {
         let _ = v(chain_v(Tensor::<3>::zeros([wb, wn, 1], &m), div));
     }
@@ -1483,7 +1490,7 @@ fn min_repeat_grid2() {
 #[test]
 fn min_repeat_grid3() {
     let cfg = std::env::var("CFG").unwrap_or_default();
-    let m = metal();
+    let m = gpu();
     let f = Device::flex();
     let make = |b: usize, n: usize, d: &Device| -> Tensor<3> {
         let xv: Vec<f32> = (0..b * n).map(|i| 0.1 * (i + 1) as f32).collect();
@@ -1524,7 +1531,7 @@ fn repro_fused_cat_reused_at_new_shape() {
         let g = Tensor::cat(vec![g], 2); // single-input cat
         Tensor::cat(vec![x, g], 2) // [b, n, 2]: (x, index) pairs
     }
-    let device = Device::metal(Default::default());
+    let device = gpu();
     let upload = |b: usize, n: usize| {
         let vals: Vec<f32> = (0..b * n).map(|i| 10.0 * (i + 1) as f32).collect();
         Tensor::<3>::from_data(TensorData::new(vals, [b, n, 1]), &device)
@@ -1546,7 +1553,7 @@ fn repro_fused_cat_reused_at_new_shape() {
 /// Poisson-trainer-sized step (forward + backward) timing on Metal.
 #[test]
 fn bench_poisson_step() {
-    let d = metal().autodiff();
+    let d = gpu().autodiff();
     for p in [0usize, 8] {
         let model = FNOConfig::new(vec![12, 12], 1, 1)
             .with_hidden_channels(32)
@@ -1590,7 +1597,7 @@ fn replay_2d_poisson() {
     let pads: Vec<usize> = std::env::var("PADS")
         .map(|s| s.split(',').map(|p| p.parse().unwrap()).collect())
         .unwrap_or_else(|_| vec![0, 4, 8, 16]);
-    let (m, f) = (metal(), Device::flex());
+    let (m, f) = (gpu(), Device::flex());
     let s = 64;
     let input = |b: usize, d: &Device| {
         let vals: Vec<f32> = (0..b * s * s)
@@ -1662,6 +1669,6 @@ fn replay_2d_poisson() {
         }
         println!("p={p:<2} {}", line.join(" "));
     }
-    println!("worst metal/flex rel err: {worst:.2e}");
-    assert!(worst <= 1e-5, "Metal differs from Flex: {worst:e}");
+    println!("worst gpu/flex rel err: {worst:.2e}");
+    assert!(worst <= 1e-5, "GPU differs from Flex: {worst:e}");
 }
