@@ -197,7 +197,7 @@ impl<const R: usize> FNO<R> {
     fn grid_cl(dims: [usize; R], dtype: DType, device: &Device) -> Tensor<R> {
         let mut full = dims;
         full[R - 1] = 1;
-        let channels: Vec<Tensor<R>> = (1..R - 1)
+        let mut channels: Vec<Tensor<R>> = (1..R - 1)
             .rev()
             .map(|axis| {
                 let n = dims[axis];
@@ -213,6 +213,13 @@ impl<const R: usize> FNO<R> {
                 coords.reshape(shape).expand(full)
             })
             .collect();
+        // One channel (1D) is returned as is: a single-input `cat` of the
+        // expanded channel, followed by `forward`'s `cat`, gives wrong values
+        // on the fused GPU backends once the chain has run at another shape
+        // (`upstream/burn/fused-cat-reused-at-new-shape/`).
+        if channels.len() == 1 {
+            return channels.pop().expect("one channel");
+        }
         Tensor::cat(channels, R - 1)
     }
 
