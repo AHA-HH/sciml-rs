@@ -85,6 +85,8 @@ lists under "Read first".
 - `examples/predict/poisson_plot.rs` (T1, `poisson_plot`) and
   `examples/predict/poisson_resolution.rs` (T4, `poisson_resolution`), registered in
   `Cargo.toml` with no required features.
+- `poisson_plot` keeps its own copy of `cgl_nodes` because the library function is
+  `pub(crate)`; the formula is fixed by CONVENTIONS §12.
 - `examples/train/poisson.rs` and `examples/predict/poisson.rs` gain a stage argument (T3).
 - `examples/generate/poisson.rs`: the stage 3, 4, 3e and 4e lines are uncommented as T3
   and T4 need them.
@@ -96,7 +98,7 @@ Filled in as tasks merge. Phase 4 is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| `poisson_plot`: run plotted, sample, output file; the regenerated p = 0 run's train / test relative L² against Phase 3's 3.45e-3 / 1.116e-2 | | T1 |
+| `poisson_plot`: run plotted, sample, output file; the regenerated p = 0 run's train / test relative L² against Phase 3's 3.45e-3 / 1.116e-2 | `runs/poisson_fno_p0_1791811912` (main checkout; metal, 65², unchanged code), final train / test relative L² 3.450e-3 / 1.116e-2 against 3.45e-3 / 1.116e-2. Plotted on metal for samples 0 (error 4 = 5.744e-3) and 17 (2.932e-2), written to the run's `prediction.png` (sample 0 is the one left there); û resembles u, the error is about 1e-3 and near 0 on ∂Ω, and the nodes cluster at the edges. Sample 17's error is mostly one-signed (û below u in the interior) | T1 |
 | Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, s/epoch, wall time) | | T2 |
 | Chosen p, by the decision 16 rule; `PADDING` changed or not | | T2 |
 | Flex run at the chosen p: final train / test relative L², s/epoch; threshold 2e-2 met on flex | | T2 |
@@ -105,7 +107,7 @@ Filled in as tasks merge. Phase 4 is done when every row has a value.
 | 129² runs on cuda: train / test relative L², s/epoch, GPU model, the five errors | | T3 |
 | Resolution study part 1: errors 3 and 4 of the 65² model at 65, 129, 257 (K = 32) | | T4 |
 | Resolution study part 2: errors 3 and 4 of the 129² model at 129, 257 (K = 64) | | T4 |
-| Wall time of the new tests under debug `cargo test` | | T1–T4 |
+| Wall time of the new tests under debug `cargo test` | T1: `cheb_field_loader_reads_f`, `cheb_field_loader_rejects_unknown_field` under 0.01 s each (reported 0.00 s) | T1–T4 |
 
 ## Exit checklist
 

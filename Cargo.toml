@@ -55,6 +55,10 @@ name = "darcy_plot"
 path = "examples/predict/darcy_plot.rs"
 
 [[example]]
+name = "poisson_plot"
+path = "examples/predict/poisson_plot.rs"
+
+[[example]]
 name = "generate_poisson"
 path = "examples/generate/poisson.rs"
 required-features = ["chebyshev"]
