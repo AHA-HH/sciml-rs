@@ -1,7 +1,7 @@
 # Phase 4: HPC
 
 As of 2026-10-12. Design: `docs/design/2d-chebyshev-poisson-fno.md` (signed off
-2026-10-05, amended 2026-10-08, 2026-10-09, 2026-10-10 and 2026-10-12; decisions in its
+2026-10-05, amended 2026-10-08, 2026-10-09, 2026-10-10, 2026-10-12 and 2026-10-13; decisions in its
 §12). `docs/CONVENTIONS.md` wins on any conflict.
 
 Phase 4 finishes what Phase 3 deferred, then scales up:
@@ -48,6 +48,10 @@ Recorded in design §12, decision 18.
 - **`poisson_plot` plots on the CGL nodes at their coordinates**, not on the node index,
   so the clustering at the edges shows. f and u come from the raw split; û is
   T_uc(prediction), as in error 4.
+- **`poisson_plot` draws cells, not points (2026-10-13, decision 19).** Each node is a
+  filled cell reaching halfway to its neighbours, which removes the white lattice between
+  the square points. Flat cells still show steps on smooth fields; whether to draw a
+  smooth display instead is a supplementary Phase 5 task (design §10), not Phase 4 work.
 - **Runs cited in Results live in the main checkout's `runs/`.** Two runs were lost with
   their worktrees in Phase 3. From now on `train_poisson` runs used in Results are moved
   (or written) to the main checkout's `runs/`, and the datasets are read from there, by copy

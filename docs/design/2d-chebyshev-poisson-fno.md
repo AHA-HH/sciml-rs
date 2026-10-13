@@ -4,7 +4,8 @@ As of 2026-10-05. Status: **signed off** on 2026-10-05 by the author (AHA-HH);
 amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (decision 12),
 2026-10-09 after Phase 2 (decisions 14 and 15), 2026-10-09 for Phase 3 planning
 (decision 16), 2026-10-09, 2026-10-10 and 2026-10-12 for the padding cost and the
-Phase 3 close-out (decision 17), and 2026-10-12 for Phase 4 planning (decision 18). The decisions are recorded in Section 12. This document is the
+Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), and
+2026-10-13 for the `poisson_plot` cells and the deferred display shading (decision 19). The decisions are recorded in Section 12. This document is the
 specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -517,12 +518,14 @@ flowchart LR
     P4T1["T1 poisson_plot"] --> P4T2["T2 padding sweep, flex run"] --> P4T3["T3 129² on GPU"] --> P4T4["T4 resolution study"]
   end
   P5["Phase 5 (optional): θ-map"]
+  P5S["Phase 5 (supplementary): plot shading"]
   P0T1 --> P1T1
   P1T1 --> P2T1
   P1T2 --> P2T2
   P2T3 --> P3T2
   P3T3 --> P4T1
   P4T4 -.-> P5
+  P4T1 -.-> P5S
 ```
 
 ### Phase 0: conventions and feasibility
@@ -634,6 +637,15 @@ and does not block completion. The question is whether a Chebyshev-native model 
 or generalises across resolutions better than the interpolating baseline. The motivation
 is model quality and resolution behaviour, not transfer error: Phase 0 measured the
 transfer error at about 1e-5, three orders below the expected model error (decision 10).
+
+**Supplementary task: smooth display in `poisson_plot` (decision 19).** Display only, and
+independent of the θ-map. `poisson_plot` draws each CGL node as a flat cell, so smooth
+fields show a block pattern that follows the node spacing. The task chooses between
+keeping the flat cells, drawing every panel smooth (each field's Chebyshev interpolant
+evaluated on a fine uniform grid, for example `apply` with `cheb_to_uniform(n, 400)`,
+drawn as an image), or smooth f, u and û with flat cells for the error panel. A smooth
+panel no longer shows where the nodes are, so the choice is recorded against decision 18
+before any code changes. No error, model, transfer or CONVENTIONS change.
 
 Module names are proposals. New code lives under `src/neural_operators/chebyshev/` and
 `src/neural_operators/pde/poisson/` (feature-gated where it uses RLST), and
@@ -943,6 +955,25 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       adds an approximation the study would then have to separate out. Chosen by the
       author, 2026-10-12.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-12.
+19. **`poisson_plot` cells; display shading deferred to Phase 5 (2026-10-13).**
+    - **Cells instead of point markers.** Each CGL node is drawn as a filled cell that
+      reaches halfway to its neighbours: node x_j = −cos(jh), h = π/(n − 1), owns
+      [−cos((j − ½)h), −cos((j + ½)h)], the angle clamped to [0, π] so the outer edges are
+      ±1. This is gnuplot's `boxxyerror`, the equivalent of matplotlib's
+      `pcolormesh(shading='flat')`. The cells tile [−1, 1]² without gaps, which removes
+      the white lattice the square points left. They stay small near ∂Ω, so decision 18's
+      clustering still shows. Data, errors and colour ranges are unchanged (sample 0:
+      error 4 = 5.744e-3, as before).
+    - **Flat shading shows steps.** Each cell holds one value, so smooth fields (u, û)
+      show a block pattern whose block size follows the node spacing. These are the data
+      as sampled, not a rendering artefact: at 4× zoom there are no seams between cells.
+    - **Deferred to Phase 5 as a supplementary task (§10):** keep the flat cells, draw
+      every panel smooth (the Chebyshev interpolant on a fine uniform grid, drawn as an
+      image, comparable to `shading='gouraud'`), or smooth f, u and û with flat cells for
+      the error panel. Smooth panels relax decision 18 and the Phase 4 T1 brief's "do not
+      interpolate onto a uniform grid for display", so the choice is recorded here when
+      it is made. It is display only and blocks nothing.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-13.
 
 ## References
 
