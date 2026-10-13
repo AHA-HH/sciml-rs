@@ -465,7 +465,12 @@ mod tests {
     /// Full `training_loop` with the device-resident loaders against the same
     /// components with the pre-4.1 host loaders swapped in: every metric of
     /// every epoch must be exactly equal (same batches, same order, same
-    /// kernels), as must the trained model's output.
+    /// kernels), as must the trained model's output on flex.
+    ///
+    /// On the fused GPU backends the output may differ in the last bits: the
+    /// fuser can compile the two runs' identical op sequences into different
+    /// kernels (seen on metal: one value 2 ulp apart, exact with fusion off),
+    /// so there it is compared to a relative 1e-6.
     #[test]
     fn device_loaders_train_identically_to_host_loaders() {
         let (n_train, n_test) = (7, 3); // partial last batch in both splits
@@ -517,20 +522,29 @@ mod tests {
             old.iter().map(key).collect::<Vec<_>>()
         );
 
-        let probe = |m: &FNO<3>| -> Vec<u32> {
+        let probe = |m: &FNO<3>| -> Vec<f32> {
             let x = tiny_dataset(1);
             let x = Tensor::<3>::from_data(
                 TensorData::new(x.inputs().iter().map(|&v| v as f32).collect(), [1, 8, 1]),
                 &device.clone().inner(),
             );
-            m.valid()
-                .forward(x)
-                .into_data()
-                .iter::<f32>()
-                .map(f32::to_bits)
-                .collect()
+            m.valid().forward(x).into_data().iter::<f32>().collect()
         };
-        assert_eq!(probe(&new_model), probe(&old_model));
+        let (new_out, old_out) = (probe(&new_model), probe(&old_model));
+
+        #[cfg(feature = "flex")]
+        let exact = device.clone().inner() == Device::flex();
+        #[cfg(not(feature = "flex"))]
+        let exact = false;
+
+        if exact {
+            let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+            assert_eq!(bits(&new_out), bits(&old_out));
+        } else {
+            for (i, (n, o)) in new_out.iter().zip(&old_out).enumerate() {
+                assert!((n - o).abs() <= 1e-6 * o.abs().max(1.0), "[{i}] {n} != {o}");
+            }
+        }
     }
 
     #[test]

@@ -291,25 +291,42 @@ impl<const R: usize> SpectralConv<R> {
     /// Forward N-d transform: real FFT on the last spatial axis, complex FFT on
     /// the rest. Halves the storage and the corner count versus a full complex
     /// transform, since a real signal's spectrum is Hermitian.
+    ///
+    /// Each complex FFT runs on the last axis, with its axis swapped there and
+    /// back (CONVENTIONS §4 is unchanged). On the fused GPU backends, Burn's
+    /// Bluestein `cfft` along a non-last axis of non-power-of-two length is
+    /// wrong when the trailing axes' product is even: the fused `cat` ignores
+    /// broadcasting on the vectorised axis (`upstream/burn/cfft-kernel/`).
     fn fft_ctensor(x: Tensor<R>) -> (Tensor<R>, Tensor<R>) {
         let dims = x.dims(); // read before x is consumed
         let last = R - 1;
         let (mut re, mut im) = signal::rfft(x, last, Some(dims[last]));
         for axis in (2..last).rev() {
-            let (r, i) = signal::cfft(re, im, axis, Some(dims[axis]));
-            re = r;
-            im = i;
+            let (r, i) = signal::cfft(
+                re.swap_dims(axis, last),
+                im.swap_dims(axis, last),
+                last,
+                Some(dims[axis]),
+            );
+            re = r.swap_dims(axis, last);
+            im = i.swap_dims(axis, last);
         }
         (re, im)
     }
 
-    /// Inverse of [`Self::fft_ctensor`], applying the axes in the reverse order.
+    /// Inverse of [`Self::fft_ctensor`], applying the axes in the reverse order,
+    /// each complex inverse on the last axis as there.
     fn ifft_ctensor(mut re: Tensor<R>, mut im: Tensor<R>, orig_dims: &[usize]) -> Tensor<R> {
         let last = R - 1;
         for (axis, &dim) in orig_dims.iter().enumerate().take(last).skip(2) {
-            let (r, i) = icfft_full_spectrum(re, im, axis, dim);
-            re = r;
-            im = i;
+            let (r, i) = icfft_full_spectrum(
+                re.swap_dims(axis, last),
+                im.swap_dims(axis, last),
+                last,
+                dim,
+            );
+            re = r.swap_dims(axis, last);
+            im = i.swap_dims(axis, last);
         }
         signal::irfft(re, im, last, Some(orig_dims[last]))
     }
@@ -491,6 +508,86 @@ mod tests {
     #[test]
     fn fft_round_trip_3d() {
         round_trip_check::<5>([2, 4, 8, 8, 8]);
+    }
+
+    /// Unscaled forward DFT of `x` (row-major, `shape`) over every axis from 2
+    /// on, keeping `n/2 + 1` bins on the last (CONVENTIONS §4), in f64 on the
+    /// host. Returns the real and imaginary parts, row-major.
+    fn naive_dft(x: &[f32], shape: &[usize]) -> (Vec<f64>, Vec<f64>) {
+        let last = shape.len() - 1;
+        let mut out_shape = shape.to_vec();
+        out_shape[last] = shape[last] / 2 + 1;
+        let strides = |s: &[usize]| -> Vec<usize> {
+            let mut st = vec![1; s.len()];
+            for a in (0..s.len() - 1).rev() {
+                st[a] = st[a + 1] * s[a + 1];
+            }
+            st
+        };
+        let (in_st, out_st) = (strides(shape), strides(&out_shape));
+        let total_out: usize = out_shape.iter().product();
+        let (mut re, mut im) = (vec![0.0; total_out], vec![0.0; total_out]);
+        for (o, (re_o, im_o)) in re.iter_mut().zip(im.iter_mut()).enumerate() {
+            let k: Vec<usize> = (0..shape.len())
+                .map(|a| o / out_st[a] % out_shape[a])
+                .collect();
+            for (i, &xi) in x.iter().enumerate() {
+                let j: Vec<usize> = (0..shape.len()).map(|a| i / in_st[a] % shape[a]).collect();
+                if j[..2] != k[..2] {
+                    continue;
+                }
+                let phase: f64 = (2..shape.len())
+                    .map(|a| (j[a] * k[a]) as f64 / shape[a] as f64)
+                    .sum();
+                let theta = -2.0 * std::f64::consts::PI * phase;
+                *re_o += xi as f64 * theta.cos();
+                *im_o += xi as f64 * theta.sin();
+            }
+        }
+        (re, im)
+    }
+
+    /// Regression: on Metal (Burn fork `ddfa9af`), a Bluestein `cfft` along a
+    /// non-last axis of non-power-of-two length was wrong when the product of
+    /// the axes after it was even (20–85% relative error), because the fused
+    /// `cat` ignores broadcasting on the vectorised axis. `fft_ctensor` now
+    /// runs each complex FFT on the last axis. The shapes below hit that case
+    /// on every complex axis: lengths 6 and 5, rfft half-width 4 (even). Checks
+    /// the forward transform against a host DFT and the round trip.
+    fn check_fft_at_bluestein_sizes<const R: usize>(shape: [usize; R]) {
+        let device = Device::default();
+        let x = Tensor::<R>::random(shape, Distribution::Normal(0.0, 1.0), &device);
+        let x_vec = x.clone().into_data().try_to_vec::<f32>().unwrap();
+
+        let (re, im) = SpectralConv::<R>::fft_ctensor(x);
+        let got_re = re.clone().into_data().try_to_vec::<f32>().unwrap();
+        let got_im = im.clone().into_data().try_to_vec::<f32>().unwrap();
+        let (want_re, want_im) = naive_dft(&x_vec, &shape);
+
+        let num: f64 = got_re
+            .iter()
+            .zip(&want_re)
+            .chain(got_im.iter().zip(&want_im))
+            .map(|(g, w)| (*g as f64 - w).powi(2))
+            .sum();
+        let den: f64 = want_re.iter().chain(&want_im).map(|w| w * w).sum();
+        let err = (num / den).sqrt();
+        assert!(err < 1e-5, "{shape:?}: forward FFT rel err {err:e}");
+
+        let recon = SpectralConv::<R>::ifft_ctensor(re, im, &shape);
+        let recon_vec = recon.into_data().try_to_vec::<f32>().unwrap();
+        let max_diff = x_vec
+            .iter()
+            .zip(&recon_vec)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(max_diff < 1e-4, "{shape:?}: round trip max_diff={max_diff}");
+    }
+
+    #[test]
+    fn fft_correct_at_bluestein_sizes_with_even_trailing_width() {
+        check_fft_at_bluestein_sizes::<4>([2, 3, 6, 7]);
+        check_fft_at_bluestein_sizes::<5>([1, 2, 6, 5, 7]);
     }
 
     #[test]
