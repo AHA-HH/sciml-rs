@@ -5,7 +5,8 @@ amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (deci
 2026-10-09 after Phase 2 (decisions 14 and 15), 2026-10-09 for Phase 3 planning
 (decision 16), 2026-10-09, 2026-10-10 and 2026-10-12 for the padding cost and the
 Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), and
-2026-10-13 for the `poisson_plot` cells and the deferred display shading (decision 19). The decisions are recorded in Section 12. This document is the
+2026-10-13 for the `poisson_plot` cells and the deferred display shading (decision 19), and
+2026-10-14 for the padding sweep on cuda (decision 20). The decisions are recorded in Section 12. This document is the
 specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -974,6 +975,29 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       interpolate onto a uniform grid for display", so the choice is recorded here when
       it is made. It is display only and blocks nothing.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-13.
+20. **Phase 4 T2: the padding sweep ran on cuda, not metal (2026-10-14).**
+    - **What changed.** Decision 18 put the sweep on metal, locally, before anything
+      ran on cuda, which was to come in with T3. The sweep ran instead on cuda, on a VM
+      (NVIDIA A100 80GB PCIe), at full length with the Darcy hyperparameters and
+      seed 42, under the decision 16 rule. p = 8 ran at about 32 s/epoch, against about 101 s/epoch
+      measured on metal (decision 17). Reason: speed. cuda ran about 3× faster per
+      epoch, so the three p > 0 runs needed about a third of metal's estimated 40 h.
+    - **The rule is unaffected.** All four sweep runs, p = 0 included, ran on the same
+      backend, so decision 16 compares like with like. Final test relative L²: p = 0
+      1.138e-2, p = 4 1.069e-2, p = 8 1.066e-2, p = 16 1.077e-2. p = 8 is lowest; p = 4
+      is within 0.23% of it and p = 16 within 0.99%, so p = 4 is chosen and `PADDING`
+      becomes 4.
+    - **Backend spread.** The cuda p = 0 run (1.138e-2) differs from T1's metal p = 0
+      run (1.116e-2) by 2.0%, less than the 3.9% between the Phase 3 and T1 metal p = 0
+      runs (1.16e-2 against 1.116e-2). p = 4 beats either p = 0 run by more than that
+      spread (4.2% against metal, 6.1% against cuda).
+    - **Consequences for T2.** There is no metal run at p = 4. `predict_poisson` (the
+      five errors and the boundary verdict) runs on the cuda p = 4 run,
+      `runs/poisson_fno_p4_1791922918`. The pipeline threshold (2e-2) is met on metal at
+      p = 0 (Phase 3) and on cuda at p = 4 (1.069e-2); the flex run at p = 4 is still
+      required. §11's row is updated when it holds. T3 still brings cuda in as the
+      production backend at 129².
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-14.
 
 ## References
 
