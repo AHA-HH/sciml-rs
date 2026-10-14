@@ -1,17 +1,20 @@
-//! FNO on 2D Poisson, stage 2 (n = 65 on the Chebyshev grid, s = 64 on the model grid)
+//! FNO on 2D Poisson on the Chebyshev grid (n nodes per axis, s = n − 1 on the model
+//! grid); stage 2 (n = 65) by default
 //!
-//! Run with: cargo run --release --example train_poisson
+//! Run with: cargo run --release --example train_poisson [-- [<padding>] [<n>]]
 //! (CPU by default; add `--features metal` or `--features cuda` for a GPU -
 //! see "Backends" in the README).
 //!
 //! An optional first argument overrides `PADDING`, so the padding sweep of
 //! docs/phase3/T2-train-poisson.md needs no edits:
 //! cargo run --release --example train_poisson -- 8
+//! An optional second argument picks the stage by n, one of `STAGES` (design §5.3):
+//! cargo run --release --example train_poisson -- 4 129
 //!
 //! Structurally identical to `examples/train/darcy.rs`, with the Darcy model and
 //! training hyperparameters (design §7). The loader transfers every sample from the
 //! CGL grid to the uniform grid (CONVENTIONS §12); the targets are normalized, which
-//! the trainer undoes before computing the loss. Needs the stage 2 dataset: see
+//! the trainer undoes before computing the loss. Needs the chosen stage's dataset: see
 //! datasets/README.md.
 
 use burn::{
@@ -30,13 +33,33 @@ use sciml_rs::neural_operators::{
 };
 use std::path::Path;
 
-/// CGL nodes per axis in the dataset; the model grid is s = N − 1.
-const N: usize = 65;
+/// The stages this example trains on (design §5.3): (CGL nodes per axis n, K, train
+/// file, test file). The model grid is s = n − 1.
+const STAGES: &[(usize, usize, &str, &str)] = &[
+    (
+        65,
+        32,
+        "poisson_n65_K32_train.npz",
+        "poisson_n65_K32_test.npz",
+    ),
+    (
+        129,
+        64,
+        "poisson_n129_K64_train.npz",
+        "poisson_n129_K64_test.npz",
+    ),
+    (
+        257,
+        64,
+        "poisson_n257_K64_train.npz",
+        "poisson_n257_K64_test.npz",
+    ),
+];
+/// The stage used when no n is given: stage 2.
+const DEFAULT_N: usize = 65;
 const N_TRAIN: usize = 1000;
-/// The whole stage 2 test split.
+/// The whole test split of each stage.
 const N_TEST: usize = 200;
-const TRAIN_FILE: &str = "poisson_n65_K32_train.npz";
-const TEST_FILE: &str = "poisson_n65_K32_test.npz";
 
 const MODES: [usize; 2] = [12, 12];
 const WIDTH: usize = 32;
@@ -58,21 +81,32 @@ fn main() {
             .unwrap_or_else(|e| panic!("padding argument must be an integer, got {arg:?}: {e}")),
         None => PADDING,
     };
+    let n = match std::env::args().nth(2) {
+        Some(arg) => arg
+            .parse::<usize>()
+            .unwrap_or_else(|e| panic!("n argument must be an integer, got {arg:?}: {e}")),
+        None => DEFAULT_N,
+    };
+    let &(_, k, train_file, test_file) =
+        STAGES.iter().find(|stage| stage.0 == n).unwrap_or_else(|| {
+            let ns: Vec<usize> = STAGES.iter().map(|stage| stage.0).collect();
+            panic!("no stage with n = {n}; expected one of {ns:?}")
+        });
 
     let device = Device::default().autodiff();
-    println!("device: {device:?}, padding: {padding}");
+    println!("device: {device:?}, padding: {padding}, n: {n}, K: {k}");
 
     let dataset_cfg = PoissonConfig::new(
         DatasetConfig {
             n_train: N_TRAIN,
             n_test: N_TEST,
         },
-        N,
+        n,
     );
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
-    let train_path = datasets.join(TRAIN_FILE);
-    let test_path = datasets.join(TEST_FILE);
+    let train_path = datasets.join(train_file);
+    let test_path = datasets.join(test_file);
     for p in [&train_path, &test_path] {
         assert!(
             p.exists(),
@@ -117,16 +151,16 @@ fn main() {
         &device,
     );
 
-    let dir = write_run_artifacts(
-        &format!("poisson_fno_p{padding}"),
-        &metrics,
-        &model_cfg,
-        &train_cfg,
-        &dataset_cfg,
-    )
-    .unwrap_or_else(|e| panic!("could not write run artifacts: {e}"));
+    // Stage 2 keeps its run name; other stages carry n in it
+    let name = if n == DEFAULT_N {
+        format!("poisson_fno_p{padding}")
+    } else {
+        format!("poisson_fno_n{n}_p{padding}")
+    };
+    let dir = write_run_artifacts(&name, &metrics, &model_cfg, &train_cfg, &dataset_cfg)
+        .unwrap_or_else(|e| panic!("could not write run artifacts: {e}"));
 
-    // Write normalizers files to runs/poisson_fno_p<p>_<timestamp>/
+    // Write normalizers files to the run directory
     normalizers
         .x
         .to_record()

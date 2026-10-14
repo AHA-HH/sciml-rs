@@ -8,8 +8,8 @@
 //! solution (enforced at 1e-8 for n ≥ 65) and each split records its transfer error
 //! (error 2). See `datasets/README.md` for the file layout.
 //!
-//! Edit `DATASETS` to choose what to generate. Stages 1 and 2 are on by default; stages 3
-//! and 4 and the K = 32 evaluation sets 3e and 4e are commented out.
+//! Edit `DATASETS` to choose what to generate. Stages 1, 2 and 3 are on by default; stage 4
+//! and the K = 32 evaluation sets 3e and 4e are commented out.
 
 use sciml_rs::neural_operators::pde::poisson::dataset::{SplitSpec, generate, write_split};
 use std::path::Path;
@@ -32,8 +32,8 @@ const DATASETS: &[(&str, usize, Option<usize>, u64, usize)] = &[
     ("train", 65, None, TRAIN_SEED, N_TRAIN),
     ("test", 65, None, TEST_SEED, N_TEST),
     // Stage 3: n = 129, K = 64.
-    // ("train", 129, None, TRAIN_SEED, N_TRAIN),
-    // ("test", 129, None, TEST_SEED, N_TEST),
+    ("train", 129, None, TRAIN_SEED, N_TRAIN),
+    ("test", 129, None, TEST_SEED, N_TEST),
     // Stage 4: n = 257, K = 64.
     // ("train", 257, None, TRAIN_SEED, N_TRAIN),
     // ("test", 257, None, TEST_SEED, N_TEST),

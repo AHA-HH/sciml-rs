@@ -37,9 +37,9 @@ cargo run --release --features chebyshev --example generate_poisson
 ```
 
 This writes `datasets/poisson/`. Edit `DATASETS` at the top of
-`examples/generate/poisson.rs` to choose the sets: stages 1 (n = 33) and 2 (n = 65) are on
-by default; stages 3 and 4 (n = 129, 257) and the K = 32 evaluation sets 3e and 4e are
-commented out.
+`examples/generate/poisson.rs` to choose the sets: stages 1 (n = 33), 2 (n = 65) and 3
+(n = 129) are on by default; stage 4 (n = 257) and the K = 32 evaluation sets 3e and 4e
+are commented out.
 
 Each split is a pair of files named `poisson_n{n}_K{K}_{split}`, e.g.
 `poisson_n65_K32_train.npz`:
