@@ -103,10 +103,10 @@ Filled in as tasks merge. Phase 4 is done when every row has a value.
 | Item | Value | Source |
 | --- | --- | --- |
 | `poisson_plot`: run plotted, sample, output file; the regenerated p = 0 run's train / test relative L² against Phase 3's 3.45e-3 / 1.116e-2 | `runs/poisson_fno_p0_1791811912` (main checkout; metal, 65², unchanged code), final train / test relative L² 3.450e-3 / 1.116e-2 against 3.45e-3 / 1.116e-2. Plotted on metal for samples 0 (error 4 = 5.744e-3) and 17 (2.932e-2), written to the run's `prediction.png` (sample 0 is the one left there); û resembles u, the error is about 1e-3 and near 0 on ∂Ω, and the nodes cluster at the edges. Sample 17's error is mostly one-signed (û below u in the interior) | T1 |
-| Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, s/epoch, wall time) | | T2 |
-| Chosen p, by the decision 16 rule; `PADDING` changed or not | | T2 |
-| Flex run at the chosen p: final train / test relative L², s/epoch; threshold 2e-2 met on flex | | T2 |
-| Five errors and boundary verdict on the chosen run (if p ≠ 0) | | T2 |
+| Padding sweep: final test relative L² for p = 0, 4, 8, 16 (backend, s/epoch, wall time) | On cuda (VM, NVIDIA A100 80GB PCIe), not on metal as planned (decision 18); 500 epochs, Darcy hyperparameters, seed 42. Final train / test relative L²: p = 0 3.397e-3 / 1.138e-2 (`runs/poisson_fno_p0_1791906496`); p = 4 2.802e-3 / 1.069e-2 (`runs/poisson_fno_p4_1791922918`); p = 8 2.742e-3 / 1.066e-2 (`runs/poisson_fno_p8_1791938538`); p = 16 2.517e-3 / 1.077e-2 (`runs/poisson_fno_p16_1791955593`); all in the main checkout. Wall time / s/epoch: p = 0 868 s / 1.7; p = 4 16417 s (4.6 h) / 32.8; p = 8 15617 s (4.3 h) / 31.2; p = 16 17053 s (4.7 h) / 34.1. Any p > 0 is about 20× slower than p = 0 (Bluestein, decision 17). Against T1's metal p = 0 run (1.116e-2), the cuda p = 0 run differs by 2.0% | T2 |
+| Chosen p, by the decision 16 rule; `PADDING` changed or not | p = 4. p = 8 is lowest (1.066e-2); p = 4 is 0.23% above it and p = 16 0.99% above, both within 2%, so the smaller p wins; p = 0 is 6.8% above. p = 4 beats T1's p = 0 run by 4.2%, more than the 3.9% spread between the Phase 3 and T1 p = 0 runs (1.16e-2 against 1.116e-2), so no §12 entry is needed for the margin. `PADDING` changed from 0 to 4 in `examples/train/poisson.rs`; "provisional" dropped | T2 |
+| Flex run at the chosen p: final train / test relative L², s/epoch; threshold 2e-2 met on flex | Deferred to a supplementary Phase 5 task (design §10, decision 21): about 72 h on flex at p = 4. The threshold is met on metal at p = 0 and on cuda at p = 4; the p = 4 model evaluates identically on flex | T2 |
+| Five errors and boundary verdict on the chosen run (if p ≠ 0) | `runs/poisson_fno_p4_1791922918` (the cuda p = 4 run, decision 20), evaluated on flex; mean / max: 2: 2.03e-5 / 7.81e-5; 3: 1.069e-2 / 2.97e-2; 4: 1.069e-2 / 2.97e-2; 5: max ratio 7.81e-5 / 1.86e-4, relative RMS 9.74e-5 / 1.84e-4. Cross-checks pass (error 2 against the sidecar, error 3 against `metrics.csv`). Boundary verdict 0.009 against the 0.10 threshold: ablation not warranted. Against Phase 3's p = 0 run, error 4 falls from 1.117e-2 to 1.069e-2 and its max from 3.67e-2 to 2.97e-2; error 5 rises slightly (relative RMS 8.84e-5 to 9.74e-5) | T2 |
 | Stage 3 dataset: label check and error 2, train / test | | T3 |
 | 129² runs on cuda: train / test relative L², s/epoch, GPU model, the five errors | | T3 |
 | Resolution study part 1: errors 3 and 4 of the 65² model at 65, 129, 257 (K = 32) | | T4 |
@@ -118,7 +118,7 @@ Filled in as tasks merge. Phase 4 is done when every row has a value.
 - [ ] T1, T2, T3 and T4 merged.
 - [ ] `poisson_plot` writes its figure for a stage 2 run, and the run is recorded above.
 - [ ] The padding sweep reported, p chosen by the decision 16 rule, and the §11 pipeline
-      row met on flex as well as metal.
+      row met on metal and cuda (the flex run deferred to Phase 5, decision 21).
 - [ ] cuda runs reported at 129², with the five errors.
 - [ ] Both parts of the resolution study reported on the same seeds (§7).
 - [ ] Every row of Results filled in.

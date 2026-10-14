@@ -5,7 +5,9 @@ amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (deci
 2026-10-09 after Phase 2 (decisions 14 and 15), 2026-10-09 for Phase 3 planning
 (decision 16), 2026-10-09, 2026-10-10 and 2026-10-12 for the padding cost and the
 Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), and
-2026-10-13 for the `poisson_plot` cells and the deferred display shading (decision 19). The decisions are recorded in Section 12. This document is the
+2026-10-13 for the `poisson_plot` cells and the deferred display shading (decision 19), and
+2026-10-14 for the padding sweep on cuda (decision 20) and the deferred flex run
+(decision 21). The decisions are recorded in Section 12. This document is the
 specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -519,6 +521,7 @@ flowchart LR
   end
   P5["Phase 5 (optional): θ-map"]
   P5S["Phase 5 (supplementary): plot shading"]
+  P5F["Phase 5 (supplementary): flex training run"]
   P0T1 --> P1T1
   P1T1 --> P2T1
   P1T2 --> P2T2
@@ -526,6 +529,7 @@ flowchart LR
   P3T3 --> P4T1
   P4T4 -.-> P5
   P4T1 -.-> P5S
+  P4T2 -.-> P5F
 ```
 
 ### Phase 0: conventions and feasibility
@@ -623,12 +627,13 @@ flowchart LR
 | Task | Delivers | Depends on |
 | --- | --- | --- |
 | T1 | `poisson_plot`: one test sample's f, u, û and error map on the Chebyshev grid; a regenerated p = 0 run at 65² | – |
-| T2 | Padding sweep p ∈ {4, 8, 16} at 65² (decision 16 rule against p = 0), the chosen `PADDING`, the full-length flex run with the 2e-2 threshold (decision 17) | T1 |
+| T2 | Padding sweep p ∈ {4, 8, 16} at 65² (decision 16 rule against p = 0), the chosen `PADDING`; the full-length flex run deferred to Phase 5 (decision 21) | T1 |
 | T3 | Stage selection in `train_poisson` / `predict_poisson`; production runs at 129² on GPU | T2 |
 | T4 | Resolution study after profiling, in two parts (§7): 65 (K = 32) → 129, 257 on the K = 32 sets; 129 (K = 64) → 257 | T3 |
 
-- **Exit:** the §11 pipeline row met on flex as well as metal; p chosen; cuda runs
-  reported at 129²; both parts of the resolution study reported on the same seeds (§7).
+- **Exit:** the §11 pipeline row met on metal and cuda (flex: Phase 5, decision 21);
+  p chosen; cuda runs reported at 129²; both parts of the resolution study reported on
+  the same seeds (§7).
 
 ### Phase 5 (optional, non-blocking)
 
@@ -646,6 +651,15 @@ evaluated on a fine uniform grid, for example `apply` with `cheb_to_uniform(n, 4
 drawn as an image), or smooth f, u and û with flat cells for the error panel. A smooth
 panel no longer shows where the nodes are, so the choice is recorded against decision 18
 before any code changes. No error, model, transfer or CONVENTIONS change.
+
+**Supplementary task: the full-length flex training run (decision 21).** Non-blocking.
+Train `train_poisson` at 65² on flex for 500 epochs and check the §11 pipeline threshold
+(test relative L² ≤ 2e-2) there. At p = 4 the padded FFT length 68 takes Bluestein's
+path, about 520 s/epoch on flex (decision 17), so about 72 h. Ways to make it
+affordable, chosen when the task is planned: a flex run at p = 0 (power-of-two FFT
+lengths, no Bluestein), recorded against the chosen p; a Bluestein fix in Burn first
+(its own task, decision 17); or the full run at p = 4 on a machine left running. The
+first 3 epochs are timed and the cost stated before any full run starts.
 
 Module names are proposals. New code lives under `src/neural_operators/chebyshev/` and
 `src/neural_operators/pde/poisson/` (feature-gated where it uses RLST), and
@@ -667,7 +681,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 | GRF sampler | same seed gives the same field at every n (nodes in common); empirical covariance against the formula | statistical, stated in the brief |
 | `generate_poisson` label check | exact sine-series solution, every sample; recorded in the sidecar | aborts above 1e-8 relative CC-L² for n ≥ 65 |
 | Loader | shapes, normaliser asymmetry as in Darcy's tests | exact |
-| Pipeline | 65² training on metal (Phase 3 T2); on flex in Phase 4 (decision 17) | test relative L² ≤ 2e-2, f32 (decision 16) |
+| Pipeline | 65² training on metal (Phase 3 T2) and cuda (Phase 4 T2); on flex in Phase 5 (decision 21) | test relative L² ≤ 2e-2, f32 (decision 16) |
 
 ## 12. Questions for sign-off
 
@@ -974,6 +988,47 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       interpolate onto a uniform grid for display", so the choice is recorded here when
       it is made. It is display only and blocks nothing.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-13.
+20. **Phase 4 T2: the padding sweep ran on cuda, not metal (2026-10-14).**
+    - **What changed.** Decision 18 put the sweep on metal, locally, before anything
+      ran on cuda, which was to come in with T3. The sweep ran instead on cuda, on a VM
+      (NVIDIA A100 80GB PCIe), at full length with the Darcy hyperparameters and
+      seed 42, under the decision 16 rule. p = 8 ran at 31.2 s/epoch, against about
+      101 s/epoch measured on metal (decision 17). Reason: speed. cuda ran about 3×
+      faster per epoch, so the three p > 0 runs took 13.6 h against metal's estimated
+      40 h.
+    - **The rule is unaffected.** All four sweep runs, p = 0 included, ran on the same
+      backend, so decision 16 compares like with like. Final test relative L²: p = 0
+      1.138e-2, p = 4 1.069e-2, p = 8 1.066e-2, p = 16 1.077e-2. p = 8 is lowest; p = 4
+      is within 0.23% of it and p = 16 within 0.99%, so p = 4 is chosen and `PADDING`
+      becomes 4.
+    - **Backend spread.** The cuda p = 0 run (1.138e-2) differs from T1's metal p = 0
+      run (1.116e-2) by 2.0%, less than the 3.9% between the Phase 3 and T1 metal p = 0
+      runs (1.16e-2 against 1.116e-2). p = 4 beats either p = 0 run by more than that
+      spread (4.2% against metal, 6.1% against cuda).
+    - **Consequences for T2.** There is no metal run at p = 4. `predict_poisson` (the
+      five errors and the boundary verdict) runs on the cuda p = 4 run,
+      `runs/poisson_fno_p4_1791922918`. The pipeline threshold (2e-2) is met on metal at
+      p = 0 (Phase 3) and on cuda at p = 4 (1.069e-2); the flex run at p = 4 is still
+      required. §11's row is updated when it holds. T3 still brings cuda in as the
+      production backend at 129².
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-14.
+21. **Phase 4 T2: the flex training run deferred to Phase 5 (2026-10-14).**
+    - **What changes.** Decisions 16 and 17 required the pipeline threshold (test
+      relative L² ≤ 2e-2 at 65²) to be met by a full-length training run on flex, in
+      Phase 4 T2. At p = 4 that run takes about 72 h (Bluestein at FFT length 68, about
+      520 s/epoch, decision 17), against 4.3 h on cuda. It moves to a supplementary,
+      non-blocking Phase 5 task (§10), and T2 closes without it.
+    - **Evidence in hand.** The threshold is met on metal at p = 0 (1.116e-2, Phase 3)
+      and on cuda at p = 4 (1.069e-2, decision 20). The cuda p = 4 model evaluates on
+      flex to the same test error (rel diff 2.8e-6 against `metrics.csv`), so flex's
+      forward pass, padded FFTs included, is verified at this size. Flex training is
+      covered by `train_poisson_smoke` and the trainer tests, at small sizes only.
+    - **What is not shown.** A full-length training run on flex, its backward pass at
+      65² included. Until the Phase 5 task runs, the §11 pipeline row and the §10
+      Phase 4 exit read "metal and cuda", not flex.
+    - **Options for the Phase 5 task**, chosen when it is planned (§10): flex at p = 0,
+      a Bluestein fix in Burn first, or the full p = 4 run.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-14.
 
 ## References
 

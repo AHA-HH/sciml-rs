@@ -46,10 +46,10 @@ const BATCH_SIZE: usize = 20;
 const LEARNING_RATE: f64 = 1e-3;
 const WEIGHT_DECAY: f32 = 1e-4;
 const MIN_LR: f64 = 1e-5;
-/// Zero cells appended to each spatial axis (CONVENTIONS §3). Provisional: only p = 0
-/// has been run at full length; the rest of the sweep over {0, 4, 8, 16} is deferred
-/// (design §12, decisions 16 and 17).
-const PADDING: usize = 0;
+/// Zero cells appended to each spatial axis (CONVENTIONS §3). Chosen by the full-length
+/// sweep over {0, 4, 8, 16}: p = 8 scored lowest and p = 4 lies within 2% of it, so the
+/// smaller p wins (design §12, decision 16; Phase 4 T2).
+const PADDING: usize = 4;
 
 fn main() {
     let padding = match std::env::args().nth(1) {
