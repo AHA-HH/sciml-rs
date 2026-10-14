@@ -124,8 +124,10 @@ than trusting prose when checking how an API behaves.
 - All tests: `cargo test`
 - Train: `cargo run --release --example train_burgers [--features metal]`
   (also `train_darcy`; `train_burgers_learner` needs a real terminal for Burn's TUI)
-- Train on Poisson stage 2: `cargo run --release --example train_poisson [--features metal] [-- <padding>]`
-  (the optional argument overrides `PADDING`; needs `datasets/poisson/`)
+- Train on Poisson: `cargo run --release --example train_poisson [--features metal] [-- [<padding>] [<n>]]`
+  (the first argument overrides `PADDING`, the second picks the stage, n ∈ {65, 129, 257},
+  default 65; needs that stage in `datasets/poisson/`). On cuda:
+  `--no-default-features --features cuda`
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution`, `burgers_superresolution` on Burgers runs;
   `predict_darcy`, `darcy_plot` on Darcy runs)

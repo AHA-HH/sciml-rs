@@ -1,16 +1,17 @@
-//! Evaluates a saved Poisson run on the stage 2 test split: the five errors of design §7,
+//! Evaluates a saved Poisson run on its stage's test split: the five errors of design §7,
 //! on the Chebyshev grid, and the boundary verdict (design §12, decision 16).
 //!
 //! Run with: cargo run --release --example predict_poisson -- runs/poisson_fno_p<p>_<timestamp>
 //! (add `--features metal` for the GPU).
 //!
 //! Loads the model as `predict_darcy` does (model_cfg.json, model_weights.bpk,
-//! y_normalizer.json) and the dataset config from data_cfg.json. The test inputs come
+//! y_normalizer.json) and the dataset config from data_cfg.json, whose n picks the stage
+//! from `STAGES`. The test inputs come
 //! from `load_poisson_uniform`, the raw CGL solutions from `load_poisson_cheb`;
 //! predictions are decoded with the y normalizer and copied to the host as f64. Error 1
 //! needs the `chebyshev` feature and is quoted from Phase 1. Cross-checks error 2 against
 //! the test split's `.json` sidecar and the mean error 3 against the run's last test_l2,
-//! then writes errors.json into the run directory. Needs the stage 2 dataset: see
+//! then writes errors.json into the run directory. Needs the run's stage dataset: see
 //! datasets/README.md.
 
 use std::path::{Path, PathBuf};
@@ -38,11 +39,28 @@ use sciml_rs::neural_operators::{
 
 use records::{PoissonErrorsRecord, Sidecar};
 
-/// The stage 2 files `train_poisson` reads; the run's data_cfg.json must match `N`.
-const N: usize = 65;
-const TRAIN_FILE: &str = "poisson_n65_K32_train.npz";
-const TEST_FILE: &str = "poisson_n65_K32_test.npz";
-const TEST_SIDECAR: &str = "poisson_n65_K32_test.json";
+/// The stages `train_poisson` trains on (design §5.3): (CGL nodes per axis n, train file,
+/// test file, test sidecar). The run's data_cfg.json gives n.
+const STAGES: &[(usize, &str, &str, &str)] = &[
+    (
+        65,
+        "poisson_n65_K32_train.npz",
+        "poisson_n65_K32_test.npz",
+        "poisson_n65_K32_test.json",
+    ),
+    (
+        129,
+        "poisson_n129_K64_train.npz",
+        "poisson_n129_K64_test.npz",
+        "poisson_n129_K64_test.json",
+    ),
+    (
+        257,
+        "poisson_n257_K64_train.npz",
+        "poisson_n257_K64_test.npz",
+        "poisson_n257_K64_test.json",
+    ),
+];
 const BATCH_SIZE: usize = 20;
 /// Error 2 against the sidecar, relative (both f64, same transfers and norm).
 const ERROR2_TOL: f64 = 1e-12;
@@ -152,18 +170,23 @@ fn main() {
     model.load_from(&mut store).expect("load model weights");
 
     let dataset_cfg = PoissonConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
-    assert_eq!(dataset_cfg.n, N, "this example reads the n = {N} files");
+    let n = dataset_cfg.n;
+    let &(_, train_file, test_file, test_sidecar) =
+        STAGES.iter().find(|stage| stage.0 == n).unwrap_or_else(|| {
+            let ns: Vec<usize> = STAGES.iter().map(|stage| stage.0).collect();
+            panic!("the run's n = {n} is not a known stage; expected one of {ns:?}")
+        });
     let n_test = dataset_cfg.base().n_test;
     let s = dataset_cfg.s();
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
     let (_, test_data, _) = load_poisson_uniform::<f32>(
-        datasets.join(TRAIN_FILE),
-        datasets.join(TEST_FILE),
+        datasets.join(train_file),
+        datasets.join(test_file),
         &dataset_cfg,
     )
     .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
-    let u = load_poisson_cheb(datasets.join(TEST_FILE), N, n_test)
+    let u = load_poisson_cheb(datasets.join(test_file), n, n_test)
         .unwrap_or_else(|e| panic!("could not load the CGL solutions: {e}"));
 
     // Forward pass in batches, in sample order; outputs are normalized [B, s, s, 1]
@@ -202,7 +225,7 @@ fn main() {
     let e5_rms = ErrorStats::of(&errors.boundary_rel_rms);
 
     println!(
-        "\nerrors on the stage 2 test split (n = {N}, s = {s}, {n_test} samples), device {device:?}, backend features {:?}",
+        "\nerrors on the test split (n = {n}, s = {s}, {n_test} samples), device {device:?}, backend features {:?}",
         backend_features()
     );
     println!("{:<34} {:>12} {:>12}", "error", "mean", "max");
@@ -218,10 +241,10 @@ fn main() {
     }
 
     // Cross-check 1: error 2 against the sidecar the generator wrote
-    let sidecar = Sidecar::load(datasets.join(TEST_SIDECAR)).expect("load the test sidecar");
+    let sidecar = Sidecar::load(datasets.join(test_sidecar)).expect("load the test sidecar");
     assert_eq!(
         (sidecar.n, sidecar.error2.s, sidecar.error2.d),
-        (N, s, TRANSFER_DEGREE),
+        (n, s, TRANSFER_DEGREE),
         "sidecar n, s, d differ from this evaluation"
     );
     let e2_sidecar = ErrorStats {
@@ -281,7 +304,7 @@ fn main() {
     let cross_checks_passed = e2_ok && e3_ok;
     let record = PoissonErrorsRecord {
         n_test,
-        n: N,
+        n,
         device: format!("{device:?}"),
         backend_features: backend_features(),
         error1: ERROR1_QUOTE.to_string(),
