@@ -30,6 +30,7 @@ use crate::CONVENTION_VERSION;
 use crate::neural_operators::chebyshev::{
     apply, cheb_to_uniform, clenshaw_curtis, nodes, rel_l2_error, uniform_to_cheb,
 };
+use crate::neural_operators::data::loaders::poisson::PoissonSet;
 
 /// Bound on the label check, relative CC-L², enforced for n ≥ [`LABEL_CHECK_MIN_N`]
 /// (design §5.1; Phase 0 T4 observed at most 7.4e-10 at n = 65).
@@ -244,10 +245,14 @@ pub fn generate(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
     })
 }
 
-/// The file stem of a split, `poisson_n{n}_K{K}_{name}`, so that sets differing only in
-/// K (stage 3 and the K = 32 set 3e) get distinct files.
+/// The file stem of a split, `poisson_n{n}_K{K}_{name}`: [`PoissonSet::stem`] of its n
+/// and K in effect.
 pub fn split_stem(split: &Split, name: &str) -> String {
-    format!("poisson_n{}_K{}_{name}", split.spec.n, split.k)
+    PoissonSet {
+        n: split.spec.n,
+        k: split.k,
+    }
+    .stem(name)
 }
 
 /// Writes a split to `dir` as `{stem}.npz` and `{stem}.json`, with the stem from
@@ -459,5 +464,13 @@ mod tests {
         assert!(v["wall_time_s"].as_f64().unwrap() > 0.0);
 
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn stages_use_the_default_truncation() {
+        use crate::neural_operators::data::loaders::poisson::STAGES;
+        for set in STAGES {
+            assert_eq!(set.k, k_default(set.n), "stage n = {}", set.n);
+        }
     }
 }
