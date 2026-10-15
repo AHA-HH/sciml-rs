@@ -7,7 +7,8 @@ amended 2026-10-08 after Phase 0 (decision 10) and for the Phase 1 toolkit (deci
 Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), and
 2026-10-13 for the `poisson_plot` cells and the deferred display shading (decision 19), and
 2026-10-14 for the padding sweep on cuda (decision 20) and the deferred flex run
-(decision 21). The decisions are recorded in Section 12. This document is the
+(decision 21), and 2026-10-15 for `poisson_plot` on every stage and the worst sample
+(decision 22). The decisions are recorded in Section 12. This document is the
 specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -628,7 +629,7 @@ flowchart LR
 | --- | --- | --- |
 | T1 | `poisson_plot`: one test sample's f, u, û and error map on the Chebyshev grid; a regenerated p = 0 run at 65² | – |
 | T2 | Padding sweep p ∈ {4, 8, 16} at 65² (decision 16 rule against p = 0), the chosen `PADDING`; the full-length flex run deferred to Phase 5 (decision 21) | T1 |
-| T3 | Stage selection in `train_poisson` / `predict_poisson`; production runs at 129² on GPU | T2 |
+| T3 | Stage selection in `train_poisson` / `predict_poisson` (and `poisson_plot`, decision 22); production runs at 129² on GPU | T2 |
 | T4 | Resolution study after profiling, in two parts (§7): 65 (K = 32) → 129, 257 on the K = 32 sets; 129 (K = 64) → 257 | T3 |
 
 - **Exit:** the §11 pipeline row met on metal and cuda (flex: Phase 5, decision 21);
@@ -1029,6 +1030,28 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - **Options for the Phase 5 task**, chosen when it is planned (§10): flex at p = 0,
       a Bluestein fix in Burn first, or the full p = 4 run.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-14.
+22. **`poisson_plot` on every stage; the worst sample (2026-10-15).**
+    - **What changes.** A small follow-up to Phase 4 T3, outside the T1–T4 briefs, as the
+      cells fix (#29) was to T1. `poisson_plot` was hard-wired to stage 2 (n = 65), so it
+      could not plot T3's 129² run. It now takes n from the run's `data_cfg.json` and
+      looks up the files in a stage table copied from `predict_poisson` (65, 129, 257),
+      as decision 18's "stages by argument" does for training and evaluation.
+    - **Output name.** `poisson_plot` writes `prediction_<sample>.png` instead of
+      `prediction.png`, so the plots of several samples are kept side by side. This
+      changes T1's behaviour; its Results row still names `prediction.png`, which is
+      what T1 wrote.
+    - **The worst sample.** `predict_poisson` prints the index of the test sample with
+      the max error 4, with the `poisson_plot` command for it, and records it in
+      `errors.json` as `error4_worst_sample`. Sample 84 for the 129² run.
+    - **Unchanged.** The panels, colour maps and decision 19's cells; errors 2–5 and
+      their cross-checks; the commands' arguments. The stage 2 run plots as before
+      (sample 0: error 4 = 5.744e-3).
+    - **First reading of the worst case.** At 129² the largest pointwise error is about
+      2e-3 in samples 0, 17 and 84 alike; sample 84 has the smallest u of the three, so
+      its relative error 4 is the largest. The max of error 4 may therefore reflect the
+      small-‖u‖ samples more than the model's accuracy. Three samples do not show this;
+      error 4 against ‖u‖ over the test set would.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-15.
 
 ## References
 
