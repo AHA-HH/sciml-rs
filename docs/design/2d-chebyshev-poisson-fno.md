@@ -1075,10 +1075,25 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       appended grid channels act per node, and the node spacing changes with s. Testing
       either, for example padding by a fixed fraction of the domain, changes the model or
       CONVENTIONS §3, so it is not Phase 4 work.
+    - **Padding check (2026-10-15, added to T4).** Cause (a) was then tested without new
+      code. `poisson_resolution` was run on T2's four 65² sweep runs, which differ only in
+      p. Mean error 3 at n = 65 / 129 / 257: p = 0 1.138e-2 / 1.378e-2 / 1.608e-2 (1.4×);
+      p = 4 1.069e-2 / 4.666e-2 / 7.546e-2 (7.1×); p = 8 1.066e-2 / 7.718e-2 / 1.354e-1
+      (12.7×); p = 16 1.077e-2 / 1.409e-1 / 2.355e-1 (21.9×). The growth rises
+      steadily with p, and without padding the error stays nearly flat, so the fixed
+      grid-point padding is the main cause. The 1.4× left at p = 0 is untested; cause (b)
+      is the remaining candidate.
+    - **Bearing on the choice of p.** Decision 16's rule picks p by the final test error at
+      the training resolution alone. On that measure p = 4 beats p = 0 by 6%. Across
+      resolutions, p = 0 is better by 3.4× at 129 and 4.7× at 257. Decision 16 and
+      `PADDING` stay as they are for Phase 4. Phase 5 should weigh resolution behaviour
+      when it chooses padding, for example padding by a fixed fraction of the domain,
+      which changes CONVENTIONS §3.
     - **Phase 5.** This result is the interpolating baseline for the θ-map comparison: the
       question of whether a Chebyshev-native model generalises across resolutions better
       now has a measured baseline to beat.
-    - Outcome: **accepted** by the author (AHA-HH), 2026-10-15.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-15; the padding check and its
+      bearing on p, added afterwards, **accepted** the same day.
 
 ## References
 
