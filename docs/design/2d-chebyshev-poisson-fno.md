@@ -8,8 +8,9 @@ Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), 
 2026-10-13 for the `poisson_plot` cells and the deferred display shading (decision 19), and
 2026-10-14 for the padding sweep on cuda (decision 20) and the deferred flex run
 (decision 21), and 2026-10-15 for `poisson_plot` on every stage and the worst sample
-(decision 22) and the resolution study (decision 23). The decisions are recorded in Section 12. This document is the
-specification for the phase plans.
+(decision 22) and the resolution study (decision 23), and 2026-10-15 for the Phase 4
+close-out and the Phase 5/6 split (decision 24). The decisions are recorded in Section 12.
+This document is the specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
 grid. The experiment learns the solution operator f ↦ u of the Poisson equation on a square
@@ -398,8 +399,8 @@ CONVENTIONS §1–§6. Its errors are measured separately (§7).
   measured round-trip errors.
 - Both transfers are fixed matrices per (n, s), built once, in f64.
 
-**Option 2 as an optional later comparison (Phase 5).** It does not block completion and
-needs its own convention diff.
+**Option 2 as an optional later comparison (Phase 6, decision 24).** It does not block
+completion and needs its own convention diff.
 
 Decision 2.
 
@@ -493,6 +494,12 @@ This section is the project roadmap. Each phase gets a `docs/phase<N>/README.md`
 brief per task when it is planned; those briefs refine the rows below and do not change
 their order.
 
+**Wider aim.** This experiment is the first step toward a larger aim of the author's: to
+show that a Rust-native chain, from mesh generation through reference solvers to neural
+operators, is viable, and then to scale it to HPC-sized problems. Phases 0–4 answer the
+narrower question of this design. Phase 5 serves the scaling half of the aim; Phase 6
+returns to the Chebyshev question (decision 24).
+
 **Task numbering.** From Phase 1 on, task numbers are execution order: T<k> depends only
 on tasks with a lower number in the same phase, or on earlier phases. Tasks that can run
 in parallel get consecutive numbers and say so in "Depends on". Phase 0 is the one
@@ -520,15 +527,22 @@ flowchart LR
   subgraph P4["Phase 4: HPC"]
     P4T1["T1 poisson_plot"] --> P4T2["T2 padding sweep, flex run"] --> P4T3["T3 129² on GPU"] --> P4T4["T4 resolution study"]
   end
-  P5["Phase 5 (optional): θ-map"]
-  P5S["Phase 5 (supplementary): plot shading"]
-  P5F["Phase 5 (supplementary): flex training run"]
+  subgraph P5["Phase 5 (optional): HPC"]
+    P5T1["T1 profiling, 129²"] --> P5T3["T3 multi-GPU training"]
+    P5T2["T2 checkpoint / resume"]
+    P5F["flex training run (supplementary)"]
+    P5S["plot shading (supplementary)"]
+  end
+  subgraph P6["Phase 6 (optional): Chebyshev-native"]
+    P6T1["T1 baseline padding"] --> P6T2["T2 seeds, error 4 vs ‖u‖"] --> P6T3["T3 θ-map"] --> P6T4["T4 comparison"]
+  end
   P0T1 --> P1T1
   P1T1 --> P2T1
   P1T2 --> P2T2
   P2T3 --> P3T2
   P3T3 --> P4T1
-  P4T4 -.-> P5
+  P4T4 -.-> P5T1
+  P4T4 -.-> P6T1
   P4T1 -.-> P5S
   P4T2 -.-> P5F
 ```
@@ -635,17 +649,31 @@ flowchart LR
 - **Exit:** the §11 pipeline row met on metal and cuda (flex: Phase 5, decision 21);
   p chosen; cuda runs reported at 129²; both parts of the resolution study reported on
   the same seeds (§7).
+- **Status (2026-10-15):** done. T1–T4 merged (#28, #31, #32, #34), with follow-ups #29,
+  #30, #33 and #35. The pipeline row is met on metal and cuda; flex is deferred
+  (decision 21). The resolution study's error growth is traced mainly to the fixed
+  grid-point padding (decision 23). Close-out and the Phase 5/6 split: decision 24.
 
-### Phase 5 (optional, non-blocking)
+### Phase 5: HPC (optional)
 
-θ-map comparison (option 2), with its own convention diff. It starts only after Phase 4
-and does not block completion. The question is whether a Chebyshev-native model learns
-or generalises across resolutions better than the interpolating baseline. The motivation
-is model quality and resolution behaviour, not transfer error: Phase 0 measured the
-transfer error at about 1e-5, three orders below the expected model error (decision 10).
+- **Goal:** make training at production sizes fast and robust: know where the time goes,
+  survive interruption, and use more than one GPU for a single run. This serves the
+  scaling half of the wider aim (above) and does not block completion of this design.
+- **Needs:** Phase 4 done. Independent of Phase 6.
+- **Inputs from Phase 4:** 129² on cuda (A100) at about 112 s/epoch, 15.6 h for 500
+  epochs at p = 4; p = 0 at 65² is about 20× faster per epoch than any p > 0 (Bluestein,
+  decisions 17 and 20); the training loop writes nothing until the end.
+
+Rows are proposals; the phase plan refines them.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | Profile the 129² cuda run: epoch time split, GPU utilisation, nsys or a flamegraph; test the suspicion that Bluestein at padded length 132 dominates, p = 0 against p = 4 | – |
+| T2 | Checkpoint and resume in the training loop: periodic saves of weights, optimiser and scheduler state, and a run that resumes from them | – (parallel with T1) |
+| T3 | Data-parallel training of one run on several GPUs in the hand-written `train_epoch`: each batch split across devices (Burn's fork / `to_device` / `GradientsAccumulator`), so the effective batch and the schedule are unchanged. Not Burn's Learner `MultiDevice`, which splits the dataset instead | T1 |
 
 **Supplementary task: smooth display in `poisson_plot` (decision 19).** Display only, and
-independent of the θ-map. `poisson_plot` draws each CGL node as a flat cell, so smooth
+independent of the rest. `poisson_plot` draws each CGL node as a flat cell, so smooth
 fields show a block pattern that follows the node spacing. The task chooses between
 keeping the flat cells, drawing every panel smooth (each field's Chebyshev interpolant
 evaluated on a fine uniform grid, for example `apply` with `cheb_to_uniform(n, 400)`,
@@ -660,7 +688,33 @@ path, about 520 s/epoch on flex (decision 17), so about 72 h. Ways to make it
 affordable, chosen when the task is planned: a flex run at p = 0 (power-of-two FFT
 lengths, no Bluestein), recorded against the chosen p; a Bluestein fix in Burn first
 (its own task, decision 17); or the full run at p = 4 on a machine left running. The
-first 3 epochs are timed and the cost stated before any full run starts.
+first 3 epochs are timed and the cost stated before any full run starts. If Phase 6 T1
+settles the baseline at p = 0, this run uses it.
+
+### Phase 6: Chebyshev-native comparison (optional, non-blocking)
+
+θ-map comparison (option 2), with its own convention diff. It starts only after Phase 4,
+does not depend on Phase 5, and does not block completion. The question is whether a
+Chebyshev-native model learns or generalises across resolutions better than the
+interpolating baseline. The motivation is model quality and resolution behaviour, not
+transfer error: Phase 0 measured the transfer error at about 1e-5, three orders below the
+expected model error (decision 10).
+
+- **Needs:** Phase 4 done.
+- **Inputs from Phase 4:** the resolution study (decision 23): with p = 4 the 65² model's
+  mean error 3 grows 7.1× from 65 to 257, with p = 0 only 1.4×; every result comes from
+  one seed (42).
+- **Gate (decision 24):** the baseline's padding is fixed (T1) and the baseline rerun on
+  more than one seed (T2) before any θ-map result is compared against it.
+
+Rows are proposals; the phase plan refines them.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | The baseline's padding, chosen with resolution behaviour weighed: p = 0, or padding by a fixed fraction of the domain (a CONVENTIONS §3 change and a `CONVENTION_VERSION` bump); `PADDING` set accordingly | – |
+| T2 | The baseline at that padding on several seeds, at 65² and 129², with both parts of the resolution study; error 4 against ‖u‖ over the test set (decision 22) | T1 |
+| T3 | The θ-map model (option 2, §6) and its convention diff | T1 |
+| T4 | θ-map against the baseline at 65², 129² and across resolutions, on the same seeds and test sets | T2, T3 |
 
 Module names are proposals. New code lives under `src/neural_operators/chebyshev/` and
 `src/neural_operators/pde/poisson/` (feature-gated where it uses RLST), and
@@ -689,7 +743,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 | # | Question | Recommendation |
 | --- | --- | --- |
 | 1 | Reference solver | Collocation solved as a Sylvester equation (option A) for the data; sparse SPD finite volume or Q1 with RLST CG (option C) as the cross-check and the iterative path (§4.2). Measured in Phase 0: fast diagonalisation and Q1 (decision 10) |
-| 2 | How Chebyshev data meet the FNO | Interpolate to uniform with the unchanged FNO (option 1); θ-map as an optional Phase 5 (§6) |
+| 2 | How Chebyshev data meet the FNO | Interpolate to uniform with the unchanged FNO (option 1); θ-map as an optional Phase 6 (§6; Phase 5 before decision 24) |
 | 3 | GRF basis | Sine (Dirichlet) KL basis, so f = 0 on ∂Ω and no corner singularity; τ = 3, α = 2, K = 64 (§3.3) |
 | 4 | Conventions | Add §12 at version 1; changes to it bump from then on (§8) |
 | 5 | Uniform grid sizes | Keep 32/64/128/256 as stated, and have Phase 0 T3 also measure s = n (33/65/…); switch if it is clearly better (§5.3) |
@@ -1094,6 +1148,42 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       now has a measured baseline to beat.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-15; the padding check and its
       bearing on p, added afterwards, **accepted** the same day.
+24. **Phase 4 close-out; Phases 5 and 6 (2026-10-15).**
+    - **Phase 4 done.** T1–T4 merged (#28, #31, #32, #34), with follow-ups #29, #30, #33
+      and #35. The exit is met: the pipeline row on metal and cuda (flex deferred,
+      decision 21), p chosen, the 129² cuda run reported with the five errors, and both
+      parts of the resolution study on the same seeds.
+    - **The padding finding is not a defect.** The model pads as CONVENTIONS §3 says, and
+      the evaluation is sound: every resolution result reproduces its run's training log
+      at the training grid, and the transfer errors are at most 2.0e-5. Phase 4's task
+      was to run and report the study, not to deliver a model that keeps its accuracy on
+      finer grids. At the training grid all four p perform alike, test relative L² about
+      1.1e-2, well under the 2e-2 threshold.
+    - **Where it matters.** (a) `PADDING = 4` was chosen by error at the training grid
+      alone (decision 16). If resolution matters, p = 0 is the better choice: from 65 to
+      257 its mean error 3 grows 1.4× (1.138e-2 to 1.608e-2), against 7.1× at p = 4.
+      (b) A p = 4 baseline would handicap the interpolating FNO in the Phase 6
+      comparison, which could then credit the θ-map with a gain that comes from removing
+      padding, not from the Chebyshev grid. (c) p = 0 is also far cheaper: on cuda at 65²,
+      1.7 s/epoch against 32.8 at p = 4, because no FFT length takes Bluestein's path;
+      the same cost is what makes the deferred flex run expensive.
+    - **Requirements for Phase 6.** Before any Chebyshev-native comparison, the
+      baseline's padding is fixed (Phase 6 T1): p = 0, or padding by a fixed fraction of
+      the domain, which changes CONVENTIONS §3 and bumps `CONVENTION_VERSION`. The
+      baseline then runs on more than one seed (Phase 6 T2), since every Phase 4 result
+      comes from one training run. Decision 22's open question, error 4 against ‖u‖ over
+      the test set, goes into the same task. `PADDING` stays 4 in code until T1.
+    - **The roadmap splits in two.** HPC work becomes Phase 5: profiling the 129² run,
+      checkpoint and resume, and data-parallel multi-GPU training of one run, with the
+      flex run (decision 21) and the plot shading (decision 19) as its supplementary
+      tasks. The Chebyshev-native work becomes Phase 6: the baseline padding, the seeds,
+      the θ-map and the comparison. They answer different questions and neither blocks
+      the other. Where decisions 2, 10 and 23 say "Phase 5" for the θ-map or the padding
+      choice, read Phase 6; decisions 19 and 21 keep Phase 5. The phase plans and briefs
+      are written when each phase starts (§10).
+    - **Wider aim.** The author's aim beyond this design, a Rust-native chain from mesh
+      to neural operator scaled to HPC, is recorded in §10.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-15.
 
 ## References
 

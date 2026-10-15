@@ -17,6 +17,22 @@ Same hyperparameters across columns. The PyTorch port is a direct
 translation of Li et al.'s reference implementation in the official 
 PyTorch neural operators toolbox, run locally.
 
+### 2D Poisson on a Chebyshev grid
+
+| grid | padding | test relative L² | backend |
+|------|---------|------------------|---------|
+| n = 65 (s = 64) | 4 | 0.01069 | cuda |
+| n = 129 (s = 128) | 4 | 0.01079 | cuda |
+
+−Δu = f on [−1, 1]² with u = 0 on the boundary, f a Gaussian random field. Reference
+solutions come from a Chebyshev collocation solver in this crate (behind the
+`chebyshev` feature). Fields are interpolated to a uniform grid for the unchanged FNO,
+and predictions are mapped back to the Chebyshev nodes; that round trip adds at most
+about 2e-5. Evaluated on finer grids without retraining, the 65² model's error grows
+7× by n = 257 at padding 4 but only 1.4× without padding. Details and all five error
+measures are in [`docs/phase4/README.md`](docs/phase4/README.md); the design is
+[`docs/design/2d-chebyshev-poisson-fno.md`](docs/design/2d-chebyshev-poisson-fno.md).
+
 The spectral layers support any grid size (non-power-of-two FFTs go through
 Bluestein's algorithm), and `examples/train/darcy.rs` now trains at the
 paper's s = 85 with 12 modes. The Darcy row above is from an earlier s = 16
@@ -53,7 +69,8 @@ backends the generated grid may differ from the old one by up to 1 ulp
 ## Datasets
 
 Datasets aren't committed - see [`datasets/README.md`](datasets/README.md)
-for download links.
+for download links. The Poisson datasets are generated rather than downloaded
+(`generate_poisson`, below).
 
 ## Backends
 
@@ -89,6 +106,20 @@ it, and the FNO needs the FFT.
 
 Drop `--features metal` to run on the CPU, or swap in another backend above.
 
+The Poisson examples generate their own data first. Generation needs the
+`chebyshev` feature, a system FFTW and, on Linux, OpenBLAS
+(`brew install fftw`; `apt install libfftw3-dev libopenblas-dev`):
+
+    cargo run --release --features chebyshev --example generate_poisson   # writes datasets/poisson/
+    cargo run --release --example train_poisson --features metal [-- [<padding>] [<n>]]
+    cargo run --release --example predict_poisson -- runs/<run_dir>
+    cargo run --release --example poisson_plot -- runs/<run_dir> [<sample>]
+    cargo run --release --example poisson_resolution -- runs/<run_dir> <n> [<n> ...]
+
+`train_poisson` trains at n = 65 by default (129 and 257 on request). `predict_poisson`
+reports the five errors; `poisson_plot` draws f, u, the prediction and the error on the
+Chebyshev nodes; `poisson_resolution` evaluates a run on finer grids.
+
 Each example is self-contained: the hyperparameters are Rust literals at the
 top of the file, so the experiment is readable without a separate config
 format. Output goes to `runs/<name>_<timestamp>/` - metrics CSV, a loss plot,
@@ -107,6 +138,8 @@ To re-evaluate a saved run:
       losses/                 data loss
       metrics/                log local files
       models/                 FNO
+      chebyshev/              Chebyshev nodes, quadrature, grid transfers
+      pde/                    Poisson reference solvers and dataset generation
       training/               training loop, metrics
       utils/                  fft wrappers
     datasets/                 .mat files (not committed)
