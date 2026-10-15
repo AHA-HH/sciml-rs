@@ -11,7 +11,8 @@
 //! predictions are decoded with the y normalizer and copied to the host as f64. Error 1
 //! needs the `chebyshev` feature and is quoted from Phase 1. Cross-checks error 2 against
 //! the test split's `.json` sidecar and the mean error 3 against the run's last test_l2,
-//! then writes errors.json into the run directory. Needs the run's stage dataset: see
+//! then writes errors.json into the run directory, with the index of the sample with the max
+//! error 4, the one to plot with `poisson_plot`. Needs the run's stage dataset: see
 //! datasets/README.md.
 
 use std::path::{Path, PathBuf};
@@ -124,6 +125,8 @@ mod records {
         pub error3_metrics_csv: f64,
         /// Error 4 (total).
         pub error4: ErrorStats,
+        /// The test sample with the max error 4, an index into the test split.
+        pub error4_worst_sample: usize,
         /// Error 5, max over ∂Ω of |û| / max over Ω of |u|.
         pub error5_max_ratio: ErrorStats,
         /// Error 5, relative boundary RMS.
@@ -221,6 +224,12 @@ fn main() {
     let e2 = ErrorStats::of(&errors.transfer);
     let e3 = ErrorStats::of(&errors.model);
     let e4 = ErrorStats::of(&errors.total);
+    // the first sample holding the max, NaN included, as ErrorStats reports it
+    let worst = errors
+        .total
+        .iter()
+        .position(|&v| v == e4.max || (v.is_nan() && e4.max.is_nan()))
+        .expect("error 4's max is one of its values");
     let e5_ratio = ErrorStats::of(&errors.boundary_max_ratio);
     let e5_rms = ErrorStats::of(&errors.boundary_rel_rms);
 
@@ -239,6 +248,10 @@ fn main() {
     ] {
         println!("{name:<34} {:>12.4e} {:>12.4e}", st.mean, st.max);
     }
+    println!(
+        "worst sample (max error 4): {worst}; plot it with: poisson_plot -- {} {worst}",
+        dir.display()
+    );
 
     // Cross-check 1: error 2 against the sidecar the generator wrote
     let sidecar = Sidecar::load(datasets.join(test_sidecar)).expect("load the test sidecar");
@@ -314,6 +327,7 @@ fn main() {
         error3: e3,
         error3_metrics_csv: test_l2,
         error4: e4,
+        error4_worst_sample: worst,
         error5_max_ratio: e5_ratio,
         error5_rel_rms: e5_rms,
         boundary_to_total,

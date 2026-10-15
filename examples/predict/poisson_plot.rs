@@ -2,7 +2,8 @@
 //! reference solution u, the FNO prediction û = T_uc(prediction) and the error û − u
 //! (design §7, error 4; §12, decision 18).
 //!
-//! Run with: cargo run --release --example poisson_plot -- runs/poisson_fno_p<p>_<timestamp> [<sample>]
+//! Run with: cargo run --release --example poisson_plot -- runs/<run_dir> [<sample>], where
+//! the run is runs/poisson_fno_p<p>_<timestamp> or runs/poisson_fno_n<n>_p<p>_<timestamp>
 //! (sample indexes the test split, default 0; add `--features metal` for the GPU).
 //!
 //! Loads the model as `predict_poisson` does (model_cfg.json, model_weights.bpk,
@@ -10,8 +11,9 @@
 //! are the raw split's CGL fields (`load_poisson_cheb_field`). Each panel draws every one
 //! of the n² CGL nodes as a filled cell at its (x, y) coordinates, reaching halfway to its
 //! neighbours, so the cells tile [−1, 1]² and the clustering towards the edges shows.
-//! Writes prediction.png into the run directory; if gnuplot is missing it warns and exits
-//! 0, as `darcy_plot` does. Needs the stage 2 dataset: see datasets/README.md.
+//! Writes prediction_<sample>.png into the run directory; if gnuplot is missing it warns
+//! and exits 0, as `darcy_plot` does. Needs the run's stage dataset (n from data_cfg.json):
+//! see datasets/README.md.
 
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
@@ -36,10 +38,21 @@ use sciml_rs::neural_operators::{
     models::fno::FNOConfig,
 };
 
-/// The stage 2 files `train_poisson` reads; the run's data_cfg.json must match `N`.
-const N: usize = 65;
-const TRAIN_FILE: &str = "poisson_n65_K32_train.npz";
-const TEST_FILE: &str = "poisson_n65_K32_test.npz";
+/// The stages `train_poisson` trains on (design §5.3): (CGL nodes per axis n, train file,
+/// test file). The run's data_cfg.json gives n.
+const STAGES: &[(usize, &str, &str)] = &[
+    (65, "poisson_n65_K32_train.npz", "poisson_n65_K32_test.npz"),
+    (
+        129,
+        "poisson_n129_K64_train.npz",
+        "poisson_n129_K64_test.npz",
+    ),
+    (
+        257,
+        "poisson_n257_K64_train.npz",
+        "poisson_n257_K64_test.npz",
+    ),
+];
 /// Figure size in pixels.
 const WIDTH: u32 = 1400;
 const HEIGHT: u32 = 1300;
@@ -101,7 +114,12 @@ fn main() {
     model.load_from(&mut store).expect("load model weights");
 
     let dataset_cfg = PoissonConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
-    assert_eq!(dataset_cfg.n, N, "this example reads the n = {N} files");
+    let n = dataset_cfg.n;
+    let &(_, train_file, test_file) =
+        STAGES.iter().find(|stage| stage.0 == n).unwrap_or_else(|| {
+            let ns: Vec<usize> = STAGES.iter().map(|stage| stage.0).collect();
+            panic!("the run's n = {n} is not a known stage; expected one of {ns:?}")
+        });
     let n_test = dataset_cfg.base().n_test;
     assert!(
         sample < n_test,
@@ -111,13 +129,13 @@ fn main() {
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
     let (_, test_data, _) = load_poisson_uniform::<f32>(
-        datasets.join(TRAIN_FILE),
-        datasets.join(TEST_FILE),
+        datasets.join(train_file),
+        datasets.join(test_file),
         &dataset_cfg,
     )
     .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
     let load_cheb = |field| {
-        load_poisson_cheb_field(datasets.join(TEST_FILE), field, N, sample + 1)
+        load_poisson_cheb_field(datasets.join(test_file), field, n, sample + 1)
             .unwrap_or_else(|e| panic!("could not load the CGL field '{field}': {e}"))
             .index_axis_move(Axis(0), sample)
     };
@@ -144,24 +162,24 @@ fn main() {
         .decode(pred.into_dyn())
         .into_dimensionality::<ndarray::Ix2>()
         .expect("decoded prediction is [s, s]");
-    let t_uc = uniform_to_cheb(s, N, TRANSFER_DEGREE);
+    let t_uc = uniform_to_cheb(s, n, TRANSFER_DEGREE);
     let u_hat = apply(t_uc.view(), t_uc.view(), pred.view());
     let err = &u_hat - &u;
     let error4 = cc_rel_l2_error(u_hat.view(), u.view());
     println!("sample {sample}: error 4 (total, CC norm) = {error4:.4e}");
 
     // Node coordinates in 'ij' order: field[a, b] sits at (x_a, y_b)
-    let nodes = cgl_nodes(N);
+    let nodes = cgl_nodes(n);
     let xs: Vec<f64> = nodes
         .iter()
-        .flat_map(|&x| std::iter::repeat_n(x, N))
+        .flat_map(|&x| std::iter::repeat_n(x, n))
         .collect();
-    let ys: Vec<f64> = (0..N).flat_map(|_| nodes.iter().copied()).collect();
+    let ys: Vec<f64> = (0..n).flat_map(|_| nodes.iter().copied()).collect();
     // Cell edges in the same order: x edges repeat within a row, y edges cycle
-    let (lo, hi) = cgl_cell_edges(N);
+    let (lo, hi) = cgl_cell_edges(n);
     let per_row =
-        |e: &[f64]| -> Vec<f64> { e.iter().flat_map(|&v| std::iter::repeat_n(v, N)).collect() };
-    let cycled = |e: &[f64]| -> Vec<f64> { (0..N).flat_map(|_| e.iter().copied()).collect() };
+        |e: &[f64]| -> Vec<f64> { e.iter().flat_map(|&v| std::iter::repeat_n(v, n)).collect() };
+    let cycled = |e: &[f64]| -> Vec<f64> { (0..n).flat_map(|_| e.iter().copied()).collect() };
     let (x_lo, x_hi) = (per_row(&lo), per_row(&hi));
     let (y_lo, y_hi) = (cycled(&lo), cycled(&hi));
 
@@ -207,7 +225,7 @@ fn main() {
         );
     }
 
-    let path = dir.join("prediction.png");
+    let path = dir.join(format!("prediction_{sample}.png"));
     match fig.save_to_png(&path, WIDTH, HEIGHT) {
         Ok(()) => println!("plot written to {}", path.display()),
         Err(e) => eprintln!("plot failed ({e}) — is gnuplot installed?"),

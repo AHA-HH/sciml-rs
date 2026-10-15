@@ -1,8 +1,8 @@
 # Phase 4: HPC
 
 As of 2026-10-12. Design: `docs/design/2d-chebyshev-poisson-fno.md` (signed off
-2026-10-05, amended 2026-10-08, 2026-10-09, 2026-10-10, 2026-10-12 and 2026-10-13; decisions in its
-§12). `docs/CONVENTIONS.md` wins on any conflict.
+2026-10-05, amended 2026-10-08, 2026-10-09, 2026-10-10, 2026-10-12, 2026-10-13, 2026-10-14 and
+2026-10-15; decisions in its §12). `docs/CONVENTIONS.md` wins on any conflict.
 
 Phase 4 finishes what Phase 3 deferred, then scales up:
 - a `poisson_plot` example that shows one test sample's forcing f, solution u, prediction
@@ -63,6 +63,12 @@ Recorded in design §12, decision 18.
 - **Stages are chosen by argument, not by editing constants.** T3 lets `train_poisson`
   and `predict_poisson` select the stage (n = 65, 129, 257) from a short table of file
   names; the stage 2 defaults and the padding argument keep working unchanged.
+- **`poisson_plot` follows the run's stage; `predict_poisson` names the worst sample
+  (2026-10-15, decision 22).** A small follow-up to T3, outside the briefs, as #29 was to
+  T1. `poisson_plot` takes n from the run's `data_cfg.json`, from the same stage table as
+  `predict_poisson`, and writes `prediction_<sample>.png`, so plots of several samples
+  sit side by side (T1 wrote `prediction.png`). `predict_poisson` prints the index of the
+  sample with the max error 4 and records it in `errors.json` as `error4_worst_sample`.
 - **The resolution study evaluates without retraining** a 65² model on sets 3e and 4e
   (K = 32) and a 129² model on stage 4 (K = 64), and reports errors 3 and 4 at each
   resolution. The pointwise normalisers are refit on the same training fields
@@ -92,6 +98,8 @@ lists under "Read first".
 - `poisson_plot` keeps its own copy of `cgl_nodes` because the library function is
   `pub(crate)`; the formula is fixed by CONVENTIONS §12.
 - `examples/train/poisson.rs` and `examples/predict/poisson.rs` gain a stage argument (T3).
+- `examples/predict/poisson_plot.rs` reads the stage from the run, and
+  `examples/predict/poisson.rs` reports the worst sample (decision 22).
 - `examples/generate/poisson.rs`: the stage 3, 4, 3e and 4e lines are uncommented as T3
   and T4 need them.
 - The task that adds an example adds its command to the Commands section of `CLAUDE.md`.
@@ -107,8 +115,8 @@ Filled in as tasks merge. Phase 4 is done when every row has a value.
 | Chosen p, by the decision 16 rule; `PADDING` changed or not | p = 4. p = 8 is lowest (1.066e-2); p = 4 is 0.23% above it and p = 16 0.99% above, both within 2%, so the smaller p wins; p = 0 is 6.8% above. p = 4 beats T1's p = 0 run by 4.2%, more than the 3.9% spread between the Phase 3 and T1 p = 0 runs (1.16e-2 against 1.116e-2), so no §12 entry is needed for the margin. `PADDING` changed from 0 to 4 in `examples/train/poisson.rs`; "provisional" dropped | T2 |
 | Flex run at the chosen p: final train / test relative L², s/epoch; threshold 2e-2 met on flex | Deferred to a supplementary Phase 5 task (design §10, decision 21): about 72 h on flex at p = 4. The threshold is met on metal at p = 0 and on cuda at p = 4; the p = 4 model evaluates identically on flex | T2 |
 | Five errors and boundary verdict on the chosen run (if p ≠ 0) | `runs/poisson_fno_p4_1791922918` (the cuda p = 4 run, decision 20), evaluated on flex; mean / max: 2: 2.03e-5 / 7.81e-5; 3: 1.069e-2 / 2.97e-2; 4: 1.069e-2 / 2.97e-2; 5: max ratio 7.81e-5 / 1.86e-4, relative RMS 9.74e-5 / 1.84e-4. Cross-checks pass (error 2 against the sidecar, error 3 against `metrics.csv`). Boundary verdict 0.009 against the 0.10 threshold: ablation not warranted. Against Phase 3's p = 0 run, error 4 falls from 1.117e-2 to 1.069e-2 and its max from 3.67e-2 to 2.97e-2; error 5 rises slightly (relative RMS 8.84e-5 to 9.74e-5) | T2 |
-| Stage 3 dataset: label check and error 2, train / test | | T3 |
-| 129² runs on cuda: train / test relative L², s/epoch, GPU model, the five errors | | T3 |
+| Stage 3 dataset: label check and error 2, train / test | n = 129, s = 128, K = 64; 1000 train / 200 test; `datasets/poisson/poisson_n129_K64_{train,test}.{npz,json}` (main checkout), generated at `3f5145b`. Label check (enforced, tolerance 1e-8), mean / max: train 4.74e-13 / 9.17e-13, test 4.71e-13 / 8.97e-13. Error 2, mean / max: train 2.57e-6 / 1.28e-5, test 2.53e-6 / 9.50e-6, against 2.03e-5 / 7.81e-5 at 65² and Phase 0 T3's 4.4e-6 (max) at 129² (design §7); still three orders below error 4 | T3 |
+| 129² runs on cuda: train / test relative L², s/epoch, GPU model, the five errors | One run, `runs/poisson_fno_n129_p4_1792037830` (main checkout): cuda, p = 4, seed 42, 500 epochs, Darcy hyperparameters, modes [12, 12]; no second seed. NVIDIA A100; wall time about 56000 s (15.6 h), about 112 s/epoch, against 32.8 s/epoch for the 65² p = 4 run (about 3.4× for 4× the grid points). Final train / test relative L² 3.123e-3 / 1.079e-2, against 2.802e-3 / 1.069e-2 for the 65² p = 4 run: test 0.9% higher, so near the 65² error and no §12 entry is needed (T3 acceptance). Five errors, evaluated on flex, mean / max: 2: 2.53e-6 / 9.50e-6; 3: 1.079e-2 / 3.34e-2; 4: 1.079e-2 / 3.34e-2; 5: max ratio 7.66e-5 / 1.88e-4, relative RMS 9.49e-5 / 1.77e-4. Cross-checks pass (error 2 against the sidecar, rel diff 5.4e-16; error 3 against `metrics.csv`, 4.6e-6). Boundary verdict 0.009 against the 0.10 threshold: ablation not warranted. Max error 4 rises from 2.97e-2 at 65². The worst sample is 84 (decision 22). `poisson_plot` on flex for samples 0 (error 4 = 8.427e-3), 17 (1.985e-2) and 84 (3.344e-2), written to the run's `prediction_<sample>.png`: û resembles u in each, the largest pointwise error is about 2e-3 in all three and near 0 on ∂Ω, and samples 17 and 84 are mostly one-signed (û below u in the interior). Sample 84's u is the smallest of the three (about −0.035 to 0.065), so its error 4 is high because ‖u‖ is small, not because its absolute error is larger; a plot of error 4 against ‖u‖ over the test set would test this. The GPU machine has no gnuplot, so `plots.png` was redrawn locally from `metrics.csv` | T3 |
 | Resolution study part 1: errors 3 and 4 of the 65² model at 65, 129, 257 (K = 32) | | T4 |
 | Resolution study part 2: errors 3 and 4 of the 129² model at 129, 257 (K = 64) | | T4 |
 | Wall time of the new tests under debug `cargo test` | T1: `cheb_field_loader_reads_f`, `cheb_field_loader_rejects_unknown_field` under 0.01 s each (reported 0.00 s) | T1–T4 |

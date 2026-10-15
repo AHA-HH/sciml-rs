@@ -131,7 +131,8 @@ than trusting prose when checking how an API behaves.
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution`, `burgers_superresolution` on Burgers runs;
   `predict_darcy`, `darcy_plot` on Darcy runs)
-- Evaluate a Poisson run (the five errors, the boundary verdict):
+- Evaluate a Poisson run (the five errors, the boundary verdict, the worst sample):
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`
-- Plot one Poisson test sample (f, u, û, û − u on the CGL nodes; writes `prediction.png`):
+- Plot one Poisson test sample (f, u, û, û − u on the CGL nodes, on the run's stage; writes
+  `prediction_<sample>.png`):
   `cargo run --release --example poisson_plot [--features metal] -- runs/<run_dir> [<sample>]`
