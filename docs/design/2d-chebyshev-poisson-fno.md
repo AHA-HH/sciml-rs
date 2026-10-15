@@ -9,7 +9,8 @@ Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), 
 2026-10-14 for the padding sweep on cuda (decision 20) and the deferred flex run
 (decision 21), and 2026-10-15 for `poisson_plot` on every stage and the worst sample
 (decision 22) and the resolution study (decision 23), and 2026-10-15 for the Phase 4
-close-out and the Phase 5/6 split (decision 24). The decisions are recorded in Section 12.
+close-out and the Phase 5/6 split (decision 24), and 2026-10-15 for the Phase 4s side
+phase (decision 25). The decisions are recorded in Section 12.
 This document is the specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -527,6 +528,17 @@ flowchart LR
   subgraph P4["Phase 4: HPC"]
     P4T1["T1 poisson_plot"] --> P4T2["T2 padding sweep, flex run"] --> P4T3["T3 129² on GPU"] --> P4T4["T4 resolution study"]
   end
+  subgraph P4S["Phase 4s (side phase): repository health"]
+    P4ST1["T1 CI, manifest"] --> P4SA["T2–T7 cleanups, Learner, train_fno"]
+    P4ST1 --> P4ST8["T8 Chebyshev owners"]
+    P4SA --> P4ST9["T9 loader tail"] --> P4ST10["T10 RunDir"] --> P4ST11["T11 one batcher"] --> P4ST13["T13 evaluate"]
+    P4ST10 --> P4ST12["T12 epoch observer"]
+    P4ST8 --> P4ST14["T14 ungated generator ⚑"] --> P4ST15["T15 closed-form D ⚑"] --> P4ST16["T16 ungate, rename feature"]
+    P4ST13 --> P4SD["T17–T18 normaliser contract ⚑"]
+    P4ST10 --> P4ST19["T19 sidecar, Poisson evaluate"]
+    P4ST8 --> P4ST19
+    P4ST19 --> P4SE["T20–T24 decomposition, docs"]
+  end
   subgraph P5["Phase 5 (optional): HPC"]
     P5T1["T1 profiling, 129²"] --> P5T3["T3 multi-GPU training"]
     P5T2["T2 checkpoint / resume"]
@@ -541,8 +553,11 @@ flowchart LR
   P1T2 --> P2T2
   P2T3 --> P3T2
   P3T3 --> P4T1
+  P4T4 -.-> P4ST1
   P4T4 -.-> P5T1
   P4T4 -.-> P6T1
+  P4ST12 --> P5T2
+  P4ST16 --> P6T3
   P4T1 -.-> P5S
   P4T2 -.-> P5F
 ```
@@ -653,6 +668,37 @@ flowchart LR
   #30, #33 and #35. The pipeline row is met on metal and cuda; flex is deferred
   (decision 21). The resolution study's error growth is traced mainly to the fixed
   grid-point padding (decision 23). Close-out and the Phase 5/6 split: decision 24.
+
+### Phase 4s: repository health (side phase)
+
+- **Goal:** make the repository easier to change before Phases 5 and 6 build on it. The
+  phase answers no research question. Its tasks come from the whole-repository review at
+  `c63eb32` (`docs/code-quality/thermo-nuclear-repo-review-2026-10-15.md`, grade C), and
+  it ends with a re-review. Plan: `docs/phase4s/README.md` (decision 25).
+- **Needs:** Phase 4 done.
+- **Blocks:** only where code overlaps (decision 25):
+  - Phase 5 T2 (checkpoint/resume) needs T10 (`RunDir`) and T12 (epoch observer).
+  - Phase 6 T3 (θ-map) needs T16 (one ungated `chebyshev` module).
+  - Phase 5 T1 and Phase 6 T1–T2 do not wait for it.
+- **Behaviour:** preserved. The exceptions are four ⚑ tasks, each decided by the author
+  when it starts and recorded in §12:
+  - T14: regenerate datasets after the nodes move by about 1 ulp;
+  - T15: closed-form D², dropping FFTW and amending decision 12;
+  - T17: CONVENTIONS §10, `y_train` stored in physical units;
+  - T18: `x_normalizer.json`.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | CI and manifest hygiene; CLAUDE.md "Checks" matches CI | – |
+| T2–T8 | The Learner showcase tightened (kept, not deleted); one `train_fno`; unused data generality removed; `grids.rs` to a test oracle; solver C test-only; `metal_diag` split; one owner for the shared Chebyshev pieces | T1; parallel |
+| T9–T13 | Shared loader tail; `RunDir` owning the run directory; one batching path; an epoch observer; one `evaluate` and a rank-generic `predict_host` | T2–T4 (T9), then sequential (T11 ∥ T12) |
+| T14–T16 | ⚑ Generator on the ungated stack; ⚑ closed-form D²; `chebyshev` fully ungated, feature renamed | T6, T8; beside T9–T13 |
+| T17–T19 | ⚑ Normaliser contract (§10); ⚑ `x_normalizer.json`; typed sidecar and Poisson evaluation in the library, no blanket `#[allow]` | T13 / T10 / T8, T10 |
+| T20–T24 | `fno.rs` tests split; `SpectralConv` helpers; `loaders/poisson.rs` split and dataset catalogue; one strided take; documentation pass | T5, T9, T19; T24 last |
+
+- **Exit:** the checklist in `docs/phase4s/README.md`. Every task is merged, every ⚑
+  decision is recorded, the example reruns reproduce their numbers, and the re-review
+  grade is recorded.
 
 ### Phase 5: HPC (optional)
 
@@ -1184,6 +1230,39 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - **Wider aim.** The author's aim beyond this design, a Rust-native chain from mesh
       to neural operator scaled to HPC, is recorded in §10.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-15.
+25. **Phase 4s, a side phase for repository health (2026-10-15).**
+    - **Why.** A whole-repository review after Phase 4
+      (`docs/code-quality/thermo-nuclear-repo-review-2026-10-15.md`, at `c63eb32`) graded
+      the code C. The core (FNO, spectral layer, training loop, Chebyshev numerics) is
+      clean and acyclic, but three patterns at the edges cost more than they protect:
+      - the run directory has no owner;
+      - superseded implementations were kept beside their replacements;
+      - per-PDE code is copied across trainers, loaders and examples.
+
+      The `chebyshev` feature also splits a module that is mostly ungated. Phase 5's
+      checkpointing and Phase 6's new model would build on exactly these surfaces.
+    - **What.** A side phase, numbered 4s so Phases 5 and 6 keep their numbers. It has 24
+      tasks (plus one optional) in six groups, planned in `docs/phase4s/README.md` with the
+      review's finding IDs per task.
+    - **Order against Phases 5 and 6.** Phase 4s goes first, but blocks only where code
+      overlaps: Phase 5 T2 waits for T10 and T12, and Phase 6 T3 waits for T16. Phase 5 T1
+      and Phase 6 T1–T2 can start without it.
+    - **The Learner example stays.** The review first proposed deleting
+      `training/learner.rs` and `train_burgers_learner`. The author keeps them as the
+      showcase of Burn's `Learner` and as a template. Phase 4s T2 removes the duplicated
+      loss and makes their runs readable instead. `train_epoch` stays the canonical loop;
+      Phase 5 T3 is unchanged.
+    - **Behaviour is preserved except in four tasks,** each decided when it starts and
+      recorded here as an amendment:
+      - T14: whether to regenerate datasets after the nodes move by about 1 ulp;
+      - T15: closed-form D², which drops FFTW and amends decision 12;
+      - T17: `y_train` stored in physical units, a CONVENTIONS §10 change outside the
+        version-bumping set;
+      - T18: whether `x_normalizer.json` is read or no longer written.
+
+      No `CONVENTION_VERSION` bump is expected.
+    - Outcome: **proposed** 2026-10-15; accepted when the author approves
+      `docs/phase4s/README.md`.
 
 ## References
 

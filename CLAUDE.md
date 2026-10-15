@@ -10,11 +10,14 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: none planned yet. Phases 0–4 are done: docs/phase0/README.md to
-  docs/phase4/README.md. Next on the roadmap (design §10, decision 24), both optional
-  and independent: Phase 5 (HPC: profiling, checkpointing, multi-GPU) and Phase 6
-  (Chebyshev-native: baseline padding and seeds first, then the θ-map). Each gets its
-  README and briefs when it starts.
+- Current phase: Phase 4s (side phase, repository health), planned in
+  docs/phase4s/README.md (design §10, decision 25; from the review in
+  docs/code-quality/). Phases 0–4 are done: docs/phase0/README.md to
+  docs/phase4/README.md. After 4s (design §10, decision 24), both optional and
+  independent: Phase 5 (HPC: profiling, checkpointing, multi-GPU) and Phase 6
+  (Chebyshev-native: baseline padding and seeds first, then the θ-map). Phase 5 T2
+  waits for 4s T10/T12, Phase 6 T3 for 4s T16. Each phase gets its README and briefs
+  when it starts; 4s briefs are written per task.
 - Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
   RLST reference solver, FNO; signed off 2026-10-05, amended 2026-10-08 and 2026-10-09,
   decisions in its §12). CONVENTIONS.md wins on any conflict.
