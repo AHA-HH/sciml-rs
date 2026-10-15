@@ -1,8 +1,8 @@
 # Phase 4: HPC
 
-As of 2026-10-12. Design: `docs/design/2d-chebyshev-poisson-fno.md` (signed off
-2026-10-05, amended 2026-10-08, 2026-10-09, 2026-10-10, 2026-10-12, 2026-10-13, 2026-10-14 and
-2026-10-15; decisions in its §12). `docs/CONVENTIONS.md` wins on any conflict.
+As of 2026-10-15; closed (decision 24). Design: `docs/design/2d-chebyshev-poisson-fno.md`
+(signed off 2026-10-05, amended 2026-10-08, 2026-10-09, 2026-10-10, 2026-10-12, 2026-10-13,
+2026-10-14 and 2026-10-15; decisions in its §12). `docs/CONVENTIONS.md` wins on any conflict.
 
 Phase 4 finishes what Phase 3 deferred, then scales up:
 - a `poisson_plot` example that shows one test sample's forcing f, solution u, prediction
@@ -122,15 +122,40 @@ Filled in as tasks merge. Phase 4 is done when every row has a value.
 | Padding check (added to T4): the resolution study of part 1 on each 65² sweep run, p ∈ {0, 4, 8, 16} | T2's sweep runs (main checkout `runs/`, cuda-trained, seed 42, K = 32), weights unchanged, normalisers refit as in part 1; `poisson_resolution` on flex, 200 test samples. Mean error 3 at n = 65 / 129 / 257: p = 0 (`poisson_fno_p0_1791906496`) 1.138e-2 / 1.378e-2 / 1.608e-2 (1.4×); p = 4 (`poisson_fno_p4_1791922918`) 1.069e-2 / 4.666e-2 / 7.546e-2 (7.1×); p = 8 (`poisson_fno_p8_1791938538`) 1.066e-2 / 7.718e-2 / 1.354e-1 (12.7×); p = 16 (`poisson_fno_p16_1791955593`) 1.077e-2 / 1.409e-1 / 2.355e-1 (21.9×). Max error 3 at 257: 5.20e-2, 2.45e-1, 3.48e-1, 6.10e-1. Error 4 within 5e-6 of error 3 throughout. Cross-check at n = 65 against each run's `metrics.csv` passes (rel diff ≤ 3.2e-6). The growth rises steadily with p, so the fixed grid-point padding is the main cause (decision 23); p = 0 is the worst at 65 but the best at 129 and 257. Run with the `poisson_resolution` of the uncommitted `refactor/poisson-examples` tree; its p = 4 rows reproduce part 1 to every printed digit | T4 |
 | Wall time of the new tests under debug `cargo test` | T1: `cheb_field_loader_reads_f`, `cheb_field_loader_rejects_unknown_field` under 0.01 s each (reported 0.00 s). T2–T4 added no tests | T1–T4 |
 
+## Close-out and notes for later phases
+
+Recorded in design §12, decision 24.
+
+- **The padding finding is a result, not a defect.** The model pads as CONVENTIONS §3
+  says and the evaluation reproduces every run's own log. Phase 4's task was to run the
+  resolution study and report it, and both the result and its cause (decision 23) are
+  reported. At the training grid every p gives test relative L² about 1.1e-2, well under
+  the 2e-2 threshold. Phase 4 closes as it is, with `PADDING = 4`.
+- **It is a requirement for Phase 6.** p = 4 was chosen at the training grid alone.
+  Across resolutions p = 0 is far better (mean error 3 grows 1.4× from 65 to 257, against
+  7.1× at p = 4) and far cheaper (1.7 against 32.8 s/epoch on cuda at 65², no
+  Bluestein). A θ-map compared against a p = 4 baseline could be credited with a gain
+  that really comes from removing padding. So Phase 6 first fixes the baseline's
+  padding (p = 0, or a fixed fraction of the domain, which changes CONVENTIONS §3 and
+  bumps its version), then reruns the baseline on more than one seed, since every
+  result above comes from one run (seed 42). Error 4 against ‖u‖ over the test set
+  (decision 22) goes into the same rerun.
+- **Phase 5 is the HPC work:** profiling the 129² run, checkpoint and resume, and
+  data-parallel multi-GPU training of one run, with the deferred flex run (decision 21)
+  and the plot shading (decision 19) as supplementary tasks. Phases 5 and 6 are
+  independent; both are on the roadmap in design §10, and their plans and briefs are
+  written when each starts.
+
 ## Exit checklist
 
-- [ ] T1, T2, T3 and T4 merged.
-- [ ] `poisson_plot` writes its figure for a stage 2 run, and the run is recorded above.
-- [ ] The padding sweep reported, p chosen by the decision 16 rule, and the §11 pipeline
+- [x] T1, T2, T3 and T4 merged.
+- [x] `poisson_plot` writes its figure for a stage 2 run, and the run is recorded above.
+- [x] The padding sweep reported, p chosen by the decision 16 rule, and the §11 pipeline
       row met on metal and cuda (the flex run deferred to Phase 5, decision 21).
-- [ ] cuda runs reported at 129², with the five errors.
-- [ ] Both parts of the resolution study reported on the same seeds (§7).
-- [ ] Every row of Results filled in.
-- [ ] Any result that contradicts the design is recorded in the design's §12 under
-      "Recorded decisions", dated, before Phase 5 is planned or the project closes.
-- [ ] The "Current phase" bullet in `CLAUDE.md` is updated for what comes next.
+- [x] cuda runs reported at 129², with the five errors.
+- [x] Both parts of the resolution study reported on the same seeds (§7).
+- [x] Every row of Results filled in.
+- [x] Any result that contradicts the design is recorded in the design's §12 under
+      "Recorded decisions", dated, before Phase 5 is planned or the project closes
+      (decisions 23 and 24).
+- [x] The "Current phase" bullet in `CLAUDE.md` is updated for what comes next.
