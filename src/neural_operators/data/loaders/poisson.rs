@@ -1,6 +1,7 @@
 //! Poisson dataset: config and constructor (design §5.2).
 //!
 //! `PoissonConfig` holds the Chebyshev size `n` on top of the shared `DatasetConfig`.
+//! `PoissonSet` names a dataset's split files and `STAGES` lists the training stages.
 //! `load_poisson_uniform` builds train/test `OperatorDataset`s from the `.npz` files that
 //! `generate_poisson` writes (`datasets/README.md`): forcing `f` and solution `u` on the
 //! n × n CGL grid. It reads and validates them, transfers every sample to the uniform grid
@@ -60,6 +61,49 @@ impl HasBaseConfig for PoissonConfig {
     fn base(&self) -> &DatasetConfig {
         &self.base
     }
+}
+
+/// One Poisson dataset on disk: `n` CGL nodes per axis and the GRF truncation `k`
+/// (design §5.3). Its splits are files named by [`PoissonSet::stem`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoissonSet {
+    /// CGL nodes per axis; the model grid is s = n − 1.
+    pub n: usize,
+    /// The GRF truncation K.
+    pub k: usize,
+}
+
+impl PoissonSet {
+    /// The file stem of one split, `poisson_n{n}_K{K}_{split}` (datasets/README.md), so
+    /// that sets differing only in K (stage 3 and the K = 32 set 3e) get distinct files.
+    pub fn stem(&self, split: &str) -> String {
+        format!("poisson_n{}_K{}_{split}", self.n, self.k)
+    }
+
+    /// The `.npz` file of one split: `{stem}.npz`.
+    pub fn npz(&self, split: &str) -> String {
+        format!("{}.npz", self.stem(split))
+    }
+}
+
+/// The stages a model trains on (design §5.3): K = K(n) at n = 65, 129 and 257.
+pub const STAGES: [PoissonSet; 3] = [
+    PoissonSet { n: 65, k: 32 },
+    PoissonSet { n: 129, k: 64 },
+    PoissonSet { n: 257, k: 64 },
+];
+
+/// The stage in [`STAGES`] with `n` CGL nodes per axis.
+///
+/// # Errors
+/// [`LoadError::Invalid`] naming the stages' n if there is none.
+pub fn stage(n: usize) -> Result<PoissonSet, LoadError> {
+    STAGES.into_iter().find(|set| set.n == n).ok_or_else(|| {
+        let ns: Vec<usize> = STAGES.iter().map(|set| set.n).collect();
+        LoadError::Invalid(format!(
+            "no Poisson stage with n = {n}; expected one of {ns:?}"
+        ))
+    })
 }
 
 /// The two normalizers fitted during Poisson loading. `x` encodes inputs (the forcing);
@@ -682,5 +726,23 @@ mod tests {
         assert_eq!(test.inputs().shape(), [200, 64, 64, 1]);
         assert_eq!(test.targets().shape(), [200, 64, 64]);
         println!("stage 2 load: {:.3} s", elapsed.as_secs_f64());
+    }
+
+    #[test]
+    fn set_names_its_split_files() {
+        let set = PoissonSet { n: 129, k: 32 };
+        assert_eq!(set.stem("test"), "poisson_n129_K32_test");
+        assert_eq!(set.npz("train"), "poisson_n129_K32_train.npz");
+    }
+
+    #[test]
+    fn stage_finds_each_stage_and_rejects_other_n() {
+        for set in STAGES {
+            assert_eq!(stage(set.n).unwrap(), set);
+        }
+        match stage(33) {
+            Err(LoadError::Invalid(msg)) => assert!(msg.contains("[65, 129, 257]"), "{msg}"),
+            other => panic!("expected Invalid, got {other:?}"),
+        }
     }
 }

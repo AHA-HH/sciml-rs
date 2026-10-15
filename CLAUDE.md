@@ -39,10 +39,12 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   argument, and the panics).
 
 ## Layout
-- `src/neural_operators/`: `models/fno.rs` (FNOConfig, FNO), `layers/spectral_convolution.rs`
-  (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, batchers, io for
-  npy/npz/.mat, transforms), `training/`, `metrics/` (run artifacts, gnuplot),
-  `utils/fft.rs` (icfft_full_spectrum).
+- `src/neural_operators/`: `models/fno.rs` (FNOConfig, FNO), `models/run.rs` (`load_fno`,
+  `predict_host`: a saved run's model, batched inference to host f64),
+  `layers/spectral_convolution.rs` (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/`
+  (loaders, batchers, io for npy/npz/.mat, transforms), `training/`, `metrics/` (run
+  artifacts, gnuplot), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
+  (`backend_features`).
 - `src/neural_operators/chebyshev/`: CGL `nodes`, `diff_matrix`/`diff2_matrix`,
   `clenshaw_curtis`, `l2_norm`/`rel_l2_error` are behind the `chebyshev` feature (need
   system libfftw3).
@@ -59,10 +61,13 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - `data/loaders/poisson` is ungated: `load_poisson_uniform` reads those `.npz` files and
   applies T_cu at load time, giving Darcy-shaped datasets on the uniform grid s = n − 1;
   `load_poisson_cheb` reads one split's raw `u` on the CGL grid, untransferred, and
-  `load_poisson_cheb_field` either raw field, `f` or `u`.
+  `load_poisson_cheb_field` either raw field, `f` or `u`. `PoissonSet { n, k }` names a
+  dataset's split files (`poisson_n{n}_K{K}_{split}`) and `STAGES` / `stage(n)` are the
+  training stages; examples take file names from these, not literals.
 - `metrics/poisson` is ungated (ndarray, f64): `poisson_errors` gives design §7's errors 2–5
-  on the Chebyshev grid, driven by `examples/predict/poisson.rs` (`predict_poisson`), which
-  writes `errors.json` into the run directory.
+  on the Chebyshev grid and `check_error3` the cross-check against `metrics.csv`, driven by
+  `examples/predict/poisson.rs` (`predict_poisson`), which writes `errors.json` into the
+  run directory.
 - `training/trainers/poisson` (`train_poisson`, the Darcy trainer on those datasets), driven
   by `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
 - `spikes/`: standalone packages for Phase 0 measurements; never built by CI.
@@ -133,9 +138,9 @@ than trusting prose when checking how an API behaves.
   `predict_darcy`, `darcy_plot` on Darcy runs)
 - Evaluate a Poisson run (the five errors, the boundary verdict, the worst sample):
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`
-- Resolution study (errors 3 and 4 of a Poisson run on finer grids, weights unchanged,
-  normalisers refit on that n's `_train` split):
-  `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> poisson_n{n}_K{K}_test.npz ...`
+- Resolution study (errors 3 and 4 of a Poisson run on finer grids at the run's K, weights
+  unchanged, normalisers refit on that n's `_train` split):
+  `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> <n> [<n> ...]`
 - Plot one Poisson test sample (f, u, û, û − u on the CGL nodes, on the run's stage; writes
   `prediction_<sample>.png`):
   `cargo run --release --example poisson_plot [--features metal] -- runs/<run_dir> [<sample>]`

@@ -6,7 +6,7 @@
 //!
 //! Loads the model as `predict_darcy` does (model_cfg.json, model_weights.bpk,
 //! y_normalizer.json) and the dataset config from data_cfg.json, whose n picks the stage
-//! from `STAGES`. The test inputs come
+//! (`loaders::poisson::stage`). The test inputs come
 //! from `load_poisson_uniform`, the raw CGL solutions from `load_poisson_cheb`;
 //! predictions are decoded with the y normalizer and copied to the host as f64. Error 1
 //! needs the `chebyshev` feature and is quoted from Phase 1. Cross-checks error 2 against
@@ -17,56 +17,26 @@
 
 use std::path::{Path, PathBuf};
 
-use burn::{
-    prelude::*,
-    store::{BurnpackStore, ModuleSnapshot},
-    tensor::Device,
-};
-use ndarray::{Array3, Axis, s};
+use burn::{prelude::*, tensor::Device};
+use ndarray::Axis;
 use sciml_rs::neural_operators::{
     data::{
         loaders::{
             base_dataset::HasBaseConfig,
-            poisson::{PoissonConfig, load_poisson_cheb, load_poisson_uniform},
+            poisson::{PoissonConfig, load_poisson_cheb, load_poisson_uniform, stage},
         },
         transforms::normalizers::{Normalizer, NormalizerRecord, UnitGaussianNormalizer},
     },
-    metrics::{
-        io::read_metrics_csv,
-        poisson::{ErrorStats, TRANSFER_DEGREE, poisson_errors},
-    },
-    models::fno::FNOConfig,
+    metrics::poisson::{ErrorStats, TRANSFER_DEGREE, check_error3, poisson_errors},
+    models::run::{load_fno, predict_host},
+    utils::backend::backend_features,
 };
 
 use records::{PoissonErrorsRecord, Sidecar};
 
-/// The stages `train_poisson` trains on (design §5.3): (CGL nodes per axis n, train file,
-/// test file, test sidecar). The run's data_cfg.json gives n.
-const STAGES: &[(usize, &str, &str, &str)] = &[
-    (
-        65,
-        "poisson_n65_K32_train.npz",
-        "poisson_n65_K32_test.npz",
-        "poisson_n65_K32_test.json",
-    ),
-    (
-        129,
-        "poisson_n129_K64_train.npz",
-        "poisson_n129_K64_test.npz",
-        "poisson_n129_K64_test.json",
-    ),
-    (
-        257,
-        "poisson_n257_K64_train.npz",
-        "poisson_n257_K64_test.npz",
-        "poisson_n257_K64_test.json",
-    ),
-];
 const BATCH_SIZE: usize = 20;
 /// Error 2 against the sidecar, relative (both f64, same transfers and norm).
 const ERROR2_TOL: f64 = 1e-12;
-/// Mean error 3 against the run's last test_l2, relative (the run's value is f32).
-const ERROR3_TOL: f64 = 1e-5;
 /// The ablation is warranted if mean relative boundary RMS ≥ this × mean error 4
 /// (design §12, decision 16).
 const BOUNDARY_THRESHOLD: f64 = 0.10;
@@ -144,20 +114,6 @@ fn rel_diff(a: f64, b: f64) -> f64 {
     (a - b).abs() / b.abs()
 }
 
-/// The backend cargo features compiled into this build, in `Device::default()`'s order.
-fn backend_features() -> Vec<String> {
-    [
-        ("cuda", cfg!(feature = "cuda")),
-        ("metal", cfg!(feature = "metal")),
-        ("wgpu", cfg!(feature = "wgpu")),
-        ("flex", cfg!(feature = "flex")),
-    ]
-    .into_iter()
-    .filter(|&(_, on)| on)
-    .map(|(name, _)| name.to_string())
-    .collect()
-}
-
 fn main() {
     let dir = PathBuf::from(
         std::env::args()
@@ -167,49 +123,26 @@ fn main() {
     // Inference only: no autodiff, so forward passes record no backward graph.
     let device = Device::default();
 
-    let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
-    let mut model = model_cfg.init::<4>(&device);
-    let mut store = BurnpackStore::from_file(dir.join("model_weights.bpk"));
-    model.load_from(&mut store).expect("load model weights");
+    let model = load_fno::<4>(&dir, &device).unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let dataset_cfg = PoissonConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
     let n = dataset_cfg.n;
-    let &(_, train_file, test_file, test_sidecar) =
-        STAGES.iter().find(|stage| stage.0 == n).unwrap_or_else(|| {
-            let ns: Vec<usize> = STAGES.iter().map(|stage| stage.0).collect();
-            panic!("the run's n = {n} is not a known stage; expected one of {ns:?}")
-        });
+    let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
     let n_test = dataset_cfg.base().n_test;
     let s = dataset_cfg.s();
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
     let (_, test_data, _) = load_poisson_uniform::<f32>(
-        datasets.join(train_file),
-        datasets.join(test_file),
+        datasets.join(set.npz("train")),
+        datasets.join(set.npz("test")),
         &dataset_cfg,
     )
     .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
-    let u = load_poisson_cheb(datasets.join(test_file), n, n_test)
+    let u = load_poisson_cheb(datasets.join(set.npz("test")), n, n_test)
         .unwrap_or_else(|e| panic!("could not load the CGL solutions: {e}"));
 
-    // Forward pass in batches, in sample order; outputs are normalized [B, s, s, 1]
-    let inputs = test_data.inputs();
-    let mut pred = Array3::<f64>::zeros((n_test, s, s));
-    for start in (0..n_test).step_by(BATCH_SIZE) {
-        let end = (start + BATCH_SIZE).min(n_test);
-        let batch = inputs.slice(s![start..end, .., .., ..]);
-        let data: Vec<f32> = batch.iter().copied().collect();
-        let x = Tensor::<4>::from_data(TensorData::new(data, batch.shape().to_vec()), &device);
-        let out = model
-            .forward(x)
-            .into_data()
-            .try_to_vec::<f32>()
-            .expect("f32 model output");
-        let out = Array3::from_shape_vec((end - start, s, s), out)
-            .expect("output is [B, s, s, 1]")
-            .mapv(f64::from);
-        pred.slice_mut(s![start..end, .., ..]).assign(&out);
-    }
+    // Forward pass in batches, in sample order; outputs are normalized [N, s, s]
+    let pred = predict_host(&model, test_data.inputs().view(), BATCH_SIZE, &device);
     // Decode to physical scale in f64; the test targets were never encoded
     let y_norm = UnitGaussianNormalizer::from_record(
         &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),
@@ -254,7 +187,8 @@ fn main() {
     );
 
     // Cross-check 1: error 2 against the sidecar the generator wrote
-    let sidecar = Sidecar::load(datasets.join(test_sidecar)).expect("load the test sidecar");
+    let sidecar = Sidecar::load(datasets.join(format!("{}.json", set.stem("test"))))
+        .expect("load the test sidecar");
     assert_eq!(
         (sidecar.n, sidecar.error2.s, sidecar.error2.d),
         (n, s, TRANSFER_DEGREE),
@@ -288,16 +222,8 @@ fn main() {
     };
 
     // Cross-check 2: mean error 3 against the run's last test_l2
-    let metrics = read_metrics_csv(dir.join("metrics.csv")).expect("read metrics.csv");
-    let last = metrics.last().expect("metrics.csv has no epochs");
-    let test_l2 = f64::from(last.test_l2);
-    let e3_ok = rel_diff(e3.mean, test_l2) <= ERROR3_TOL;
-    println!(
-        "check: mean error 3 vs metrics.csv test_l2 {test_l2:.6e} (epoch {}): rel diff {:.1e} (tol {ERROR3_TOL:e}) {}",
-        last.epoch,
-        rel_diff(e3.mean, test_l2),
-        if e3_ok { "ok" } else { "FAILED" }
-    );
+    let e3_check = check_error3(dir.join("metrics.csv"), e3.mean).expect("read metrics.csv");
+    println!("check: {e3_check}");
 
     let boundary_to_total = e5_rms.mean / e4.mean;
     let warranted = boundary_to_total >= BOUNDARY_THRESHOLD;
@@ -314,18 +240,18 @@ fn main() {
         }
     );
 
-    let cross_checks_passed = e2_ok && e3_ok;
+    let cross_checks_passed = e2_ok && e3_check.passed;
     let record = PoissonErrorsRecord {
         n_test,
         n,
         device: format!("{device:?}"),
-        backend_features: backend_features(),
+        backend_features: backend_features().into_iter().map(String::from).collect(),
         error1: ERROR1_QUOTE.to_string(),
         error2: e2,
         error2_sidecar: e2_sidecar,
         error2_compared,
         error3: e3,
-        error3_metrics_csv: test_l2,
+        error3_metrics_csv: e3_check.test_l2,
         error4: e4,
         error4_worst_sample: worst,
         error5_max_ratio: e5_ratio,

@@ -10,6 +10,8 @@
 //! - error 5 (boundary): with û = T_uc(prediction), the max ratio max_∂Ω |û| / max_Ω |u|
 //!   and the relative boundary RMS √(∮ û² ds / 8) / √(∫∫ u² dA / 4).
 //!
+//! [`check_error3`] cross-checks the mean error 3 against the run's last test_l2.
+//!
 //! Error 1 (the solver) needs the `chebyshev` feature and is quoted, not recomputed (design
 //! §12, decision 16). Everything here is ndarray and f64, built without `chebyshev`
 //! (decision 15). Grids, transfers and norms follow CONVENTIONS §12.
@@ -17,8 +19,12 @@
 use crate::neural_operators::chebyshev::{
     apply, cc_rel_l2_error, cheb_to_uniform, clencurt, uniform_to_cheb,
 };
+use crate::neural_operators::metrics::io::read_metrics_csv;
 use burn::config::Config;
 use ndarray::{Array1, Array2, ArrayView2, ArrayView3, Axis};
+use std::fmt;
+use std::io;
+use std::path::Path;
 
 /// Floater–Hormann degree d of T_uc (design §12, decision 8). Equal to the generator's
 /// `pde::poisson::dataset::TRANSFER_DEGREE` (feature `chebyshev`), which this module
@@ -136,6 +142,57 @@ pub fn poisson_errors(pred: ArrayView3<f64>, u: ArrayView3<f64>) -> PoissonError
         errors.boundary_rel_rms.push(rms);
     }
     errors
+}
+
+/// Tolerance of [`check_error3`], relative: the run's test_l2 is f32.
+pub const ERROR3_TOL: f64 = 1e-5;
+
+/// The cross-check of a mean error 3 against a run's last test_l2, from [`check_error3`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Error3Check {
+    /// The last epoch in metrics.csv.
+    pub epoch: usize,
+    /// That epoch's test_l2, widened to f64.
+    pub test_l2: f64,
+    /// |mean error 3 − test_l2| / |test_l2|.
+    pub rel_diff: f64,
+    /// Whether `rel_diff` ≤ [`ERROR3_TOL`].
+    pub passed: bool,
+}
+
+impl fmt::Display for Error3Check {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "mean error 3 vs metrics.csv test_l2 {:.6e} (epoch {}): rel diff {:.1e} (tol {ERROR3_TOL:e}) {}",
+            self.test_l2,
+            self.epoch,
+            self.rel_diff,
+            if self.passed { "ok" } else { "FAILED" }
+        )
+    }
+}
+
+/// Compares `mean_error3`, error 3 averaged over the test split, with the last test_l2 in
+/// the run's `metrics_csv`. Error 3 is the training loss's relative L² (CONVENTIONS §11),
+/// so on the run's own test split the two agree to f32 round-off.
+///
+/// # Errors
+/// What [`read_metrics_csv`] returns, and [`io::ErrorKind::InvalidData`] if the file has
+/// no epochs.
+pub fn check_error3(metrics_csv: impl AsRef<Path>, mean_error3: f64) -> io::Result<Error3Check> {
+    let metrics = read_metrics_csv(metrics_csv)?;
+    let last = metrics
+        .last()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "metrics.csv has no epochs"))?;
+    let test_l2 = f64::from(last.test_l2);
+    let rel_diff = (mean_error3 - test_l2).abs() / test_l2.abs();
+    Ok(Error3Check {
+        epoch: last.epoch,
+        test_l2,
+        rel_diff,
+        passed: rel_diff <= ERROR3_TOL,
+    })
 }
 
 /// ‖a − b‖₂ / ‖b‖₂ over all entries with equal weights (`LpLoss::rel` with p = 2).
@@ -340,5 +397,49 @@ mod tests {
         assert_eq!((st.mean, st.max), (2.0, 3.0));
         let st = ErrorStats::of(&[1.0, f64::NAN]);
         assert!(st.mean.is_nan() && st.max.is_nan());
+    }
+
+    /// Writes `test_l2` per epoch to a fresh metrics.csv under the temp dir.
+    fn metrics_csv(test: &str, test_l2: &[f32]) -> std::path::PathBuf {
+        use crate::neural_operators::{
+            metrics::io::write_metrics_csv, training::metrics::EpochMetrics,
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "sciml_rs_metrics_poisson_{test}_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rows: Vec<EpochMetrics> = test_l2
+            .iter()
+            .enumerate()
+            .map(|(epoch, &test_l2)| EpochMetrics {
+                epoch,
+                train_mse: 0.0,
+                train_l2: 0.0,
+                test_l2,
+                current_lr: 1e-3,
+            })
+            .collect();
+        let path = dir.join("metrics.csv");
+        write_metrics_csv(&path, &rows).unwrap();
+        path
+    }
+
+    #[test]
+    fn error3_check_uses_the_last_epoch() {
+        let path = metrics_csv("last_epoch", &[0.5, 0.25]);
+        let check = check_error3(&path, 0.25 * (1.0 + 5e-6)).unwrap();
+        assert_eq!((check.epoch, check.test_l2), (1, 0.25));
+        assert!(check.passed, "{check}");
+        let check = check_error3(&path, 0.25 * (1.0 + 2e-5)).unwrap();
+        assert!(!check.passed, "{check}");
+        assert!(check.to_string().ends_with("FAILED"));
+    }
+
+    #[test]
+    fn error3_check_rejects_an_empty_csv() {
+        let path = metrics_csv("empty", &[]);
+        let err = check_error3(&path, 0.1).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 }

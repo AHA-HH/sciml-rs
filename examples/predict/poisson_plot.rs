@@ -18,41 +18,22 @@
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
 
-use burn::{
-    prelude::*,
-    store::{BurnpackStore, ModuleSnapshot},
-    tensor::Device,
-};
+use burn::{prelude::*, tensor::Device};
 use gnuplot::{AutoOption::Fix, AxesCommon, Color, Figure, PaletteType, VariablePaletteColor};
-use ndarray::{Array2, ArrayView2, Axis, s};
+use ndarray::{ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
     chebyshev::{apply, cc_rel_l2_error, uniform_to_cheb},
     data::{
         loaders::{
             base_dataset::HasBaseConfig,
-            poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform},
+            poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform, stage},
         },
         transforms::normalizers::{Normalizer, NormalizerRecord, UnitGaussianNormalizer},
     },
     metrics::poisson::TRANSFER_DEGREE,
-    models::fno::FNOConfig,
+    models::run::{load_fno, predict_host},
 };
 
-/// The stages `train_poisson` trains on (design §5.3): (CGL nodes per axis n, train file,
-/// test file). The run's data_cfg.json gives n.
-const STAGES: &[(usize, &str, &str)] = &[
-    (65, "poisson_n65_K32_train.npz", "poisson_n65_K32_test.npz"),
-    (
-        129,
-        "poisson_n129_K64_train.npz",
-        "poisson_n129_K64_test.npz",
-    ),
-    (
-        257,
-        "poisson_n257_K64_train.npz",
-        "poisson_n257_K64_test.npz",
-    ),
-];
 /// Figure size in pixels.
 const WIDTH: u32 = 1400;
 const HEIGHT: u32 = 1300;
@@ -108,18 +89,13 @@ fn main() {
     // Inference only: no autodiff, so forward passes record no backward graph.
     let device = Device::default();
 
-    let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
-    let mut model = model_cfg.init::<4>(&device);
-    let mut store = BurnpackStore::from_file(dir.join("model_weights.bpk"));
-    model.load_from(&mut store).expect("load model weights");
+    let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
+    let model = load_fno::<4>(&dir, &device).unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let dataset_cfg = PoissonConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
     let n = dataset_cfg.n;
-    let &(_, train_file, test_file) =
-        STAGES.iter().find(|stage| stage.0 == n).unwrap_or_else(|| {
-            let ns: Vec<usize> = STAGES.iter().map(|stage| stage.0).collect();
-            panic!("the run's n = {n} is not a known stage; expected one of {ns:?}")
-        });
+    let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
+    let test_file = datasets.join(set.npz("test"));
     let n_test = dataset_cfg.base().n_test;
     assert!(
         sample < n_test,
@@ -127,33 +103,21 @@ fn main() {
     );
     let s = dataset_cfg.s();
 
-    let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
-    let (_, test_data, _) = load_poisson_uniform::<f32>(
-        datasets.join(train_file),
-        datasets.join(test_file),
-        &dataset_cfg,
-    )
-    .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
+    let (_, test_data, _) =
+        load_poisson_uniform::<f32>(datasets.join(set.npz("train")), &test_file, &dataset_cfg)
+            .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
     let load_cheb = |field| {
-        load_poisson_cheb_field(datasets.join(test_file), field, n, sample + 1)
+        load_poisson_cheb_field(&test_file, field, n, sample + 1)
             .unwrap_or_else(|e| panic!("could not load the CGL field '{field}': {e}"))
             .index_axis_move(Axis(0), sample)
     };
     let f = load_cheb("f");
     let u = load_cheb("u");
 
-    // Forward one sample: [1, s, s, 1] in, normalized [1, s, s, 1] out
+    // Forward one sample: [1, s, s, 1] in, normalized [s, s] out
     let input = test_data.inputs().slice(s![sample..=sample, .., .., ..]);
-    let data: Vec<f32> = input.iter().copied().collect();
-    let x = Tensor::<4>::from_data(TensorData::new(data, input.shape().to_vec()), &device);
-    let out = model
-        .forward(x)
-        .into_data()
-        .try_to_vec::<f32>()
-        .expect("f32 model output");
-    let pred = Array2::from_shape_vec((s, s), out)
-        .expect("output is [1, s, s, 1]")
-        .mapv(f64::from);
+    let pred = predict_host(&model, input.into_dyn(), 1, &device).index_axis_move(Axis(0), 0);
+    assert_eq!(pred.dim(), (s, s), "prediction is [s, s]");
     // Decode to physical scale in f64, then transfer to the CGL grid as error 4 does
     let y_norm = UnitGaussianNormalizer::from_record(
         &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),

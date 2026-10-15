@@ -8,7 +8,8 @@
 //! An optional first argument overrides `PADDING`, so the padding sweep of
 //! docs/phase3/T2-train-poisson.md needs no edits:
 //! cargo run --release --example train_poisson -- 8
-//! An optional second argument picks the stage by n, one of `STAGES` (design §5.3):
+//! An optional second argument picks the stage by n, one of `loaders::poisson::STAGES`
+//! (design §5.3):
 //! cargo run --release --example train_poisson -- 4 129
 //!
 //! Structurally identical to `examples/train/darcy.rs`, with the Darcy model and
@@ -25,7 +26,7 @@ use burn::{
 use sciml_rs::neural_operators::{
     data::loaders::{
         base_dataset::DatasetConfig,
-        poisson::{PoissonConfig, load_poisson_uniform},
+        poisson::{PoissonConfig, load_poisson_uniform, stage},
     },
     metrics::io::write_run_artifacts,
     models::fno::FNOConfig,
@@ -33,28 +34,6 @@ use sciml_rs::neural_operators::{
 };
 use std::path::Path;
 
-/// The stages this example trains on (design §5.3): (CGL nodes per axis n, K, train
-/// file, test file). The model grid is s = n − 1.
-const STAGES: &[(usize, usize, &str, &str)] = &[
-    (
-        65,
-        32,
-        "poisson_n65_K32_train.npz",
-        "poisson_n65_K32_test.npz",
-    ),
-    (
-        129,
-        64,
-        "poisson_n129_K64_train.npz",
-        "poisson_n129_K64_test.npz",
-    ),
-    (
-        257,
-        64,
-        "poisson_n257_K64_train.npz",
-        "poisson_n257_K64_test.npz",
-    ),
-];
 /// The stage used when no n is given: stage 2.
 const DEFAULT_N: usize = 65;
 const N_TRAIN: usize = 1000;
@@ -87,11 +66,8 @@ fn main() {
             .unwrap_or_else(|e| panic!("n argument must be an integer, got {arg:?}: {e}")),
         None => DEFAULT_N,
     };
-    let &(_, k, train_file, test_file) =
-        STAGES.iter().find(|stage| stage.0 == n).unwrap_or_else(|| {
-            let ns: Vec<usize> = STAGES.iter().map(|stage| stage.0).collect();
-            panic!("no stage with n = {n}; expected one of {ns:?}")
-        });
+    let set = stage(n).unwrap_or_else(|e| panic!("{e}"));
+    let k = set.k;
 
     let device = Device::default().autodiff();
     println!("device: {device:?}, padding: {padding}, n: {n}, K: {k}");
@@ -105,8 +81,8 @@ fn main() {
     );
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
-    let train_path = datasets.join(train_file);
-    let test_path = datasets.join(test_file);
+    let train_path = datasets.join(set.npz("train"));
+    let test_path = datasets.join(set.npz("test"));
     for p in [&train_path, &test_path] {
         assert!(
             p.exists(),
