@@ -59,6 +59,10 @@ name = "poisson_plot"
 path = "examples/predict/poisson_plot.rs"
 
 [[example]]
+name = "poisson_resolution"
+path = "examples/predict/poisson_resolution.rs"
+
+[[example]]
 name = "generate_poisson"
 path = "examples/generate/poisson.rs"
 required-features = ["chebyshev"]
