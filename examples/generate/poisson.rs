@@ -8,8 +8,9 @@
 //! solution (enforced at 1e-8 for n ≥ 65) and each split records its transfer error
 //! (error 2). See `datasets/README.md` for the file layout.
 //!
-//! Edit `DATASETS` to choose what to generate. Stages 1, 2 and 3 are on by default; stage 4
-//! and the K = 32 evaluation sets 3e and 4e are commented out.
+//! Edit `DATASETS` to choose what to generate; every split is on by default. Stage 4 and
+//! the K = 32 sets at n = 129 and 257 are used only by the resolution study (design §7):
+//! their train splits exist only to refit the pointwise normalisers at the new n.
 
 use sciml_rs::neural_operators::pde::poisson::dataset::{SplitSpec, generate, write_split};
 use std::path::Path;
@@ -35,11 +36,14 @@ const DATASETS: &[(&str, usize, Option<usize>, u64, usize)] = &[
     ("train", 129, None, TRAIN_SEED, N_TRAIN),
     ("test", 129, None, TEST_SEED, N_TEST),
     // Stage 4: n = 257, K = 64.
-    // ("train", 257, None, TRAIN_SEED, N_TRAIN),
-    // ("test", 257, None, TEST_SEED, N_TEST),
-    // 3e and 4e: the stage 2 test fields (K = 32, its seeds) at n = 129 and 257.
-    // ("test", 129, Some(32), TEST_SEED, N_TEST),
-    // ("test", 257, Some(32), TEST_SEED, N_TEST),
+    ("train", 257, None, TRAIN_SEED, N_TRAIN),
+    ("test", 257, None, TEST_SEED, N_TEST),
+    // 3e and 4e: the stage 2 test fields (K = 32, its seeds) at n = 129 and 257, and the
+    // stage 2 train fields at the same n, for the normalisers only.
+    ("train", 129, Some(32), TRAIN_SEED, N_TRAIN),
+    ("test", 129, Some(32), TEST_SEED, N_TEST),
+    ("train", 257, Some(32), TRAIN_SEED, N_TRAIN),
+    ("test", 257, Some(32), TEST_SEED, N_TEST),
 ];
 
 fn main() {

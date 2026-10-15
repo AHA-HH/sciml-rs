@@ -37,9 +37,9 @@ cargo run --release --features chebyshev --example generate_poisson
 ```
 
 This writes `datasets/poisson/`. Edit `DATASETS` at the top of
-`examples/generate/poisson.rs` to choose the sets: stages 1 (n = 33), 2 (n = 65) and 3
-(n = 129) are on by default; stage 4 (n = 257) and the K = 32 evaluation sets 3e and 4e
-are commented out.
+`examples/generate/poisson.rs` to choose the sets; all are on by default: stages 1 to 4
+(n = 33, 65, 129, 257) and the K = 32 evaluation sets 3e and 4e (n = 129, 257), with their
+K = 32 train splits, which the resolution study uses only to refit the normalisers.
 
 Each split is a pair of files named `poisson_n{n}_K{K}_{split}`, e.g.
 `poisson_n65_K32_train.npz`:
@@ -63,4 +63,4 @@ Train splits use base seed 0 and test splits 1 000 000, at every n. Sizes (1000 
 | 2 | 65 | 32 | 67.6 MB | 13.5 MB |
 | 3 | 129 | 64 | about 266 MB | about 53 MB |
 | 4 | 257 | 64 | about 1.06 GB | about 211 MB |
-| 3e, 4e | 129, 257 | 32 | – | about 53 MB, 211 MB |
+| 3e, 4e | 129, 257 | 32 | about 266 MB, 1.06 GB | about 53 MB, 211 MB |

@@ -8,7 +8,7 @@ Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), 
 2026-10-13 for the `poisson_plot` cells and the deferred display shading (decision 19), and
 2026-10-14 for the padding sweep on cuda (decision 20) and the deferred flex run
 (decision 21), and 2026-10-15 for `poisson_plot` on every stage and the worst sample
-(decision 22). The decisions are recorded in Section 12. This document is the
+(decision 22) and the resolution study (decision 23). The decisions are recorded in Section 12. This document is the
 specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -1051,6 +1051,33 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       its relative error 4 is the largest. The max of error 4 may therefore reflect the
       small-‖u‖ samples more than the model's accuracy. Three samples do not show this;
       error 4 against ‖u‖ over the test set would.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-15.
+
+23. **Phase 4 T4: the resolution study (2026-10-15).**
+    - **Result.** Evaluated without retraining (§7), each model's error grows on grids
+      finer than its training grid. The 65² model (p = 4, K = 32) has mean error 3 of
+      1.069e-2 at 65, 4.666e-2 at 129 (4.4×) and 7.546e-2 at 257 (7.1×). The 129² model
+      (p = 4, K = 64) has 1.079e-2 at 129 and 2.593e-2 at 257 (2.4×). Error 4 equals
+      error 3 to about four digits throughout, and error 2 is at most 2.0e-5, so the
+      growth comes from the model, not from the transfers. Figures:
+      `docs/phase4/README.md` Results.
+    - **Against the design.** §7 specifies the study but states no expected outcome. The
+      FNO's usual premise, that it learns an operator between function spaces, would put
+      the error roughly flat across resolutions. That holds here only at each model's
+      training resolution.
+    - **Method, unchanged (decision 18).** The weights are never refit. The pointwise x and
+      y normalisers are refit by `load_poisson_uniform` on the same training fields (the
+      same seeds and K) generated at each new n. At each model's own n the refit
+      reproduces its saved normalisers: mean error 3 matches `metrics.csv` within 5e-6.
+    - **Candidate causes, not tested.** (a) Padding is a fixed p = 4 grid points, so it
+      covers 4/64 of the domain at s = 64 but 4/256 at s = 256; the spectral layers see a
+      different non-periodic extension at each s. (b) The pointwise layers and the
+      appended grid channels act per node, and the node spacing changes with s. Testing
+      either, for example padding by a fixed fraction of the domain, changes the model or
+      CONVENTIONS §3, so it is not Phase 4 work.
+    - **Phase 5.** This result is the interpolating baseline for the θ-map comparison: the
+      question of whether a Chebyshev-native model generalises across resolutions better
+      now has a measured baseline to beat.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-15.
 
 ## References

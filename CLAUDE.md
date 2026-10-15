@@ -133,6 +133,9 @@ than trusting prose when checking how an API behaves.
   `predict_darcy`, `darcy_plot` on Darcy runs)
 - Evaluate a Poisson run (the five errors, the boundary verdict, the worst sample):
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`
+- Resolution study (errors 3 and 4 of a Poisson run on finer grids, weights unchanged,
+  normalisers refit on that n's `_train` split):
+  `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> poisson_n{n}_K{K}_test.npz ...`
 - Plot one Poisson test sample (f, u, û, û − u on the CGL nodes, on the run's stage; writes
   `prediction_<sample>.png`):
   `cargo run --release --example poisson_plot [--features metal] -- runs/<run_dir> [<sample>]`
