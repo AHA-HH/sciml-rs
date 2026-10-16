@@ -8,7 +8,7 @@
 //! of size s = n − 1 and then normalizes, as Darcy does. Inputs carry the forcing only;
 //! the model appends the 2D grid coordinates itself (see `FNO::forward`).
 //!
-//! Transfer: T_cu (`chebyshev::cheb_to_uniform`, CONVENTIONS §12) is applied along both
+//! Transfer: T_cu (`chebyshev::Transfers::to_uniform`, CONVENTIONS §12) is applied along both
 //! axes at load time, in f64, before normalization; transferred fields are never written
 //! to disk. T_cu is polynomial interpolation on the CGL nodes, exact to round-off
 //! (≤ 1e-15) on the analytic test fields, and for n ≥ 65 within 2e-8 on GRF solutions u
@@ -25,7 +25,7 @@
 //! predictions are decoded back to physical scale before comparison, not targets encoded
 //! forward. The returned `normalizers.y` is what the caller needs to do that decode.
 
-use crate::neural_operators::chebyshev::{apply, cgl_nodes, cheb_to_uniform};
+use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes_closed_form};
 use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
@@ -34,7 +34,7 @@ use crate::neural_operators::data::{
     transforms::normalizers::{Normalizer, UnitGaussianNormalizer},
 };
 use burn::config::Config;
-use ndarray::{Array1, Array2, Array3, ArrayD, Axis, Ix3, IxDyn, s};
+use ndarray::{Array1, Array3, ArrayD, Axis, Ix3, IxDyn, s};
 use std::path::Path;
 
 /// Tolerance on the stored `x`, `y` nodes against the closed-form CGL nodes.
@@ -51,7 +51,7 @@ pub struct PoissonConfig {
 
 impl PoissonConfig {
     /// Uniform (model) grid size s = n − 1 (design §12, decision 5). Saturates at 0 for
-    /// n = 0; `load_poisson_uniform` rejects n < 3.
+    /// n = 0; `load_poisson_uniform` rejects n < 4.
     pub fn s(&self) -> usize {
         self.n.saturating_sub(1)
     }
@@ -131,7 +131,8 @@ pub struct PoissonNormalizers {
 /// # Errors
 /// [`LoadError::Reader`] if a file can't be read or lacks `f`/`u`/`x`/`y`;
 /// [`LoadError::Invalid`] if `n_train < 2` (the normalizers' sample std is undefined for
-/// one sample), `config.n < 3` (the uniform grid needs s ≥ 2), `f` or `u` isn't
+/// one sample), `config.n <` [`Transfers::MIN_N`] (T_uc of degree [`TRANSFER_DEGREE`]
+/// needs s = n − 1 > d), `f` or `u` isn't
 /// `[samples, n, n]`, `x` or `y` isn't `[n]` or differs from the CGL nodes by more than
 /// 1e-14, or a file has fewer samples than requested.
 ///
@@ -151,23 +152,24 @@ pub fn load_poisson_uniform<T: HostFloat>(
         )));
     }
     let n = config.n;
-    if n < 3 {
+    if n < Transfers::MIN_N {
         return Err(LoadError::Invalid(format!(
-            "n must be >= 3 (the uniform grid s = n - 1 needs both endpoints), got {n}"
+            "n must be >= {} (T_uc of degree {TRANSFER_DEGREE} needs s = n - 1 > d), got {n}",
+            Transfers::MIN_N
         )));
     }
 
-    // T_cu is built once and shared by both splits; each split's reader and Chebyshev
-    // fields are freed before the next file is parsed.
-    let t_cu = cheb_to_uniform(n, config.s());
-    let nodes = cgl_nodes(n);
+    // The transfers are built once and shared by both splits; each split's reader and
+    // Chebyshev fields are freed before the next file is parsed.
+    let transfers = Transfers::new(n);
+    let nodes = nodes_closed_form(n);
     let load_split = |path: &Path, split: &str, count: usize| -> Result<_, LoadError> {
         let reader = NpzFileReader::new(path);
         check_nodes(&reader, split, n, &nodes)?;
         let f = read_samples(&reader, split, "f", n, count)?;
-        let f = transfer_samples(f, count, &t_cu);
+        let f = transfer_samples(f, count, &transfers);
         let u = read_samples(&reader, split, "u", n, count)?;
-        let u = transfer_samples(u, count, &t_cu);
+        let u = transfer_samples(u, count, &transfers);
         Ok((f, u))
     };
     let (f_train, u_train) = load_split(train_path.as_ref(), "train", config.n_train())?;
@@ -232,7 +234,7 @@ pub fn load_poisson_cheb_field(
         |f| f.to_string_lossy().into(),
     );
     let reader = NpzFileReader::new(path);
-    check_nodes(&reader, &label, n, &cgl_nodes(n))?;
+    check_nodes(&reader, &label, n, &nodes_closed_form(n))?;
     let values = read_samples(&reader, &label, field, n, count)?
         .into_dimensionality::<Ix3>()
         .expect("read_samples checked rank 3");
@@ -297,20 +299,21 @@ fn read_samples(
 }
 
 /// The first `count` samples of a `[samples, n, n]` Chebyshev field, each transferred to
-/// the uniform grid as T_cu · F · T_cuᵀ. `t_cu: [s, n]`; returns `[count, s, s]`.
+/// the uniform grid as T_cu · F · T_cuᵀ ([`Transfers::to_uniform`]); returns
+/// `[count, s, s]`.
 ///
 /// The caller has checked the shape and that `count` samples exist.
-fn transfer_samples(field: ArrayD<f64>, count: usize, t_cu: &Array2<f64>) -> ArrayD<f64> {
+fn transfer_samples(field: ArrayD<f64>, count: usize, transfers: &Transfers) -> ArrayD<f64> {
     let field = field
         .into_dimensionality::<Ix3>()
         .expect("caller checked rank 3");
-    let s = t_cu.nrows();
+    let s = transfers.s();
     let mut out = Array3::zeros((count, s, s));
     for (mut dst, src) in out
         .axis_iter_mut(Axis(0))
         .zip(field.slice(s![..count, .., ..]).axis_iter(Axis(0)))
     {
-        dst.assign(&apply(t_cu.view(), t_cu.view(), src));
+        dst.assign(&transfers.to_uniform(src));
     }
     out.into_dyn()
 }
@@ -429,7 +432,7 @@ mod tests {
     /// Writes a valid train/test pair of polynomial fields on the CGL grid; f and u
     /// differ by scale (u = −2 f, test samples offset) so they are told apart.
     fn write_valid_pair(dir: &Path) -> (PathBuf, PathBuf) {
-        let x = cgl_nodes(N);
+        let x = nodes_closed_form(N);
         let f_tr = poly_field(N_TRAIN, 0.0, &x, &x);
         let f_te = poly_field(N_TEST, 0.5, &x, &x);
         let train = write_npz(dir, "train.npz", &f_tr, &(&f_tr * -2.0), &x, &x);
@@ -500,8 +503,8 @@ mod tests {
             load_poisson_uniform::<f64>(&train_path, &test_path, &config).unwrap();
 
         // The transferred fields, computed independently of the loader's file path.
-        let t = cheb_to_uniform(N, s);
-        let x = cgl_nodes(N);
+        let t = Transfers::new(N);
+        let x = nodes_closed_form(N);
         let f_tr = transfer_samples(poly_field(N_TRAIN, 0.0, &x, &x), N_TRAIN, &t);
         let f_te = transfer_samples(poly_field(N_TEST, 0.5, &x, &x), N_TEST, &t);
         let (u_tr, u_te) = (&f_tr * -2.0, &f_te * -2.0);
@@ -539,13 +542,13 @@ mod tests {
     }
 
     #[test]
-    fn n_below_three_is_invalid_not_a_panic() {
+    fn n_below_four_is_invalid_not_a_panic() {
         let mut config = cfg(2, 1);
-        for n in [0, 1, 2] {
+        for n in [0, 1, 2, 3] {
             config.n = n;
             expect_invalid(
                 load_poisson_uniform("/nope/train.npz", "/nope/test.npz", &config),
-                "n must be >= 3",
+                "n must be >= 4",
             );
         }
     }
@@ -556,16 +559,16 @@ mod tests {
         let (_, test_path) = write_valid_pair(&dir);
         let x = uniform_nodes(N);
         let f = poly_field(N_TRAIN, 0.0, &x, &x);
-        let train_path = write_npz(&dir, "bad.npz", &f, &f, &x, &cgl_nodes(N));
+        let train_path = write_npz(&dir, "bad.npz", &f, &f, &x, &nodes_closed_form(N));
         expect_invalid(
             load_poisson_uniform(&train_path, &test_path, &cfg(N_TRAIN, N_TEST)),
             "'x' must hold the 9 ascending CGL nodes",
         );
 
         // a NaN node must not pass the tolerance check
-        let mut y = cgl_nodes(N);
+        let mut y = nodes_closed_form(N);
         y[3] = f64::NAN;
-        let train_path = write_npz(&dir, "nan.npz", &f, &f, &cgl_nodes(N), &y);
+        let train_path = write_npz(&dir, "nan.npz", &f, &f, &nodes_closed_form(N), &y);
         expect_invalid(
             load_poisson_uniform(&train_path, &test_path, &cfg(N_TRAIN, N_TEST)),
             "'y' must hold the 9 ascending CGL nodes",
@@ -576,11 +579,11 @@ mod tests {
     fn wrong_shape_is_invalid() {
         let dir = fresh_dir("wrong_shape");
         let (train_path, _) = write_valid_pair(&dir);
-        let x = cgl_nodes(N);
+        let x = nodes_closed_form(N);
 
         // u not square
         let f = poly_field(N_TEST, 0.0, &x, &x);
-        let u = poly_field(N_TEST, 0.0, &x, &cgl_nodes(N - 1));
+        let u = poly_field(N_TEST, 0.0, &x, &nodes_closed_form(N - 1));
         let test_path = write_npz(&dir, "bad_u.npz", &f, &u, &x, &x);
         expect_invalid(
             load_poisson_uniform(&train_path, &test_path, &cfg(N_TRAIN, N_TEST)),
@@ -623,7 +626,7 @@ mod tests {
     fn cheb_loader_reads_raw_u() {
         let dir = fresh_dir("cheb_reads");
         let (train_path, test_path) = write_valid_pair(&dir);
-        let x = cgl_nodes(N);
+        let x = nodes_closed_form(N);
 
         let u = load_poisson_cheb(&test_path, N, N_TEST).unwrap();
         assert_eq!(u.shape(), [N_TEST, N, N]);
@@ -657,7 +660,7 @@ mod tests {
         let dir = fresh_dir("cheb_nodes");
         let x = uniform_nodes(N);
         let f = poly_field(N_TEST, 0.0, &x, &x);
-        let path = write_npz(&dir, "bad.npz", &f, &f, &x, &cgl_nodes(N));
+        let path = write_npz(&dir, "bad.npz", &f, &f, &x, &nodes_closed_form(N));
         expect_cheb_invalid(
             load_poisson_cheb(&path, N, N_TEST),
             "bad.npz field 'x' must hold the 9 ascending CGL nodes",
@@ -679,7 +682,7 @@ mod tests {
     fn cheb_field_loader_reads_f() {
         let dir = fresh_dir("cheb_field_f");
         let (train_path, test_path) = write_valid_pair(&dir);
-        let x = cgl_nodes(N);
+        let x = nodes_closed_form(N);
 
         let f = load_poisson_cheb_field(&test_path, "f", N, N_TEST).unwrap();
         assert_eq!(f.shape(), [N_TEST, N, N]);

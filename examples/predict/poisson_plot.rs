@@ -22,7 +22,7 @@ use burn::{prelude::*, tensor::Device};
 use gnuplot::{AutoOption::Fix, AxesCommon, Color, Figure, PaletteType, VariablePaletteColor};
 use ndarray::{ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
-    chebyshev::{apply, cc_rel_l2_error, uniform_to_cheb},
+    chebyshev::{Transfers, cc_rel_l2_error, nodes_closed_form},
     data::{
         loaders::{
             base_dataset::HasBaseConfig,
@@ -30,7 +30,6 @@ use sciml_rs::neural_operators::{
         },
         transforms::normalizers::{Normalizer, NormalizerRecord, UnitGaussianNormalizer},
     },
-    metrics::poisson::TRANSFER_DEGREE,
     models::run::{load_fno, predict_host},
 };
 
@@ -44,21 +43,12 @@ const DIVERGING: [(f32, f32, f32, f32); 3] = [
     (1.0, 0.71, 0.02, 0.15),
 ];
 
-/// The `n` ascending CGL nodes x_j = −cos(πj/(n − 1)), in the antisymmetric sine form the
-/// library uses (CONVENTIONS §12).
-fn cgl_nodes(n: usize) -> Vec<f64> {
-    let nn = (n - 1) as f64;
-    (0..n)
-        .map(|j| (PI * (2.0 * j as f64 - nn) / (2.0 * nn)).sin())
-        .collect()
-}
-
 /// The cell of each of the `n` ascending CGL nodes, as (low, high) edges: node
 /// x_j = −cos(jh), h = π/(n − 1) (CONVENTIONS §12), owns [−cos((j − ½)h), −cos((j + ½)h)],
 /// the angle clamped to [0, π]. The cells meet without gaps and the outer edges are ±1.
 fn cgl_cell_edges(n: usize) -> (Vec<f64>, Vec<f64>) {
     let h = PI / (n - 1) as f64;
-    // −cos θ in the sine form, as `cgl_nodes`, so the edges are antisymmetric
+    // −cos θ in the sine form, as `nodes_closed_form`, so the edges are antisymmetric
     let edge = |k: usize| ((k as f64 - 0.5) * h).clamp(0.0, PI) - PI / 2.0;
     let edges: Vec<f64> = (0..=n).map(|k| edge(k).sin()).collect();
     let (lo, hi) = (edges[..n].to_vec(), edges[1..].to_vec());
@@ -126,14 +116,13 @@ fn main() {
         .decode(pred.into_dyn())
         .into_dimensionality::<ndarray::Ix2>()
         .expect("decoded prediction is [s, s]");
-    let t_uc = uniform_to_cheb(s, n, TRANSFER_DEGREE);
-    let u_hat = apply(t_uc.view(), t_uc.view(), pred.view());
+    let u_hat = Transfers::new(n).to_cheb(pred.view());
     let err = &u_hat - &u;
     let error4 = cc_rel_l2_error(u_hat.view(), u.view());
     println!("sample {sample}: error 4 (total, CC norm) = {error4:.4e}");
 
     // Node coordinates in 'ij' order: field[a, b] sits at (x_a, y_b)
-    let nodes = cgl_nodes(n);
+    let nodes = nodes_closed_form(n).to_vec();
     let xs: Vec<f64> = nodes
         .iter()
         .flat_map(|&x| std::iter::repeat_n(x, n))

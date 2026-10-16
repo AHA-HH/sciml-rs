@@ -28,9 +28,10 @@ use super::grf::{
 };
 use crate::CONVENTION_VERSION;
 use crate::neural_operators::chebyshev::{
-    apply, cheb_to_uniform, clenshaw_curtis, nodes, rel_l2_error, uniform_to_cheb,
+    TRANSFER_DEGREE, Transfers, clenshaw_curtis, nodes, rel_l2_error,
 };
 use crate::neural_operators::data::loaders::poisson::PoissonSet;
+use crate::neural_operators::metrics::stats::ErrorStats;
 
 /// Bound on the label check, relative CC-L², enforced for n ≥ [`LABEL_CHECK_MIN_N`]
 /// (design §5.1; Phase 0 T4 observed at most 7.4e-10 at n = 65).
@@ -39,9 +40,6 @@ pub const LABEL_CHECK_TOL: f64 = 1e-8;
 /// The smallest n at which [`LABEL_CHECK_TOL`] is enforced. Stage 1 (n = 33) records
 /// its label check without enforcing it (design §5.1).
 pub const LABEL_CHECK_MIN_N: usize = 65;
-
-/// The Floater–Hormann degree d of T_uc in error 2 (design §12, decision 8).
-pub const TRANSFER_DEGREE: usize = 2;
 
 /// What to generate for one split (design §5.1, §5.3).
 #[derive(Clone, Debug, PartialEq)]
@@ -64,30 +62,6 @@ impl SplitSpec {
     /// If `k` is `None` and `n < 3`.
     pub fn truncation(&self) -> usize {
         self.k.unwrap_or_else(|| k_default(self.n))
-    }
-}
-
-/// The maximum and mean of a per-sample error over a split.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ErrorStats {
-    /// Largest value over the samples.
-    pub max: f64,
-    /// Mean over the samples.
-    pub mean: f64,
-}
-
-impl ErrorStats {
-    /// The statistics of `values`; NaN for both when it is empty or any value is NaN.
-    fn of(values: &[f64]) -> Self {
-        Self {
-            // `f64::max` skips NaN, so check for it first: a NaN sample must show in the max.
-            max: if values.is_empty() || values.iter().any(|v| v.is_nan()) {
-                f64::NAN
-            } else {
-                values.iter().copied().fold(f64::NEG_INFINITY, f64::max)
-            },
-            mean: values.iter().sum::<f64>() / values.len() as f64,
-        }
     }
 }
 
@@ -196,9 +170,7 @@ pub fn generate(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
     let x = nodes(n);
     let w = clenshaw_curtis(n);
     let solver = CollocationSolver::new(n, n);
-    let s = n - 1;
-    let t_cu = cheb_to_uniform(n, s);
-    let t_uc = uniform_to_cheb(s, n, TRANSFER_DEGREE);
+    let transfers = Transfers::new(n);
 
     let mut f = Array3::zeros((spec.count, n, n));
     let mut u = Array3::zeros((spec.count, n, n));
@@ -218,11 +190,8 @@ pub fn generate(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
         u_i.assign(&solver.solve_full(f_i.view()));
         let u_series = evaluate(solution_coeffs(c.view()).view(), x.view(), x.view());
         label.push(label_check(u_i.view(), u_series.view(), w.view(), i, seed)?);
-        let round_trip = apply(
-            t_uc.view(),
-            t_uc.view(),
-            apply(t_cu.view(), t_cu.view(), u_i.view()).view(),
-        );
+        // the gated norm: the generator moves onto the ungated pieces in Phase 4s T14
+        let round_trip = transfers.to_cheb(transfers.to_uniform(u_i.view()).view());
         err2.push(rel_l2_error(
             round_trip.view(),
             u_i.view(),
@@ -338,16 +307,6 @@ mod tests {
             solver.solve_full(f.view()),
             evaluate(solution_coeffs(c.view()).view(), x.view(), x.view()),
         ]
-    }
-
-    #[test]
-    fn error_stats_propagate_nan() {
-        let ok = ErrorStats::of(&[1.0, 3.0]);
-        assert_eq!((ok.max, ok.mean), (3.0, 2.0));
-        let bad = ErrorStats::of(&[1.0, f64::NAN, 3.0]);
-        assert!(bad.max.is_nan() && bad.mean.is_nan());
-        let empty = ErrorStats::of(&[]);
-        assert!(empty.max.is_nan() && empty.mean.is_nan());
     }
 
     #[test]
