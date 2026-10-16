@@ -1,0 +1,215 @@
+# Phase 4s: repository health (side phase)
+
+As of 2026-10-15; planned, not started (decision 25). Design: `docs/design/2d-chebyshev-poisson-fno.md`
+(§10 Phase 4s, §12 decision 25). Source: the whole-repository review at `c63eb32`,
+`docs/code-quality/thermo-nuclear-repo-review-2026-10-15.md` (cited below as "review"; its
+finding IDs, e.g. T2-3 or S1, are quoted per task). `docs/CONVENTIONS.md` wins on any conflict.
+
+Phase 4s is a side phase between Phase 4 and Phases 5 and 6. It answers no research
+question. It makes the repository easier to change before Phase 5 (checkpointing,
+multi-GPU) and Phase 6 (a new Chebyshev-native model) build on it. The review graded the
+repository C:
+- The core (FNO, spectral layer, training loop, Chebyshev numerics) is clean and acyclic.
+- Three patterns at the edges cost more than they protect:
+  - the run directory has no owner (S1);
+  - superseded implementations were kept beside their replacements (S2);
+  - per-PDE code is copied across trainers, loaders and examples (S3).
+- The `chebyshev` feature splits a module that is mostly ungated (S4).
+- The repository has drifted from its own rules (S5).
+
+**Behaviour is preserved.** Every task keeps the model's outputs, the training numbers,
+the five errors and the dataset format unchanged, except the four tasks marked **⚑**. Each
+⚑ task asks the author for a decision when it starts and records the answer in design §12
+before any code changes.
+
+## Read first
+
+- The review, sections 1 (verdict), 5 (systemic issues) and 7 (roadmap). The tasks below
+  are its roadmap renumbered into execution order.
+- `CLAUDE.md`: Working agreement, Working rules, Checks, Layout.
+- `docs/CONVENTIONS.md` §2 (grids), §10 (normalisation), §11 (loss), §12 (Chebyshev);
+  §9 for when a change bumps `CONVENTION_VERSION`.
+- Design §12 decisions 12 (RLST/FFTW toolkit), 13, 15 (ungated CC weights) and 24 (Phase
+  5/6 split).
+
+## Planning decisions
+
+Recorded in design §12, decision 25.
+
+- **A side phase, numbered 4s.** It sits between Phase 4 and Phases 5 and 6 and keeps their
+  numbers. Its tasks are T1–T24 (plus an optional T25), in execution order (design §10).
+- **It goes before Phases 5 and 6, but blocks them only where the code overlaps:**
+  - T10 (`RunDir`) and T12 (epoch observer) come before Phase 5 T2 (checkpoint/resume),
+    which would otherwise be wedged into the training loop.
+  - T16 (one ungated Chebyshev module) comes before Phase 6 T3 (θ-map), which adds code
+    under `chebyshev/`.
+  - Phase 5 T1 (profiling) and Phase 6 T1–T2 (baseline padding and seeds) do not depend on
+    this phase. They can start once the tasks they touch are merged.
+- **The Learner example stays (review T2-1, revised).** `train_burgers_learner` is the
+  showcase of Burn's `Learner` (TUI, metric logging, summary) and the template for future
+  use. T2 removes its one duplicated loss definition and makes its runs readable. It is
+  documented as a showcase; `train_epoch` is the canonical loop.
+- **Old runs and datasets stay readable.**
+  - `RunDir` (T10) reads every `runs/` directory written since Phase 3.
+  - No task changes the `.npz` / JSON dataset format.
+  - T14 changes generated node coordinates by about 1 ulp, and T15 changes labels at
+    round-off; both are ⚑ and decide whether to regenerate.
+- **No `CONVENTION_VERSION` bump is expected.**
+  - T5 edits CONVENTIONS §2 prose only.
+  - T17 changes §10, which is outside the bumping set (§1–§6, §12). It is still proposed in
+    its PR description as CLAUDE.md requires.
+  - A task that finds it must change §1–§6 or §12 stops and asks.
+- **Each task's PR states its line delta** (prod / test) and which checks ran, so the phase
+  can show what it removed.
+
+## Checks for every task
+
+The CI five, plus `cargo clippy --all-targets -- -D warnings`:
+
+```sh
+cargo fmt -- --check
+cargo clippy --no-deps -- -D warnings
+cargo clippy --no-deps --examples -- -D warnings
+cargo test
+cargo doc --no-deps
+cargo clippy --all-targets -- -D warnings
+```
+
+Tasks that touch `chebyshev/` or `pde/` also run `cargo test --features chebyshev` and
+`cargo clippy --all-targets --features chebyshev -- -D warnings`.
+
+- **The test count must not drop** unless the task deletes tests on purpose. Each PR compares
+  the "running N tests" lines before and after, and lists any deliberate removals.
+- **Example tasks also re-run one example on an existing run** and confirm it prints the
+  same numbers as before. The task row names which example.
+- **Unrun checks are reported as unrun.** That includes Metal and anything that needs a
+  dataset or a real terminal.
+
+## Tasks
+
+Task numbers are execution order. "∥" in Depends on marks tasks that can run in parallel
+with their neighbours (see "Parallel work" below). One task per branch and PR:
+`phase4s/T<k>-<name>`. Briefs are written when each task starts, from its row here and
+the review findings it cites.
+
+### Group 1: setup
+
+| Task | Delivers | Review | Depends on |
+| --- | --- | --- | --- |
+| T1 | CI and manifest hygiene: delete `run-examples.yml` and the commented apt blocks in `run-tests.yml`; fix `Cargo.toml`'s `homepage`/`repository` (GitHub), the invalid category, the empty dev-dependency tables and the truncated feature comment; drop rocm/vulkan from `lib.rs`'s `compile_error!`; make CLAUDE.md's "Checks" list match the three CI jobs | S5 | – |
+
+### Group 2: independent cleanups (start together)
+
+| Task | Delivers | Review | Depends on |
+| --- | --- | --- | --- |
+| T2 | Learner showcase tightened. One `pub fn` in `trainer.rs` for forward + `flatten_pair` + summed loss, called by `train_epoch` and `learner_forward`. `burgers_learner` writes a timestamped run under `CARGO_MANIFEST_DIR` with `data_cfg.json`, which `predict_burgers` can evaluate. Showcase line added to the module doc and CLAUDE.md. Epochs comment fixed | T2-1, A1 | T1 ∥ T3–T8 |
+| T3 | One `train_fno::<R, RM1, T>(…, y_norm: Option<&UnitGaussianNormalizer>, …)` in `trainer.rs`. `training/trainers/` deleted, and `train_poisson_smoke` moved beside the new function | T2-2, S3, A2 | T1 ∥ |
+| T4 | Unused data generality removed: `GaussianNormalizer`, `RangeNormalizer`, the `Normalizer` trait (→ inherent methods; `mean`/`std`/`eps` accessors), `NpyFileReader`, `FieldReader` (→ inherent `read`), `BaseDatasetConfig`/`HasBaseConfig`. `NpzFileReader` opens once, and reports a wrong dtype as a parse error rather than `FieldNotFound` | T2-6, T2-7, T2-14, A3 | T1 ∥ |
+| T5 | `data/grids.rs` deleted; the f64 oracle the grid tests need moves into `fno.rs`'s tests. CONVENTIONS §2's last bullet updated (prose only) | T2-5, A4 | T1 ∥ |
+| T6 | `pde/poisson/sparse.rs` becomes `#[cfg(test)] mod sparse;`; `tests/rlst_smoke.rs` deleted | T2-9, T2-13, A5 | T1 ∥ |
+| T7 | `tests/metal_diag.rs` split. The asserting regression tests (`repro_*`, `replay_2d_poisson`) go into `tests/gpu_parity.rs`, with the `*_flex` twins outside the GPU gate so CI runs them. The exploratory tests move to `spikes/metal_diag/`. `upstream/burn/*` citations updated. States whether Metal was run | T2-12, A6 | T1 ∥ |
+| T8 | One owner for the shared Chebyshev pieces, all ungated. `TRANSFER_DEGREE` and `Transfers::new(n)` (`t_cu`, `t_uc`, `to_uniform`, `to_cheb`, `round_trip_error`) in `chebyshev::transfer`. `cgl_nodes` public as `nodes_closed_form`, or similar until T14 settles the name. `cc_norm_sq` in `clencurt`, one `ErrorStats`. The generator, `poisson_errors`, the Poisson loader and `poisson_plot` use them; `poisson_plot`'s copy of the nodes is deleted | S4, T6-3, T6-4, C1 | T1 ∥ |
+
+### Group 3: run and training track
+
+| Task | Delivers | Review | Depends on |
+| --- | --- | --- | --- |
+| T9 | Shared loader tail: `loaders/common.rs` with `Normalizers { x, y }` and `normalize_split_pair`, used by Darcy and Poisson (Burgers reuses the channel step). Fallible reshapes become `insert_axis`, Burgers' no-op reshape goes, and the library `println!`s go. **Test added first:** Darcy loader output (shapes, a checksum) on a small synthetic `.mat` is unchanged | T2-10, T4-7, S3, B3 | T4 |
+| T10 | Top-level `runs` module with `RunDir` (create, save configs / metrics / normalizers / weights; open, load model / configs / normalizers / metrics). It absorbs `metrics/io.rs`, `metrics/plots.rs`, `run::load_fno` and `EpochMetrics`. The root is a parameter; configs are `&impl Config`. Every train and predict example migrates, `burgers_learner` included. **Test added first:** a save → open → `load_fno` round trip with bit-identical outputs. `predict_poisson` re-run on an existing run prints the same errors | S1, T4-4, B1 | T2, T3, T4, T9 |
+| T11 | One batching path: predict examples use `device_loader`. `OperatorBatcher` becomes a `#[cfg(test)]` oracle; `DataItem` and the `Dataset` impl are deleted; `dataitem.rs` → `host_float.rs`. `predict_burgers` and `predict_darcy` print the same test L² as before | T2-4, B2 | T10 ∥ T12 |
+| T12 | Epoch observer in `training_loop`. The default prints; a `RunDir` observer appends `metrics.csv` each epoch. The CSV written incrementally equals the end-of-run CSV | T3-2, B5 | T10 ∥ T11 |
+| T13 | Public `evaluate::<R, RM1>` (per-sample mean, owns `LpLoss`) and a rank-generic `predict_host<R>`. `burgers_resolutions` and `burgers_superresolution` merge into one `burgers_resolution` taking rates from argv. `darcy_plot` uses `predict_host`. Each example reproduces its previous numbers | T4-1, T4-2, T2-11, B4 | T11 |
+
+### Group 4: Chebyshev track (runs beside Group 3)
+
+| Task | Delivers | Review | Depends on |
+| --- | --- | --- | --- |
+| T14 | ⚑ **Decision: regenerate datasets or keep them** (nodes move by about 1 ulp, within the loader's `NODE_TOL`). The generator uses the ungated nodes, `clencurt` and `cc_rel_l2_error`. The gated `points`/`quadrature`/`norm` become `#[cfg(all(test, feature = "chebyshev"))]` oracles. `label_check` takes no weights, and `Split.y` goes | T2-8, T4-9, C2 | T6, T8 ∥ Group 3 |
+| T15 | ⚑ **Decision: amend decision 12.** Closed-form `diff_matrix` / `diff2_matrix` (Trefethen `cheb`, negative-sum diagonal, D² = D·D). Drops `rlst/fftw`, `rlst/fftw_system`, `unit_coeffs` and the system libfftw3 (GPL), with the CI apt step. Labels change at round-off: regenerate stage 1 and compare label check and error 2 | S4, C3 | T14 |
+| T16 | `chebyshev/` fully ungated. The feature is renamed for what it enables (e.g. `datagen`) and gates only `pde/`. `lib.rs`, CLAUDE.md and CI follow. If T15 is declined, only `differentiation.rs` stays gated | S4, T3-3, C4 | T15 |
+
+### Group 5: contracts that need a decision
+
+| Task | Delivers | Review | Depends on |
+| --- | --- | --- | --- |
+| T17 | ⚑ **Decision: CONVENTIONS §10.** `y_train` is stored in physical units and only the prediction is decoded. `Postprocess`, `identity` and the closure pair are deleted; the hook is one `Option<FlatDecoder>`. f32 round-off only; proposed in the PR description | T3-1, D1 | T13 |
+| T18 | ⚑ **Decision: `x_normalizer.json`.** Either predict reads it (and stops re-reading and re-transferring the train split), or training stops writing it. `poisson_resolution` keeps refitting on purpose | D2 | T9, T10 ∥ T17 |
+| T19 | A typed `SidecarRecord` shared by generator and loader (byte-compatible; **test first:** parse an existing sidecar fixture). `PoissonErrorsRecord` and the worst-sample / cross-check / boundary verdict move into `metrics::poisson::evaluate` with `Display`; `predict_poisson` and `poisson_resolution` call it. The `Config`-derive allows are scoped per file, and `lib.rs:48`'s blanket allow is deleted | T4-5, T6-2, S5, D3 | T8, T10 ∥ T17, T18 |
+
+### Group 6: decomposition and polish
+
+| Task | Delivers | Review | Depends on |
+| --- | --- | --- | --- |
+| T20 | `models/fno.rs` tests split into `models/fno/tests/{reference,padding,grid,checkpoint}.rs`. `reference_forward` deleted (≡ `Pad::Off`); `to_channels_first` / `to_channels_last` helpers in production and tests. Test count unchanged | T5-1, T7-5, E1 | T5 ∥ T21 |
+| T21 | `SpectralConv`: one `with_bc` fixed-rank helper for the five sites, `flat_modes` computed locally, and the Gauss 3-matmul formula in the doc | T7-4, E2 | – ∥ T20 |
+| T22 | `loaders/poisson.rs` split into `poisson/{set, cheb, uniform}.rs`. `enum PoissonField { F, U }` replaces the string selector and the wrapper. The dataset catalogue gets its own module, which the generator imports; `stage()` returns `Option`. `BurgersFiles` / `DarcyFiles` replace the hard-coded `.mat` paths | T4-6, T5-3, T6-1, E3 | T9, T19 |
+| T23 | One rank-generic `take_strided`; `transforms/subsample.rs` and `data/split.rs` deleted | T2-15, E4 | T9 ∥ T22 |
+| T24 | Documentation pass, last because it touches many files:<br>• the 19 `REVIEW.md` citations → CONVENTIONS § / PR numbers<br>• rustdoc for every surviving public item<br>• `lib.rs` crate docs and `models/mod.rs`<br>• `fno.rs` convention prose → citations<br>• `FNOConfig::init`'s `out_channels` assert removed (the trainer owns it)<br>• `LpLoss` `d` / `forward` cleanup<br>• CLAUDE.md Layout and Commands updated for the phase | S5, T4-3, T4-8, T7-1–3, E5 | T1–T23 |
+| T25 | *Optional.* `collocation.rs` on ndarray after `eig` (deletes `to_dyn`, `from_dyn`, `transpose`), and the A·F·Bᵀ sites routed through `chebyshev::apply`. **Time n = 257 generation first**; skip it if it is slower than now | T6-5 | T16 |
+
+## Parallel work
+
+There are three independent tracks once T1 is in. Each track can be worked by a separate
+session in its own worktree.
+
+```
+T1 ─┬─ Run/training track:  T2, T3, T4 ─▶ T9 ─▶ T10 ─▶ T11 ─▶ T13 ─▶ T17
+    │                                           ├─▶ T12              └─▶ T18, T19
+    ├─ Chebyshev track:     T8 (+T6) ─▶ T14 ─▶ T15 ─▶ T16 ─▶ (T25)
+    └─ Standalone:          T5 ─▶ T20;  T6;  T7;  T21
+```
+
+**Safe to run fully in parallel** (no shared files): T5, T6, T7 and T21 with anything; T8
+with T2, T3 and T5–T7.
+
+**Parallel with a rebase:** these pairs share files in different functions, so the second
+to merge rebases.
+
+| Pair | Shared files |
+| --- | --- |
+| T2 and T3 | both edit `trainer.rs` (a new loss step against a new `train_fno`) and `examples/train/burgers*.rs` |
+| T3 and T4 | train example imports |
+| T4 and T8 | `loaders/poisson.rs` imports |
+| T11 and T12 | `trainer.rs` |
+| T17, T18 and T19 | after T13; small overlaps in examples |
+
+**Must be sequential:** T9 → T10 → T11 → T13 → T17.
+- T10 needs T9's `Normalizers` type.
+- T11 and T13 edit the examples T10 migrates.
+- T17 needs one evaluation entry point.
+
+The Chebyshev chain T14 → T15 → T16 is sequential because each changes what the next
+removes.
+
+**Suggested schedule** for one person working one or two tasks at a time:
+
+| Week | Tasks | Notes |
+| --- | --- | --- |
+| 1 | T1, then T3, T4, T5 and T8 together | T6, T7 and T21 fill the gaps |
+| 2 | T2, T9, then T10 | T10 is the largest task; give it a focused stretch |
+| 3 | T11 and T12 together, then T13; in parallel, T14 → T15 → T16 | T14 and T15 need decisions |
+| 4 | T17–T19 (decisions), then T20, T22, T23 | T24 last |
+
+## Results
+
+Filled in as tasks merge. Phase 4s is done when every row has a value.
+
+| Item | Value | Source |
+| --- | --- | --- |
+| Line delta per task (prod / test) and the test count before / after | | T1–T24 |
+| `predict_poisson` on `runs/poisson_fno_p4_1791922918`: the five errors unchanged after T10, T13, T19 | | T10, T13, T19 |
+| `predict_burgers` / `predict_darcy` test L² unchanged after T10, T11, T13 | | T10, T11, T13 |
+| `train_burgers_learner` run evaluated by `predict_burgers` | | T2 |
+| Decisions taken on T14, T15, T17, T18 (decision 25 or later) | | T14, T15, T17, T18 |
+| Datasets regenerated or kept; label check and error 2 if regenerated | | T14, T15 |
+| `chebyshev` feature: what it gates after the phase, and its new name | | T16 |
+| Repository LOC at `c63eb32` against the phase's last merge | 15,609 (in-scope files, review header) | T24 |
+
+## Exit checklist
+
+- [ ] T1–T24 merged (T25 optional).
+- [ ] Every ⚑ decision recorded in design §12 before its code merged.
+- [ ] The example reruns in Results reproduce their numbers.
+- [ ] No blanket `#[allow]`, no `REVIEW.md` citations, every public item documented.
+- [ ] CLAUDE.md Layout, Commands, Checks and "Current phase" match the code.
+- [ ] A short re-review (same skill, same scope) records the new grade in this README.
