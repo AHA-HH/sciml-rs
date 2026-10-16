@@ -5,11 +5,11 @@ authors = ["The sciml-rs developers"]
 edition = "2024"
 description = "Scientific machine learning tools in Rust"
 license = "MIT OR Apache-2.0"
-homepage = "https://codeberg.org/sciml-rs/sciml-rs"
-repository = "https://codeberg.org/sciml-rs/sciml-rs.git"
+homepage = "https://github.com/AHA-HH/sciml-rs"
+repository = "https://github.com/AHA-HH/sciml-rs.git"
 readme = "README.md"
 keywords = ["neural operators"]
-categories = ["scientific machine learning", "science", "algorithms"]
+categories = ["science", "algorithms"]
 
 [lib]
 name = "sciml_rs"
@@ -69,15 +69,14 @@ required-features = ["chebyshev"]
 
 # Backends are additive: `Device::default()` picks the highest-priority one
 # compiled in (CUDA > Metal > ROCm > Vulkan > wgpu > Flex), and the
-# `BURN_DEVICE` env var overrides it at runtime. Burn's FFT extension 
-# (burn-signal) does not support it.
+# `BURN_DEVICE` env var overrides it at runtime. NdArray is not offered: Burn's
+# FFT extension (burn-signal) does not support it. ROCm and Vulkan are not offered
+# either: there is no hardware to test them on.
 [features]
 default = ["flex"]
 flex = ["burn/flex"] # pure-Rust CPU
 metal = ["burn/metal"]
 cuda = ["burn/cuda"]
-# rocm = ["burn/rocm"]
-# vulkan = ["burn/vulkan"]
 wgpu = ["burn/wgpu"]
 # RLST (dense and sparse linear algebra for the Chebyshev reference solver) plus a
 # BLAS/LAPACK provider chosen by target: Accelerate on macOS, system OpenBLAS on Linux.
@@ -123,7 +122,3 @@ openblas-src = { version = "0.10", features = ["system"], optional = true }
 
 [dev-dependencies]
 approx = { version = "0.5", features = ["num-complex"] }
-
-[target.'cfg(target_os= "macos")'.dev-dependencies]
-
-[target.'cfg(target_os= "linux")'.dev-dependencies]

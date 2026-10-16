@@ -64,7 +64,8 @@ Recorded in design §12, decision 25.
 
 ## Checks for every task
 
-The CI five, plus `cargo clippy --all-targets -- -D warnings`:
+The five commands of the `run-tests` and `style-checks` CI jobs (CLAUDE.md "Checks"), plus
+`cargo clippy --all-targets -- -D warnings`:
 
 ```sh
 cargo fmt -- --check
