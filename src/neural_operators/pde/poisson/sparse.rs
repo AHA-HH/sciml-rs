@@ -3,7 +3,8 @@
 //!
 //! C is the validation oracle for solver A: an independent, second-order discretisation on
 //! the same CGL nodes (CONVENTIONS §12), so u_A and u_C compare node by node with no
-//! interpolation (design §7, error 1). It never produces training labels.
+//! interpolation (design §7, error 1). It never produces training labels, and it is
+//! test-only: no production code calls it.
 //!
 //! The unknowns are the interior nodes, ordered x fastest:
 //!
@@ -29,7 +30,7 @@ use crate::neural_operators::chebyshev::nodes;
 
 /// CG stopping tolerance on the relative residual ‖b − Ax‖₂ / ‖b‖₂ (design §12, decision
 /// 10). rlst falls back to the absolute residual when b = 0.
-pub const CG_TOL: f64 = 1e-6;
+pub(super) const CG_TOL: f64 = 1e-6;
 
 /// CG iteration cap per interior unknown: the cap is 10 (n_x − 2)(n_y − 2). Exact
 /// arithmetic needs at most one iteration per unknown; Phase 0 T4 needed 2998 of 65 025
@@ -42,7 +43,7 @@ const MAX_ITER_PER_UNKNOWN: usize = 10;
 /// Built once per grid size: [`new`](Self::new) assembles the sparse matrix, and
 /// [`solve`](Self::solve) runs CG for each forcing. The validation oracle for
 /// [`CollocationSolver`](super::collocation::CollocationSolver); not a label source.
-pub struct SparseSolver {
+pub(super) struct SparseSolver {
     nx: usize,
     ny: usize,
     /// Q1 stiffness on the interior unknowns, `[(n_x − 2)(n_y − 2)]²`, in the module's
@@ -65,26 +66,26 @@ impl fmt::Debug for SparseSolver {
 
 /// A converged solve of [`SparseSolver::solve`].
 #[derive(Debug, Clone)]
-pub struct SparseSolution {
+pub(super) struct SparseSolution {
     /// u on the full grid, `[n_x, n_y]` 'ij', zero on the boundary rows and columns.
-    pub u: Array2<f64>,
+    pub(super) u: Array2<f64>,
     /// CG iterations taken (0 when f = 0 on the interior rows of the load).
-    pub iterations: usize,
+    pub(super) iterations: usize,
     /// Final relative residual ‖r‖₂ / ‖b‖₂, at most [`CG_TOL`], with r the residual CG
     /// updates by recurrence (equal to b − Ax up to round-off).
-    pub residual: f64,
+    pub(super) residual: f64,
 }
 
 /// CG reached its iteration cap with the relative residual still above the tolerance.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CgNotConverged {
+pub(super) struct CgNotConverged {
     /// Iterations taken: the cap, or fewer if CG broke down on a zero or non-finite
     /// search-direction denominator (for example a non-finite forcing, after 0).
-    pub iterations: usize,
+    pub(super) iterations: usize,
     /// Final relative residual ‖r‖₂ / ‖b‖₂, r as in [`SparseSolution::residual`].
-    pub residual: f64,
+    pub(super) residual: f64,
     /// The tolerance that was not met, [`CG_TOL`].
-    pub tol: f64,
+    pub(super) tol: f64,
 }
 
 impl fmt::Display for CgNotConverged {
@@ -106,7 +107,7 @@ impl SparseSolver {
     ///
     /// # Panics
     /// If `nx < 3` or `ny < 3` (no interior nodes).
-    pub fn new(nx: usize, ny: usize) -> Self {
+    pub(super) fn new(nx: usize, ny: usize) -> Self {
         assert!(
             nx >= 3 && ny >= 3,
             "SparseSolver::new: nx and ny must be >= 3 (interior nodes), got [{nx}, {ny}]"
@@ -143,7 +144,7 @@ impl SparseSolver {
     }
 
     /// The CG iteration cap, 10 (n_x − 2)(n_y − 2).
-    pub fn max_iter(&self) -> usize {
+    pub(super) fn max_iter(&self) -> usize {
         MAX_ITER_PER_UNKNOWN * (self.nx - 2) * (self.ny - 2)
     }
 
@@ -164,7 +165,7 @@ impl SparseSolver {
     ///
     /// # Panics
     /// If `f` is not `[n_x, n_y]`.
-    pub fn solve(&self, f: ArrayView2<f64>) -> Result<SparseSolution, CgNotConverged> {
+    pub(super) fn solve(&self, f: ArrayView2<f64>) -> Result<SparseSolution, CgNotConverged> {
         assert_eq!(
             f.dim(),
             (self.nx, self.ny),
