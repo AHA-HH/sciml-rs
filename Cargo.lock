@@ -4292,6 +4292,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "metal-diag-spike"
+version = "0.0.0"
+dependencies = [
+ "burn",
+ "sciml-rs",
+]
+
+[[package]]
 name = "miette"
 version = "7.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
