@@ -295,7 +295,7 @@ pub fn write_split(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::data::io::{readers::npz::NpzFileReader, traits::FieldReader};
+    use crate::neural_operators::data::io::readers::npz::NpzFileReader;
     use ndarray::Array2;
 
     /// u_A and u_series for one seed, n, K.
@@ -374,7 +374,7 @@ mod tests {
         let (npz_path, json_path) = write_split(&dir, "train", &split, "abc123").unwrap();
         assert_eq!(npz_path, dir.join("poisson_n17_K8_train.npz"));
 
-        let reader = NpzFileReader::new(&npz_path);
+        let mut reader = NpzFileReader::new(&npz_path).unwrap();
         for (field, written) in [("f", &split.f), ("u", &split.u)] {
             let read = reader.read_field(field).unwrap();
             assert_eq!(read.shape(), &[2, 17, 17], "{field}");

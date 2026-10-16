@@ -429,9 +429,7 @@ fn train_built<const R: usize, const RM1: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::data::{
-        batcher::OperatorBatcher, transforms::normalizers::Normalizer,
-    };
+    use crate::neural_operators::data::batcher::OperatorBatcher;
     use crate::neural_operators::{
         chebyshev::nodes_closed_form,
         data::loaders::{

@@ -9,8 +9,8 @@
 use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
-    io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
-    loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
+    io::{errors::LoadError, readers::mat::MatFileReader},
+    loaders::base_dataset::DatasetConfig,
     split::train_test_split,
     transforms::subsample::subsample,
 };
@@ -27,12 +27,6 @@ pub struct BurgersConfig {
 impl BurgersConfig {
     pub fn s(&self) -> usize {
         2usize.pow(13) / self.subsample_rate
-    }
-}
-
-impl HasBaseConfig for BurgersConfig {
-    fn base(&self) -> &DatasetConfig {
-        &self.base
     }
 }
 
@@ -86,11 +80,10 @@ fn burgers_from_fields<T: HostFloat>(
             )));
         }
         let n_total = field.shape()[0];
-        if config.n_train() + config.n_test() > n_total {
+        if config.base.n_train + config.base.n_test > n_total {
             return Err(LoadError::Invalid(format!(
                 "n_train ({}) + n_test ({}) exceeds the {n_total} samples in field '{name}'",
-                config.n_train(),
-                config.n_test()
+                config.base.n_train, config.base.n_test
             )));
         }
     }
@@ -110,23 +103,23 @@ fn burgers_from_fields<T: HostFloat>(
     }
 
     // 3. Split into train and test (sizes validated above)
-    let (a_train, a_test) = train_test_split(a_data, config.n_train(), config.n_test());
-    let (u_train, u_test) = train_test_split(u_data, config.n_train(), config.n_test());
+    let (a_train, a_test) = train_test_split(a_data, config.base.n_train, config.base.n_test);
+    let (u_train, u_test) = train_test_split(u_data, config.base.n_train, config.base.n_test);
 
     // 4. Reshape inputs [n, s] -> [n, s, 1]: one data channel
     let a_train = a_train
-        .into_shape_with_order(IxDyn(&[config.n_train(), s, 1]))
+        .into_shape_with_order(IxDyn(&[config.base.n_train, s, 1]))
         .map_err(|e| LoadError::Invalid(format!("reshape a_train: {e}")))?;
     let a_test = a_test
-        .into_shape_with_order(IxDyn(&[config.n_test(), s, 1]))
+        .into_shape_with_order(IxDyn(&[config.base.n_test, s, 1]))
         .map_err(|e| LoadError::Invalid(format!("reshape a_test: {e}")))?;
 
     // 5. Reshape targets [n, s] -> [n, s] ensure dynamic shape
     let u_train = u_train
-        .into_shape_with_order(IxDyn(&[config.n_train(), s]))
+        .into_shape_with_order(IxDyn(&[config.base.n_train, s]))
         .map_err(|e| LoadError::Invalid(format!("reshape u_train: {e}")))?;
     let u_test = u_test
-        .into_shape_with_order(IxDyn(&[config.n_test(), s]))
+        .into_shape_with_order(IxDyn(&[config.base.n_test, s]))
         .map_err(|e| LoadError::Invalid(format!("reshape u_test: {e}")))?;
 
     // 6. Wrap in OperatorDataset, casting to the host dtype T
@@ -135,9 +128,7 @@ fn burgers_from_fields<T: HostFloat>(
 
     println!(
         "burgers: {} train / {} test at s={}",
-        config.n_train(),
-        config.n_test(),
-        s
+        config.base.n_train, config.base.n_test, s
     );
 
     Ok((train_dataset, test_dataset))

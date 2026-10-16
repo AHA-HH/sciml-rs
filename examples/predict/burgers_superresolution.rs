@@ -28,7 +28,7 @@ use sciml_rs::neural_operators::{
     data::{
         batcher::OperatorBatcher,
         loaders::{
-            base_dataset::{BaseDatasetConfig, DatasetConfig},
+            base_dataset::DatasetConfig,
             burgers::{BurgersConfig, load_burgers_uniform},
         },
     },
@@ -53,7 +53,7 @@ fn main() {
     model.load_from(&mut store).expect("load model weights");
 
     let trained_cfg = BurgersConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
-    let (n_train, n_test) = (trained_cfg.n_train(), trained_cfg.n_test());
+    let (n_train, n_test) = (trained_cfg.base.n_train, trained_cfg.base.n_test);
     let trained_s = trained_cfg.s();
 
     let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");

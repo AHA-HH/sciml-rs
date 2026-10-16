@@ -22,11 +22,8 @@ use ndarray::Axis;
 use sciml_rs::neural_operators::{
     chebyshev::TRANSFER_DEGREE,
     data::{
-        loaders::{
-            base_dataset::HasBaseConfig,
-            poisson::{PoissonConfig, load_poisson_cheb, load_poisson_uniform, stage},
-        },
-        transforms::normalizers::{Normalizer, NormalizerRecord, UnitGaussianNormalizer},
+        loaders::poisson::{PoissonConfig, load_poisson_cheb, load_poisson_uniform, stage},
+        transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
     },
     metrics::{
         poisson::{check_error3, poisson_errors},
@@ -132,7 +129,7 @@ fn main() {
     let dataset_cfg = PoissonConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
     let n = dataset_cfg.n;
     let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
-    let n_test = dataset_cfg.base().n_test;
+    let n_test = dataset_cfg.base.n_test;
     let s = dataset_cfg.s();
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");

@@ -16,9 +16,9 @@
 use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
-    io::{errors::LoadError, readers::mat::MatFileReader, traits::FieldReader},
-    loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
-    transforms::normalizers::{Normalizer, UnitGaussianNormalizer},
+    io::{errors::LoadError, readers::mat::MatFileReader},
+    loaders::base_dataset::DatasetConfig,
+    transforms::normalizers::UnitGaussianNormalizer,
 };
 use burn::config::Config;
 use ndarray::{ArrayD, IxDyn, s};
@@ -36,12 +36,6 @@ impl DarcyConfig {
     /// Checked against the actually-read resolution in `load_darcy_uniform`.
     pub fn s(&self) -> usize {
         (421 - 1) / self.subsample_rate + 1
-    }
-}
-
-impl HasBaseConfig for DarcyConfig {
-    fn base(&self) -> &DatasetConfig {
-        &self.base
     }
 }
 
@@ -81,10 +75,10 @@ pub fn load_darcy_uniform<T: HostFloat>(
         return Err(LoadError::Invalid("subsample_rate must be > 0".into()));
     }
     // ddof = 1 std of a single sample is 0/0 = NaN, which eps can't guard
-    if config.n_train() < 2 {
+    if config.base.n_train < 2 {
         return Err(LoadError::Invalid(format!(
             "n_train must be >= 2: a sample std needs at least 2 training samples, got {}",
-            config.n_train()
+            config.base.n_train
         )));
     }
 
@@ -115,8 +109,8 @@ pub fn load_darcy_uniform<T: HostFloat>(
         }
         Ok((take_subsampled(x, n, r), take_subsampled(y, n, r)))
     };
-    let (x_train, y_train) = load_split(train_path.as_ref(), "train", config.n_train())?;
-    let (x_test, y_test) = load_split(test_path.as_ref(), "test", config.n_test())?;
+    let (x_train, y_train) = load_split(train_path.as_ref(), "train", config.base.n_train)?;
+    let (x_test, y_test) = load_split(test_path.as_ref(), "test", config.base.n_test)?;
     darcy_from_fields(x_train, y_train, x_test, y_test, config)
 }
 
