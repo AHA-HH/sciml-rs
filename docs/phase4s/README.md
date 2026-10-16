@@ -89,63 +89,67 @@ Tasks that touch `chebyshev/` or `pde/` also run `cargo test --features chebyshe
 
 Task numbers are execution order. "∥" in Depends on marks tasks that can run in parallel
 with their neighbours (see "Parallel work" below). One task per branch and PR:
-`phase4s/T<k>-<name>`. Briefs are written when each task starts, from its row here and
-the review findings it cites.
+`phase4s/T<k>-<name>`. Each task's brief is `T<k>-<name>.md` in this directory (linked
+from the task number). All briefs were written on 2026-10-16 from each task's row and the
+review findings it cites, with the locations re-checked against `6eb3212`. A brief with a
+**Refresh at start** block depends on earlier PRs: re-check what it lists against `main`
+before starting. A ⚑ brief sets out the options and a recommendation; the author decides
+when the task starts.
 
 ### Group 1: setup
 
 | Task | Delivers | Review | Depends on |
 | --- | --- | --- | --- |
-| T1 | CI and manifest hygiene: delete `run-examples.yml` and the commented apt blocks in `run-tests.yml`; fix `Cargo.toml`'s `homepage`/`repository` (GitHub), the invalid category, the empty dev-dependency tables and the truncated feature comment; drop rocm/vulkan from `lib.rs`'s `compile_error!`; make CLAUDE.md's "Checks" list match the three CI jobs | S5 | – |
+| [T1](T1-ci-manifest-hygiene.md) | CI and manifest hygiene: delete `run-examples.yml` and the commented apt blocks in `run-tests.yml`; fix `Cargo.toml`'s `homepage`/`repository` (GitHub), the invalid category, the empty dev-dependency tables and the truncated feature comment; drop rocm/vulkan from `lib.rs`'s `compile_error!`; make CLAUDE.md's "Checks" list match the three CI jobs | S5 | – |
 
 ### Group 2: independent cleanups (start together)
 
 | Task | Delivers | Review | Depends on |
 | --- | --- | --- | --- |
-| T2 | Learner showcase tightened. One `pub fn` in `trainer.rs` for forward + `flatten_pair` + summed loss, called by `train_epoch` and `learner_forward`. `burgers_learner` writes a timestamped run under `CARGO_MANIFEST_DIR` with `data_cfg.json`, which `predict_burgers` can evaluate. Showcase line added to the module doc and CLAUDE.md. Epochs comment fixed | T2-1, A1 | T1 ∥ T3–T8 |
-| T3 | One `train_fno::<R, RM1, T>(…, y_norm: Option<&UnitGaussianNormalizer>, …)` in `trainer.rs`. `training/trainers/` deleted, and `train_poisson_smoke` moved beside the new function | T2-2, S3, A2 | T1 ∥ |
-| T4 | Unused data generality removed: `GaussianNormalizer`, `RangeNormalizer`, the `Normalizer` trait (→ inherent methods; `mean`/`std`/`eps` accessors), `NpyFileReader`, `FieldReader` (→ inherent `read`), `BaseDatasetConfig`/`HasBaseConfig`. `NpzFileReader` opens once, and reports a wrong dtype as a parse error rather than `FieldNotFound` | T2-6, T2-7, T2-14, A3 | T1 ∥ |
-| T5 | `data/grids.rs` deleted; the f64 oracle the grid tests need moves into `fno.rs`'s tests. CONVENTIONS §2's last bullet updated (prose only) | T2-5, A4 | T1 ∥ |
-| T6 | `pde/poisson/sparse.rs` becomes `#[cfg(test)] mod sparse;`; `tests/rlst_smoke.rs` deleted | T2-9, T2-13, A5 | T1 ∥ |
-| T7 | `tests/metal_diag.rs` split. The asserting regression tests (`repro_*`, `replay_2d_poisson`) go into `tests/gpu_parity.rs`, with the `*_flex` twins outside the GPU gate so CI runs them. The exploratory tests move to `spikes/metal_diag/`. `upstream/burn/*` citations updated. States whether Metal was run | T2-12, A6 | T1 ∥ |
-| T8 | One owner for the shared Chebyshev pieces, all ungated. `TRANSFER_DEGREE` and `Transfers::new(n)` (`t_cu`, `t_uc`, `to_uniform`, `to_cheb`, `round_trip_error`) in `chebyshev::transfer`. `cgl_nodes` public as `nodes_closed_form`, or similar until T14 settles the name. `cc_norm_sq` in `clencurt`, one `ErrorStats`. The generator, `poisson_errors`, the Poisson loader and `poisson_plot` use them; `poisson_plot`'s copy of the nodes is deleted | S4, T6-3, T6-4, C1 | T1 ∥ |
+| [T2](T2-learner-showcase.md) | Learner showcase tightened. One `pub fn` in `trainer.rs` for forward + `flatten_pair` + summed loss, called by `train_epoch` and `learner_forward`. `burgers_learner` writes a timestamped run under `CARGO_MANIFEST_DIR` with `data_cfg.json`, which `predict_burgers` can evaluate. Showcase line added to the module doc and CLAUDE.md. Epochs comment fixed | T2-1, A1 | T1 ∥ T3–T8 |
+| [T3](T3-train-fno.md) | One `train_fno::<R, RM1, T>(…, y_norm: Option<&UnitGaussianNormalizer>, …)` in `trainer.rs`. `training/trainers/` deleted, and `train_poisson_smoke` moved beside the new function | T2-2, S3, A2 | T1 ∥ |
+| [T4](T4-dead-data-generality.md) | Unused data generality removed: `GaussianNormalizer`, `RangeNormalizer`, the `Normalizer` trait (→ inherent methods; `mean`/`std`/`eps` accessors), `NpyFileReader`, `FieldReader` (→ inherent `read`), `BaseDatasetConfig`/`HasBaseConfig`. `NpzFileReader` opens once, and reports a wrong dtype as a parse error rather than `FieldNotFound` | T2-6, T2-7, T2-14, A3 | T1 ∥ |
+| [T5](T5-delete-grids.md) | `data/grids.rs` deleted; the f64 oracle the grid tests need moves into `fno.rs`'s tests. CONVENTIONS §2's last bullet updated (prose only) | T2-5, A4 | T1 ∥ |
+| [T6](T6-sparse-test-only.md) | `pde/poisson/sparse.rs` becomes `#[cfg(test)] mod sparse;`; `tests/rlst_smoke.rs` deleted | T2-9, T2-13, A5 | T1 ∥ |
+| [T7](T7-gpu-parity-split.md) | `tests/metal_diag.rs` split. The asserting regression tests (`repro_*`, `replay_2d_poisson`) go into `tests/gpu_parity.rs`, with the `*_flex` twins outside the GPU gate so CI runs them. The exploratory tests move to `spikes/metal_diag/`. `upstream/burn/*` citations updated. States whether Metal was run | T2-12, A6 | T1 ∥ |
+| [T8](T8-chebyshev-shared-pieces.md) | One owner for the shared Chebyshev pieces, all ungated. `TRANSFER_DEGREE` and `Transfers::new(n)` (`t_cu`, `t_uc`, `to_uniform`, `to_cheb`, `round_trip_error`) in `chebyshev::transfer`. `cgl_nodes` public as `nodes_closed_form`, or similar until T14 settles the name. `cc_norm_sq` in `clencurt`, one `ErrorStats`. The generator, `poisson_errors`, the Poisson loader and `poisson_plot` use them; `poisson_plot`'s copy of the nodes is deleted | S4, T6-3, T6-4, C1 | T1 ∥ |
 
 ### Group 3: run and training track
 
 | Task | Delivers | Review | Depends on |
 | --- | --- | --- | --- |
-| T9 | Shared loader tail: `loaders/common.rs` with `Normalizers { x, y }` and `normalize_split_pair`, used by Darcy and Poisson (Burgers reuses the channel step). Fallible reshapes become `insert_axis`, Burgers' no-op reshape goes, and the library `println!`s go. **Test added first:** Darcy loader output (shapes, a checksum) on a small synthetic `.mat` is unchanged | T2-10, T4-7, S3, B3 | T4 |
-| T10 | Top-level `runs` module with `RunDir` (create, save configs / metrics / normalizers / weights; open, load model / configs / normalizers / metrics). It absorbs `metrics/io.rs`, `metrics/plots.rs`, `run::load_fno` and `EpochMetrics`. The root is a parameter; configs are `&impl Config`. Every train and predict example migrates, `burgers_learner` included. **Test added first:** a save → open → `load_fno` round trip with bit-identical outputs. `predict_poisson` re-run on an existing run prints the same errors | S1, T4-4, B1 | T2, T3, T4, T9 |
-| T11 | One batching path: predict examples use `device_loader`. `OperatorBatcher` becomes a `#[cfg(test)]` oracle; `DataItem` and the `Dataset` impl are deleted; `dataitem.rs` → `host_float.rs`. `predict_burgers` and `predict_darcy` print the same test L² as before | T2-4, B2 | T10 ∥ T12 |
-| T12 | Epoch observer in `training_loop`. The default prints; a `RunDir` observer appends `metrics.csv` each epoch. The CSV written incrementally equals the end-of-run CSV | T3-2, B5 | T10 ∥ T11 |
-| T13 | Public `evaluate::<R, RM1>` (per-sample mean, owns `LpLoss`) and a rank-generic `predict_host<R>`. `burgers_resolutions` and `burgers_superresolution` merge into one `burgers_resolution` taking rates from argv. `darcy_plot` uses `predict_host`. Each example reproduces its previous numbers | T4-1, T4-2, T2-11, B4 | T11 |
+| [T9](T9-loader-common-tail.md) | Shared loader tail: `loaders/common.rs` with `Normalizers { x, y }` and `normalize_split_pair`, used by Darcy and Poisson (Burgers reuses the channel step). Fallible reshapes become `insert_axis`, Burgers' no-op reshape goes, and the library `println!`s go. **Test added first:** Darcy loader output (shapes, a checksum) on a small synthetic `.mat` is unchanged | T2-10, T4-7, S3, B3 | T4 |
+| [T10](T10-run-dir.md) | Top-level `runs` module with `RunDir` (create, save configs / metrics / normalizers / weights; open, load model / configs / normalizers / metrics). It absorbs `metrics/io.rs`, `metrics/plots.rs`, `run::load_fno` and `EpochMetrics`. The root is a parameter; configs are `&impl Config`. Every train and predict example migrates, `burgers_learner` included. **Test added first:** a save → open → `load_fno` round trip with bit-identical outputs. `predict_poisson` re-run on an existing run prints the same errors | S1, T4-4, B1 | T2, T3, T4, T9 |
+| [T11](T11-one-batching-path.md) | One batching path: predict examples use `device_loader`. `OperatorBatcher` becomes a `#[cfg(test)]` oracle; `DataItem` and the `Dataset` impl are deleted; `dataitem.rs` → `host_float.rs`. `predict_burgers` and `predict_darcy` print the same test L² as before | T2-4, B2 | T10 ∥ T12 |
+| [T12](T12-epoch-observer.md) | Epoch observer in `training_loop`. The default prints; a `RunDir` observer appends `metrics.csv` each epoch. The CSV written incrementally equals the end-of-run CSV | T3-2, B5 | T10 ∥ T11 |
+| [T13](T13-evaluate-predict-host.md) | Public `evaluate::<R, RM1>` (per-sample mean, owns `LpLoss`) and a rank-generic `predict_host<R>`. `burgers_resolutions` and `burgers_superresolution` merge into one `burgers_resolution` taking rates from argv. `darcy_plot` uses `predict_host`. Each example reproduces its previous numbers | T4-1, T4-2, T2-11, B4 | T11 |
 
 ### Group 4: Chebyshev track (runs beside Group 3)
 
 | Task | Delivers | Review | Depends on |
 | --- | --- | --- | --- |
-| T14 | ⚑ **Decision: regenerate datasets or keep them** (nodes move by about 1 ulp, within the loader's `NODE_TOL`). The generator uses the ungated nodes, `clencurt` and `cc_rel_l2_error`. The gated `points`/`quadrature`/`norm` become `#[cfg(all(test, feature = "chebyshev"))]` oracles. `label_check` takes no weights, and `Split.y` goes | T2-8, T4-9, C2 | T6, T8 ∥ Group 3 |
-| T15 | ⚑ **Decision: amend decision 12.** Closed-form `diff_matrix` / `diff2_matrix` (Trefethen `cheb`, negative-sum diagonal, D² = D·D). Drops `rlst/fftw`, `rlst/fftw_system`, `unit_coeffs` and the system libfftw3 (GPL), with the CI apt step. Labels change at round-off: regenerate stage 1 and compare label check and error 2 | S4, C3 | T14 |
-| T16 | `chebyshev/` fully ungated. The feature is renamed for what it enables (e.g. `datagen`) and gates only `pde/`. `lib.rs`, CLAUDE.md and CI follow. If T15 is declined, only `differentiation.rs` stays gated | S4, T3-3, C4 | T15 |
+| [T14](T14-generator-ungated-stack.md) | ⚑ **Decision: regenerate datasets or keep them** (nodes move by about 1 ulp, within the loader's `NODE_TOL`). The generator uses the ungated nodes, `clencurt` and `cc_rel_l2_error`. The gated `points`/`quadrature`/`norm` become `#[cfg(all(test, feature = "chebyshev"))]` oracles. `label_check` takes no weights, and `Split.y` goes | T2-8, T4-9, C2 | T6, T8 ∥ Group 3 |
+| [T15](T15-closed-form-diff.md) | ⚑ **Decision: amend decision 12.** Closed-form `diff_matrix` / `diff2_matrix` (Trefethen `cheb`, negative-sum diagonal, D² = D·D). Drops `rlst/fftw`, `rlst/fftw_system`, `unit_coeffs` and the system libfftw3 (GPL), with the CI apt step. Labels change at round-off: regenerate stage 1 and compare label check and error 2 | S4, C3 | T14 |
+| [T16](T16-ungate-chebyshev.md) | `chebyshev/` fully ungated. The feature is renamed for what it enables (e.g. `datagen`) and gates only `pde/`. `lib.rs`, CLAUDE.md and CI follow. If T15 is declined, only `differentiation.rs` stays gated | S4, T3-3, C4 | T15 |
 
 ### Group 5: contracts that need a decision
 
 | Task | Delivers | Review | Depends on |
 | --- | --- | --- | --- |
-| T17 | ⚑ **Decision: CONVENTIONS §10.** `y_train` is stored in physical units and only the prediction is decoded. `Postprocess`, `identity` and the closure pair are deleted; the hook is one `Option<FlatDecoder>`. f32 round-off only; proposed in the PR description | T3-1, D1 | T13 |
-| T18 | ⚑ **Decision: `x_normalizer.json`.** Either predict reads it (and stops re-reading and re-transferring the train split), or training stops writing it. `poisson_resolution` keeps refitting on purpose | D2 | T9, T10 ∥ T17 |
-| T19 | A typed `SidecarRecord` shared by generator and loader (byte-compatible; **test first:** parse an existing sidecar fixture). `PoissonErrorsRecord` and the worst-sample / cross-check / boundary verdict move into `metrics::poisson::evaluate` with `Display`; `predict_poisson` and `poisson_resolution` call it. The `Config`-derive allows are scoped per file, and `lib.rs:48`'s blanket allow is deleted | T4-5, T6-2, S5, D3 | T8, T10 ∥ T17, T18 |
+| [T17](T17-y-train-physical.md) | ⚑ **Decision: CONVENTIONS §10.** `y_train` is stored in physical units and only the prediction is decoded. `Postprocess`, `identity` and the closure pair are deleted; the hook is one `Option<FlatDecoder>`. f32 round-off only; proposed in the PR description | T3-1, D1 | T13 |
+| [T18](T18-x-normalizer.md) | ⚑ **Decision: `x_normalizer.json`.** Either predict reads it (and stops re-reading and re-transferring the train split), or training stops writing it. `poisson_resolution` keeps refitting on purpose | D2 | T9, T10 ∥ T17 |
+| [T19](T19-sidecar-and-eval.md) | A typed `SidecarRecord` shared by generator and loader (byte-compatible; **test first:** parse an existing sidecar fixture). `PoissonErrorsRecord` and the worst-sample / cross-check / boundary verdict move into `metrics::poisson::evaluate` with `Display`; `predict_poisson` and `poisson_resolution` call it. The `Config`-derive allows are scoped per file, and `lib.rs:48`'s blanket allow is deleted | T4-5, T6-2, S5, D3 | T8, T10 ∥ T17, T18 |
 
 ### Group 6: decomposition and polish
 
 | Task | Delivers | Review | Depends on |
 | --- | --- | --- | --- |
-| T20 | `models/fno.rs` tests split into `models/fno/tests/{reference,padding,grid,checkpoint}.rs`. `reference_forward` deleted (≡ `Pad::Off`); `to_channels_first` / `to_channels_last` helpers in production and tests. Test count unchanged | T5-1, T7-5, E1 | T5 ∥ T21 |
-| T21 | `SpectralConv`: one `with_bc` fixed-rank helper for the five sites, `flat_modes` computed locally, and the Gauss 3-matmul formula in the doc | T7-4, E2 | – ∥ T20 |
-| T22 | `loaders/poisson.rs` split into `poisson/{set, cheb, uniform}.rs`. `enum PoissonField { F, U }` replaces the string selector and the wrapper. The dataset catalogue gets its own module, which the generator imports; `stage()` returns `Option`. `BurgersFiles` / `DarcyFiles` replace the hard-coded `.mat` paths | T4-6, T5-3, T6-1, E3 | T9, T19 |
-| T23 | One rank-generic `take_strided`; `transforms/subsample.rs` and `data/split.rs` deleted | T2-15, E4 | T9 ∥ T22 |
-| T24 | Documentation pass, last because it touches many files:<br>• the 19 `REVIEW.md` citations → CONVENTIONS § / PR numbers<br>• rustdoc for every surviving public item<br>• `lib.rs` crate docs and `models/mod.rs`<br>• `fno.rs` convention prose → citations<br>• `FNOConfig::init`'s `out_channels` assert removed (the trainer owns it)<br>• `LpLoss` `d` / `forward` cleanup<br>• CLAUDE.md Layout and Commands updated for the phase | S5, T4-3, T4-8, T7-1–3, E5 | T1–T23 |
-| T25 | *Optional.* `collocation.rs` on ndarray after `eig` (deletes `to_dyn`, `from_dyn`, `transpose`), and the A·F·Bᵀ sites routed through `chebyshev::apply`. **Time n = 257 generation first**; skip it if it is slower than now | T6-5 | T16 |
+| [T20](T20-fno-tests-split.md) | `models/fno.rs` tests split into `models/fno/tests/{reference,padding,grid,checkpoint}.rs`. `reference_forward` deleted (≡ `Pad::Off`); `to_channels_first` / `to_channels_last` helpers in production and tests. Test count unchanged | T5-1, T7-5, E1 | T5 ∥ T21 |
+| [T21](T21-spectral-conv-polish.md) | `SpectralConv`: one `with_bc` fixed-rank helper for the five sites, `flat_modes` computed locally, and the Gauss 3-matmul formula in the doc | T7-4, E2 | – ∥ T20 |
+| [T22](T22-poisson-loader-split.md) | `loaders/poisson.rs` split into `poisson/{set, cheb, uniform}.rs`. `enum PoissonField { F, U }` replaces the string selector and the wrapper. The dataset catalogue gets its own module, which the generator imports; `stage()` returns `Option`. `BurgersFiles` / `DarcyFiles` replace the hard-coded `.mat` paths | T4-6, T5-3, T6-1, E3 | T9, T19 |
+| [T23](T23-take-strided.md) | One rank-generic `take_strided`; `transforms/subsample.rs` and `data/split.rs` deleted | T2-15, E4 | T9 ∥ T22 |
+| [T24](T24-docs-pass.md) | Documentation pass, last because it touches many files:<br>• the 19 `REVIEW.md` citations → CONVENTIONS § / PR numbers<br>• rustdoc for every surviving public item<br>• `lib.rs` crate docs and `models/mod.rs`<br>• `fno.rs` convention prose → citations<br>• `FNOConfig::init`'s `out_channels` assert removed (the trainer owns it)<br>• `LpLoss` `d` / `forward` cleanup<br>• CLAUDE.md Layout and Commands updated for the phase | S5, T4-3, T4-8, T7-1–3, E5 | T1–T23 |
+| [T25](T25-collocation-ndarray.md) | *Optional.* `collocation.rs` on ndarray after `eig` (deletes `to_dyn`, `from_dyn`, `transpose`), and the A·F·Bᵀ sites routed through `chebyshev::apply`. **Time n = 257 generation first**; skip it if it is slower than now | T6-5 | T16 |
 
 ## Parallel work
 
@@ -169,7 +173,9 @@ to merge rebases.
 | --- | --- |
 | T2 and T3 | both edit `trainer.rs` (a new loss step against a new `train_fno`) and `examples/train/burgers*.rs` |
 | T3 and T4 | train example imports |
-| T4 and T8 | `loaders/poisson.rs` imports |
+| T4 and T8 | imports in `loaders/poisson.rs`, `pde/poisson/dataset.rs` (a T4 test), `examples/predict/{poisson,poisson_plot}.rs` |
+| T1, T2, T6 and T8 | `CLAUDE.md` Layout and Commands lines |
+| T5, T11 and T23 | one `pub mod` line each in `data/mod.rs` |
 | T11 and T12 | `trainer.rs` |
 | T17, T18 and T19 | after T13; small overlaps in examples |
 
@@ -180,6 +186,17 @@ to merge rebases.
 
 The Chebyshev chain T14 → T15 → T16 is sequential because each changes what the next
 removes.
+
+**Never side by side:**
+- T4 and T14 both edit `pde/poisson/dataset.rs`. T4 merges first in the normal order.
+- T10 and any other task in the run/training track: T10 edits every train and predict
+  example.
+
+**How many sessions:** three at most, one per track, each in its own worktree
+(`phase4s/T<k>-<name>`). The code allows more, but the machine doesn't: each worktree
+builds its own Burn `target/` (several GB), and parallel `cargo test` runs compete for CPU.
+A shared `CARGO_TARGET_DIR` saves disk, but cargo's build lock then serialises the
+sessions.
 
 **Suggested schedule** for one person working one or two tasks at a time:
 
