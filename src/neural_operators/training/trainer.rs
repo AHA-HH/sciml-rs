@@ -17,8 +17,11 @@ use std::sync::Arc;
 
 use crate::neural_operators::{
     data::{
-        batcher::Batch, dataitem::HostFloat, dataset::OperatorDataset,
+        batcher::Batch,
+        dataitem::HostFloat,
+        dataset::OperatorDataset,
         device_batcher::device_loader,
+        transforms::normalizers::{FlatDecoder, UnitGaussianNormalizer},
     },
     losses::data_losses::{LpLoss, Reduction},
     models::fno::{FNO, FNOConfig},
@@ -365,11 +368,82 @@ pub fn training_loop<const R: usize, const RM1: usize>(
     (model, metrics)
 }
 
+/// Trains an FNO on any dataset: builds the components and runs [`training_loop`].
+///
+/// `R` is the model rank (batch + spatial axes + channel) and `RM1 = R - 1` the target
+/// rank: `<3, 2>` for 1D (Burgers), `<4, 3>` for 2D (Darcy, Poisson). Inputs are
+/// `[n, ...spatial, 1]` and targets `[n, ...spatial]`.
+///
+/// `y_norm` chooses the postprocess hooks:
+/// - `None`: [`identity`] on both sides, for data trained in physical units (Burgers).
+/// - `Some(y)`: `y_train` was encoded with `y` during loading and `y_test` was not
+///   (CONVENTIONS §10), so training decodes both prediction and target, and evaluation
+///   decodes only the prediction.
+///
+/// # Panics
+///
+/// From [`build_training_components`]:
+/// - If either dataset is empty.
+/// - If `model_cfg.modes.len() + 2 != R` or `model_cfg.out_channels != 1`
+///   (`FNOConfig::init`; the latter is the requirement of [`flatten_pair`]).
+pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
+    train_data: OperatorDataset<T>,
+    test_data: OperatorDataset<T>,
+    y_norm: Option<&UnitGaussianNormalizer>,
+    model_cfg: &FNOConfig,
+    train_cfg: &TrainingConfig,
+    device: &Device,
+) -> (FNO<R>, Vec<EpochMetrics>) {
+    let components =
+        build_training_components::<R, RM1, T>(model_cfg, train_cfg, train_data, test_data, device);
+
+    train_built(components, y_norm, train_cfg, device)
+}
+
+/// [`train_fno`] after the build: picks the hooks for `y_norm` and runs the loop. Split out
+/// so tests can give two runs the same initial model.
+fn train_built<const R: usize, const RM1: usize>(
+    components: TrainingComponents<R, RM1>,
+    y_norm: Option<&UnitGaussianNormalizer>,
+    train_cfg: &TrainingConfig,
+    device: &Device,
+) -> (FNO<R>, Vec<EpochMetrics>) {
+    let Some(y_norm) = y_norm else {
+        return training_loop(components, train_cfg, &identity, &identity);
+    };
+
+    // One decoder per device: training tensors are autodiff, evaluation
+    // tensors live on the inner device (model.valid()).
+    let train_decoder = FlatDecoder::new(y_norm, device);
+    let eval_decoder = FlatDecoder::new(y_norm, &device.clone().inner());
+
+    let train_post = move |out: Tensor<2>, target: Tensor<2>| {
+        (train_decoder.decode(out), train_decoder.decode(target))
+    };
+
+    let eval_post = move |out: Tensor<2>, target: Tensor<2>| (eval_decoder.decode(out), target);
+
+    training_loop(components, train_cfg, &train_post, &eval_post)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::data::batcher::OperatorBatcher;
+    use crate::neural_operators::data::{
+        batcher::OperatorBatcher, transforms::normalizers::Normalizer,
+    };
+    use crate::neural_operators::{
+        chebyshev::cgl_nodes,
+        data::loaders::{
+            base_dataset::DatasetConfig,
+            poisson::{PoissonConfig, load_poisson_uniform},
+        },
+    };
     use burn::data::dataloader::DataLoaderBuilder;
+    use ndarray::{Array1, Array3, ArrayD};
+    use ndarray_npy::NpzWriter;
+    use std::fs::{self, File};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn flatten_pair_collapses_to_rank_two() {
@@ -509,18 +583,7 @@ mod tests {
             .build(tiny_dataset(n_test));
         let (old_model, old) = training_loop(host, &train_cfg, &identity, &identity);
 
-        let key = |m: &EpochMetrics| {
-            (
-                m.train_mse.to_bits(),
-                m.train_l2.to_bits(),
-                m.test_l2.to_bits(),
-                m.current_lr.to_bits(),
-            )
-        };
-        assert_eq!(
-            new.iter().map(key).collect::<Vec<_>>(),
-            old.iter().map(key).collect::<Vec<_>>()
-        );
+        assert_eq!(metric_bits(&new), metric_bits(&old));
 
         let probe = |m: &FNO<3>| -> Vec<f32> {
             let x = tiny_dataset(1);
@@ -547,6 +610,101 @@ mod tests {
         }
     }
 
+    // --- Phase 4s T3: `train_fno` reproduces the per-PDE trainers it replaced ---
+
+    /// Every metric of every epoch, as bits.
+    fn metric_bits(metrics: &[EpochMetrics]) -> Vec<(u32, u32, u32, u64)> {
+        metrics
+            .iter()
+            .map(|m| {
+                (
+                    m.train_mse.to_bits(),
+                    m.train_l2.to_bits(),
+                    m.test_l2.to_bits(),
+                    m.current_lr.to_bits(),
+                )
+            })
+            .collect()
+    }
+
+    /// `n` Darcy-shaped samples: inputs `[n, 4, 4, 1]`, targets `[n, 4, 4]`.
+    fn tiny_dataset_2d(n: usize) -> OperatorDataset<f64> {
+        let inputs = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 4, 4, 1]), |i| {
+            ((i[0] * 16 + i[1] * 4 + i[2]) as f64 * 0.3).sin()
+        });
+        let targets = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 4, 4]), |i| {
+            2.0 + ((i[0] * 16 + i[1] * 4 + i[2]) as f64 * 0.7).cos()
+        });
+        OperatorDataset::new(inputs, targets)
+    }
+
+    /// `None` against the old `train_burgers` body: `identity` on both sides. Both runs
+    /// start from one initial model (the device RNG is shared between parallel tests).
+    #[test]
+    fn train_fno_none_matches_identity_path() {
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(2)
+            .with_batch_size(2)
+            .with_test_batch_size(2);
+        let device = Device::default().autodiff();
+        let build = || {
+            build_training_components::<3, 2, _>(
+                &tiny_model_cfg(),
+                &train_cfg,
+                tiny_dataset(5),
+                tiny_dataset(3),
+                &device,
+            )
+        };
+        let new = build();
+        let mut old = build();
+        old.model = new.model.clone();
+
+        let (_, new) = train_built(new, None, &train_cfg, &device);
+        let (_, old) = training_loop(old, &train_cfg, &identity, &identity);
+
+        assert_eq!(metric_bits(&new), metric_bits(&old));
+    }
+
+    /// `Some(y)` against the old `train_darcy` / `train_poisson` body: decode both sides in
+    /// training, the prediction only in evaluation.
+    #[test]
+    fn train_fno_some_matches_decoder_path() {
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(2)
+            .with_batch_size(2)
+            .with_test_batch_size(2);
+        let model_cfg = FNOConfig::new(vec![2, 2], 1, 1)
+            .with_hidden_channels(4)
+            .with_n_layers(1);
+        let y = UnitGaussianNormalizer::fit(tiny_dataset_2d(5).targets());
+        let device = Device::default().autodiff();
+        let build = || {
+            build_training_components::<4, 3, _>(
+                &model_cfg,
+                &train_cfg,
+                tiny_dataset_2d(5),
+                tiny_dataset_2d(3),
+                &device,
+            )
+        };
+        let new = build();
+        let mut old = build();
+        old.model = new.model.clone();
+
+        let (_, new) = train_built(new, Some(&y), &train_cfg, &device);
+
+        let train_decoder = FlatDecoder::new(&y, &device);
+        let eval_decoder = FlatDecoder::new(&y, &device.clone().inner());
+        let train_post = move |out: Tensor<2>, target: Tensor<2>| {
+            (train_decoder.decode(out), train_decoder.decode(target))
+        };
+        let eval_post = move |out: Tensor<2>, target: Tensor<2>| (eval_decoder.decode(out), target);
+        let (_, old) = training_loop(old, &train_cfg, &train_post, &eval_post);
+
+        assert_eq!(metric_bits(&new), metric_bits(&old));
+    }
+
     #[test]
     #[should_panic(expected = "non-empty datasets")]
     fn empty_training_set_is_rejected() {
@@ -566,5 +724,77 @@ mod tests {
         let out = Tensor::<3>::zeros([2, 5, 2], &device);
         let target = Tensor::<2>::zeros([2, 5], &device);
         let _ = flatten_pair::<3, 2>(out, target);
+    }
+
+    // --- moved from training/trainers/poisson.rs (Phase 4s T3) ---
+
+    const POISSON_N: usize = 9;
+    const POISSON_N_TRAIN: usize = 4;
+    const POISSON_N_TEST: usize = 2;
+
+    /// Writes `count` samples of `f` = c_i · p(x, y) and `u` = −2 f on the n = 9 CGL
+    /// grid to `dir/name`, as the generator lays them out. c_i differs per sample so the
+    /// pointwise std is nonzero.
+    fn write_poisson_split(dir: &Path, name: &str, count: usize, offset: f64) -> PathBuf {
+        let x: Array1<f64> = cgl_nodes(POISSON_N);
+        let f: ArrayD<f64> = Array3::from_shape_fn((count, POISSON_N, POISSON_N), |(i, a, b)| {
+            (1.0 + i as f64 + offset) * (1.0 + x[a] - 2.0 * x[a].powi(3)) * (x[b] * x[b] - 0.3)
+        })
+        .into_dyn();
+        let path = dir.join(name);
+        let mut npz = NpzWriter::new(File::create(&path).unwrap());
+        npz.add_array("f", &f).unwrap();
+        npz.add_array("u", &(&f * -2.0)).unwrap();
+        npz.add_array("x", &x).unwrap();
+        npz.add_array("y", &x).unwrap();
+        npz.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn train_poisson_smoke() {
+        let dir = std::env::temp_dir().join(format!(
+            "sciml_rs_train_poisson_smoke_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let train_path = write_poisson_split(&dir, "train.npz", POISSON_N_TRAIN, 0.0);
+        let test_path = write_poisson_split(&dir, "test.npz", POISSON_N_TEST, 0.5);
+
+        let cfg = PoissonConfig::new(
+            DatasetConfig {
+                n_train: POISSON_N_TRAIN,
+                n_test: POISSON_N_TEST,
+            },
+            POISSON_N,
+        );
+        let (train, test, normalizers) =
+            load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
+
+        let model_cfg = FNOConfig::new(vec![2, 2], 1, 1)
+            .with_hidden_channels(4)
+            .with_n_layers(2);
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(2)
+            .with_batch_size(2)
+            .with_test_batch_size(2);
+        let (_, metrics) = train_fno::<4, 3, _>(
+            train,
+            test,
+            Some(&normalizers.y),
+            &model_cfg,
+            &train_cfg,
+            &Device::default().autodiff(),
+        );
+
+        assert_eq!(metrics.len(), 2);
+        for m in &metrics {
+            assert!(
+                m.train_mse.is_finite() && m.train_l2.is_finite() && m.test_l2.is_finite(),
+                "{m:?}"
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }
