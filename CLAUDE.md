@@ -73,8 +73,9 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   on the Chebyshev grid and `check_error3` the cross-check against `metrics.csv`, driven by
   `examples/predict/poisson.rs` (`predict_poisson`), which writes `errors.json` into the
   run directory.
-- `training/trainers/poisson` (`train_poisson`, the Darcy trainer on those datasets), driven
-  by `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
+- `training/trainer` (`train_fno`, one trainer for every PDE: `Some(y)` decodes with the
+  target normaliser, `None` trains in physical units), driven on those datasets by
+  `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
 - `spikes/`: standalone packages for Phase 0 measurements; never built by CI.
 - Unit tests sit in `#[cfg(test)] mod tests` in each file. `tests/spectral_init.rs` reseeds
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each

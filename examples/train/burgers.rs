@@ -27,7 +27,7 @@ use sciml_rs::neural_operators::{
     },
     metrics::io::write_run_artifacts,
     models::fno::FNOConfig,
-    training::{trainer::TrainingConfig, trainers::burgers::train_burgers},
+    training::trainer::{TrainingConfig, train_fno},
 };
 use std::path::Path;
 
@@ -96,9 +96,10 @@ fn main() {
         .with_min_lr(1e-5);
     // .with_seed(1);
 
-    // Training wrapper function that handles the building of training components and the training loop
+    // No normaliser: train and evaluate in physical units
     // Use the L2 loss for training and evaluation
-    let (model, metrics) = train_burgers(train_data, test_data, &model_cfg, &train_cfg, &device);
+    let (model, metrics) =
+        train_fno::<3, 2, _>(train_data, test_data, None, &model_cfg, &train_cfg, &device);
 
     // Writes metrics and configs files to runs/burgers_fno_<timestamp>/
     let dir = write_run_artifacts(

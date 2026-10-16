@@ -30,7 +30,7 @@ use sciml_rs::neural_operators::{
     },
     metrics::io::write_run_artifacts,
     models::fno::FNOConfig,
-    training::{trainer::TrainingConfig, trainers::poisson::train_poisson},
+    training::trainer::{TrainingConfig, train_fno},
 };
 use std::path::Path;
 
@@ -115,13 +115,13 @@ fn main() {
         .with_weight_decay(WEIGHT_DECAY)
         .with_min_lr(MIN_LR);
 
-    // y_normalizer is fitted on y_train during loading. train_poisson uses it
+    // y_normalizer is fitted on y_train during loading. train_fno uses it
     // to decode both prediction and target during training, but only the
     // prediction during evaluation - y_test was never encoded
-    let (model, metrics) = train_poisson(
+    let (model, metrics) = train_fno::<4, 3, _>(
         train_data,
         test_data,
-        &normalizers.y,
+        Some(&normalizers.y),
         &model_cfg,
         &train_cfg,
         &device,

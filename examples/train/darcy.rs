@@ -21,7 +21,7 @@ use sciml_rs::neural_operators::{
     },
     metrics::io::write_run_artifacts,
     models::fno::FNOConfig,
-    training::{trainer::TrainingConfig, trainers::darcy::train_darcy},
+    training::trainer::{TrainingConfig, train_fno},
 };
 use std::path::Path;
 
@@ -77,13 +77,13 @@ fn main() {
         .with_weight_decay(1e-4)
         .with_min_lr(1e-5);
 
-    // y_normalizer is fitted on y_train during loading. train_darcy uses it
+    // y_normalizer is fitted on y_train during loading. train_fno uses it
     // to decode both prediction and target during training, but only the
     // prediction during evaluation - y_test was never encoded
-    let (model, metrics) = train_darcy(
+    let (model, metrics) = train_fno::<4, 3, _>(
         train_data,
         test_data,
-        &normalizers.y,
+        Some(&normalizers.y),
         &model_cfg,
         &train_cfg,
         &device,
