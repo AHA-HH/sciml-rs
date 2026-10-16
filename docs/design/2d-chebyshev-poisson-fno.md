@@ -544,6 +544,7 @@ flowchart LR
     P5T2["T2 checkpoint / resume"]
     P5F["flex training run (supplementary)"]
     P5S["plot shading (supplementary)"]
+    P5E["example smoke runs in CI (supplementary)"]
   end
   subgraph P6["Phase 6 (optional): Chebyshev-native"]
     P6T1["T1 baseline padding"] --> P6T2["T2 seeds, error 4 vs ‖u‖"] --> P6T3["T3 θ-map"] --> P6T4["T4 comparison"]
@@ -736,6 +737,15 @@ lengths, no Bluestein), recorded against the chosen p; a Bluestein fix in Burn f
 (its own task, decision 17); or the full run at p = 4 on a machine left running. The
 first 3 epochs are timed and the cost stated before any full run starts. If Phase 6 T1
 settles the baseline at p = 0, this run uses it.
+
+**Supplementary task: smoke-run the examples in CI (2026-10-16).** Non-blocking. CI
+compiles the examples (`cargo clippy --examples`) but never runs them: they read
+`datasets/` and `runs/`, both git-ignored, and train for minutes to hours. Phase 4s T1
+deleted `run-examples.yml`, whose `cargo templated-examples` step was commented out. This
+task adds a smoke mode that trains on a tiny synthetic dataset for one epoch, then runs
+the matching predict example on the run it writes, and a CI job that runs it on flex. It
+fits with T2, since a quick end-to-end run also tests checkpoint and resume. The task
+chooses between a synthetic in-memory dataset and a small committed fixture.
 
 ### Phase 6: Chebyshev-native comparison (optional, non-blocking)
 

@@ -23,13 +23,9 @@
     feature = "flex",
     feature = "metal",
     feature = "cuda",
-    // feature = "rocm",
-    // feature = "vulkan",
     feature = "wgpu"
 )))]
-compile_error!(
-    "sciml-rs needs a backend feature: flex (default), metal, cuda, rocm, vulkan or wgpu"
-);
+compile_error!("sciml-rs needs a backend feature: flex (default), metal, cuda or wgpu");
 
 // rlst calls BLAS and LAPACK but leaves the provider to the final binary
 // (rlst 0.9.0 `src/doc/getting_started.rs`). The provider crates are only

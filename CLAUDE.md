@@ -92,14 +92,20 @@ tests do not. `.cargo/config.toml` links with `lld` on aarch64 Linux.
 
 ## Checks
 CI (GitHub Actions, `.github/workflows/run-tests.yml`, pushes and pull requests to `main`)
-runs exactly:
+has three jobs:
 ```sh
+# run-tests
+cargo test
+cargo doc --no-deps
+# style-checks
 cargo fmt -- --check
 cargo clippy --no-deps -- -D warnings
 cargo clippy --no-deps --examples -- -D warnings
-cargo test
-cargo doc --no-deps
+# run-tests-chebyshev (installs OpenBLAS, FFTW and libclang first)
+cargo clippy --no-deps --features chebyshev --all-targets -- -D warnings
+cargo test --features chebyshev
 ```
+CI compiles the examples but never runs them (they need `datasets/` and `runs/`).
 Before finishing any task, also run `cargo clippy --all-targets -- -D warnings`. Keep
 clippy clean without blanket `#[allow]`s. For backend-sensitive changes, also run the
 relevant tests with `--features metal` and say whether it was run.
