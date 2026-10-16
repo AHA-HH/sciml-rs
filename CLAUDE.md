@@ -59,7 +59,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   weights, Trefethen) and `cc_rel_l2_error` (relative CC-L² error on the CGL tensor grid).
 - `src/neural_operators/pde/poisson/` (behind `chebyshev`): `collocation`
   (`CollocationSolver`, solver A, fast diagonalisation); `sparse` (`SparseSolver`, solver C,
-  Q1 + unpreconditioned CG, validation oracle only); `manufactured` (test-only fixtures).
+  Q1 + unpreconditioned CG, validation oracle, test-only); `manufactured` (test-only fixtures).
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`
   (`generate`, `label_check`, `write_split`), driven by `examples/generate/poisson.rs`
   (`generate_poisson`), which writes `datasets/poisson/`.
