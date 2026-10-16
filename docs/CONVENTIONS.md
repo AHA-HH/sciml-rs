@@ -69,14 +69,11 @@ x_a[j] = \frac{j}{s_a - 1}, \qquad j = 0, \dots, s_a - 1, \qquad x_a[0] = 0 \tex
 - The grid is built channels-last, in the input's dtype on its device, for the input's
   own resolution, and is a constant (not tracked by autodiff). Building it channels-first
   after the permute zeroed entries on Metal.
-- Host-side `data::grids` helpers produce 'ij'-indexed grids for data preparation; the
-  model does not use them.
 
 ### Verification
 `grid_2d_order_is_pinned`, `grid_controls_{1d,2d,3d,3d_padded}`,
 `grid_matches_old_loader_grid`, `resolution_change_builds_that_grid`,
-`batch_rows_see_identical_grids`; host helpers in `data::grids` tests
-(`reversed_uniform_grid_2d_matches_numpy_meshgrid`).
+`batch_rows_see_identical_grids`.
 
 ## 3. Domain padding
 
@@ -283,7 +280,7 @@ and Phase 2 T1.
   RLST's `chebychev_points(Kind::Second, n)` is descending; the tests reverse it to
   compare.
 - Fields are stored 'ij': `F[i, j] = f(x_i, y_j)`, the first spatial axis is x and the
-  second is y, as in `data::grids`. The same holds on the uniform grid.
+  second is y, as in §2 (x_a varies along axis a). The same holds on the uniform grid.
 - Uniform grid: s = n − 1 points per axis, both endpoints included, so it is §2's grid
   mapped to Ω (n = 33, 65, 129, 257 gives s = 32, 64, 128, 256):
 

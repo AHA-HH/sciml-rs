@@ -7,7 +7,6 @@ pub mod batcher;
 pub mod dataitem;
 pub mod dataset;
 pub mod device_batcher;
-pub mod grids;
 pub mod io;
 pub mod loaders;
 pub mod split;

@@ -1222,32 +1222,65 @@ mod tests {
 
     // --- issue #13: grid channels generated on the device ---
 
-    use crate::neural_operators::data::{
-        dataitem::HostFloat,
-        grids::{GridPlacement, append_grid, grid_from_axes, uniform_grid},
-    };
+    use crate::neural_operators::data::dataitem::HostFloat;
     use ndarray::{Array1, ArrayD, Dimension, IxDyn};
 
-    /// The grid the loaders used to store, built independently of the model
-    /// in f64: `uniform_grid` over `[0, 1]` per axis, in reverse axis order
-    /// (Darcy's `grid.reverse()`; a no-op for Burgers' single axis).
-    fn old_grid_f64(spatial: &[usize]) -> Vec<ArrayD<f64>> {
-        let mut grid = uniform_grid(&vec![(0.0, 1.0); spatial.len()], spatial);
+    /// 'ij'-indexed grids from per-axis coordinates: grid `a` has shape
+    /// `[axes[0].len(), ..]` and varies along axis `a` only.
+    fn ij_grid(axes: &[Array1<f64>]) -> Vec<ArrayD<f64>> {
+        let sizes: Vec<usize> = axes.iter().map(|a| a.len()).collect();
+        (0..axes.len())
+            .map(|a| ArrayD::from_shape_fn(IxDyn(&sizes), |idx| axes[a][idx[a]]))
+            .collect()
+    }
+
+    /// `linspace(0, 1, s_a)` per axis (`[0]` when s_a = 1), CONVENTIONS §2.
+    fn uniform_axes(spatial: &[usize]) -> Vec<Array1<f64>> {
+        spatial
+            .iter()
+            .map(|&n| Array1::linspace(0.0, 1.0, n))
+            .collect()
+    }
+
+    /// `axes` as grid channels in the model's order: 'ij' grids in reverse
+    /// axis order (CONVENTIONS §2; a no-op for a single axis).
+    fn xy_grid(axes: &[Array1<f64>]) -> Vec<ArrayD<f64>> {
+        let mut grid = ij_grid(axes);
         grid.reverse();
         grid
     }
 
-    /// Channels-last `x` with `grids` appended after the data, the way the
-    /// loaders did it: `append_grid` in f64, then one rounding to f32
-    /// (`HostFloat::from_f64`). `x`'s own f32 values round-trip exactly.
+    /// The grid the loaders used to store, built independently of the model
+    /// in f64: uniform over `[0, 1]` per axis, in the model's channel order.
+    fn old_grid_f64(spatial: &[usize]) -> Vec<ArrayD<f64>> {
+        xy_grid(&uniform_axes(spatial))
+    }
+
+    /// Channels-last `x` with `grids` appended after the data, in f64, then
+    /// rounded to f32 once (`HostFloat::from_f64`). `x`'s own f32 values
+    /// round-trip exactly.
+    ///
+    /// # Panics
+    /// If a grid's shape differs from `x`'s spatial shape.
     fn with_grid<const R: usize>(x: Tensor<R>, grids: &[ArrayD<f64>]) -> Tensor<R> {
         use burn::tensor::TensorData;
         let dims = x.dims();
         let device = x.device();
         let vals: Vec<f64> = x.into_data().iter::<f32>().map(f64::from).collect();
         let data = ArrayD::from_shape_vec(IxDyn(&dims), vals).unwrap();
-        let out = append_grid(data, grids, GridPlacement::AfterData);
-        let shape = out.shape().to_vec();
+        let channels = dims[R - 1];
+        for g in grids {
+            assert_eq!(g.shape(), &dims[1..R - 1], "grid shape != spatial shape");
+        }
+        let mut shape = dims.to_vec();
+        shape[R - 1] += grids.len();
+        let out = ArrayD::from_shape_fn(IxDyn(&shape), |idx| {
+            let idx = idx.slice();
+            match idx[R - 1].checked_sub(channels) {
+                None => data[idx],
+                Some(g) => grids[g][&idx[1..R - 1]],
+            }
+        });
         let out: Vec<f32> = out
             .iter()
             .map(|&v| <f32 as HostFloat>::from_f64(v))
@@ -1397,21 +1430,14 @@ mod tests {
             .iter()
             .map(|g| ArrayD::zeros(g.raw_dim()))
             .collect();
-        let half_open: Vec<ArrayD<f64>> = {
-            let axes: Vec<Array1<f64>> = spatial
-                .iter()
-                .map(|&n| Array1::from_shape_fn(n, |i| i as f64 / n as f64))
-                .collect();
-            let mut grid = grid_from_axes(&axes);
-            grid.reverse();
-            grid
-        };
+        let half_open_axes: Vec<Array1<f64>> = spatial
+            .iter()
+            .map(|&n| Array1::from_shape_fn(n, |i| i as f64 / n as f64))
+            .collect();
+        let half_open = xy_grid(&half_open_axes);
         let mut wrong = vec![("no grid", zeros), ("[0, 1) grid", half_open)];
         if spatial.len() > 1 {
-            wrong.push((
-                "'ij' order",
-                uniform_grid(&vec![(0.0, 1.0); spatial.len()], spatial),
-            ));
+            wrong.push(("'ij' order", ij_grid(&uniform_axes(spatial))));
         }
         for (name, grids) in wrong {
             let err = rel_err(out.clone(), reference(&grids));
