@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use burn::{prelude::*, tensor::Device};
 use ndarray::Axis;
 use sciml_rs::neural_operators::{
+    chebyshev::TRANSFER_DEGREE,
     data::{
         loaders::{
             base_dataset::HasBaseConfig,
@@ -27,7 +28,10 @@ use sciml_rs::neural_operators::{
         },
         transforms::normalizers::{Normalizer, NormalizerRecord, UnitGaussianNormalizer},
     },
-    metrics::poisson::{ErrorStats, TRANSFER_DEGREE, check_error3, poisson_errors},
+    metrics::{
+        poisson::{check_error3, poisson_errors},
+        stats::ErrorStats,
+    },
     models::run::{load_fno, predict_host},
     utils::backend::backend_features,
 };

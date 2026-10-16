@@ -4,12 +4,14 @@
 //! (CONVENTIONS §12). Everything is f64, and the public API takes and returns ndarray
 //! types only.
 //!
-//! - Always built: the grid transfers between the CGL grid and the model's uniform grid
-//!   (`uniform_nodes`, `cheb_to_uniform`, `uniform_to_cheb`, `apply`), and the
-//!   closed-form Clenshaw–Curtis weights with the relative L² error built from them
-//!   (`clencurt`, `cc_rel_l2_error`). They use closed-form nodes and weights and depend
-//!   on ndarray alone, so training and evaluation on Chebyshev data need no RLST, BLAS
-//!   or FFTW (design §12, decisions 13 and 15).
+//! - Always built: the closed-form CGL nodes (`nodes_closed_form`), the grid transfers
+//!   between the CGL grid and the model's uniform grid (`uniform_nodes`,
+//!   `cheb_to_uniform`, `uniform_to_cheb`, `apply`, and the production pair `Transfers`
+//!   with its degree `TRANSFER_DEGREE`), and the closed-form Clenshaw–Curtis weights with
+//!   the norm and relative L² error built from them (`clencurt`, `cc_norm_sq`,
+//!   `cc_rel_l2_error`, `cc_rel_l2_error_weighted`). They depend on ndarray alone, so training and
+//!   evaluation on Chebyshev data need no RLST, BLAS or FFTW (design §12, decisions 13
+//!   and 15).
 //! - Behind the `chebyshev` feature: the nodes, D, D², the Clenshaw–Curtis weights and
 //!   the tensor-product L² norm built from them (`nodes`, `diff_matrix`, `diff2_matrix`,
 //!   `clenshaw_curtis`, `l2_norm`, `rel_l2_error`). They wrap RLST's FFTW-backed
@@ -27,7 +29,7 @@ mod points;
 mod quadrature;
 mod transfer;
 
-pub use clencurt::{cc_rel_l2_error, clencurt};
+pub use clencurt::{cc_norm_sq, cc_rel_l2_error, cc_rel_l2_error_weighted, clencurt};
 #[cfg(feature = "chebyshev")]
 pub use differentiation::{diff_matrix, diff2_matrix};
 #[cfg(feature = "chebyshev")]
@@ -36,8 +38,10 @@ pub use norm::{l2_norm, rel_l2_error};
 pub use points::nodes;
 #[cfg(feature = "chebyshev")]
 pub use quadrature::clenshaw_curtis;
-pub(crate) use transfer::cgl_nodes;
-pub use transfer::{apply, cheb_to_uniform, uniform_nodes, uniform_to_cheb};
+pub use transfer::{
+    TRANSFER_DEGREE, Transfers, apply, cheb_to_uniform, nodes_closed_form, uniform_nodes,
+    uniform_to_cheb,
+};
 
 #[cfg(feature = "chebyshev")]
 use rlst::DynArray;

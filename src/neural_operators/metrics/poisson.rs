@@ -10,52 +10,21 @@
 //! - error 5 (boundary): with û = T_uc(prediction), the max ratio max_∂Ω |û| / max_Ω |u|
 //!   and the relative boundary RMS √(∮ û² ds / 8) / √(∫∫ u² dA / 4).
 //!
-//! [`check_error3`] cross-checks the mean error 3 against the run's last test_l2.
+//! [`check_error3`] cross-checks the mean error 3 against the run's last test_l2. Each
+//! error is summarised over the samples with [`ErrorStats`](super::stats::ErrorStats).
 //!
 //! Error 1 (the solver) needs the `chebyshev` feature and is quoted, not recomputed (design
 //! §12, decision 16). Everything here is ndarray and f64, built without `chebyshev`
 //! (decision 15). Grids, transfers and norms follow CONVENTIONS §12.
 
 use crate::neural_operators::chebyshev::{
-    apply, cc_rel_l2_error, cheb_to_uniform, clencurt, uniform_to_cheb,
+    Transfers, cc_norm_sq, cc_rel_l2_error_weighted, clencurt,
 };
 use crate::neural_operators::metrics::io::read_metrics_csv;
-use burn::config::Config;
 use ndarray::{Array1, Array2, ArrayView2, ArrayView3, Axis};
 use std::fmt;
 use std::io;
 use std::path::Path;
-
-/// Floater–Hormann degree d of T_uc (design §12, decision 8). Equal to the generator's
-/// `pde::poisson::dataset::TRANSFER_DEGREE` (feature `chebyshev`), which this module
-/// cannot import.
-pub const TRANSFER_DEGREE: usize = 2;
-
-/// Mean and max of one error over the samples.
-#[derive(Config, Debug)]
-pub struct ErrorStats {
-    /// Mean over the samples.
-    pub mean: f64,
-    /// Max over the samples.
-    pub max: f64,
-}
-
-impl ErrorStats {
-    /// The mean and max of `values`. A NaN value makes both NaN.
-    ///
-    /// # Panics
-    /// If `values` is empty.
-    pub fn of(values: &[f64]) -> Self {
-        assert!(!values.is_empty(), "ErrorStats::of: no values");
-        let mean = values.iter().sum::<f64>() / values.len() as f64;
-        // unlike f64::max, keeps a NaN so it is not hidden in the report
-        let max = values.iter().fold(
-            f64::NEG_INFINITY,
-            |m, &v| if v.is_nan() || v > m { v } else { m },
-        );
-        Self { mean, max }
-    }
-}
 
 /// Per-sample errors from [`poisson_errors`], one entry per sample, in sample order.
 #[derive(Debug, Clone)]
@@ -79,14 +48,18 @@ pub struct PoissonErrors {
 /// - `u`: the raw solutions on the CGL grid, `[N, n, n]`, the reference.
 ///
 /// s = n − 1, and T_uc has degree [`TRANSFER_DEGREE`]. T_cu and T_uc are built once per
-/// call. The Clenshaw–Curtis norms use [`clencurt`]`(n)` weights: over Ω as a tensor
-/// product, and along each of the four edges of ∂Ω, so each corner node carries the end
-/// weights of both its edges; the boundary maximum visits it twice, which does not change
-/// the maximum. A sample with u ≡ 0 gives NaN or infinity, as [`cc_rel_l2_error`] does.
+/// call, as [`Transfers`]. The Clenshaw–Curtis norms use [`clencurt`]`(n)` weights: over Ω
+/// as a tensor product, and along each of the four edges of ∂Ω, so each corner node
+/// carries the end weights of both its edges; the boundary maximum visits it twice, which
+/// does not change the maximum. A sample with u ≡ 0 gives NaN or infinity, as
+/// [`cc_rel_l2_error_weighted`] does.
 ///
 /// # Panics
 /// If `pred` and `u` hold different numbers of samples, either is not square in its
-/// spatial axes, s ≠ n − 1, or n < 4 (T_uc of degree 2 needs s ≥ 3).
+/// spatial axes, s ≠ n − 1, or n < [`Transfers::MIN_N`] (T_uc of degree
+/// [`TRANSFER_DEGREE`] needs s > d).
+///
+/// [`TRANSFER_DEGREE`]: crate::neural_operators::chebyshev::TRANSFER_DEGREE
 pub fn poisson_errors(pred: ArrayView3<f64>, u: ArrayView3<f64>) -> PoissonErrors {
     let (np, s, s2) = pred.dim();
     let (nu, n, n2) = u.dim();
@@ -106,11 +79,6 @@ pub fn poisson_errors(pred: ArrayView3<f64>, u: ArrayView3<f64>) -> PoissonError
         "poisson_errors: u must be [N, n, n], got {:?}",
         u.dim()
     );
-    assert!(
-        n >= TRANSFER_DEGREE + 2,
-        "poisson_errors: n must be >= {} (T_uc of degree {TRANSFER_DEGREE} needs s > d), got {n}",
-        TRANSFER_DEGREE + 2
-    );
     assert_eq!(
         s + 1,
         n,
@@ -118,8 +86,7 @@ pub fn poisson_errors(pred: ArrayView3<f64>, u: ArrayView3<f64>) -> PoissonError
         n - 1
     );
 
-    let t_cu = cheb_to_uniform(n, s);
-    let t_uc = uniform_to_cheb(s, n, TRANSFER_DEGREE);
+    let transfers = Transfers::new(n);
     let w = clencurt(n);
 
     let mut errors = PoissonErrors {
@@ -130,13 +97,23 @@ pub fn poisson_errors(pred: ArrayView3<f64>, u: ArrayView3<f64>) -> PoissonError
         boundary_rel_rms: Vec::with_capacity(nu),
     };
     for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
-        let u_uni = apply(t_cu.view(), t_cu.view(), ui);
-        let round_trip = apply(t_uc.view(), t_uc.view(), u_uni.view());
-        let u_hat = apply(t_uc.view(), t_uc.view(), p);
+        let u_uni = transfers.to_uniform(ui);
+        let round_trip = transfers.to_cheb(u_uni.view());
+        let u_hat = transfers.to_cheb(p);
 
-        errors.transfer.push(cc_rel_l2_error(round_trip.view(), ui));
+        errors.transfer.push(cc_rel_l2_error_weighted(
+            round_trip.view(),
+            ui,
+            w.view(),
+            w.view(),
+        ));
         errors.model.push(rel_l2_equal_weights(p, u_uni.view()));
-        errors.total.push(cc_rel_l2_error(u_hat.view(), ui));
+        errors.total.push(cc_rel_l2_error_weighted(
+            u_hat.view(),
+            ui,
+            w.view(),
+            w.view(),
+        ));
         let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
         errors.boundary_max_ratio.push(ratio);
         errors.boundary_rel_rms.push(rms);
@@ -223,17 +200,14 @@ fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> 
         .iter()
         .map(|e| e.iter().zip(w).map(|(v, wi)| wi * v * v).sum::<f64>())
         .sum();
-    let mut area = 0.0;
-    for ((i, j), v) in u.indexed_iter() {
-        area += w[i] * w[j] * v * v;
-    }
+    let area = cc_norm_sq(u, w.view(), w.view());
     (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::chebyshev::cgl_nodes;
+    use crate::neural_operators::chebyshev::nodes_closed_form;
     use crate::neural_operators::losses::data_losses::{LpLoss, Reduction};
     use burn::prelude::*;
     use ndarray::Array3;
@@ -241,7 +215,7 @@ mod tests {
     /// `count` smooth fields on the n × n CGL grid that vanish on ∂Ω; sample k is scaled
     /// and shifted so the samples differ.
     fn vanishing_u(count: usize, n: usize) -> Array3<f64> {
-        let x = cgl_nodes(n);
+        let x = nodes_closed_form(n);
         Array3::from_shape_fn((count, n, n), |(k, i, j)| {
             let (a, b) = (x[i], x[j]);
             (1.0 + k as f64) * (1.0 - a * a) * (1.0 - b * b) * (a + 0.3 * k as f64).exp() * b.cos()
@@ -257,10 +231,10 @@ mod tests {
     /// T_cu applied to every sample of `u: [N, n, n]`, giving `[N, n − 1, n − 1]`.
     fn to_uniform(u: &Array3<f64>) -> Array3<f64> {
         let (count, n, _) = u.dim();
-        let t = cheb_to_uniform(n, n - 1);
+        let t = Transfers::new(n);
         let mut out = Array3::zeros((count, n - 1, n - 1));
         for (mut dst, src) in out.axis_iter_mut(Axis(0)).zip(u.axis_iter(Axis(0))) {
-            dst.assign(&apply(t.view(), t.view(), src));
+            dst.assign(&t.to_uniform(src));
         }
         out
     }
@@ -304,7 +278,7 @@ mod tests {
         // exactly (degree 4 per axis ≤ n − 1)
         let n = 17;
         let c = 0.037;
-        let x = cgl_nodes(n);
+        let x = nodes_closed_form(n);
         let u = Array3::from_shape_fn((2, n, n), |(k, i, j)| {
             (1.0 + k as f64) * (1.0 - x[i] * x[i]) * (1.0 - x[j] * x[j])
         });
@@ -389,14 +363,6 @@ mod tests {
         let u = Array3::<f64>::zeros((1, 3, 3));
         let pred = Array3::<f64>::zeros((1, 2, 2));
         poisson_errors(pred.view(), u.view());
-    }
-
-    #[test]
-    fn stats_are_mean_and_max() {
-        let st = ErrorStats::of(&[1.0, 3.0, 2.0]);
-        assert_eq!((st.mean, st.max), (2.0, 3.0));
-        let st = ErrorStats::of(&[1.0, f64::NAN]);
-        assert!(st.mean.is_nan() && st.max.is_nan());
     }
 
     /// Writes `test_l2` per epoch to a fresh metrics.csv under the temp dir.

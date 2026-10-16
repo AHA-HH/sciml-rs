@@ -7,14 +7,19 @@
 //! - Uniform → Chebyshev, T_uc ([`uniform_to_cheb`]): Floater–Hormann interpolation of
 //!   degree d on the uniform nodes.
 //!
-//! Production uses d = 2 and s = n − 1 (design §12, decisions 5 and 8); both are
-//! arguments so the tests can vary them. Nodes and weights are closed forms, so this
-//! module needs only ndarray and is built without the `chebyshev` feature (decision 13).
+//! Production uses d = [`TRANSFER_DEGREE`] = 2 and s = n − 1 (design §12, decisions 5 and
+//! 8), bundled as [`Transfers`]; the functions take both as arguments so the tests can
+//! vary them. Nodes and weights are closed forms, so this module needs only ndarray and is
+//! built without the `chebyshev` feature (decision 13).
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use std::f64::consts::PI;
 
 use super::check_n;
+
+/// The Floater–Hormann degree d of T_uc in production (design §12, decision 8). The
+/// generator records it in each split's sidecar as `error2.d`.
+pub const TRANSFER_DEGREE: usize = 2;
 
 /// Panic with a uniform message when a uniform grid has fewer than two points.
 fn check_s(caller: &str, s: usize) {
@@ -48,8 +53,8 @@ pub fn uniform_nodes(s: usize) -> Array1<f64> {
 ///
 /// # Panics
 /// If `n < 2`.
-pub(crate) fn cgl_nodes(n: usize) -> Array1<f64> {
-    check_n("cgl_nodes", n);
+pub fn nodes_closed_form(n: usize) -> Array1<f64> {
+    check_n("nodes_closed_form", n);
     let nn = (n - 1) as f64;
     Array1::from_shape_fn(n, |j| (PI * (2.0 * j as f64 - nn) / (2.0 * nn)).sin())
 }
@@ -119,7 +124,7 @@ fn bary_matrix(src: ArrayView1<f64>, w: ArrayView1<f64>, tgt: ArrayView1<f64>) -
 pub fn cheb_to_uniform(n: usize, s: usize) -> Array2<f64> {
     check_n("cheb_to_uniform", n);
     check_s("cheb_to_uniform", s);
-    let x = cgl_nodes(n);
+    let x = nodes_closed_form(n);
     bary_matrix(
         x.view(),
         cheb_bary_weights(n).view(),
@@ -149,7 +154,7 @@ pub fn uniform_to_cheb(s: usize, n: usize, d: usize) -> Array2<f64> {
     bary_matrix(
         x.view(),
         fh_weights(x.view(), d).view(),
-        cgl_nodes(n).view(),
+        nodes_closed_form(n).view(),
     )
 }
 
@@ -173,6 +178,70 @@ pub fn apply(tx: ArrayView2<f64>, ty: ArrayView2<f64>, f: ArrayView2<f64>) -> Ar
         "apply: ty must have f.ncols() (n_y) columns"
     );
     tx.dot(&f).dot(&ty.t())
+}
+
+/// The production transfer pair for the n × n CGL grid (CONVENTIONS §12): T_cu
+/// ([`cheb_to_uniform`]) and T_uc ([`uniform_to_cheb`]) of degree [`TRANSFER_DEGREE`],
+/// between the CGL nodes and the uniform grid of s = n − 1 points (design §12, decisions
+/// 5 and 8). Both matrices are built once, in [`Transfers::new`], and applied along both
+/// axes of 'ij' fields with [`apply`].
+#[derive(Clone, Debug)]
+pub struct Transfers {
+    /// `[s, n]`
+    t_cu: Array2<f64>,
+    /// `[n, s]`
+    t_uc: Array2<f64>,
+}
+
+impl Transfers {
+    /// The smallest n: T_uc of degree [`TRANSFER_DEGREE`] needs s = n − 1 > d.
+    pub const MIN_N: usize = TRANSFER_DEGREE + 2;
+
+    /// The transfers for `n` CGL nodes per axis, s = n − 1.
+    ///
+    /// # Panics
+    /// If `n <` [`Transfers::MIN_N`].
+    pub fn new(n: usize) -> Self {
+        assert!(
+            n >= Self::MIN_N,
+            "Transfers::new: n must be >= {} (T_uc of degree {TRANSFER_DEGREE} needs \
+             s = n - 1 > d), got {n}",
+            Self::MIN_N
+        );
+        let s = n - 1;
+        Self {
+            t_cu: cheb_to_uniform(n, s),
+            t_uc: uniform_to_cheb(s, n, TRANSFER_DEGREE),
+        }
+    }
+
+    /// CGL nodes per axis.
+    pub fn n(&self) -> usize {
+        self.t_cu.ncols()
+    }
+
+    /// Uniform grid points per axis, n − 1.
+    pub fn s(&self) -> usize {
+        self.t_cu.nrows()
+    }
+
+    /// `f: [n, n]` on the CGL grid, transferred to the uniform grid: T_cu · F · T_cuᵀ,
+    /// `[s, s]`.
+    ///
+    /// # Panics
+    /// If `f` is not `[n, n]`.
+    pub fn to_uniform(&self, f: ArrayView2<f64>) -> Array2<f64> {
+        apply(self.t_cu.view(), self.t_cu.view(), f)
+    }
+
+    /// `g: [s, s]` on the uniform grid, transferred to the CGL grid: T_uc · G · T_ucᵀ,
+    /// `[n, n]`.
+    ///
+    /// # Panics
+    /// If `g` is not `[s, s]`.
+    pub fn to_cheb(&self, g: ArrayView2<f64>) -> Array2<f64> {
+        apply(self.t_uc.view(), self.t_uc.view(), g)
+    }
 }
 
 #[cfg(test)]
@@ -240,7 +309,7 @@ mod tests {
     #[test]
     fn cgl_closed_form_is_ascending_and_antisymmetric() {
         for n in [2, 3, 9, 33, 64, 257] {
-            let x = cgl_nodes(n);
+            let x = nodes_closed_form(n);
             assert_eq!(x[0], -1.0, "n={n}");
             assert_eq!(x[n - 1], 1.0, "n={n}");
             for j in 0..n {
@@ -258,7 +327,7 @@ mod tests {
     fn fh_reproduces_polynomials_to_degree_d() {
         for s in [16, 32, 64] {
             let u = uniform_nodes(s);
-            let c = cgl_nodes(s + 1);
+            let c = nodes_closed_form(s + 1);
             for d in 0..=4 {
                 let t = uniform_to_cheb(s, s + 1, d);
                 for k in 0..=d as i32 {
@@ -277,7 +346,7 @@ mod tests {
     fn transfers_preserve_ij_layout() {
         let (nx, ny) = (9, 17);
         let (sx, sy) = (nx - 1, ny - 1);
-        let (cx, cy) = (cgl_nodes(nx), cgl_nodes(ny));
+        let (cx, cy) = (nodes_closed_form(nx), nodes_closed_form(ny));
         let (ux, uy) = (uniform_nodes(sx), uniform_nodes(sy));
         let f = |x: f64, y: f64| x + 10.0 * y;
 
@@ -322,7 +391,7 @@ mod tests {
         for n in [33, 65, 129] {
             let s = n - 1;
             let t = cheb_to_uniform(n, s);
-            let (c, u) = (cgl_nodes(n), uniform_nodes(s));
+            let (c, u) = (nodes_closed_form(n), uniform_nodes(s));
             for (name, f) in [
                 ("sin(pi x) sin(pi y)", sin_sin as fn(f64, f64) -> f64),
                 ("(1-x^2)(1-y^2)e^(x+2y)", bubble_exp),
@@ -343,6 +412,31 @@ mod tests {
             println!("Lambda(T_uc) d=2 n={n}: {lambda:.2}");
             assert!(lambda <= 5.0, "n={n}: {lambda}");
         }
+    }
+
+    #[test]
+    fn transfers_round_trip_matches_manual_recipe() {
+        for n in [9, 33] {
+            let s = n - 1;
+            let t = Transfers::new(n);
+            assert_eq!((t.n(), t.s()), (n, s));
+            let c = nodes_closed_form(n);
+            let u = sample(&c, &c, bubble_exp);
+            // the inline recipe the four sites used before `Transfers`
+            let t_cu = cheb_to_uniform(n, s);
+            let t_uc = uniform_to_cheb(s, n, 2);
+            let on_uniform = apply(t_cu.view(), t_cu.view(), u.view());
+            let back = apply(t_uc.view(), t_uc.view(), on_uniform.view());
+
+            assert_eq!(t.to_uniform(u.view()), on_uniform, "n={n}");
+            assert_eq!(t.to_cheb(on_uniform.view()), back, "n={n}");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Transfers::new: n must be >= 4")]
+    fn transfers_panic_below_min_n() {
+        Transfers::new(3);
     }
 
     #[test]
@@ -416,7 +510,7 @@ mod tests {
         #[test]
         fn cgl_closed_form_matches_nodes() {
             for n in [2, 3, 9, 33, 65, 129, 257] {
-                let err = (&cgl_nodes(n) - &nodes(n))
+                let err = (&nodes_closed_form(n) - &nodes(n))
                     .iter()
                     .fold(0.0_f64, |e, v| e.max(v.abs()));
                 assert!(err <= 1e-14, "n={n}: {err:e}");
@@ -443,7 +537,7 @@ mod tests {
             for n in [33, 65, 129] {
                 let s = n - 1;
                 let u = uniform_nodes(s);
-                let ours = cheb_to_uniform(n, s).dot(&cgl_nodes(n).mapv(f));
+                let ours = cheb_to_uniform(n, s).dot(&nodes_closed_form(n).mapv(f));
 
                 let desc_nodes = chebychev_points::<f64>(Kind::Second, n);
                 let values: DynArray<f64, 1> =
@@ -461,7 +555,7 @@ mod tests {
 
         /// CC relative L² error of T_uc(d = 2) on sin(πx) sin(πy), sampled on s = n − 1.
         fn fh_error(n: usize) -> f64 {
-            let (c, u) = (cgl_nodes(n), uniform_nodes(n - 1));
+            let (c, u) = (nodes_closed_form(n), uniform_nodes(n - 1));
             let t = uniform_to_cheb(n - 1, n, 2);
             let got = apply(t.view(), t.view(), sample(&u, &u, sin_sin).view());
             let w = clenshaw_curtis(n);
@@ -493,7 +587,7 @@ mod tests {
         #[test]
         fn round_trip_matches_spike() {
             let n = 65;
-            let c = cgl_nodes(n);
+            let c = nodes_closed_form(n);
             let u = sample(&c, &c, sin_sin);
             let (t_cu, t_uc) = (cheb_to_uniform(n, n - 1), uniform_to_cheb(n - 1, n, 2));
             let back = apply(

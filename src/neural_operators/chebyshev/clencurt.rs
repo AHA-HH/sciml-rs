@@ -6,7 +6,7 @@
 //! on the Chebyshev grid needs no RLST, BLAS or FFTW (design §12, decision 15). They agree
 //! with the RLST-backed `chebyshev::clenshaw_curtis` (feature `chebyshev`) to round-off.
 
-use ndarray::{Array1, ArrayView2, Zip};
+use ndarray::{Array1, ArrayView1, ArrayView2, Zip};
 use std::f64::consts::PI;
 
 use super::check_n;
@@ -57,6 +57,22 @@ pub fn clencurt(n: usize) -> Array1<f64> {
     w
 }
 
+/// Squared Clenshaw–Curtis L² norm of `v: [n_x, n_y]` on the CGL tensor grid
+/// (CONVENTIONS §12, design §3.4): Σ_{i,j} wx_i · wy_j · v[i, j]², with `wx: [n_x]` and
+/// `wy: [n_y]` the weights along each axis, e.g. [`clencurt`]. `v` is stored 'ij'
+/// (`v[i, j] = v(x_i, y_j)`). Unscaled: entries beyond about 1e154 in magnitude overflow
+/// when squared, and below about 1e-154 underflow.
+///
+/// # Panics
+/// If `wx` has not `n_x` entries or `wy` has not `n_y`.
+pub fn cc_norm_sq(v: ArrayView2<f64>, wx: ArrayView1<f64>, wy: ArrayView1<f64>) -> f64 {
+    assert_eq!(wx.len(), v.nrows(), "cc_norm_sq: wx must have n_x entries");
+    assert_eq!(wy.len(), v.ncols(), "cc_norm_sq: wy must have n_y entries");
+    let mut sum = 0.0;
+    Zip::indexed(v).for_each(|(i, j), &x| sum += wx[i] * wy[j] * x * x);
+    sum
+}
+
 /// Relative Clenshaw–Curtis L² error ‖a − b‖ / ‖b‖ on the CGL tensor grid, `b` the
 /// reference (CONVENTIONS §12, design §3.4):
 ///
@@ -67,7 +83,8 @@ pub fn clencurt(n: usize) -> Array1<f64> {
 /// size (below about 1e-154 or above about 1e154) neither underflow nor overflow, even
 /// when `a` and `b` differ greatly in magnitude. Returns NaN or infinity when ‖b‖ = 0, as
 /// `rel_l2_error` (feature `chebyshev`) does, and equals it with `clenshaw_curtis` weights
-/// to round-off.
+/// to round-off. Builds the weights on every call; a caller that already holds them uses
+/// [`cc_rel_l2_error_weighted`].
 ///
 /// # Panics
 /// If `a` and `b` differ in shape, or either axis has fewer than 2 nodes.
@@ -76,7 +93,22 @@ pub fn cc_rel_l2_error(a: ArrayView2<f64>, b: ArrayView2<f64>) -> f64 {
     let (nx, ny) = b.dim();
     check_n("cc_rel_l2_error", nx);
     check_n("cc_rel_l2_error", ny);
-    let (wx, wy) = (clencurt(nx), clencurt(ny));
+    cc_rel_l2_error_weighted(a, b, clencurt(nx).view(), clencurt(ny).view())
+}
+
+/// [`cc_rel_l2_error`] with the weights given: `wx: [n_x]` and `wy: [n_y]`, e.g.
+/// [`clencurt`], for `a` and `b` of shape `[n_x, n_y]`. With `clencurt` weights the two
+/// agree exactly. The squared norms are [`cc_norm_sq`] of the scaled a − b and b.
+///
+/// # Panics
+/// If `a` and `b` differ in shape, or `wx` has not `n_x` entries or `wy` has not `n_y`.
+pub fn cc_rel_l2_error_weighted(
+    a: ArrayView2<f64>,
+    b: ArrayView2<f64>,
+    wx: ArrayView1<f64>,
+    wy: ArrayView1<f64>,
+) -> f64 {
+    assert_eq!(a.dim(), b.dim(), "cc_rel_l2_error_weighted: shapes differ");
     // ‖a − b‖ / ‖b‖ = (sd / sb) · ‖(a − b)/sd‖ / ‖b/sb‖, with each scaled norm of unit
     // size. Dividing (not multiplying by 1/s) keeps a subnormal s finite. A scale of 0 or
     // infinity is replaced by 1, so ‖b‖ = 0 still gives NaN or infinity.
@@ -87,31 +119,26 @@ pub fn cc_rel_l2_error(a: ArrayView2<f64>, b: ArrayView2<f64>) -> f64 {
     });
     let unit = |s: f64| if s > 0.0 && s.is_finite() { s } else { 1.0 };
     let (sd, sb) = (unit(sd), unit(sb));
-    let (mut num, mut den) = (0.0, 0.0);
-    Zip::indexed(a).and(b).for_each(|(i, j), &ai, &bi| {
-        let w = wx[i] * wy[j];
-        let (d, r) = ((ai - bi) / sd, bi / sb);
-        num += w * d * d;
-        den += w * r * r;
-    });
+    let num = cc_norm_sq(((&a - &b) / sd).view(), wx, wy);
+    let den = cc_norm_sq(b.mapv(|bi| bi / sb).view(), wx, wy);
     (sd / sb) * (num / den).sqrt()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::cgl_nodes;
+    use super::super::nodes_closed_form;
     use super::*;
     use ndarray::{Array2, s};
 
     fn sample(nx: usize, ny: usize, f: impl Fn(f64, f64) -> f64) -> Array2<f64> {
-        let (x, y) = (cgl_nodes(nx), cgl_nodes(ny));
+        let (x, y) = (nodes_closed_form(nx), nodes_closed_form(ny));
         Array2::from_shape_fn((nx, ny), |(i, j)| f(x[i], y[j]))
     }
 
     #[test]
     fn clencurt_integrates_polynomials() {
         for n in [2, 3, 9, 33, 65] {
-            let x = cgl_nodes(n);
+            let x = nodes_closed_form(n);
             let w = clencurt(n);
             for k in 0..n {
                 let quad: f64 = (0..n).map(|j| w[j] * x[j].powi(k as i32)).sum();
@@ -206,6 +233,38 @@ mod tests {
         assert!(cc_rel_l2_error(z.view(), z.view()).is_nan());
         let one = Array2::from_elem((3, 3), 1.0);
         assert_eq!(cc_rel_l2_error(one.view(), z.view()), f64::INFINITY);
+    }
+
+    #[test]
+    fn cc_norm_sq_matches_cc_rel_l2_error() {
+        let b = sample(17, 33, |x, y| x.exp() * (2.0 * y).cos() + 0.5);
+        let a = sample(17, 33, |x, y| x.exp() * (2.0 * y).cos() + 0.5 + 0.1 * x * y);
+        let (wx, wy) = (clencurt(17), clencurt(33));
+        let from_norms = (cc_norm_sq((&a - &b).view(), wx.view(), wy.view())
+            / cc_norm_sq(b.view(), wx.view(), wy.view()))
+        .sqrt();
+        let err = cc_rel_l2_error(a.view(), b.view());
+        assert!(
+            (from_norms - err).abs() <= 1e-14 * err,
+            "{from_norms} vs {err}"
+        );
+        assert_eq!(
+            cc_rel_l2_error_weighted(a.view(), b.view(), wx.view(), wy.view()),
+            err
+        );
+        // ∫∫ 1 dA = 4, and ∫∫ x² y⁴ dA = (2/3)(2/5), both exact at these n
+        let one = Array2::from_elem((17, 33), 1.0);
+        assert!((cc_norm_sq(one.view(), wx.view(), wy.view()) - 4.0).abs() <= 1e-14);
+        let p = sample(17, 33, |x, y| x * y * y);
+        let exact = 4.0 / 15.0;
+        assert!((cc_norm_sq(p.view(), wx.view(), wy.view()) - exact).abs() <= 1e-14);
+    }
+
+    #[test]
+    #[should_panic(expected = "cc_norm_sq: wy must have n_y entries")]
+    fn cc_norm_sq_panics_on_weight_length() {
+        let (v, w) = (Array2::zeros((3, 4)), clencurt(3));
+        cc_norm_sq(v.view(), w.view(), w.view());
     }
 
     #[test]

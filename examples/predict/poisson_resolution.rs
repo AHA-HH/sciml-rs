@@ -24,7 +24,10 @@ use sciml_rs::neural_operators::{
         },
         transforms::normalizers::Normalizer,
     },
-    metrics::poisson::{ErrorStats, check_error3, poisson_errors},
+    metrics::{
+        poisson::{check_error3, poisson_errors},
+        stats::ErrorStats,
+    },
     models::run::{load_fno, predict_host},
     utils::backend::backend_features,
 };

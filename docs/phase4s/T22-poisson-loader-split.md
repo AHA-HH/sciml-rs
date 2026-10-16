@@ -52,6 +52,12 @@ lowest layer.
 4. **`BurgersFiles` / `DarcyFiles`** in the catalogue replace the hard-coded `.mat` paths in
    the examples, mirroring `PoissonSet`.
 5. CLAUDE.md "Layout": update the `data/loaders/poisson` paragraph and its pointers.
+6. **Optional, from the T8 review** (`docs/code-quality/thermo-nuclear-review-2026-10-16-phase4s-T8.md`,
+   finding 2.1): add `Transfers::to_uniform_all(&self, f: ArrayView3<f64>) -> Array3<f64>`
+   in `chebyshev::transfer`. It replaces the loader's `transfer_samples` (the uniform
+   loader calls it on `field.slice(s![..count, .., ..])`) and the loop in the
+   `metrics/poisson.rs` test helper `to_uniform`. Same numerics: it is the per-sample
+   `to_uniform` loop, written once.
 
 ## Tests
 - Every loader test passes, moved with its code.
