@@ -86,8 +86,8 @@ wgpu = ["burn/wgpu"]
 # into builds with this feature. No other rlst feature is enabled (no burn or MPI).
 # The Poisson dataset generator also needs the GRF RNG (`rand_chacha`'s ChaCha8Rng and
 # `rand_distr`'s StandardNormal) and `serde_json` for its sidecars; all three are pinned
-# exactly because `Cargo.lock` is git-ignored and a seed must give the same field on
-# every machine (design §12, decision 13).
+# exactly so a seed gives the same field on every machine, even in builds that do not use
+# the committed `Cargo.lock` (design §12, decision 13).
 chebyshev = [
     "dep:rlst",
     "rlst/fftw",
