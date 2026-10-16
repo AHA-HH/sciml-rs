@@ -24,11 +24,8 @@ use ndarray::{ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
     chebyshev::{Transfers, cc_rel_l2_error, nodes_closed_form},
     data::{
-        loaders::{
-            base_dataset::HasBaseConfig,
-            poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform, stage},
-        },
-        transforms::normalizers::{Normalizer, NormalizerRecord, UnitGaussianNormalizer},
+        loaders::poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform, stage},
+        transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
     },
     models::run::{load_fno, predict_host},
 };
@@ -86,7 +83,7 @@ fn main() {
     let n = dataset_cfg.n;
     let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
     let test_file = datasets.join(set.npz("test"));
-    let n_test = dataset_cfg.base().n_test;
+    let n_test = dataset_cfg.base.n_test;
     assert!(
         sample < n_test,
         "sample {sample} is out of range: the run has {n_test} test samples"

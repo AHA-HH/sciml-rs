@@ -1,24 +1,12 @@
-//! Normalization strategies for operator-learning data: a shared `normalizer`
-//! trait (fit / encode / decode) with three implementations differing in
-//! what statistics they compute and over what scope.
+//! Pointwise Gaussian normalization for operator-learning data
+//! ([`UnitGaussianNormalizer`], CONVENTIONS §10), its serialisable
+//! [`NormalizerRecord`], and the tensor-side [`FlatDecoder`].
 
 use burn::{config::Config, prelude::*};
-use ndarray::{ArrayD, Axis, IxDyn, Zip};
+use ndarray::{ArrayD, Axis, IxDyn};
 
 // Default guard added to standard deviations to avoid division by zero.
 const DEFAULT_EPS: f64 = 1e-5;
-/// Shared interface for all normalizers: fit on training data, encode inputs
-/// before training, decode predictions back to physical scale.
-pub trait Normalizer {
-    /// Computes and stores statistics from `data`.
-    fn fit(data: &ArrayD<f64>) -> Self;
-
-    /// normalizes `data` using stored statistics.
-    fn encode(&self, data: ArrayD<f64>) -> ArrayD<f64>;
-
-    /// Denormalizes `data` back to physical scale.
-    fn decode(&self, data: ArrayD<f64>) -> ArrayD<f64>;
-}
 
 /// Serialisable form of a fitted [`UnitGaussianNormalizer`]. `mean` and `std`
 /// are flattened; `shape` restores them.
@@ -40,6 +28,16 @@ pub struct UnitGaussianNormalizer {
 }
 
 impl UnitGaussianNormalizer {
+    /// Fits on `data` with the default `eps` (1e-5).
+    ///
+    /// # Panics
+    ///
+    /// As [`with_eps`](Self::with_eps): if `data` has fewer than 2 samples
+    /// along axis 0.
+    pub fn fit(data: &ArrayD<f64>) -> Self {
+        Self::with_eps(data, DEFAULT_EPS)
+    }
+
     /// Fits with a caller-specified `eps` instead of `fit`'s default.
     ///
     /// # Panics
@@ -57,19 +55,33 @@ impl UnitGaussianNormalizer {
         Self { mean, std, eps }
     }
 
-    // Exposes fitted statistics for bridging into Burn's autodiff Tensor
-    // world inside the training loop. encode/decode above stay ndarray-based
-    // and are used during data loading (load_darcy_uniform), where no
-    // gradient tracking is needed.
-    pub fn mean_ref(&self) -> &ArrayD<f64> {
+    /// Normalizes `data` (`[batch, ...]`, each example shaped like `mean`)
+    /// using the fitted statistics.
+    pub fn encode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
+        (data - &self.mean) / (&self.std + self.eps)
+    }
+
+    /// Denormalizes `data` (`[batch, ...]`, each example shaped like `mean`)
+    /// back to physical scale.
+    pub fn decode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
+        (data * (&self.std + self.eps)) + &self.mean
+    }
+
+    /// Fitted per-point mean, shaped like one example. With [`std`](Self::std)
+    /// and [`eps`](Self::eps) it bridges into Burn tensors ([`FlatDecoder`]);
+    /// `encode`/`decode` stay ndarray-based for data loading, where no
+    /// gradient tracking is needed.
+    pub fn mean(&self) -> &ArrayD<f64> {
         &self.mean
     }
 
-    pub fn std_ref(&self) -> &ArrayD<f64> {
+    /// Fitted per-point sample std (`ddof = 1`), shaped like one example.
+    pub fn std(&self) -> &ArrayD<f64> {
         &self.std
     }
 
-    pub fn eps_val(&self) -> f64 {
+    /// Guard added to `std` in `encode`/`decode`.
+    pub fn eps(&self) -> f64 {
         self.eps
     }
 
@@ -90,119 +102,6 @@ impl UnitGaussianNormalizer {
             std: ArrayD::from_shape_vec(shape, r.std.clone()).expect("std shape mismatch"),
             eps: r.eps,
         }
-    }
-}
-
-impl Normalizer for UnitGaussianNormalizer {
-    fn fit(data: &ArrayD<f64>) -> Self {
-        Self::with_eps(data, DEFAULT_EPS)
-    }
-
-    fn encode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
-        (data - &self.mean) / (&self.std + self.eps)
-    }
-
-    fn decode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
-        (data * (&self.std + self.eps)) + &self.mean
-    }
-}
-
-/// Global normalization: single scalar mean/std across all values, all
-/// spatial points, all examples. `eps` is fixed at `DEFAULT_EPS` (1e-5):
-/// unlike [`UnitGaussianNormalizer::with_eps`], there is no constructor that
-/// sets it.
-///
-/// # Panics
-///
-/// `fit` panics if `data` has fewer than 2 values in total: the sample std
-/// (`ddof = 1`) is 0/0 = NaN for one value.
-#[derive(Clone)]
-pub struct GaussianNormalizer {
-    mean: f64,
-    std: f64,
-    eps: f64,
-}
-
-impl Normalizer for GaussianNormalizer {
-    fn fit(data: &ArrayD<f64>) -> Self {
-        assert!(
-            data.len() >= 2,
-            "GaussianNormalizer: a sample std needs at least 2 values, got {}",
-            data.len()
-        );
-        let mean = data.mean().unwrap();
-        let std = data.std(1.0);
-        Self {
-            mean,
-            std,
-            eps: DEFAULT_EPS,
-        }
-    }
-
-    fn encode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
-        (data - self.mean) / (self.std + self.eps)
-    }
-
-    fn decode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
-        (data * (self.std + self.eps)) + self.mean
-    }
-}
-
-/// Linear rescaling to `[low, high]` (default `[0, 1]` via `fit`), computed
-/// per spatial point from batch min/max.
-///
-/// A point that is constant across the batch (`max == min`, e.g. a Dirichlet
-/// boundary pixel) has no range to rescale: it gets scale 1 and is shifted to
-/// the midpoint `(low + high) / 2`, so `encode`/`decode` stay finite and exact
-/// inverses. All other points use the plain min/max map.
-#[derive(Clone)]
-pub struct RangeNormalizer {
-    a: ArrayD<f64>, // scale factor
-    b: ArrayD<f64>, // offset
-}
-
-impl RangeNormalizer {
-    /// # Panics
-    ///
-    /// If `low >= high`: `decode` would divide by a zero scale.
-    pub fn with_range(data: &ArrayD<f64>, low: f64, high: f64) -> Self {
-        assert!(
-            low < high,
-            "RangeNormalizer: need low < high, got [{low}, {high}]"
-        );
-        let min = data.map_axis(Axis(0), |row| row.fold(f64::INFINITY, |a, &b| a.min(b)));
-        let max = data.map_axis(Axis(0), |row| row.fold(f64::NEG_INFINITY, |a, &b| a.max(b)));
-        let mid = 0.5 * (low + high);
-
-        // a = (high - low) / (max - min); b = -a * max + high. Constant points
-        // would give a = inf and NaN on encode, so they get a = 1, b = mid - c.
-        let a = Zip::from(&max).and(&min).map_collect(|&mx, &mn| {
-            if mx == mn {
-                1.0
-            } else {
-                (high - low) / (mx - mn)
-            }
-        });
-        let b = Zip::from(&a)
-            .and(&max)
-            .and(&min)
-            .map_collect(|&a, &mx, &mn| if mx == mn { mid - mx } else { -a * mx + high });
-
-        Self { a, b }
-    }
-}
-
-impl Normalizer for RangeNormalizer {
-    fn fit(data: &ArrayD<f64>) -> Self {
-        Self::with_range(data, 0.0, 1.0)
-    }
-
-    fn encode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
-        &self.a * &data + &self.b
-    }
-
-    fn decode(&self, data: ArrayD<f64>) -> ArrayD<f64> {
-        (&data - &self.b) / &self.a
     }
 }
 
@@ -231,8 +130,8 @@ impl FlatDecoder {
             Tensor::<1>::from_data(TensorData::new(values, vec![n]), device)
         };
         Self {
-            mean: upload(normalizer.mean_ref()),
-            scale: upload(normalizer.std_ref()) + normalizer.eps_val(),
+            mean: upload(normalizer.mean()),
+            scale: upload(normalizer.std()) + normalizer.eps(),
         }
     }
 
@@ -335,7 +234,7 @@ mod tests {
             let len = v.len();
             Tensor::<1>::from_data(TensorData::new(v, vec![len]), device)
         };
-        let (mean, std) = (up(n.mean_ref()), up(n.std_ref()));
+        let (mean, std) = (up(n.mean()), up(n.std()));
         (n, mean, std)
     }
 
@@ -357,7 +256,7 @@ mod tests {
                 &device,
             );
             let new = FlatDecoder::new(&n, &device).decode(x.clone());
-            let old = per_call_decode(x, &mean, &std, n.eps_val());
+            let old = per_call_decode(x, &mean, &std, n.eps());
             assert_eq!(new.is_autodiff(), device.is_autodiff());
             assert_eq!(bits(new), bits(old), "autodiff = {}", device.is_autodiff());
         }
@@ -387,7 +286,7 @@ mod tests {
             bits(x.grad(&g).expect("input gradient"))
         };
         let decoder = FlatDecoder::new(&n, &device);
-        let eps = n.eps_val();
+        let eps = n.eps();
         assert_eq!(
             grad(&|x| decoder.decode(x)),
             grad(&|x| per_call_decode(x, &mean, &std, eps))
@@ -404,104 +303,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "at least 2")]
-    fn gaussian_rejects_single_value() {
-        let data = ArrayD::from_shape_vec(IxDyn(&[1]), vec![1.0]).unwrap();
-        let _ = GaussianNormalizer::fit(&data);
-    }
-
-    #[test]
     fn unit_gaussian_two_samples_uses_sample_std() {
         // columns [1, 3] and [3, 7]: ddof = 1 gives [√2, 2√2], ddof = 0 [1, 2]
         let data = ArrayD::from_shape_vec(IxDyn(&[2, 2]), vec![1.0, 3.0, 3.0, 7.0]).unwrap();
         let n = UnitGaussianNormalizer::fit(&data);
-        assert_eq!(n.mean_ref().as_slice().unwrap(), &[2.0, 5.0]);
-        let std = n.std_ref().as_slice().unwrap();
+        assert_eq!(n.mean().as_slice().unwrap(), &[2.0, 5.0]);
+        let std = n.std().as_slice().unwrap();
         let expected = [2f64.sqrt(), 2.0 * 2f64.sqrt()];
         for (a, b) in std.iter().zip(expected) {
             assert!((a - b).abs() < 1e-12, "{a} != {b}");
         }
         assert!(n.encode(data).iter().all(|v| v.is_finite()));
-    }
-
-    #[test]
-    fn gaussian_accepts_one_sample_with_several_values() {
-        // global std is over all values, so one multi-point sample is fine
-        let data = ArrayD::from_shape_vec(IxDyn(&[1, 3]), vec![1.0, 2.0, 3.0]).unwrap();
-        let n = GaussianNormalizer::fit(&data);
-        assert!((n.mean - 2.0).abs() < 1e-12 && (n.std - 1.0).abs() < 1e-12);
-        assert!(n.encode(data).iter().all(|v| v.is_finite()));
-    }
-
-    // --- REVIEW.md 2.6: RangeNormalizer at constant points ---
-
-    /// [3 samples, 4 points]: points 0 and 2 vary; point 1 is constant 2.5
-    /// (old code: a = inf, b = -inf) and point 3 is constant 0.0 (old code:
-    /// b = inf * 0 = NaN).
-    fn range_data_with_constant_points() -> ArrayD<f64> {
-        ArrayD::from_shape_vec(
-            IxDyn(&[3, 4]),
-            vec![
-                -1.0, 2.5, 10.0, 0.0, //
-                0.5, 2.5, 30.0, 0.0, //
-                3.0, 2.5, 20.0, 0.0,
-            ],
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn range_constant_points_encode_to_midpoint_and_round_trip() {
-        let data = range_data_with_constant_points();
-        for (low, high) in [(0.0, 1.0), (-1.0, 1.0)] {
-            let n = RangeNormalizer::with_range(&data, low, high);
-            let enc = n.encode(data.clone());
-            assert!(
-                enc.iter().all(|v| v.is_finite()),
-                "non-finite encode: {enc:?}"
-            );
-
-            let mid = 0.5 * (low + high);
-            for sample in 0..3 {
-                assert_eq!(enc[[sample, 1]], mid, "[{low}, {high}] point 1");
-                assert_eq!(enc[[sample, 3]], mid, "[{low}, {high}] point 3");
-            }
-
-            let dec = n.decode(enc);
-            for (a, b) in data.iter().zip(dec.iter()) {
-                assert!((a - b).abs() < 1e-12, "{a} != {b}");
-            }
-        }
-    }
-
-    #[test]
-    fn range_non_constant_points_are_unchanged() {
-        // The guard only touches max == min points; the others must match the
-        // unguarded formula to the bit, and span [low, high].
-        let data = range_data_with_constant_points();
-        let (low, high) = (-2.0, 3.0);
-        let n = RangeNormalizer::with_range(&data, low, high);
-        let enc = n.encode(data.clone());
-
-        for point in [0, 2] {
-            let col: Vec<f64> = (0..3).map(|s| data[[s, point]]).collect();
-            let min = col.iter().copied().fold(f64::INFINITY, f64::min);
-            let max = col.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            let a = (high - low) / (max - min);
-            let b = -a * max + high;
-            for (s, &x) in col.iter().enumerate() {
-                assert_eq!(enc[[s, point]], a * x + b, "point {point}, sample {s}");
-            }
-            let enc_col: Vec<f64> = (0..3).map(|s| enc[[s, point]]).collect();
-            let lo = enc_col.iter().copied().fold(f64::INFINITY, f64::min);
-            let hi = enc_col.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            assert!((lo - low).abs() < 1e-12 && (hi - high).abs() < 1e-12);
-        }
-    }
-
-    #[test]
-    #[should_panic(expected = "low < high")]
-    fn range_rejects_empty_target_interval() {
-        let _ = RangeNormalizer::with_range(&range_data_with_constant_points(), 1.0, 1.0);
     }
 }

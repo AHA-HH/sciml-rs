@@ -15,7 +15,7 @@ use gnuplot::{AxesCommon, Caption, Figure};
 use sciml_rs::neural_operators::{
     data::{
         loaders::darcy::{DarcyConfig, load_darcy_uniform},
-        transforms::normalizers::{Normalizer, NormalizerRecord, UnitGaussianNormalizer},
+        transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
     },
     models::fno::FNOConfig,
 };

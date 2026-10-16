@@ -29,9 +29,9 @@ use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes_close
 use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
-    io::{errors::LoadError, readers::npz::NpzFileReader, traits::FieldReader},
-    loaders::base_dataset::{BaseDatasetConfig, DatasetConfig, HasBaseConfig},
-    transforms::normalizers::{Normalizer, UnitGaussianNormalizer},
+    io::{errors::LoadError, readers::npz::NpzFileReader},
+    loaders::base_dataset::DatasetConfig,
+    transforms::normalizers::UnitGaussianNormalizer,
 };
 use burn::config::Config;
 use ndarray::{Array1, Array3, ArrayD, Axis, Ix3, IxDyn, s};
@@ -54,12 +54,6 @@ impl PoissonConfig {
     /// n = 0; `load_poisson_uniform` rejects n < 4.
     pub fn s(&self) -> usize {
         self.n.saturating_sub(1)
-    }
-}
-
-impl HasBaseConfig for PoissonConfig {
-    fn base(&self) -> &DatasetConfig {
-        &self.base
     }
 }
 
@@ -122,7 +116,7 @@ pub struct PoissonNormalizers {
 ///
 /// Each file must hold `f` and `u` as `[samples, n, n]` on the CGL grid (`f[i, a, b] =
 /// f(x_a, y_b)`) and `x`, `y` as the ascending CGL nodes `[n]`. The first
-/// `config.n_train()` / `config.n_test()` samples are used.
+/// `config.base.n_train` / `config.base.n_test` samples are used.
 ///
 /// Returns `(train_dataset, test_dataset, normalizers)`. `normalizers.y` is what the
 /// caller needs to decode predictions back to physical scale; `normalizers.x` is only
@@ -145,10 +139,10 @@ pub fn load_poisson_uniform<T: HostFloat>(
     config: &PoissonConfig,
 ) -> Result<(OperatorDataset<T>, OperatorDataset<T>, PoissonNormalizers), LoadError> {
     // ddof = 1 std of a single sample is 0/0 = NaN, which eps can't guard
-    if config.n_train() < 2 {
+    if config.base.n_train < 2 {
         return Err(LoadError::Invalid(format!(
             "n_train must be >= 2: a sample std needs at least 2 training samples, got {}",
-            config.n_train()
+            config.base.n_train
         )));
     }
     let n = config.n;
@@ -164,16 +158,16 @@ pub fn load_poisson_uniform<T: HostFloat>(
     let transfers = Transfers::new(n);
     let nodes = nodes_closed_form(n);
     let load_split = |path: &Path, split: &str, count: usize| -> Result<_, LoadError> {
-        let reader = NpzFileReader::new(path);
-        check_nodes(&reader, split, n, &nodes)?;
-        let f = read_samples(&reader, split, "f", n, count)?;
+        let mut reader = NpzFileReader::new(path)?;
+        check_nodes(&mut reader, split, n, &nodes)?;
+        let f = read_samples(&mut reader, split, "f", n, count)?;
         let f = transfer_samples(f, count, &transfers);
-        let u = read_samples(&reader, split, "u", n, count)?;
+        let u = read_samples(&mut reader, split, "u", n, count)?;
         let u = transfer_samples(u, count, &transfers);
         Ok((f, u))
     };
-    let (f_train, u_train) = load_split(train_path.as_ref(), "train", config.n_train())?;
-    let (f_test, u_test) = load_split(test_path.as_ref(), "test", config.n_test())?;
+    let (f_train, u_train) = load_split(train_path.as_ref(), "train", config.base.n_train)?;
+    let (f_test, u_test) = load_split(test_path.as_ref(), "test", config.base.n_test)?;
     poisson_from_fields(f_train, u_train, f_test, u_test, n)
 }
 
@@ -233,18 +227,16 @@ pub fn load_poisson_cheb_field(
         || path.display().to_string(),
         |f| f.to_string_lossy().into(),
     );
-    let reader = NpzFileReader::new(path);
-    check_nodes(&reader, &label, n, &nodes_closed_form(n))?;
-    let values = read_samples(&reader, &label, field, n, count)?
-        .into_dimensionality::<Ix3>()
-        .expect("read_samples checked rank 3");
+    let mut reader = NpzFileReader::new(path)?;
+    check_nodes(&mut reader, &label, n, &nodes_closed_form(n))?;
+    let values = read_samples(&mut reader, &label, field, n, count)?;
     Ok(values.slice_move(s![..count, .., ..]))
 }
 
 /// Checks that the fields `x` and `y` are `[n]` and within [`NODE_TOL`] of the CGL
 /// `nodes`. `split` only labels the error messages.
 fn check_nodes(
-    reader: &NpzFileReader,
+    reader: &mut NpzFileReader,
     split: &str,
     n: usize,
     nodes: &Array1<f64>,
@@ -276,19 +268,22 @@ fn check_nodes(
 /// Reads the field `name`, checks that it is `[samples, n, n]` with at least `count`
 /// samples, and returns it whole. `split` only labels the error messages.
 fn read_samples(
-    reader: &NpzFileReader,
+    reader: &mut NpzFileReader,
     split: &str,
     name: &str,
     n: usize,
     count: usize,
-) -> Result<ArrayD<f64>, LoadError> {
+) -> Result<Array3<f64>, LoadError> {
     let field = reader.read_field(name)?;
-    if field.ndim() != 3 || field.shape()[1..] != [n, n] {
-        return Err(LoadError::Invalid(format!(
-            "{split} field '{name}' must be [samples, {n}, {n}], got shape {:?}",
-            field.shape()
-        )));
-    }
+    let shape = field.shape().to_vec();
+    let field = match field.into_dimensionality::<Ix3>() {
+        Ok(field) if field.shape()[1..] == [n, n] => field,
+        _ => {
+            return Err(LoadError::Invalid(format!(
+                "{split} field '{name}' must be [samples, {n}, {n}], got shape {shape:?}"
+            )));
+        }
+    };
     if count > field.shape()[0] {
         return Err(LoadError::Invalid(format!(
             "requested {count} {split} samples but '{name}' has {}",
@@ -303,10 +298,7 @@ fn read_samples(
 /// `[count, s, s]`.
 ///
 /// The caller has checked the shape and that `count` samples exist.
-fn transfer_samples(field: ArrayD<f64>, count: usize, transfers: &Transfers) -> ArrayD<f64> {
-    let field = field
-        .into_dimensionality::<Ix3>()
-        .expect("caller checked rank 3");
+fn transfer_samples(field: Array3<f64>, count: usize, transfers: &Transfers) -> ArrayD<f64> {
     let s = transfers.s();
     let mut out = Array3::zeros((count, s, s));
     for (mut dst, src) in out
@@ -505,8 +497,9 @@ mod tests {
         // The transferred fields, computed independently of the loader's file path.
         let t = Transfers::new(N);
         let x = nodes_closed_form(N);
-        let f_tr = transfer_samples(poly_field(N_TRAIN, 0.0, &x, &x), N_TRAIN, &t);
-        let f_te = transfer_samples(poly_field(N_TEST, 0.5, &x, &x), N_TEST, &t);
+        let rank3 = |a: ArrayD<f64>| a.into_dimensionality::<Ix3>().unwrap();
+        let f_tr = transfer_samples(rank3(poly_field(N_TRAIN, 0.0, &x, &x)), N_TRAIN, &t);
+        let f_te = transfer_samples(rank3(poly_field(N_TEST, 0.5, &x, &x)), N_TEST, &t);
         let (u_tr, u_te) = (&f_tr * -2.0, &f_te * -2.0);
 
         let as_input = |a: ArrayD<f64>| {

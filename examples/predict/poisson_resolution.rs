@@ -17,12 +17,8 @@ use std::path::{Path, PathBuf};
 
 use burn::{prelude::*, tensor::Device};
 use sciml_rs::neural_operators::{
-    data::{
-        loaders::{
-            base_dataset::HasBaseConfig,
-            poisson::{PoissonConfig, PoissonSet, load_poisson_cheb, load_poisson_uniform, stage},
-        },
-        transforms::normalizers::Normalizer,
+    data::loaders::poisson::{
+        PoissonConfig, PoissonSet, load_poisson_cheb, load_poisson_uniform, stage,
     },
     metrics::{
         poisson::{check_error3, poisson_errors},
@@ -53,7 +49,7 @@ fn main() {
     let k = stage(trained_cfg.n)
         .unwrap_or_else(|e| panic!("the run's stage: {e}"))
         .k;
-    let n_test = trained_cfg.base().n_test;
+    let n_test = trained_cfg.base.n_test;
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
 
     println!(
@@ -70,7 +66,7 @@ fn main() {
     for n in ns {
         let set = PoissonSet { n, k };
         let test_file = datasets.join(set.npz("test"));
-        let cfg = PoissonConfig::new(trained_cfg.base().clone(), n);
+        let cfg = PoissonConfig::new(trained_cfg.base.clone(), n);
         let s = cfg.s();
 
         // Refits both normalizers on the train split at this n (decision 18)

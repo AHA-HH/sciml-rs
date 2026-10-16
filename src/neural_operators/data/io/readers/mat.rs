@@ -1,17 +1,14 @@
 //! .mat file reader (legacy and modern MATLAB formats).
 
-use crate::neural_operators::data::io::{
-    errors::{ReaderError, ReaderResult},
-    traits::FieldReader,
-};
+use crate::neural_operators::data::io::errors::{ReaderError, ReaderResult};
 use matfile;
 use ndarray::{ArrayD, ArrayView, IxDyn, ShapeBuilder};
 use std::path::Path;
 
 /// Reads named fields from a `.mat` file.
 ///
-/// Unlike `NpyFileReader`/`NpzFileReader`, the file is opened and parsed
-/// eagerly in `new()`; failures are returned as `Err` there.
+/// The file is opened and parsed eagerly in `new()`; failures are returned
+/// as `Err` there.
 pub struct MatFileReader {
     mat: matfile::MatFile,
 }
@@ -47,13 +44,13 @@ fn to_array<T: Copy + Into<f64>>(size: &[usize], data: &[T]) -> ReaderResult<Arr
     Ok(out)
 }
 
-impl FieldReader for MatFileReader {
+impl MatFileReader {
     /// Reads field `name` as a row-major `f64` array with MATLAB's shape.
     ///
     /// Supports real `double`, `single` and 8/16/32-bit integer fields.
     /// Complex fields and 64-bit integers (not losslessly convertible to
     /// `f64`) are rejected with `ParseError`.
-    fn read_field(&self, name: &str) -> ReaderResult<ArrayD<f64>> {
+    pub fn read_field(&self, name: &str) -> ReaderResult<ArrayD<f64>> {
         let array = self
             .mat
             .find_by_name(name)

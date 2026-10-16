@@ -1,13 +1,14 @@
-//! Error types for the `.npy`/`.npz`/`.mat` file readers and the dataset loaders.
+//! Error types for the `.npz`/`.mat` file readers and the dataset loaders.
 //!
-//! Concrete readers (see FieldReader implementors) return `ReaderResult<T>`,
+//! The readers (`NpzFileReader`, `MatFileReader`) return `ReaderResult<T>`,
 //! surfacing missing files, malformed data, or missing named fields
 //! uniformly regardless of source format.
 
 /// Errors that can occur while reading a data file into an array.
 #[derive(Debug)]
 pub enum ReaderError {
-    /// The requested file path does not exist or could not be opened.
+    /// The requested file path does not exist. A file that exists but can't be
+    /// opened is a [`ParseError`](Self::ParseError).
     FileNotFound(String),
     /// The file was found but its contents could not be parsed as expected.
     ParseError(String),

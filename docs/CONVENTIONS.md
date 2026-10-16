@@ -224,9 +224,6 @@ the code that implements it in the same pull request.
 
 - `UnitGaussianNormalizer`: μ and σ per spatial point across the sample axis, σ with
   ddof = 1; ε = 1e-5 by default (`with_eps` to change). Needs at least 2 samples.
-- `GaussianNormalizer`: one scalar μ and σ over all values; ε = 1e-5, fixed.
-- `RangeNormalizer`: pointwise min/max map to [low, high] (default [0, 1]); a constant
-  point gets scale 1 and is shifted to the midpoint.
 - Darcy (`DarcyNormalizers`) normalises x and y pointwise; statistics are fitted on the
   training split only, in f64 on the host. `x_test` is encoded with the training x
   statistics; `y_test` stays in physical units, and predictions are decoded with the y
@@ -235,8 +232,6 @@ the code that implements it in the same pull request.
 
 ### Verification
 `encode_decode_round_trips`, `unit_gaussian_two_samples_uses_sample_std`,
-`gaussian_accepts_one_sample_with_several_values`,
-`range_constant_points_encode_to_midpoint_and_round_trip`,
 `flat_decoder_matches_ndarray_decode`, `inputs_hold_the_normalized_coefficient_only`,
 `single_train_sample_is_invalid_not_nan`.
 

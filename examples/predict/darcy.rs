@@ -18,10 +18,7 @@ use burn::{
 use sciml_rs::neural_operators::{
     data::{
         batcher::OperatorBatcher,
-        loaders::{
-            base_dataset::HasBaseConfig,
-            darcy::{DarcyConfig, load_darcy_uniform},
-        },
+        loaders::darcy::{DarcyConfig, load_darcy_uniform},
         transforms::normalizers::{FlatDecoder, NormalizerRecord, UnitGaussianNormalizer},
     },
     losses::data_losses::{LpLoss, Reduction},
@@ -71,7 +68,7 @@ fn main() {
 
     println!(
         "loaded model test_l2: {:.10}",
-        l2 / dataset_cfg.base().n_test as f32
+        l2 / dataset_cfg.base.n_test as f32
     );
     println!(
         "(should match the last test_l2 in {}/metrics.csv)",
