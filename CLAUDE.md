@@ -82,7 +82,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - Examples are registered in `Cargo.toml`; hyperparameters are literals at the top of
   each file. Training writes `runs/<name>_<unix_secs>/`.
 - `datasets/` (.mat files, see `datasets/README.md`) and `runs/` are git-ignored.
-- `Cargo.lock` is git-ignored (library crate). `.gitignore` covers `*.csv` and `*.png`.
+- `Cargo.lock` is committed: CI builds from it, so a yanked dependency (e.g. `zip 6.0.0`)
+  cannot break a fresh resolve. `.gitignore` covers `*.csv` and `*.png`.
 
 ## Build environment
 Stable Rust, edition 2024 (Rust 1.85+), with `rustfmt` and `clippy`. `gnuplot` is
