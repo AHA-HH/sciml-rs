@@ -1,14 +1,11 @@
 //! GPU diagnostics: Flex vs the GPU (CUDA with `--features cuda`, otherwise Metal), op
 //! by op, behind the Burn bug reports in `upstream/burn/` (the fused-`cat` stride and
-//! new-shape replay bugs) and the 2D replay check `replay_2d_poisson`. Prints
-//! comparisons; most tests assert nothing.
+//! new-shape replay bugs). Prints comparisons; only `repro_fusion_cache_new_shape`
+//! asserts. The regression tests (`repro_*`, `replay_2d_poisson`) are in the root
+//! crate's `tests/gpu_parity.rs`.
 //!
-//! Asserting tests: the GPU `repro_*` tests reproduce the Burn bugs, so on a fused
-//! backend that has them they **fail** (that is the finding); their `*_flex` twins
-//! must pass. `replay_2d_poisson` must pass before trusting a GPU padding sweep.
-//! Run with `cargo test [--release] --features metal --test metal_diag -- --nocapture`
-//! (or `--features cuda`).
-#![cfg(any(feature = "metal", feature = "cuda"))]
+//! Run with `cargo test -p metal-diag-spike [--release] -- --nocapture` (Metal), or add
+//! `--no-default-features --features cuda`. See `../README.md`.
 
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig, PaddingConfig1d, conv::Conv1dConfig};
@@ -816,91 +813,6 @@ fn broadcast_cat_min() {
     println!("    a = {:?}\n    p = {pv:?}  q = {qv:?}", v(a));
 }
 
-/// Bug-report repro: fixed values, asserts.
-#[test]
-fn repro_fused_cat_broadcast() {
-    let device = gpu();
-    let a = Tensor::<2>::from_floats([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]], &device);
-    let p = Tensor::<2>::from_floats([[10.0], [20.0]], &device);
-    let q = Tensor::<2>::from_floats([[30.0], [40.0]], &device);
-
-    let out = a * Tensor::cat(vec![p, q], 0); // [4, 2] * [4, 1] -> [4, 2]
-    let got = out.into_data().try_to_vec::<f32>().unwrap();
-    println!("got {got:?}");
-    assert_eq!(got, [10.0, 20.0, 60.0, 80.0, 150.0, 180.0, 280.0, 320.0]);
-}
-
-/// Bug-report repro: Bluestein cfft along a non-last axis vs a naive DFT.
-#[test]
-fn repro_cfft_bluestein() {
-    let device = gpu();
-    let (n, w) = (6usize, 4usize);
-    let vals: Vec<f32> = (0..n * w).map(|k| ((k * 7 % 11) as f32) - 5.0).collect();
-    let re = Tensor::<2>::from_data(TensorData::new(vals.clone(), [n, w]), &device);
-    let im = re.zeros_like();
-    let (out_re, _) = signal::cfft(re, im, 0, Some(n));
-    let got = out_re.into_data().try_to_vec::<f32>().unwrap();
-    let mut max_err = 0.0f32;
-    for k in 0..n {
-        for c in 0..w {
-            let want: f64 = (0..n)
-                .map(|j| {
-                    vals[j * w + c] as f64
-                        * (2.0 * std::f64::consts::PI * (j * k) as f64 / n as f64).cos()
-                })
-                .sum();
-            max_err = max_err.max((got[k * w + c] - want as f32).abs());
-        }
-    }
-    println!("max abs err vs naive DFT: {max_err}");
-    assert!(
-        max_err < 1e-3,
-        "cfft [6, 4] axis 0 wrong: max abs err {max_err}"
-    );
-}
-/// Bug-report repro: fixed values, asserts.
-#[test]
-fn repro_fused_cat_broadcast_flex() {
-    let device = Device::flex();
-    let a = Tensor::<2>::from_floats([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]], &device);
-    let p = Tensor::<2>::from_floats([[10.0], [20.0]], &device);
-    let q = Tensor::<2>::from_floats([[30.0], [40.0]], &device);
-
-    let out = a * Tensor::cat(vec![p, q], 0); // [4, 2] * [4, 1] -> [4, 2]
-    let got = out.into_data().try_to_vec::<f32>().unwrap();
-    println!("got {got:?}");
-    assert_eq!(got, [10.0, 20.0, 60.0, 80.0, 150.0, 180.0, 280.0, 320.0]);
-}
-
-/// Bug-report repro: Bluestein cfft along a non-last axis vs a naive DFT.
-#[test]
-fn repro_cfft_bluestein_flex() {
-    let device = Device::flex();
-    let (n, w) = (6usize, 4usize);
-    let vals: Vec<f32> = (0..n * w).map(|k| ((k * 7 % 11) as f32) - 5.0).collect();
-    let re = Tensor::<2>::from_data(TensorData::new(vals.clone(), [n, w]), &device);
-    let im = re.zeros_like();
-    let (out_re, _) = signal::cfft(re, im, 0, Some(n));
-    let got = out_re.into_data().try_to_vec::<f32>().unwrap();
-    let mut max_err = 0.0f32;
-    for k in 0..n {
-        for c in 0..w {
-            let want: f64 = (0..n)
-                .map(|j| {
-                    vals[j * w + c] as f64
-                        * (2.0 * std::f64::consts::PI * (j * k) as f64 / n as f64).cos()
-                })
-                .sum();
-            max_err = max_err.max((got[k * w + c] - want as f32).abs());
-        }
-    }
-    println!("max abs err vs naive DFT: {max_err}");
-    assert!(
-        max_err < 1e-3,
-        "cfft [6, 4] axis 0 wrong: max abs err {max_err}"
-    );
-}
-
 /// Flex timing: cfft on axis 2 directly (old) vs swap to last + back (new).
 #[test]
 fn flex_swap_timing() {
@@ -1397,8 +1309,12 @@ fn min_repeat() {
     println!("MIN={var:<20} {}", errs.join(" "));
 }
 
-/// Bug-report repro 2: a fused cat chain gives wrong values when re-run at a
-/// new shape with a freshly uploaded input.
+/// Bisection variant of `tests/gpu_parity.rs::repro_fused_cat_reused_at_new_shape`: a
+/// fused cat chain gives wrong values when re-run at a new shape with a freshly uploaded
+/// input. Asserts, but is intermittent on Metal at the pinned rev.
+///
+/// Default shapes: warm-up `[2, 21, 1]`, then `[3, 8, 1]`; `SHAPES=small` or `SHAPES=mid`
+/// overrides. Default 3 warm-up calls; `WARMS=<n>` overrides.
 #[test]
 fn repro_fusion_cache_new_shape() {
     fn chain(x: Tensor<3>) -> Tensor<3> {
@@ -1519,37 +1435,6 @@ fn min_repeat_grid3() {
     println!("CFG={cfg:<12} max|err| {}", errs.join(" "));
 }
 
-/// Bug-report repro 2, as published.
-#[test]
-fn repro_fused_cat_reused_at_new_shape() {
-    fn chain(x: Tensor<3>) -> Tensor<3> {
-        let [b, n, _] = x.dims();
-        let g = Tensor::<1, Int>::arange(0..n as i64, &x.device())
-            .float()
-            .reshape([1, n, 1])
-            .expand([b, n, 1]);
-        let g = Tensor::cat(vec![g], 2); // single-input cat
-        Tensor::cat(vec![x, g], 2) // [b, n, 2]: (x, index) pairs
-    }
-    let device = gpu();
-    let upload = |b: usize, n: usize| {
-        let vals: Vec<f32> = (0..b * n).map(|i| 10.0 * (i + 1) as f32).collect();
-        Tensor::<3>::from_data(TensorData::new(vals, [b, n, 1]), &device)
-    };
-
-    // One run at [2, 21, 1].
-    let _ = chain(upload(2, 21)).into_data();
-
-    // Then three runs at [3, 8, 1], each with a freshly uploaded input.
-    let want: Vec<f32> = (0..24)
-        .flat_map(|i| [10.0 * (i + 1) as f32, (i % 8) as f32])
-        .collect();
-    for call in 0..3 {
-        let got = chain(upload(3, 8)).into_data().try_to_vec::<f32>().unwrap();
-        assert_eq!(got, want, "call {call}");
-    }
-}
-
 /// Poisson-trainer-sized step (forward + backward) timing on Metal.
 #[test]
 fn bench_poisson_step() {
@@ -1582,93 +1467,4 @@ fn bench_poisson_step() {
             per * 50.0
         );
     }
-}
-
-/// Flex reference outputs, keyed by (call kind, batch size).
-type RefCache = std::collections::HashMap<(&'static str, usize), (Vec<f32>, Vec<f32>)>;
-
-/// 2D replay check at the Poisson trainer's configuration: shape changes as in
-/// training (full, partial and test batches), each shape called repeatedly,
-/// inputs uploaded afresh per call; every Metal call compared to Flex
-/// (forward output, and loss + input gradient through backward).
-#[test]
-fn replay_2d_poisson() {
-    use sciml_rs::neural_operators::layers::spectral_convolution::SpectralInit;
-    let pads: Vec<usize> = std::env::var("PADS")
-        .map(|s| s.split(',').map(|p| p.parse().unwrap()).collect())
-        .unwrap_or_else(|_| vec![0, 4, 8, 16]);
-    let (m, f) = (gpu(), Device::flex());
-    let s = 64;
-    let input = |b: usize, d: &Device| {
-        let vals: Vec<f32> = (0..b * s * s)
-            .map(|i| ((i as f32) * 0.0137).sin() + 0.3 * ((i as f32) * 0.0031).cos())
-            .collect();
-        Tensor::<4>::from_data(TensorData::new(vals, [b, s, s, 1]), d)
-    };
-    // Training-like order: train batches (20, partial 7), eval batches (20, 3).
-    let schedule: [(&str, usize); 8] = [
-        ("train", 20),
-        ("train", 20),
-        ("train", 7),
-        ("eval", 20),
-        ("eval", 3),
-        ("train", 20),
-        ("train", 7),
-        ("eval", 20),
-    ];
-    let mut worst = 0.0f32;
-    for p in pads {
-        f.seed(5);
-        let model_f = FNOConfig::new(vec![12, 12], 1, 1)
-            .with_hidden_channels(32)
-            .with_n_layers(4)
-            .with_padding(Some(p))
-            .with_spectral_init(Some(SpectralInit::SymmetricUniform))
-            .init::<4>(&f);
-        let model_m = model_f.clone().to_device(&m);
-        let (fa, ma) = (f.clone().autodiff(), m.clone().autodiff());
-        let (model_fa, model_ma) = (
-            model_f.clone().to_device(&fa),
-            model_f.clone().to_device(&ma),
-        );
-
-        // Flex references, once per (kind, batch).
-        let mut refs: RefCache = Default::default();
-        let train_step = |model: &sciml_rs::neural_operators::models::fno::FNO<4>, x: Tensor<4>| {
-            let x = x.require_grad();
-            let loss = model.forward(x.clone()).powf_scalar(2.0).mean();
-            let g = loss.backward();
-            let gx = x.grad(&g).unwrap();
-            let mut out = v(loss.inner().reshape([1, 1, 1, 1]));
-            out.extend(v(gx));
-            out
-        };
-        let mut line = Vec::new();
-        for (call, &(kind, b)) in schedule.iter().enumerate() {
-            let want = refs
-                .entry((kind, b))
-                .or_insert_with(|| {
-                    let o = match kind {
-                        "eval" => v(model_f.forward(input(b, &f))),
-                        _ => train_step(&model_fa, input(b, &fa)),
-                    };
-                    (o, Vec::new())
-                })
-                .0
-                .clone();
-            let got = match kind {
-                "eval" => v(model_m.forward(input(b, &m))),
-                _ => train_step(&model_ma, input(b, &ma)),
-            };
-            let e = rel(&got, &want);
-            worst = worst.max(e);
-            line.push(format!(
-                "{call}:{kind}{b}={e:.1e}{}",
-                if e > 1e-5 { "!" } else { "" }
-            ));
-        }
-        println!("p={p:<2} {}", line.join(" "));
-    }
-    println!("worst gpu/flex rel err: {worst:.2e}");
-    assert!(worst <= 1e-5, "GPU differs from Flex: {worst:e}");
 }

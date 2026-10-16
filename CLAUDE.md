@@ -76,10 +76,14 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - `training/trainer` (`train_fno`, one trainer for every PDE: `Some(y)` decodes with the
   target normaliser, `None` trains in physical units), driven on those datasets by
   `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
-- `spikes/`: standalone packages for Phase 0 measurements; never built by CI.
+- `spikes/`: standalone packages, never built by CI: Phase 0 measurements, and
+  `metal_diag` (op-by-op GPU vs Flex diagnostics behind `upstream/burn/*`; a non-default
+  workspace member sharing the root's lock and Burn pin: `cargo test -p metal-diag-spike`).
 - Unit tests sit in `#[cfg(test)] mod tests` in each file. `tests/spectral_init.rs` reseeds
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each
-  needs its own test binary, so keep such tests out of `src/`.
+  needs its own test binary, so keep such tests out of `src/`. `tests/gpu_parity.rs` holds
+  the Burn bug repros and the 2D GPU replay check; only its `*_flex` twins run without a
+  GPU feature.
 - Examples are registered in `Cargo.toml`; hyperparameters are literals at the top of
   each file. Training writes `runs/<name>_<unix_secs>/`.
 - `datasets/` (.mat files, see `datasets/README.md`) and `runs/` are git-ignored.
@@ -111,12 +115,16 @@ Before finishing any task, also run `cargo clippy --all-targets -- -D warnings`.
 clippy clean without blanket `#[allow]`s. For backend-sensitive changes, also run the
 relevant tests with `--features metal` and say whether it was run.
 
+GPU parity, for backend-sensitive changes: `cargo test --features metal --test gpu_parity`.
+Its GPU `repro_*` tests are `#[ignore]`d while the Burn bugs remain; `-- --ignored` shows
+them failing.
+
 An exact test filter needs the full module path:
 `cargo test neural_operators::models::fno::tests::<name> -- --exact`. A shorter path runs
 0 tests and still reports `ok`; check the "running N tests" line.
 
 ## Burn
-- Burn is a fork pinned in `Cargo.toml`: `ax1s-x1zz/burn` at rev `ddfa9af`, features
+- Burn is a fork pinned in `Cargo.toml` (`[workspace.dependencies]`): `ax1s-x1zz/burn` at rev `ddfa9af`, features
   `autodiff, signal, store, train`. docs.rs describes upstream, not this.
 - `signal` provides `rfft`, `irfft` and a forward `cfft` but no inverse complex FFT;
   `utils/fft.rs::icfft_full_spectrum` supplies it. Non-power-of-two lengths go through

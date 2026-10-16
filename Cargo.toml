@@ -99,8 +99,18 @@ chebyshev = [
     "dep:serde_json",
 ]
 
-[dependencies]
+# The crate is the only default member, so root `cargo test` / `clippy` / `doc` build only
+# it. `spikes/metal_diag` shares this lock, target directory and Burn pin; the other spikes
+# are standalone (their own `[workspace]`).
+[workspace]
+members = [".", "spikes/metal_diag"]
+default-members = ["."]
+
+[workspace.dependencies]
 burn = { git = "https://github.com/ax1s-x1zz/burn", rev = "ddfa9af03ab9fb4b8491889e55c9d0ceffbfda22", features = ["autodiff", "signal", "store", "train"] }
+
+[dependencies]
+burn.workspace = true
 ndarray = "0.17"
 ndarray-npy = "0.10"
 matfile = "0.5"

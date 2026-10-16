@@ -1,0 +1,19 @@
+[package]
+name = "metal-diag-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Phases 3-4: op-by-op GPU vs Flex diagnostics behind upstream/burn/* (spike, not part of sciml-rs)"
+
+# A non-default member of the root workspace: it shares the root's Cargo.lock, target
+# directory and Burn pin, and root `cargo test` / CI never build it.
+
+[features]
+default = ["metal"]
+metal = ["sciml-rs/metal"]
+cuda = ["sciml-rs/cuda"]
+
+[dependencies]
+# Flex is the reference backend; the GPU comes from the features above.
+sciml-rs = { path = "../..", default-features = false, features = ["flex"] }
+burn.workspace = true
