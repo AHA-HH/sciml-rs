@@ -110,29 +110,41 @@ pub fn flatten_pair<const R: usize, const RM1: usize>(
     (out.reshape([b, n_points]), target.reshape([b, n_points]))
 }
 
+/// One batch through [`forward_loss`]: the loss and the tensors it was computed from.
+pub(crate) struct StepLoss {
+    /// Relative L2 summed over the batch, `[1]`.
+    pub l2_sum: Tensor<1>,
+    /// Post-processed model output, `[b, n_points]`.
+    pub out: Tensor<2>,
+    /// Post-processed target, `[b, n_points]`.
+    pub target: Tensor<2>,
+}
+
 /// One forward pass and its loss: the step shared by [`train_epoch`], [`eval_epoch`] and
 /// the Burgers `Learner` ([`learner`](crate::neural_operators::training::learner)), so
 /// the loss is defined once.
 ///
 /// Runs `model` on `batch.inputs` (`[b, ...spatial, data_channels]`), collapses output
-/// and `batch.targets` (`[b, ...spatial]`) with [`flatten_pair`] and applies `post`.
-/// Returns the relative L2 summed over the batch (`LpLoss::new(R - 2, 2,
-/// Reduction::Sum)`, shape `[1]`), then the post-processed output and target, both
-/// `[b, n_points]`.
+/// and `batch.targets` (`[b, ...spatial]`) with [`flatten_pair`] and applies `post`
+/// before the loss (`LpLoss::new(R - 2, 2, Reduction::Sum)`).
 ///
 /// # Panics
 ///
 /// If the output has more than one channel ([`flatten_pair`]).
-pub fn forward_loss<const R: usize, const RM1: usize>(
+pub(crate) fn forward_loss<const R: usize, const RM1: usize>(
     model: &FNO<R>,
     batch: Batch<R, RM1>,
     post: &Postprocess,
-) -> (Tensor<1>, Tensor<2>, Tensor<2>) {
+) -> StepLoss {
     let out = model.forward(batch.inputs);
     let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
     let (out, target) = post(out, target);
-    let l2 = LpLoss::new(R - 2, 2, Reduction::Sum).rel(out.clone(), target.clone());
-    (l2, out, target)
+    let l2_sum = LpLoss::new(R - 2, 2, Reduction::Sum).rel(out.clone(), target.clone());
+    StepLoss {
+        l2_sum,
+        out,
+        target,
+    }
 }
 
 /// Runs one evaluation pass. Returns the summed relative L2 across all
@@ -147,7 +159,7 @@ pub fn eval_epoch<const R: usize, const RM1: usize>(
     for batch in loader.iter() {
         let batch = batch.expect("dataset error during evaluation");
 
-        let (l2, _, _) = forward_loss(model, batch, post);
+        let l2 = forward_loss(model, batch, post).l2_sum;
 
         l2_sum_tensor = Some(match l2_sum_tensor {
             Some(sum) => sum + l2,
@@ -192,7 +204,11 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
 
         let batch = batch.expect("dataset error during training");
 
-        let (l2, out, target) = forward_loss(&model, batch, post);
+        let StepLoss {
+            l2_sum: l2,
+            out,
+            target,
+        } = forward_loss(&model, batch, post);
 
         let mse = (out.inner() - target.inner()).powf_scalar(2.0).mean();
 
@@ -455,40 +471,35 @@ mod tests {
         assert_eq!(t.dims(), [2, 30]);
     }
 
-    /// `forward_loss` against a hand-written oracle: forward, `flatten_pair`, then
-    /// `LpLoss::new(R - 2, 2, Sum).rel`, bit for bit.
+    /// `forward_loss` against a hand-written oracle: forward, `flatten_pair`, the hook,
+    /// then `LpLoss::new(R - 2, 2, Sum).rel`, bit for bit. The hook doubles the
+    /// prediction, so a loss taken before the hook, or tensors returned without it, fail.
     fn assert_forward_loss_matches_oracle<const R: usize, const RM1: usize>(
         model: &FNO<R>,
-        batch: Batch<R, RM1>,
-    ) {
-        let (o, t) =
-            flatten_pair::<R, RM1>(model.forward(batch.inputs.clone()), batch.targets.clone());
-        let expected = LpLoss::new(R - 2, 2, Reduction::Sum).rel(o.clone(), t.clone());
-
-        let (l2, out, target) = forward_loss(model, batch, &identity);
-
-        assert_eq!(l2.dims(), [1]);
-        assert_eq!(
-            l2.into_scalar::<f32>().to_bits(),
-            expected.into_scalar::<f32>().to_bits()
-        );
-        assert_eq!(out.into_data(), o.into_data());
-        assert_eq!(target.into_data(), t.into_data());
-    }
-
-    /// The whole dataset as one f32 batch on `device`.
-    fn to_batch<const R: usize, const RM1: usize>(
         data: &OperatorDataset<f64>,
         device: &Device,
-    ) -> Batch<R, RM1> {
-        let tensor = |a: &ArrayD<f64>| {
-            let values: Vec<f32> = a.iter().map(|&v| v as f32).collect();
-            TensorData::new(values, a.shape().to_vec())
-        };
-        Batch {
-            inputs: Tensor::from_data(tensor(data.inputs()), device),
-            targets: Tensor::from_data(tensor(data.targets()), device),
-        }
+    ) {
+        let batch = device_loader::<R, RM1, _>(data, device, data.len(), None)
+            .iter()
+            .next()
+            .expect("one batch")
+            .expect("dataset error");
+
+        let (o, t) =
+            flatten_pair::<R, RM1>(model.forward(batch.inputs.clone()), batch.targets.clone());
+        let o = o.mul_scalar(2.0);
+        let expected = LpLoss::new(R - 2, 2, Reduction::Sum).rel(o.clone(), t.clone());
+
+        let double = |out: Tensor<2>, target: Tensor<2>| (out.mul_scalar(2.0), target);
+        let step = forward_loss(model, batch, &double);
+
+        assert_eq!(step.l2_sum.dims(), [1]);
+        assert_eq!(
+            step.l2_sum.into_scalar::<f32>().to_bits(),
+            expected.into_scalar::<f32>().to_bits()
+        );
+        assert_eq!(step.out.into_data(), o.into_data());
+        assert_eq!(step.target.into_data(), t.into_data());
     }
 
     #[test]
@@ -496,14 +507,13 @@ mod tests {
         let device = Device::default();
 
         let model_1d = tiny_model_cfg().init::<3>(&device);
-        assert_forward_loss_matches_oracle(&model_1d, to_batch::<3, 2>(&tiny_dataset(3), &device));
+        assert_forward_loss_matches_oracle::<3, 2>(&model_1d, &tiny_dataset(3), &device);
 
         let model_2d = FNOConfig::new(vec![2, 2], 1, 1)
             .with_hidden_channels(4)
             .with_n_layers(1)
             .init::<4>(&device);
-        let batch_2d = to_batch::<4, 3>(&tiny_dataset_2d(3), &device);
-        assert_forward_loss_matches_oracle(&model_2d, batch_2d);
+        assert_forward_loss_matches_oracle::<4, 3>(&model_2d, &tiny_dataset_2d(3), &device);
     }
 
     // --- REVIEW1.md N5: schedule length and divisors come from the data ---

@@ -5,7 +5,7 @@
 //! This is a showcase, kept as the template for using Burn's `Learner`:
 //! [`train_epoch`](crate::neural_operators::training::trainer::train_epoch) is
 //! the canonical loop, and this is its Burgers-only (`FNO<3>`) equivalent. Both
-//! take their loss from [`forward_loss`].
+//! take their loss from the crate-private `trainer::forward_loss`.
 //!
 //! `TrainStep` cannot be generic over R here: its `Input` would be
 //! `Batch<R, RM1>`, and a generic `impl<const R: usize> TrainStep for FNO<R>`
@@ -21,7 +21,7 @@ use burn::{
 use crate::neural_operators::{
     data::batcher::Batch,
     models::fno::FNO,
-    training::trainer::{forward_loss, identity},
+    training::trainer::{StepLoss, forward_loss, identity},
 };
 
 impl FNO<3> {
@@ -35,15 +35,19 @@ impl FNO<3> {
     /// per-sample relative L2 comparable to `train_l2` / `test_l2` in
     /// `EpochMetrics`.
     fn learner_forward(&self, batch: Batch<3, 2>) -> (Tensor<1>, RegressionOutput) {
-        let (l2_sum, output, targets) = forward_loss(self, batch, &identity);
-        let loss = l2_sum.clone().div_scalar(targets.dims()[0] as f64);
+        let StepLoss {
+            l2_sum,
+            out,
+            target,
+        } = forward_loss(self, batch, &identity);
+        let loss = l2_sum.clone().div_scalar(target.dims()[0] as f64);
 
         (
             l2_sum,
             RegressionOutput {
                 loss,
-                output,
-                targets,
+                output: out,
+                targets: target,
             },
         )
     }

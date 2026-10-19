@@ -71,7 +71,8 @@ fn main() {
     };
 
     // 100 epochs, fewer than `train_burgers`' 500, so a TUI run finishes
-    // quickly; its test L2 is not comparable with a `train_burgers` run.
+    // quickly. Same metric as `train_burgers`, but after fewer epochs, so the
+    // values differ.
     let train_cfg = TrainingConfig::new()
         .with_epochs(100)
         .with_batch_size(20)

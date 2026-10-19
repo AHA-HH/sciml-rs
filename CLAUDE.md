@@ -149,11 +149,11 @@ than trusting prose when checking how an API behaves.
 ## Commands
 - All tests: `cargo test`
 - Train: `cargo run --release --example train_burgers [--features metal]`
-  (also `train_darcy`; `train_burgers_learner` needs a real terminal for Burn's TUI)
-- `train_burgers_learner` is a showcase of Burn's `Learner`: `train_epoch` is the canonical
-  loop; this is the Burgers-only (`FNO<3>`) Learner equivalent. It writes
-  `runs/burgers_fno_learner_<unix_secs>/` (configs and weights, no `metrics.csv`), which
-  `predict_burgers` evaluates.
+  (also `train_darcy`)
+- `train_burgers_learner` is a showcase of Burn's `Learner` and needs a real terminal for its
+  TUI: `train_epoch` is the canonical loop; this is the Burgers-only (`FNO<3>`) Learner
+  equivalent. It writes `runs/burgers_fno_learner_<unix_secs>/` (configs and weights, no
+  `metrics.csv`), which `predict_burgers` evaluates.
 - Train on Poisson: `cargo run --release --example train_poisson [--features metal] [-- [<padding>] [<n>]]`
   (the first argument overrides `PADDING`, the second picks the stage, n ∈ {65, 129, 257},
   default 65; needs that stage in `datasets/poisson/`). On cuda:

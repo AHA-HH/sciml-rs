@@ -59,8 +59,12 @@ fn main() {
         "loaded model test_l2: {:.10}",
         l2 / dataset_cfg.base.n_test as f32
     );
-    println!(
-        "(should match the last test_l2 in {}/metrics.csv)",
-        dir.display()
-    );
+    // `train_burgers_learner` runs have no metrics.csv to compare against
+    let metrics_csv = dir.join("metrics.csv");
+    if metrics_csv.exists() {
+        println!(
+            "(should match the last test_l2 in {})",
+            metrics_csv.display()
+        );
+    }
 }
