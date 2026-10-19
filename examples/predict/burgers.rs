@@ -18,7 +18,6 @@ use sciml_rs::neural_operators::{
         batcher::OperatorBatcher,
         loaders::burgers::{BurgersConfig, load_burgers_uniform},
     },
-    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
     training::trainer::{eval_epoch, identity},
 };
@@ -54,8 +53,7 @@ fn main() {
 
     // Burgers has no normalizer, so predictions need no postprocessing - hence `identity`
     // Compare examples/predict/darcy.rs, which decodes
-    let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
-    let l2 = eval_epoch::<3, 2>(&model, &test_loader, &loss_fn, &identity);
+    let l2 = eval_epoch::<3, 2>(&model, &test_loader, &identity);
 
     println!(
         "loaded model test_l2: {:.10}",

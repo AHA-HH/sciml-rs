@@ -110,12 +110,36 @@ pub fn flatten_pair<const R: usize, const RM1: usize>(
     (out.reshape([b, n_points]), target.reshape([b, n_points]))
 }
 
+/// One forward pass and its loss: the step shared by [`train_epoch`], [`eval_epoch`] and
+/// the Burgers `Learner` ([`learner`](crate::neural_operators::training::learner)), so
+/// the loss is defined once.
+///
+/// Runs `model` on `batch.inputs` (`[b, ...spatial, data_channels]`), collapses output
+/// and `batch.targets` (`[b, ...spatial]`) with [`flatten_pair`] and applies `post`.
+/// Returns the relative L2 summed over the batch (`LpLoss::new(R - 2, 2,
+/// Reduction::Sum)`, shape `[1]`), then the post-processed output and target, both
+/// `[b, n_points]`.
+///
+/// # Panics
+///
+/// If the output has more than one channel ([`flatten_pair`]).
+pub fn forward_loss<const R: usize, const RM1: usize>(
+    model: &FNO<R>,
+    batch: Batch<R, RM1>,
+    post: &Postprocess,
+) -> (Tensor<1>, Tensor<2>, Tensor<2>) {
+    let out = model.forward(batch.inputs);
+    let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
+    let (out, target) = post(out, target);
+    let l2 = LpLoss::new(R - 2, 2, Reduction::Sum).rel(out.clone(), target.clone());
+    (l2, out, target)
+}
+
 /// Runs one evaluation pass. Returns the summed relative L2 across all
 /// batches; the caller divides by the number of test samples.
 pub fn eval_epoch<const R: usize, const RM1: usize>(
     model: &FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
-    loss_fn: &LpLoss,
     post: &Postprocess,
 ) -> f32 {
     let mut l2_sum_tensor = None;
@@ -123,11 +147,7 @@ pub fn eval_epoch<const R: usize, const RM1: usize>(
     for batch in loader.iter() {
         let batch = batch.expect("dataset error during evaluation");
 
-        let out = model.forward(batch.inputs);
-        let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
-        let (out, target) = post(out, target);
-
-        let l2 = loss_fn.rel(out, target);
+        let (l2, _, _) = forward_loss(model, batch, post);
 
         l2_sum_tensor = Some(match l2_sum_tensor {
             Some(sum) => sum + l2,
@@ -156,7 +176,6 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
     optim: &mut ModuleOptimizer,
     scheduler: &mut ModuleLrScheduler,
-    loss_fn: &LpLoss,
     post: &Postprocess,
 ) -> (FNO<R>, EpochSums) {
     let mut mse_sum_tensor = None;
@@ -173,18 +192,9 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
 
         let batch = batch.expect("dataset error during training");
 
-        let out = model.forward(batch.inputs);
+        let (l2, out, target) = forward_loss(&model, batch, post);
 
-        let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
-
-        let (out, target) = post(out, target);
-
-        let out_metric = out.clone().inner();
-        let target_metric = target.clone().inner();
-
-        let mse = (out_metric - target_metric).powf_scalar(2.0).mean();
-
-        let l2 = loss_fn.rel(out, target);
+        let mse = (out.inner() - target.inner()).powf_scalar(2.0).mean();
 
         let l2_metric = l2.clone().inner();
 
@@ -227,7 +237,6 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
     pub model: FNO<R>,
     pub optim: ModuleOptimizer,
     pub scheduler: ModuleLrScheduler,
-    pub loss_fn: LpLoss,
     pub train_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
     pub test_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
     /// Training / test sample counts: the per-sample metric divisors.
@@ -306,7 +315,6 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
         model,
         optim,
         scheduler,
-        loss_fn: LpLoss::new(R - 2, 2, Reduction::Sum),
         train_loader,
         test_loader,
         n_train,
@@ -335,19 +343,13 @@ pub fn training_loop<const R: usize, const RM1: usize>(
             &components.train_loader,
             &mut components.optim,
             &mut components.scheduler,
-            &components.loss_fn,
             train_post,
         );
         model = m;
 
         let valid_model = model.valid();
 
-        let test_l2_sum = eval_epoch(
-            &valid_model,
-            &components.test_loader,
-            &components.loss_fn,
-            eval_post,
-        );
+        let test_l2_sum = eval_epoch(&valid_model, &components.test_loader, eval_post);
 
         let epoch_time = epoch_start.elapsed();
 
@@ -453,6 +455,57 @@ mod tests {
         assert_eq!(t.dims(), [2, 30]);
     }
 
+    /// `forward_loss` against a hand-written oracle: forward, `flatten_pair`, then
+    /// `LpLoss::new(R - 2, 2, Sum).rel`, bit for bit.
+    fn assert_forward_loss_matches_oracle<const R: usize, const RM1: usize>(
+        model: &FNO<R>,
+        batch: Batch<R, RM1>,
+    ) {
+        let (o, t) =
+            flatten_pair::<R, RM1>(model.forward(batch.inputs.clone()), batch.targets.clone());
+        let expected = LpLoss::new(R - 2, 2, Reduction::Sum).rel(o.clone(), t.clone());
+
+        let (l2, out, target) = forward_loss(model, batch, &identity);
+
+        assert_eq!(l2.dims(), [1]);
+        assert_eq!(
+            l2.into_scalar::<f32>().to_bits(),
+            expected.into_scalar::<f32>().to_bits()
+        );
+        assert_eq!(out.into_data(), o.into_data());
+        assert_eq!(target.into_data(), t.into_data());
+    }
+
+    /// The whole dataset as one f32 batch on `device`.
+    fn to_batch<const R: usize, const RM1: usize>(
+        data: &OperatorDataset<f64>,
+        device: &Device,
+    ) -> Batch<R, RM1> {
+        let tensor = |a: &ArrayD<f64>| {
+            let values: Vec<f32> = a.iter().map(|&v| v as f32).collect();
+            TensorData::new(values, a.shape().to_vec())
+        };
+        Batch {
+            inputs: Tensor::from_data(tensor(data.inputs()), device),
+            targets: Tensor::from_data(tensor(data.targets()), device),
+        }
+    }
+
+    #[test]
+    fn forward_loss_is_flatten_pair_then_summed_relative_l2() {
+        let device = Device::default();
+
+        let model_1d = tiny_model_cfg().init::<3>(&device);
+        assert_forward_loss_matches_oracle(&model_1d, to_batch::<3, 2>(&tiny_dataset(3), &device));
+
+        let model_2d = FNOConfig::new(vec![2, 2], 1, 1)
+            .with_hidden_channels(4)
+            .with_n_layers(1)
+            .init::<4>(&device);
+        let batch_2d = to_batch::<4, 3>(&tiny_dataset_2d(3), &device);
+        assert_forward_loss_matches_oracle(&model_2d, batch_2d);
+    }
+
     // --- REVIEW1.md N5: schedule length and divisors come from the data ---
 
     /// `n` Burgers-shaped samples: inputs `[n, 8, 1]`, targets `[n, 8]`,
@@ -523,8 +576,7 @@ mod tests {
             .set_device(Device::default())
             .batch_size(2)
             .build(tiny_dataset(n_test));
-        let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
-        let expected = eval_epoch(&model.valid(), &loader, &loss_fn, &identity) / n_test as f32;
+        let expected = eval_epoch(&model.valid(), &loader, &identity) / n_test as f32;
         let test_l2 = metrics.last().unwrap().test_l2;
         assert!(
             (test_l2 - expected).abs() <= 1e-6 * expected.abs(),
