@@ -55,6 +55,12 @@ fn main() {
     );
     let (train_data, test_data) = load_burgers_uniform::<f32>(&data_path, &dataset_cfg)
         .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
+    println!(
+        "burgers: {} train / {} test at s={}",
+        train_data.inputs().shape()[0],
+        test_data.inputs().shape()[0],
+        train_data.inputs().shape()[1]
+    );
 
     let model_cfg = FNOConfig {
         modes: vec![16],

@@ -30,11 +30,13 @@ use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
     io::{errors::LoadError, readers::npz::NpzFileReader},
-    loaders::base_dataset::DatasetConfig,
-    transforms::normalizers::UnitGaussianNormalizer,
+    loaders::{
+        base_dataset::DatasetConfig,
+        common::{Normalizers, check_n_train, normalize_split_pair},
+    },
 };
 use burn::config::Config;
-use ndarray::{Array1, Array3, ArrayD, Axis, Ix3, IxDyn, s};
+use ndarray::{Array1, Array3, ArrayD, Axis, Ix3, s};
 use std::path::Path;
 
 /// Tolerance on the stored `x`, `y` nodes against the closed-form CGL nodes.
@@ -100,16 +102,6 @@ pub fn stage(n: usize) -> Result<PoissonSet, LoadError> {
     })
 }
 
-/// The two normalizers fitted during Poisson loading. `x` encodes inputs (the forcing);
-/// `y` decodes predictions (the solution) back to physical scale. Named fields because
-/// both have the same type and swapping them fails silently.
-pub struct PoissonNormalizers {
-    /// Fitted on the transferred train forcing; encodes inputs `[N, s, s]`.
-    pub x: UnitGaussianNormalizer,
-    /// Fitted on the transferred train solution; decodes predictions `[N, s, s]`.
-    pub y: UnitGaussianNormalizer,
-}
-
 /// Builds the Poisson dataset on the uniform grid: inputs `[N, s, s, 1]` (the normalized
 /// forcing; no grid channels, the model generates them), targets `[N, s, s]`, with
 /// s = `config.s()` = n − 1.
@@ -137,14 +129,8 @@ pub fn load_poisson_uniform<T: HostFloat>(
     train_path: impl AsRef<Path>,
     test_path: impl AsRef<Path>,
     config: &PoissonConfig,
-) -> Result<(OperatorDataset<T>, OperatorDataset<T>, PoissonNormalizers), LoadError> {
-    // ddof = 1 std of a single sample is 0/0 = NaN, which eps can't guard
-    if config.base.n_train < 2 {
-        return Err(LoadError::Invalid(format!(
-            "n_train must be >= 2: a sample std needs at least 2 training samples, got {}",
-            config.base.n_train
-        )));
-    }
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
+    check_n_train(config.base.n_train)?;
     let n = config.n;
     if n < Transfers::MIN_N {
         return Err(LoadError::Invalid(format!(
@@ -168,7 +154,7 @@ pub fn load_poisson_uniform<T: HostFloat>(
     };
     let (f_train, u_train) = load_split(train_path.as_ref(), "train", config.base.n_train)?;
     let (f_test, u_test) = load_split(test_path.as_ref(), "test", config.base.n_test)?;
-    poisson_from_fields(f_train, u_train, f_test, u_test, n)
+    Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
 }
 
 /// Reads the first `count` raw solutions `u` of one split on the n × n CGL grid,
@@ -310,62 +296,12 @@ fn transfer_samples(field: Array3<f64>, count: usize, transfers: &Transfers) -> 
     out.into_dyn()
 }
 
-/// The rest of [`load_poisson_uniform`] on transferred `[samples, s, s]` fields:
-/// normalize, reshape and cast. Separate from the reader so the output can be tested
-/// without `.npz` files. `n` is only reported.
-fn poisson_from_fields<T: HostFloat>(
-    f_train: ArrayD<f64>,
-    u_train: ArrayD<f64>,
-    f_test: ArrayD<f64>,
-    u_test: ArrayD<f64>,
-    n: usize,
-) -> Result<(OperatorDataset<T>, OperatorDataset<T>, PoissonNormalizers), LoadError> {
-    let s = f_train.shape()[1];
-    let n_train = f_train.shape()[0];
-    let n_test = f_test.shape()[0];
-
-    // fit x-normalizer on the train forcing, encode both train and test forcings;
-    // fit y-normalizer on the train solution, encode it only - the test solution stays
-    // raw, decoded against at eval time via the returned y normalizer
-    let x_normalizer = UnitGaussianNormalizer::fit(&f_train);
-    let x_train = x_normalizer.encode(f_train);
-    let x_test = x_normalizer.encode(f_test);
-
-    let y_normalizer = UnitGaussianNormalizer::fit(&u_train);
-    let y_train = y_normalizer.encode(u_train);
-    // y_test intentionally NOT encoded
-    let y_test = u_test;
-
-    // add a trailing channel axis to inputs: [N, s, s] -> [N, s, s, 1]
-    let x_train = x_train
-        .into_shape_with_order(IxDyn(&[n_train, s, s, 1]))
-        .map_err(|e| LoadError::Invalid(format!("reshape x_train: {e}")))?;
-    let x_test = x_test
-        .into_shape_with_order(IxDyn(&[n_test, s, s, 1]))
-        .map_err(|e| LoadError::Invalid(format!("reshape x_test: {e}")))?;
-
-    // package into OperatorDataset, casting to the host dtype T
-    let train_dataset = OperatorDataset::from_f64(x_train, y_train);
-    let test_dataset = OperatorDataset::from_f64(x_test, y_test);
-
-    println!("poisson: {n_train} train / {n_test} test, n={n} -> s={s}");
-
-    Ok((
-        train_dataset,
-        test_dataset,
-        PoissonNormalizers {
-            x: x_normalizer,
-            y: y_normalizer,
-        },
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::neural_operators::chebyshev::uniform_nodes;
     use crate::neural_operators::data::io::errors::ReaderError;
-    use ndarray::Array1;
+    use ndarray::{Array1, IxDyn};
     use ndarray_npy::NpzWriter;
     use std::fs::{self, File};
     use std::path::PathBuf;
@@ -438,14 +374,7 @@ mod tests {
     }
 
     fn expect_invalid(
-        result: Result<
-            (
-                OperatorDataset<f64>,
-                OperatorDataset<f64>,
-                PoissonNormalizers,
-            ),
-            LoadError,
-        >,
+        result: Result<(OperatorDataset<f64>, OperatorDataset<f64>, Normalizers), LoadError>,
         needle: &str,
     ) {
         let err = result.err().expect("loading should fail");

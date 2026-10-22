@@ -17,11 +17,13 @@ use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
     io::{errors::LoadError, readers::mat::MatFileReader},
-    loaders::base_dataset::DatasetConfig,
-    transforms::normalizers::UnitGaussianNormalizer,
+    loaders::{
+        base_dataset::DatasetConfig,
+        common::{Normalizers, check_n_train, normalize_split_pair},
+    },
 };
 use burn::config::Config;
-use ndarray::{ArrayD, IxDyn, s};
+use ndarray::{ArrayD, s};
 use std::path::Path;
 
 /// Darcy-specific config: subsample rate and the resolution it implies.
@@ -37,14 +39,6 @@ impl DarcyConfig {
     pub fn s(&self) -> usize {
         (421 - 1) / self.subsample_rate + 1
     }
-}
-
-/// The two normalizers fitted during Darcy loading. `x` encodes inputs;
-/// `y` decodes predictions back to physical scale. Named fields because
-/// both have the same type and swapping them fails silently.
-pub struct DarcyNormalizers {
-    pub x: UnitGaussianNormalizer,
-    pub y: UnitGaussianNormalizer,
 }
 
 /// Builds the Darcy flow dataset: inputs `[n, s, s, 1]` (the normalized
@@ -70,17 +64,11 @@ pub fn load_darcy_uniform<T: HostFloat>(
     train_path: impl AsRef<Path>,
     test_path: impl AsRef<Path>,
     config: &DarcyConfig,
-) -> Result<(OperatorDataset<T>, OperatorDataset<T>, DarcyNormalizers), LoadError> {
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
     if config.subsample_rate == 0 {
         return Err(LoadError::Invalid("subsample_rate must be > 0".into()));
     }
-    // ddof = 1 std of a single sample is 0/0 = NaN, which eps can't guard
-    if config.base.n_train < 2 {
-        return Err(LoadError::Invalid(format!(
-            "n_train must be >= 2: a sample std needs at least 2 training samples, got {}",
-            config.base.n_train
-        )));
-    }
+    check_n_train(config.base.n_train)?;
 
     // Read input ('coeff') and target ('sol') from each split's .mat file,
     // validate them, then truncate to the configured sample count and subsample
@@ -115,7 +103,7 @@ pub fn load_darcy_uniform<T: HostFloat>(
 }
 
 /// The rest of [`load_darcy_uniform`] on truncated, subsampled fields:
-/// check the resolution, normalize, reshape and cast. Separate from the
+/// check the resolution, then normalize, add the channel axis and cast. Separate from the
 /// reader so the output can be tested without `.mat` files.
 fn darcy_from_fields<T: HostFloat>(
     x_train: ArrayD<f64>,
@@ -123,10 +111,8 @@ fn darcy_from_fields<T: HostFloat>(
     x_test: ArrayD<f64>,
     y_test: ArrayD<f64>,
     config: &DarcyConfig,
-) -> Result<(OperatorDataset<T>, OperatorDataset<T>, DarcyNormalizers), LoadError> {
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
     let s = x_train.shape()[1];
-    let n_train = x_train.shape()[0];
-    let n_test = x_test.shape()[0];
 
     // cross-check the derived resolution against what was actually subsampled
     let spatial_ok = [&x_train, &y_train, &x_test, &y_test]
@@ -141,39 +127,7 @@ fn darcy_from_fields<T: HostFloat>(
         )));
     }
 
-    // fit x-normalizer on x_train, encode both x_train and x_test;
-    // fit y-normalizer on y_train, encode y_train only - y_test stays raw,
-    // decoded against at eval time via the returned y_normalizer
-    let x_normalizer = UnitGaussianNormalizer::fit(&x_train);
-    let x_train = x_normalizer.encode(x_train);
-    let x_test = x_normalizer.encode(x_test);
-
-    let y_normalizer = UnitGaussianNormalizer::fit(&y_train);
-    let y_train = y_normalizer.encode(y_train);
-    // y_test intentionally NOT encoded
-
-    // add a trailing channel axis to inputs: [n, s, s] -> [n, s, s, 1]
-    let x_train = x_train
-        .into_shape_with_order(IxDyn(&[n_train, s, s, 1]))
-        .map_err(|e| LoadError::Invalid(format!("reshape x_train: {e}")))?;
-    let x_test = x_test
-        .into_shape_with_order(IxDyn(&[n_test, s, s, 1]))
-        .map_err(|e| LoadError::Invalid(format!("reshape x_test: {e}")))?;
-
-    // package into OperatorDataset, casting to the host dtype T
-    let train_dataset = OperatorDataset::from_f64(x_train, y_train);
-    let test_dataset = OperatorDataset::from_f64(x_test, y_test);
-
-    println!("darcy: {n_train} train / {n_test} test at s={s}");
-
-    Ok((
-        train_dataset,
-        test_dataset,
-        DarcyNormalizers {
-            x: x_normalizer,
-            y: y_normalizer,
-        },
-    ))
+    Ok(normalize_split_pair(x_train, y_train, x_test, y_test))
 }
 
 /// The first `n` samples of a `[samples, s, s]` field with every `r`-th
@@ -193,6 +147,7 @@ fn take_subsampled(field: ArrayD<f64>, n: usize, r: usize) -> ArrayD<f64> {
 mod tests {
     use super::*;
     use crate::neural_operators::data::io::errors::ReaderError;
+    use ndarray::IxDyn;
 
     fn cfg(subsample_rate: usize) -> DarcyConfig {
         DarcyConfig::new(

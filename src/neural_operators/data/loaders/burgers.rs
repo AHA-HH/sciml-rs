@@ -10,12 +10,12 @@ use crate::neural_operators::data::{
     dataitem::HostFloat,
     dataset::OperatorDataset,
     io::{errors::LoadError, readers::mat::MatFileReader},
-    loaders::base_dataset::DatasetConfig,
+    loaders::{base_dataset::DatasetConfig, common::with_channel},
     split::train_test_split,
     transforms::subsample::subsample,
 };
 use burn::config::Config;
-use ndarray::{ArrayD, IxDyn};
+use ndarray::ArrayD;
 use std::path::Path;
 
 #[derive(Config, Debug)]
@@ -64,8 +64,8 @@ pub fn load_burgers_uniform<T: HostFloat>(
     burgers_from_fields(a_data, u_data, config)
 }
 
-/// Steps 2-6 of [`load_burgers_uniform`] on fields already read: validate,
-/// subsample, split, reshape and cast. Separate from the reader so the
+/// Steps 2-4 of [`load_burgers_uniform`] on fields already read: validate,
+/// subsample, split, add the channel axis and cast. Separate from the reader so the
 /// output can be tested without a `.mat` file.
 fn burgers_from_fields<T: HostFloat>(
     a_data: ArrayD<f64>,
@@ -106,30 +106,10 @@ fn burgers_from_fields<T: HostFloat>(
     let (a_train, a_test) = train_test_split(a_data, config.base.n_train, config.base.n_test);
     let (u_train, u_test) = train_test_split(u_data, config.base.n_train, config.base.n_test);
 
-    // 4. Reshape inputs [n, s] -> [n, s, 1]: one data channel
-    let a_train = a_train
-        .into_shape_with_order(IxDyn(&[config.base.n_train, s, 1]))
-        .map_err(|e| LoadError::Invalid(format!("reshape a_train: {e}")))?;
-    let a_test = a_test
-        .into_shape_with_order(IxDyn(&[config.base.n_test, s, 1]))
-        .map_err(|e| LoadError::Invalid(format!("reshape a_test: {e}")))?;
-
-    // 5. Reshape targets [n, s] -> [n, s] ensure dynamic shape
-    let u_train = u_train
-        .into_shape_with_order(IxDyn(&[config.base.n_train, s]))
-        .map_err(|e| LoadError::Invalid(format!("reshape u_train: {e}")))?;
-    let u_test = u_test
-        .into_shape_with_order(IxDyn(&[config.base.n_test, s]))
-        .map_err(|e| LoadError::Invalid(format!("reshape u_test: {e}")))?;
-
-    // 6. Wrap in OperatorDataset, casting to the host dtype T
-    let train_dataset = OperatorDataset::from_f64(a_train, u_train);
-    let test_dataset = OperatorDataset::from_f64(a_test, u_test);
-
-    println!(
-        "burgers: {} train / {} test at s={}",
-        config.base.n_train, config.base.n_test, s
-    );
+    // 4. Wrap in OperatorDataset with one input data channel [n, s] -> [n, s, 1],
+    // casting to the host dtype T
+    let train_dataset = OperatorDataset::from_f64(with_channel(a_train), u_train);
+    let test_dataset = OperatorDataset::from_f64(with_channel(a_test), u_test);
 
     Ok((train_dataset, test_dataset))
 }
@@ -138,6 +118,7 @@ fn burgers_from_fields<T: HostFloat>(
 mod tests {
     use super::*;
     use crate::neural_operators::data::io::errors::ReaderError;
+    use ndarray::IxDyn;
 
     fn cfg(subsample_rate: usize) -> BurgersConfig {
         BurgersConfig::new(

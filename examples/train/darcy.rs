@@ -53,6 +53,12 @@ fn main() {
     let (train_data, test_data, normalizers) =
         load_darcy_uniform::<f32>(&train_path, &test_path, &dataset_cfg)
             .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
+    println!(
+        "darcy: {} train / {} test at s={}",
+        train_data.inputs().shape()[0],
+        test_data.inputs().shape()[0],
+        train_data.inputs().shape()[1]
+    );
 
     let model_cfg = FNOConfig {
         // Two entries so a 2D FNO model. Same code path as Burgers' vec![16]
