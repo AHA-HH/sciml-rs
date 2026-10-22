@@ -100,12 +100,7 @@ fn main() {
     let normalizers = run
         .normalizers()
         .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
-        .unwrap_or_else(|| {
-            panic!(
-                "{} has no normalizers; a Poisson run has them",
-                dir.display()
-            )
-        });
+        .unwrap_or_else(|| panic!("{}/y_normalizer.json not found", dir.display()));
     let test_data = load_poisson_uniform_test::<f32>(&test_file, &dataset_cfg, &normalizers)
         .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
     let load_cheb = |field| {

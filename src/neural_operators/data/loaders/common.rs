@@ -73,6 +73,8 @@ pub(crate) fn normalize_split_pair<T: HostFloat>(
 ///
 /// # Errors
 /// [`LoadError::Invalid`] if `normalizers.x` was not fitted on `*spatial`.
+/// `normalizers.y` is not checked here: targets stay physical, and it is only used to
+/// decode predictions downstream.
 pub(crate) fn normalize_test_split<T: HostFloat>(
     x_test: ArrayD<f64>,
     y_test: ArrayD<f64>,

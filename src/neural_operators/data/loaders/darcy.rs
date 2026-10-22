@@ -36,7 +36,7 @@ pub struct DarcyConfig {
 
 impl DarcyConfig {
     /// Resolution after subsampling, assuming a raw resolution of 421.
-    /// Checked against the actually-read resolution in `load_darcy_uniform`.
+    /// Checked against the actually-read resolution by both loaders.
     pub fn s(&self) -> usize {
         (421 - 1) / self.subsample_rate + 1
     }

@@ -34,12 +34,7 @@ fn main() {
     let normalizers = run
         .normalizers()
         .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
-        .unwrap_or_else(|| {
-            panic!(
-                "{} has no normalizers; a Darcy run has them",
-                run.path().display()
-            )
-        });
+        .unwrap_or_else(|| panic!("{}/y_normalizer.json not found", run.path().display()));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     // f64 host storage: the plot reads the sample back as f64. The model
     // still sees the same f32 values (see `HostFloat`).

@@ -43,12 +43,7 @@ fn main() {
     let normalizers = run
         .normalizers()
         .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
-        .unwrap_or_else(|| {
-            panic!(
-                "{} has no normalizers; a Darcy run has them",
-                run.path().display()
-            )
-        });
+        .unwrap_or_else(|| panic!("{}/y_normalizer.json not found", run.path().display()));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let test_data = load_darcy_test::<f32>(
         datasets.join("piececonst_r421_N1024_smooth2.mat"),

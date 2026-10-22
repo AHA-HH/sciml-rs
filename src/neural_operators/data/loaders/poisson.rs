@@ -196,7 +196,7 @@ fn read_uniform_split(
     count: usize,
     transfers: &Transfers,
 ) -> Result<(ArrayD<f64>, ArrayD<f64>), LoadError> {
-    let n = transfers.s() + 1;
+    let n = transfers.n();
     let mut reader = NpzFileReader::new(path)?;
     check_nodes(&mut reader, split, n, &nodes(n))?;
     let f = read_samples(&mut reader, split, "f", n, count)?;
