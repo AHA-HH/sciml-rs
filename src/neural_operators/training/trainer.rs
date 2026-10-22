@@ -14,6 +14,7 @@ use burn::{
 };
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::neural_operators::{
     data::{
@@ -25,7 +26,7 @@ use crate::neural_operators::{
     },
     losses::data_losses::{LpLoss, Reduction},
     models::fno::{FNO, FNOConfig},
-    runs::EpochMetrics,
+    runs::{EpochMetrics, RunDir},
 };
 
 /// Training config
@@ -339,20 +340,43 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
     }
 }
 
+/// Per-epoch observer for [`training_loop`]: the epoch's metrics, its wall time (training
+/// and evaluation) and the model after the epoch.
+///
+/// A plain closure rather than a trait: call sites pass `&mut |m, t, model| ...`, and two
+/// observers combine as two calls in one closure (see [`train_fno`]). The model is for
+/// checkpointing (Phase 5); nothing reads it yet.
+pub type EpochObserver<'a, const R: usize> = dyn FnMut(&EpochMetrics, Duration, &FNO<R>) + 'a;
+
+/// The default observer: prints the epoch's metrics and wall time to stdout, one line per
+/// epoch.
+pub fn print_epoch<const R: usize>(m: &EpochMetrics, epoch_time: Duration, _model: &FNO<R>) {
+    println!("{}", epoch_line(m, epoch_time));
+}
+
+fn epoch_line(m: &EpochMetrics, epoch_time: Duration) -> String {
+    format!("{m:?} | total={:.3}s", epoch_time.as_secs_f64())
+}
+
+/// Runs `train_cfg.epochs` epochs of [`train_epoch`] then [`eval_epoch`], calling
+/// `on_epoch` after each, and returns the trained model and every epoch's metrics.
+///
+/// Prints nothing itself: pass [`print_epoch`] (or a closure calling it) for the console
+/// line.
 pub fn training_loop<const R: usize, const RM1: usize>(
     mut components: TrainingComponents<R, RM1>,
     train_cfg: &TrainingConfig,
     train_post: &Postprocess,
     eval_post: &Postprocess,
+    on_epoch: &mut EpochObserver<'_, R>,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
-    let start = std::time::Instant::now();
     let (n_train, n_test) = (components.n_train, components.n_test);
     let steps_per_epoch = components.steps_per_epoch;
     let mut model = components.model;
     let mut metrics = Vec::with_capacity(train_cfg.epochs);
 
     for epoch in 0..train_cfg.epochs {
-        let epoch_start = std::time::Instant::now();
+        let epoch_start = Instant::now();
 
         let (m, sums) = train_epoch(
             model,
@@ -377,16 +401,20 @@ pub fn training_loop<const R: usize, const RM1: usize>(
             current_lr: sums.last_lr,
         };
 
-        println!("{record:?} | total={:.3}s", epoch_time.as_secs_f64(),);
+        on_epoch(&record, epoch_time, &model);
         metrics.push(record);
     }
-
-    println!("total training time: {:.2?}", start.elapsed());
 
     (model, metrics)
 }
 
 /// Trains an FNO on any dataset: builds the components and runs [`training_loop`].
+///
+/// After each epoch it prints the console line ([`print_epoch`]) and appends the epoch's
+/// row to `run`'s `metrics.csv` ([`RunDir::append_metrics`]), so the run directory must
+/// exist before training. A failed append only warns on stderr: training goes on, and the
+/// end-of-run [`RunDir::save_metrics`] rewrites the whole file. Prints the total training
+/// time at the end.
 ///
 /// `R` is the model rank (batch + spatial axes + channel) and `RM1 = R - 1` the target
 /// rank: `<3, 2>` for 1D (Burgers), `<4, 3>` for 2D (Darcy, Poisson). Inputs are
@@ -411,11 +439,24 @@ pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
     device: &Device,
+    run: &RunDir,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
     let components =
         build_training_components::<R, RM1, T>(model_cfg, train_cfg, train_data, test_data, device);
 
-    train_built(components, y_norm, train_cfg, device)
+    let start = Instant::now();
+    let mut on_epoch = |m: &EpochMetrics, epoch_time: Duration, model: &FNO<R>| {
+        print_epoch(m, epoch_time, model);
+        if let Err(e) = run.append_metrics(m) {
+            eprintln!(
+                "warning: could not append epoch {} to metrics.csv ({e})",
+                m.epoch
+            );
+        }
+    };
+    let trained = train_built(components, y_norm, train_cfg, device, &mut on_epoch);
+    println!("total training time: {:.2?}", start.elapsed());
+    trained
 }
 
 /// [`train_fno`] after the build: picks the hooks for `y_norm` and runs the loop. Split out
@@ -425,9 +466,10 @@ fn train_built<const R: usize, const RM1: usize>(
     y_norm: Option<&UnitGaussianNormalizer>,
     train_cfg: &TrainingConfig,
     device: &Device,
+    on_epoch: &mut EpochObserver<'_, R>,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
     let Some(y_norm) = y_norm else {
-        return training_loop(components, train_cfg, &identity, &identity);
+        return training_loop(components, train_cfg, &identity, &identity, on_epoch);
     };
 
     // One decoder per device: training tensors are autodiff, evaluation
@@ -441,7 +483,7 @@ fn train_built<const R: usize, const RM1: usize>(
 
     let eval_post = move |out: Tensor<2>, target: Tensor<2>| (eval_decoder.decode(out), target);
 
-    training_loop(components, train_cfg, &train_post, &eval_post)
+    training_loop(components, train_cfg, &train_post, &eval_post, on_epoch)
 }
 
 #[cfg(test)]
@@ -567,7 +609,13 @@ mod tests {
             tiny_dataset(n_test),
             &Device::default().autodiff(),
         );
-        let (model, metrics) = training_loop(components, &train_cfg, &identity, &identity);
+        let (model, metrics) = training_loop(
+            components,
+            &train_cfg,
+            &identity,
+            &identity,
+            &mut |_, _, _| {},
+        );
 
         // Cosine over N = epochs * ceil(5 / 2) = 6 steps: step k (1-based)
         // gives min + (max - min)(1 + cos((k - 1)π / N)) / 2.
@@ -630,7 +678,13 @@ mod tests {
         let mut host = build();
         host.model = device_run.model.clone();
 
-        let (new_model, new) = training_loop(device_run, &train_cfg, &identity, &identity);
+        let (new_model, new) = training_loop(
+            device_run,
+            &train_cfg,
+            &identity,
+            &identity,
+            &mut |_, _, _| {},
+        );
 
         host.train_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
             .set_device(device.clone())
@@ -641,7 +695,8 @@ mod tests {
             .set_device(device.clone().inner())
             .batch_size(train_cfg.test_batch_size)
             .build(HostItems(tiny_dataset(n_test)));
-        let (old_model, old) = training_loop(host, &train_cfg, &identity, &identity);
+        let (old_model, old) =
+            training_loop(host, &train_cfg, &identity, &identity, &mut |_, _, _| {});
 
         assert_eq!(metric_bits(&new), metric_bits(&old));
 
@@ -720,8 +775,8 @@ mod tests {
         let mut old = build();
         old.model = new.model.clone();
 
-        let (_, new) = train_built(new, None, &train_cfg, &device);
-        let (_, old) = training_loop(old, &train_cfg, &identity, &identity);
+        let (_, new) = train_built(new, None, &train_cfg, &device, &mut |_, _, _| {});
+        let (_, old) = training_loop(old, &train_cfg, &identity, &identity, &mut |_, _, _| {});
 
         assert_eq!(metric_bits(&new), metric_bits(&old));
     }
@@ -752,7 +807,7 @@ mod tests {
         let mut old = build();
         old.model = new.model.clone();
 
-        let (_, new) = train_built(new, Some(&y), &train_cfg, &device);
+        let (_, new) = train_built(new, Some(&y), &train_cfg, &device, &mut |_, _, _| {});
 
         let train_decoder = FlatDecoder::new(&y, &device);
         let eval_decoder = FlatDecoder::new(&y, &device.clone().inner());
@@ -760,7 +815,7 @@ mod tests {
             (train_decoder.decode(out), train_decoder.decode(target))
         };
         let eval_post = move |out: Tensor<2>, target: Tensor<2>| (eval_decoder.decode(out), target);
-        let (_, old) = training_loop(old, &train_cfg, &train_post, &eval_post);
+        let (_, old) = training_loop(old, &train_cfg, &train_post, &eval_post, &mut |_, _, _| {});
 
         assert_eq!(metric_bits(&new), metric_bits(&old));
     }
@@ -846,6 +901,7 @@ mod tests {
             &model_cfg,
             &train_cfg,
             &Device::default().autodiff(),
+            &RunDir::create(&dir, "smoke").unwrap(),
         );
 
         assert_eq!(metrics.len(), 2);
@@ -856,5 +912,60 @@ mod tests {
             );
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // --- Phase 4s T12: the epoch observer ---
+
+    /// `train_fno`'s per-epoch rows, appended through the observer, against the file
+    /// `save_metrics` writes from the returned metrics: byte for byte.
+    #[test]
+    fn incremental_csv_equals_end_of_run_csv() {
+        let root =
+            std::env::temp_dir().join(format!("sciml_rs_incremental_csv_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(3)
+            .with_batch_size(2)
+            .with_test_batch_size(2);
+        let live = RunDir::create(&root.join("live"), "live").unwrap();
+        let (_, metrics) = train_fno::<3, 2, _>(
+            tiny_dataset(5),
+            tiny_dataset(3),
+            None,
+            &tiny_model_cfg(),
+            &train_cfg,
+            &Device::default().autodiff(),
+            &live,
+        );
+        let incremental = fs::read(live.path().join("metrics.csv")).unwrap();
+        assert_eq!(incremental.iter().filter(|&&b| b == b'\n').count(), 4); // header + 3
+
+        let end = RunDir::create(&root.join("end"), "end").unwrap();
+        end.save_metrics(&metrics).unwrap();
+        let end_of_run = fs::read(end.path().join("metrics.csv")).unwrap();
+        assert_eq!(incremental, end_of_run);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The line `training_loop` printed before the observer existed.
+    #[test]
+    fn default_observer_prints_same_line() {
+        let m = EpochMetrics {
+            epoch: 4,
+            train_mse: 0.5,
+            train_l2: 0.25,
+            test_l2: 0.125,
+            current_lr: 1e-3,
+        };
+        let t = Duration::from_micros(1_234_567);
+        assert_eq!(
+            epoch_line(&m, t),
+            format!("{m:?} | total={:.3}s", t.as_secs_f64(),)
+        );
+        assert_eq!(
+            epoch_line(&m, t),
+            "EpochMetrics { epoch: 4, train_mse: 0.5, train_l2: 0.25, test_l2: 0.125, \
+             current_lr: 0.001 } | total=1.235s"
+        );
     }
 }

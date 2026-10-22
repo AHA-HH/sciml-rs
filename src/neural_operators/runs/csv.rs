@@ -1,7 +1,7 @@
 //! `metrics.csv`: per-epoch training metrics, one row per epoch with a header row.
 
 use super::EpochMetrics;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
@@ -40,21 +40,37 @@ pub(super) fn read_metrics_csv(path: impl AsRef<Path>) -> io::Result<Vec<EpochMe
     Ok(metrics)
 }
 
+const HEADER: &str = "epoch,train_mse,train_l2,test_l2,current_lr";
+
+fn write_row(w: &mut impl Write, m: &EpochMetrics) -> io::Result<()> {
+    writeln!(
+        w,
+        "{},{},{},{},{}",
+        m.epoch, m.train_mse, m.train_l2, m.test_l2, m.current_lr
+    )
+}
+
 /// Writes per-epoch metrics to CSV, one row per epoch, with a header row.
 pub(super) fn write_metrics_csv(
     path: impl AsRef<Path>,
     metrics: &[EpochMetrics],
 ) -> io::Result<()> {
     let mut file = File::create(path)?;
-    writeln!(file, "epoch,train_mse,train_l2,test_l2,current_lr")?;
+    writeln!(file, "{HEADER}")?;
     for m in metrics {
-        writeln!(
-            file,
-            "{},{},{},{},{}",
-            m.epoch, m.train_mse, m.train_l2, m.test_l2, m.current_lr
-        )?;
+        write_row(&mut file, m)?;
     }
     Ok(())
+}
+
+/// Appends one row to a metrics CSV, creating it with the header row if it is missing or
+/// empty. Rows appended one by one give the bytes [`write_metrics_csv`] writes at once.
+pub(super) fn append_metrics_row(path: impl AsRef<Path>, m: &EpochMetrics) -> io::Result<()> {
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    if file.metadata()?.len() == 0 {
+        writeln!(file, "{HEADER}")?;
+    }
+    write_row(&mut file, m)
 }
 
 #[cfg(test)]

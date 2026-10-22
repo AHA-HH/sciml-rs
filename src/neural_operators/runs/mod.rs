@@ -157,7 +157,19 @@ impl RunDir {
         data.save(self.path.join(DATA_CFG))
     }
 
-    /// Writes `metrics.csv`, then `plots.png` titled with the run's name. A missing
+    /// Appends one epoch's row to `metrics.csv`, writing the header first if the file is
+    /// new. Training calls this after every epoch (`train_fno`), so a run that stops early
+    /// keeps the rows of its finished epochs.
+    ///
+    /// # Errors
+    /// If the file can't be opened or written.
+    pub fn append_metrics(&self, m: &EpochMetrics) -> io::Result<()> {
+        csv::append_metrics_row(self.path.join(METRICS_CSV), m)
+    }
+
+    /// Writes `metrics.csv` in full, then `plots.png` titled with the run's name. At the end
+    /// of training this rewrites the rows [`RunDir::append_metrics`] already wrote, byte for
+    /// byte, and repairs any row an append failed to write. A missing
     /// gnuplot only skips the plot, with a warning on stderr.
     ///
     /// # Errors

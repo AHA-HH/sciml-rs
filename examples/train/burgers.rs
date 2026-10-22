@@ -99,17 +99,20 @@ fn main() {
         .with_min_lr(1e-5);
     // .with_seed(1);
 
-    // No normaliser: train and evaluate in physical units
-    // Use the L2 loss for training and evaluation
-    let (model, metrics) =
-        train_fno::<3, 2, _>(train_data, test_data, None, &model_cfg, &train_cfg, &device);
-
-    // Writes configs, metrics and weights to runs/burgers_fno_<timestamp>/
+    // Writes configs, metrics and weights to runs/burgers_fno_<timestamp>/. Created
+    // before training: train_fno appends each epoch's row of metrics.csv to it
     let run = RunDir::create(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"),
         "burgers_fno",
     )
     .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
+
+    // No normaliser: train and evaluate in physical units
+    // Use the L2 loss for training and evaluation
+    let (model, metrics) = train_fno::<3, 2, _>(
+        train_data, test_data, None, &model_cfg, &train_cfg, &device, &run,
+    );
+
     run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
         .expect("could not save configs");
     run.save_metrics(&metrics).expect("could not save metrics");

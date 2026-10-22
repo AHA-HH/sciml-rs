@@ -118,6 +118,17 @@ fn main() {
         .with_weight_decay(WEIGHT_DECAY)
         .with_min_lr(MIN_LR);
 
+    // Stage 2 keeps its run name; other stages carry n in it
+    let name = if n == DEFAULT_N {
+        format!("poisson_fno_p{padding}")
+    } else {
+        format!("poisson_fno_n{n}_p{padding}")
+    };
+    // Writes configs, metrics, normalizers and weights to runs/<name>_<timestamp>/.
+    // Created before training: train_fno appends each epoch's row of metrics.csv to it
+    let run = RunDir::create(&Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"), &name)
+        .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
+
     // y_normalizer is fitted on y_train during loading. train_fno uses it
     // to decode both prediction and target during training, but only the
     // prediction during evaluation - y_test was never encoded
@@ -128,17 +139,9 @@ fn main() {
         &model_cfg,
         &train_cfg,
         &device,
+        &run,
     );
 
-    // Stage 2 keeps its run name; other stages carry n in it
-    let name = if n == DEFAULT_N {
-        format!("poisson_fno_p{padding}")
-    } else {
-        format!("poisson_fno_n{n}_p{padding}")
-    };
-    // Writes configs, metrics, normalizers and weights to runs/<name>_<timestamp>/
-    let run = RunDir::create(&Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"), &name)
-        .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
     run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
         .expect("could not save configs");
     run.save_metrics(&metrics).expect("could not save metrics");
