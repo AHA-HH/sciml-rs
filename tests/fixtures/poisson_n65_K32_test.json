@@ -1,0 +1,30 @@
+{
+  "K": 32,
+  "K_explicit": false,
+  "K_max": 64,
+  "alpha": 2.0,
+  "base_seed": 1000000,
+  "convention_version": 1,
+  "count": 200,
+  "crate_version": "0.1.0-dev",
+  "eps_K": 0.0049177151449094625,
+  "error2": {
+    "d": 2,
+    "max": 0.00007808974214485476,
+    "mean": 0.000020334646347516818,
+    "s": 64
+  },
+  "git_commit": "621569713151ed559907a1289002a2646d3ee7f9",
+  "label_check": {
+    "enforced": true,
+    "max": 1.458981131778544e-9,
+    "mean": 3.838264655522647e-10,
+    "tolerance": 1e-8
+  },
+  "n": 65,
+  "rng": "rand_chacha 0.10.0 ChaCha8Rng::seed_from_u64, rand_distr 0.6.0 StandardNormal",
+  "s": 64,
+  "split": "test",
+  "tau": 3.0,
+  "wall_time_s": 0.059729333
+}

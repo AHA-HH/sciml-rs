@@ -1,5 +1,9 @@
 //! Generic template for FNO for n dimensions
 
+// Burn's `#[derive(Config)]` writes `field: field` in the `new` it generates, in an
+// impl block outside the struct's attributes (burn-derive `config/analyzer_struct.rs`).
+#![allow(clippy::redundant_field_names)]
+
 use burn::{
     Tensor,
     config::Config,

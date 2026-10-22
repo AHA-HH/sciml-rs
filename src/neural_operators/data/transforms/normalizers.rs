@@ -2,6 +2,10 @@
 //! ([`UnitGaussianNormalizer`], CONVENTIONS §10), its serialisable
 //! [`NormalizerRecord`], and the tensor-side [`FlatDecoder`].
 
+// Burn's `#[derive(Config)]` writes `field: field` in the `new` it generates, in an
+// impl block outside the struct's attributes (burn-derive `config/analyzer_struct.rs`).
+#![allow(clippy::redundant_field_names)]
+
 use burn::{config::Config, prelude::*};
 use ndarray::{ArrayD, Axis, IxDyn};
 

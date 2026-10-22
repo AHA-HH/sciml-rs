@@ -14,6 +14,10 @@
 //! encoded forward. The returned `normalizers.y`, fit on `y_train`, is what the
 //! caller needs to do that decode.
 
+// Burn's `#[derive(Config)]` writes `field: field` in the `new` it generates, in an
+// impl block outside the struct's attributes (burn-derive `config/analyzer_struct.rs`).
+#![allow(clippy::redundant_field_names)]
+
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
     host_float::HostFloat,
