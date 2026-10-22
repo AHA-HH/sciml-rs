@@ -22,7 +22,7 @@ use burn::tensor::Device;
 use gnuplot::{AutoOption::Fix, AxesCommon, Color, Figure, PaletteType, VariablePaletteColor};
 use ndarray::{ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
-    chebyshev::{Transfers, cc_rel_l2_error, nodes_closed_form},
+    chebyshev::{Transfers, cc_rel_l2_error, nodes},
     data::loaders::poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform, stage},
     models::predict::predict_host,
     runs::RunDir,
@@ -43,7 +43,7 @@ const DIVERGING: [(f32, f32, f32, f32); 3] = [
 /// the angle clamped to [0, π]. The cells meet without gaps and the outer edges are ±1.
 fn cgl_cell_edges(n: usize) -> (Vec<f64>, Vec<f64>) {
     let h = PI / (n - 1) as f64;
-    // −cos θ in the sine form, as `nodes_closed_form`, so the edges are antisymmetric
+    // −cos θ in the sine form, as `nodes`, so the edges are antisymmetric
     let edge = |k: usize| ((k as f64 - 0.5) * h).clamp(0.0, PI) - PI / 2.0;
     let edges: Vec<f64> = (0..=n).map(|k| edge(k).sin()).collect();
     let (lo, hi) = (edges[..n].to_vec(), edges[1..].to_vec());
@@ -125,7 +125,7 @@ fn main() {
     println!("sample {sample}: error 4 (total, CC norm) = {error4:.4e}");
 
     // Node coordinates in 'ij' order: field[a, b] sits at (x_a, y_b)
-    let nodes = nodes_closed_form(n).to_vec();
+    let nodes = nodes(n).to_vec();
     let xs: Vec<f64> = nodes
         .iter()
         .flat_map(|&x| std::iter::repeat_n(x, n))

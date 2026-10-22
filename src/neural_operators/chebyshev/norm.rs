@@ -1,4 +1,7 @@
 //! The Clenshaw–Curtis L² norm on a tensor-product CGL grid.
+//!
+//! Test oracle (feature `chebyshev`, tests only): the unscaled norm, against which
+//! [`cc_rel_l2_error`](super::cc_rel_l2_error) is checked (design §12, decision 26).
 
 use ndarray::{ArrayView1, ArrayView2};
 
@@ -9,7 +12,7 @@ use super::check_n;
 /// ‖v‖² ≈ Σ_{i,j} wx_i · wy_j · v[i, j]²
 ///
 /// `v: [n_x, n_y]` is stored 'ij' (`v[i, j] = v(x_i, y_j)`); `wx: [n_x]` and `wy: [n_y]`
-/// are the per-axis weights, normally [`clenshaw_curtis`](super::clenshaw_curtis). Exact
+/// are the per-axis weights, normally [`clenshaw_curtis`](super::quadrature::clenshaw_curtis). Exact
 /// when v² is a polynomial of degree ≤ n_x − 1 in x and ≤ n_y − 1 in y.
 ///
 /// # Panics
@@ -52,7 +55,8 @@ pub fn rel_l2_error(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{clenshaw_curtis, nodes};
+    use super::super::nodes;
+    use super::super::quadrature::clenshaw_curtis;
     use super::*;
     use ndarray::{Array1, Array2, s};
 

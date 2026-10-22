@@ -239,7 +239,7 @@ fn p1_1d(x: &Array1<f64>) -> (Array2<f64>, Array2<f64>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::chebyshev::{clenshaw_curtis, rel_l2_error};
+    use crate::neural_operators::chebyshev::cc_rel_l2_error;
     use crate::neural_operators::pde::poisson::collocation::CollocationSolver;
     use crate::neural_operators::pde::poisson::manufactured::{
         EXP, Manufactured, POLY, SIN, sample,
@@ -249,9 +249,7 @@ mod tests {
 
     /// Clenshaw–Curtis relative L² distance of `a` from `b` on the `[nx, ny]` CGL grid.
     fn rel_l2(a: &Array2<f64>, b: &Array2<f64>) -> f64 {
-        let (nx, ny) = a.dim();
-        let (wx, wy) = (clenshaw_curtis(nx), clenshaw_curtis(ny));
-        rel_l2_error(a.view(), b.view(), wx.view(), wy.view())
+        cc_rel_l2_error(a.view(), b.view())
     }
 
     /// Converged solve of `f` on a fresh `[nx, ny]` solver.

@@ -197,7 +197,7 @@ fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::chebyshev::nodes_closed_form;
+    use crate::neural_operators::chebyshev::nodes;
     use crate::neural_operators::losses::data_losses::{LpLoss, Reduction};
     use burn::prelude::*;
     use ndarray::Array3;
@@ -205,7 +205,7 @@ mod tests {
     /// `count` smooth fields on the n × n CGL grid that vanish on ∂Ω; sample k is scaled
     /// and shifted so the samples differ.
     fn vanishing_u(count: usize, n: usize) -> Array3<f64> {
-        let x = nodes_closed_form(n);
+        let x = nodes(n);
         Array3::from_shape_fn((count, n, n), |(k, i, j)| {
             let (a, b) = (x[i], x[j]);
             (1.0 + k as f64) * (1.0 - a * a) * (1.0 - b * b) * (a + 0.3 * k as f64).exp() * b.cos()
@@ -268,7 +268,7 @@ mod tests {
         // exactly (degree 4 per axis ≤ n − 1)
         let n = 17;
         let c = 0.037;
-        let x = nodes_closed_form(n);
+        let x = nodes(n);
         let u = Array3::from_shape_fn((2, n, n), |(k, i, j)| {
             (1.0 + k as f64) * (1.0 - x[i] * x[i]) * (1.0 - x[j] * x[j])
         });

@@ -4,7 +4,8 @@
 //! The weights follow Trefethen's `clencurt` (*Spectral Methods in MATLAB*, ch. 12), so
 //! this module needs only ndarray and is built without the `chebyshev` feature: evaluation
 //! on the Chebyshev grid needs no RLST, BLAS or FFTW (design §12, decision 15). They agree
-//! with the RLST-backed `chebyshev::clenshaw_curtis` (feature `chebyshev`) to round-off.
+//! with the RLST-backed `quadrature::clenshaw_curtis` test oracle (feature `chebyshev`) to
+//! round-off.
 
 use ndarray::{Array1, ArrayView1, ArrayView2, Zip};
 use std::f64::consts::PI;
@@ -23,7 +24,7 @@ use super::check_n;
 ///
 /// Trefethen's nodes are descending; the weights are symmetric, so the same array serves
 /// the ascending nodes. Only j ≤ N/2 is computed and mirrored, so w_j = w_{N−j} exactly.
-/// O(n²). Agrees with `clenshaw_curtis` (feature `chebyshev`) to round-off.
+/// O(n²). Agrees with the `clenshaw_curtis` test oracle (feature `chebyshev`) to round-off.
 ///
 /// # Panics
 /// If `n < 2`.
@@ -82,8 +83,8 @@ pub fn cc_norm_sq(v: ArrayView2<f64>, wx: ArrayView1<f64>, wy: ArrayView1<f64>) 
 /// squaring, a − b is divided by max |a − b| and b by max |b|, so fields far from unit
 /// size (below about 1e-154 or above about 1e154) neither underflow nor overflow, even
 /// when `a` and `b` differ greatly in magnitude. Returns NaN or infinity when ‖b‖ = 0, as
-/// `rel_l2_error` (feature `chebyshev`) does, and equals it with `clenshaw_curtis` weights
-/// to round-off. Builds the weights on every call; a caller that already holds them uses
+/// the `rel_l2_error` test oracle (feature `chebyshev`) does, and equals it with
+/// `clenshaw_curtis` weights to round-off. Builds the weights on every call; a caller that already holds them uses
 /// [`cc_rel_l2_error_weighted`].
 ///
 /// # Panics
@@ -126,19 +127,19 @@ pub fn cc_rel_l2_error_weighted(
 
 #[cfg(test)]
 mod tests {
-    use super::super::nodes_closed_form;
+    use super::super::nodes;
     use super::*;
     use ndarray::{Array2, s};
 
     fn sample(nx: usize, ny: usize, f: impl Fn(f64, f64) -> f64) -> Array2<f64> {
-        let (x, y) = (nodes_closed_form(nx), nodes_closed_form(ny));
+        let (x, y) = (nodes(nx), nodes(ny));
         Array2::from_shape_fn((nx, ny), |(i, j)| f(x[i], y[j]))
     }
 
     #[test]
     fn clencurt_integrates_polynomials() {
         for n in [2, 3, 9, 33, 65] {
-            let x = nodes_closed_form(n);
+            let x = nodes(n);
             let w = clencurt(n);
             for k in 0..n {
                 let quad: f64 = (0..n).map(|j| w[j] * x[j].powi(k as i32)).sum();
@@ -296,7 +297,7 @@ mod tests {
     #[cfg(feature = "chebyshev")]
     #[test]
     fn clencurt_matches_rlst_weights() {
-        use super::super::clenshaw_curtis;
+        use super::super::quadrature::clenshaw_curtis;
         for n in 2..=129 {
             let diff = (&clencurt(n) - &clenshaw_curtis(n))
                 .iter()
@@ -311,7 +312,8 @@ mod tests {
     #[cfg(feature = "chebyshev")]
     #[test]
     fn cc_rel_l2_matches_gated() {
-        use super::super::{clenshaw_curtis, rel_l2_error};
+        use super::super::norm::rel_l2_error;
+        use super::super::quadrature::clenshaw_curtis;
         type Field = fn(f64, f64) -> f64;
         let fields: [(usize, usize, Field, Field); 3] = [
             (9, 9, |x, y| x * x + y, |x, y| x * x + y + 0.1 * x * y),

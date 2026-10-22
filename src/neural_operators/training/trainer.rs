@@ -346,7 +346,7 @@ mod tests {
         tiny_dataset, tiny_dataset_2d, tiny_model_cfg,
     };
     use crate::neural_operators::{
-        chebyshev::nodes_closed_form,
+        chebyshev::nodes,
         data::loaders::{
             base_dataset::DatasetConfig,
             poisson::{PoissonConfig, load_poisson_uniform},
@@ -615,7 +615,7 @@ mod tests {
     /// grid to `dir/name`, as the generator lays them out. c_i differs per sample so the
     /// pointwise std is nonzero.
     fn write_poisson_split(dir: &Path, name: &str, count: usize, offset: f64) -> PathBuf {
-        let x: Array1<f64> = nodes_closed_form(POISSON_N);
+        let x: Array1<f64> = nodes(POISSON_N);
         let f: ArrayD<f64> = Array3::from_shape_fn((count, POISSON_N, POISSON_N), |(i, a, b)| {
             (1.0 + i as f64 + offset) * (1.0 + x[a] - 2.0 * x[a].powi(3)) * (x[b] * x[b] - 0.3)
         })

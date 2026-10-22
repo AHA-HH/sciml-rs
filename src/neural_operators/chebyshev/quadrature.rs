@@ -1,4 +1,7 @@
 //! Clenshaw–Curtis quadrature weights on the ascending CGL nodes.
+//!
+//! Test oracle (feature `chebyshev`, tests only): the RLST-backed weights, against which
+//! [`clencurt`](super::clencurt) is checked (design §12, decision 26).
 
 use ndarray::Array1;
 

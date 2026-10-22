@@ -44,17 +44,17 @@ pub fn uniform_nodes(s: usize) -> Array1<f64> {
 }
 
 /// The `n` CGL nodes x_j = −cos(πj/(n − 1)), j = 0..n − 1, ascending, with both
-/// endpoints (CONVENTIONS §12), without RLST.
+/// endpoints (CONVENTIONS §12), in closed form (no RLST).
 ///
 /// With N = n − 1 and θ = πj/N, −cos θ = sin(θ − π/2) = sin(π(2j − N)/(2N)), which is
 /// the form computed here. It gives exact ±1, an exact 0 for odd n, and exact
-/// antisymmetry x_j = −x_{N−j}. It agrees with `chebyshev::nodes` (feature
-/// `chebyshev`) to round-off. Returns shape `[n]`.
+/// antisymmetry x_j = −x_{N−j}. It agrees with RLST's nodes (the `points::nodes` test
+/// oracle, feature `chebyshev`) to round-off. Returns shape `[n]`.
 ///
 /// # Panics
 /// If `n < 2`.
-pub fn nodes_closed_form(n: usize) -> Array1<f64> {
-    check_n("nodes_closed_form", n);
+pub fn nodes(n: usize) -> Array1<f64> {
+    check_n("nodes", n);
     let nn = (n - 1) as f64;
     Array1::from_shape_fn(n, |j| (PI * (2.0 * j as f64 - nn) / (2.0 * nn)).sin())
 }
@@ -124,7 +124,7 @@ fn bary_matrix(src: ArrayView1<f64>, w: ArrayView1<f64>, tgt: ArrayView1<f64>) -
 pub fn cheb_to_uniform(n: usize, s: usize) -> Array2<f64> {
     check_n("cheb_to_uniform", n);
     check_s("cheb_to_uniform", s);
-    let x = nodes_closed_form(n);
+    let x = nodes(n);
     bary_matrix(
         x.view(),
         cheb_bary_weights(n).view(),
@@ -151,11 +151,7 @@ pub fn uniform_to_cheb(s: usize, n: usize, d: usize) -> Array2<f64> {
          got d = {d}, s = {s}"
     );
     let x = uniform_nodes(s);
-    bary_matrix(
-        x.view(),
-        fh_weights(x.view(), d).view(),
-        nodes_closed_form(n).view(),
-    )
+    bary_matrix(x.view(), fh_weights(x.view(), d).view(), nodes(n).view())
 }
 
 /// Apply 1D transfers along both axes of a 2D field: Tx · F · Tyᵀ (CONVENTIONS §12).
@@ -309,7 +305,7 @@ mod tests {
     #[test]
     fn cgl_closed_form_is_ascending_and_antisymmetric() {
         for n in [2, 3, 9, 33, 64, 257] {
-            let x = nodes_closed_form(n);
+            let x = nodes(n);
             assert_eq!(x[0], -1.0, "n={n}");
             assert_eq!(x[n - 1], 1.0, "n={n}");
             for j in 0..n {
@@ -327,7 +323,7 @@ mod tests {
     fn fh_reproduces_polynomials_to_degree_d() {
         for s in [16, 32, 64] {
             let u = uniform_nodes(s);
-            let c = nodes_closed_form(s + 1);
+            let c = nodes(s + 1);
             for d in 0..=4 {
                 let t = uniform_to_cheb(s, s + 1, d);
                 for k in 0..=d as i32 {
@@ -346,7 +342,7 @@ mod tests {
     fn transfers_preserve_ij_layout() {
         let (nx, ny) = (9, 17);
         let (sx, sy) = (nx - 1, ny - 1);
-        let (cx, cy) = (nodes_closed_form(nx), nodes_closed_form(ny));
+        let (cx, cy) = (nodes(nx), nodes(ny));
         let (ux, uy) = (uniform_nodes(sx), uniform_nodes(sy));
         let f = |x: f64, y: f64| x + 10.0 * y;
 
@@ -391,7 +387,7 @@ mod tests {
         for n in [33, 65, 129] {
             let s = n - 1;
             let t = cheb_to_uniform(n, s);
-            let (c, u) = (nodes_closed_form(n), uniform_nodes(s));
+            let (c, u) = (nodes(n), uniform_nodes(s));
             for (name, f) in [
                 ("sin(pi x) sin(pi y)", sin_sin as fn(f64, f64) -> f64),
                 ("(1-x^2)(1-y^2)e^(x+2y)", bubble_exp),
@@ -420,7 +416,7 @@ mod tests {
             let s = n - 1;
             let t = Transfers::new(n);
             assert_eq!((t.n(), t.s()), (n, s));
-            let c = nodes_closed_form(n);
+            let c = nodes(n);
             let u = sample(&c, &c, bubble_exp);
             // the inline recipe the four sites used before `Transfers`
             let t_cu = cheb_to_uniform(n, s);
@@ -500,7 +496,9 @@ mod tests {
     /// Oracle tests against RLST and the Clenshaw–Curtis norm; they need the feature.
     #[cfg(feature = "chebyshev")]
     mod rlst_oracle {
-        use super::super::super::{clenshaw_curtis, nodes, rel_l2_error};
+        use super::super::super::norm::rel_l2_error;
+        use super::super::super::points::nodes as rlst_nodes;
+        use super::super::super::quadrature::clenshaw_curtis;
         use super::*;
         use rlst::DynArray;
         use rlst::interpolation::{
@@ -510,7 +508,7 @@ mod tests {
         #[test]
         fn cgl_closed_form_matches_nodes() {
             for n in [2, 3, 9, 33, 65, 129, 257] {
-                let err = (&nodes_closed_form(n) - &nodes(n))
+                let err = (&nodes(n) - &rlst_nodes(n))
                     .iter()
                     .fold(0.0_f64, |e, v| e.max(v.abs()));
                 assert!(err <= 1e-14, "n={n}: {err:e}");
@@ -537,7 +535,7 @@ mod tests {
             for n in [33, 65, 129] {
                 let s = n - 1;
                 let u = uniform_nodes(s);
-                let ours = cheb_to_uniform(n, s).dot(&nodes_closed_form(n).mapv(f));
+                let ours = cheb_to_uniform(n, s).dot(&nodes(n).mapv(f));
 
                 let desc_nodes = chebychev_points::<f64>(Kind::Second, n);
                 let values: DynArray<f64, 1> =
@@ -555,7 +553,7 @@ mod tests {
 
         /// CC relative L² error of T_uc(d = 2) on sin(πx) sin(πy), sampled on s = n − 1.
         fn fh_error(n: usize) -> f64 {
-            let (c, u) = (nodes_closed_form(n), uniform_nodes(n - 1));
+            let (c, u) = (nodes(n), uniform_nodes(n - 1));
             let t = uniform_to_cheb(n - 1, n, 2);
             let got = apply(t.view(), t.view(), sample(&u, &u, sin_sin).view());
             let w = clenshaw_curtis(n);
@@ -587,7 +585,7 @@ mod tests {
         #[test]
         fn round_trip_matches_spike() {
             let n = 65;
-            let c = nodes_closed_form(n);
+            let c = nodes(n);
             let u = sample(&c, &c, sin_sin);
             let (t_cu, t_uc) = (cheb_to_uniform(n, n - 1), uniform_to_cheb(n - 1, n, 2));
             let back = apply(
