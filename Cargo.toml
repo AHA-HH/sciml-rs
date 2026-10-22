@@ -75,8 +75,8 @@ metal = ["burn/metal"]
 cuda = ["burn/cuda"]
 wgpu = ["burn/wgpu"]
 # `datagen`: everything needed to generate and check the Poisson datasets (the reference
-# solvers in `pde/`, the D and D² they use, and `generate_poisson`); renamed from
-# `chebyshev`, no alias (design §12, decision 27).
+# solvers in `pde/`, the D and D² they use, and `generate_poisson`; design §12, decision
+# 27).
 # RLST (dense and sparse linear algebra for the Chebyshev reference solver) plus a
 # BLAS/LAPACK provider chosen by target: Accelerate on macOS, system OpenBLAS on Linux.
 # rlst's `fftw` and `fftw_system` back its Chebyshev transforms (design decision 12).

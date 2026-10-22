@@ -55,7 +55,7 @@ Notes on the decisions:
   with its default settings.
 - Direct dependencies: rlst =0.9.0 (`default-features = false`), ndarray =0.17.2, and
   blas-src 0.14 / lapack-src 0.13. The BLAS/LAPACK provider is chosen per target as in the
-  root `chebyshev` feature: Accelerate on macOS, system OpenBLAS on Linux.
+  root `chebyshev` feature (now `datagen`): Accelerate on macOS, system OpenBLAS on Linux.
   `transfers-spike` (`../transfers`) supplies T3's GRF sampler, CGL nodes and
   Clenshaw–Curtis weights, so the GRF draws are T3's.
 - Commands, run from `spikes/solver/`:

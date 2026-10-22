@@ -460,6 +460,8 @@ it. Decision 4.
 
 ## 9. Dependencies and platform
 
+The feature `chebyshev` below was renamed `datagen` in Phase 4s T16 (§12, decision 27).
+
 - **Optional feature `chebyshev`.**
   ```toml
   chebyshev = ["dep:rlst", "rlst/fftw", "rlst/fftw_system", "dep:blas-src", "dep:lapack-src",
@@ -1296,7 +1298,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       `rlst/fftw_system` and the system libfftw3 stay. Labels do not change, so no dataset
       is regenerated. T15 has no PR; this decision is recorded in T16's.
     - **T16 therefore ungates everything in `chebyshev/` except `differentiation.rs`**
-      (and the `unit_coeffs` it calls), which stays behind the feature because it needs
+      (with its RLST helper `unit_coeffs`), which stays behind the feature because it needs
       FFTW. The RLST cross-check oracles (`points`, `quadrature` and the tests that use
       them) stay `#[cfg(all(test, feature = "datagen"))]`.
     - **The feature is renamed `chebyshev` → `datagen`,** after what it enables: RLST with
