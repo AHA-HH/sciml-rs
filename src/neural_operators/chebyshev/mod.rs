@@ -17,17 +17,14 @@
 //!   libfftw3. RLST works in descending node order; every function here returns ascending
 //!   order.
 //! - Test oracles only (`#[cfg(all(test, feature = "chebyshev"))]`): the RLST nodes
-//!   (`points::nodes`), Clenshaw–Curtis weights (`quadrature::clenshaw_curtis`) and the
-//!   tensor-product L² norm (`norm::l2_norm`, `norm::rel_l2_error`), which the closed forms
-//!   above are checked against (design §12, decisions 12 and 26).
+//!   (`points::nodes`) and Clenshaw–Curtis weights (`quadrature::clenshaw_curtis`), which
+//!   the closed forms above are checked against (design §12, decisions 12 and 26).
 
 mod clencurt;
 #[cfg(feature = "chebyshev")]
 mod differentiation;
 #[cfg(all(test, feature = "chebyshev"))]
-mod norm;
-#[cfg(all(test, feature = "chebyshev"))]
-pub(crate) mod points;
+mod points;
 #[cfg(all(test, feature = "chebyshev"))]
 mod quadrature;
 mod transfer;

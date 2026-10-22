@@ -125,12 +125,12 @@ fn main() {
     println!("sample {sample}: error 4 (total, CC norm) = {error4:.4e}");
 
     // Node coordinates in 'ij' order: field[a, b] sits at (x_a, y_b)
-    let nodes = nodes(n).to_vec();
-    let xs: Vec<f64> = nodes
+    let cgl = nodes(n).to_vec();
+    let xs: Vec<f64> = cgl
         .iter()
         .flat_map(|&x| std::iter::repeat_n(x, n))
         .collect();
-    let ys: Vec<f64> = (0..n).flat_map(|_| nodes.iter().copied()).collect();
+    let ys: Vec<f64> = (0..n).flat_map(|_| cgl.iter().copied()).collect();
     // Cell edges in the same order: x edges repeat within a row, y edges cycle
     let (lo, hi) = cgl_cell_edges(n);
     let per_row =

@@ -59,9 +59,9 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   `data_config::<C>`, `normalizers()`, `metrics()`. Run-file names appear nowhere else;
   examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `src/neural_operators/chebyshev/`: `diff_matrix`/`diff2_matrix` are behind the
-  `chebyshev` feature (need system libfftw3). `points`, `quadrature` and `norm` (RLST nodes,
-  `clenshaw_curtis`, `l2_norm`/`rel_l2_error`) are `#[cfg(all(test, feature = "chebyshev"))]`
-  oracles for the closed forms.
+  `chebyshev` feature (need system libfftw3). `points` and `quadrature` (RLST nodes,
+  `clenshaw_curtis`) are `#[cfg(all(test, feature = "chebyshev"))]` oracles for the closed
+  forms.
 - `chebyshev/transfer` is ungated (ndarray only): `nodes` (closed-form CGL nodes),
   `uniform_nodes`, `cheb_to_uniform` (T_cu), `uniform_to_cheb` (T_uc, Floater–Hormann),
   `apply`, `Transfers`.

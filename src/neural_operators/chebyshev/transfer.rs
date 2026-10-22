@@ -496,7 +496,7 @@ mod tests {
     /// Oracle tests against RLST and the Clenshaw–Curtis norm; they need the feature.
     #[cfg(feature = "chebyshev")]
     mod rlst_oracle {
-        use super::super::super::norm::rel_l2_error;
+        use super::super::super::cc_rel_l2_error_weighted;
         use super::super::super::points::nodes as rlst_nodes;
         use super::super::super::quadrature::clenshaw_curtis;
         use super::*;
@@ -511,6 +511,7 @@ mod tests {
                 let err = (&nodes(n) - &rlst_nodes(n))
                     .iter()
                     .fold(0.0_f64, |e, v| e.max(v.abs()));
+                // 1e-14 is the loader's NODE_TOL: old dataset files load (decision 26).
                 assert!(err <= 1e-14, "n={n}: {err:e}");
             }
         }
@@ -557,7 +558,7 @@ mod tests {
             let t = uniform_to_cheb(n - 1, n, 2);
             let got = apply(t.view(), t.view(), sample(&u, &u, sin_sin).view());
             let w = clenshaw_curtis(n);
-            rel_l2_error(
+            cc_rel_l2_error_weighted(
                 got.view(),
                 sample(&c, &c, sin_sin).view(),
                 w.view(),
@@ -594,7 +595,7 @@ mod tests {
                 apply(t_cu.view(), t_cu.view(), u.view()).view(),
             );
             let w = clenshaw_curtis(n);
-            let err = rel_l2_error(back.view(), u.view(), w.view(), w.view());
+            let err = cc_rel_l2_error_weighted(back.view(), u.view(), w.view(), w.view());
             println!("round trip n={n} d=2 sin sin: {err:.2e}");
             assert!((0.6e-5..=2.4e-5).contains(&err), "{err:e}");
         }

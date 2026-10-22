@@ -27,9 +27,7 @@ use super::grf::{
     ALPHA, K_MAX, RNG, TAU, draw_xi, eps_k, evaluate, forcing_coeffs, k_default, solution_coeffs,
 };
 use crate::CONVENTION_VERSION;
-use crate::neural_operators::chebyshev::{
-    TRANSFER_DEGREE, Transfers, cc_rel_l2_error, cc_rel_l2_error_weighted, clencurt, nodes,
-};
+use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, cc_rel_l2_error, nodes};
 use crate::neural_operators::data::loaders::poisson::PoissonSet;
 use crate::neural_operators::metrics::stats::ErrorStats;
 
@@ -119,15 +117,16 @@ impl std::error::Error for LabelCheckError {}
 /// discrepancy ‖u_A − u_series‖ / ‖u_series‖ (CONVENTIONS §12).
 ///
 /// `u_a` and `u_series` are `[n, n]`, 'ij'; n is read from their shape and the weights
-/// are [`clencurt`]`(n)` ([`cc_rel_l2_error`]). `sample` and `seed` only label the error.
-/// Returns the discrepancy; for n ≥ [`LABEL_CHECK_MIN_N`] a value above
+/// are [`clencurt`](crate::neural_operators::chebyshev::clencurt)`(n)`
+/// ([`cc_rel_l2_error`]). `sample` and `seed` only label the error. Returns the discrepancy; for n ≥ [`LABEL_CHECK_MIN_N`] a value above
 /// [`LABEL_CHECK_TOL`] (or NaN) is an error.
 ///
 /// # Errors
 /// [`LabelCheckError`] when the check is enforced and fails.
 ///
 /// # Panics
-/// If the fields differ in shape, or either axis has fewer than 2 nodes.
+/// If the fields differ in shape or are not square, or either axis has fewer than 2
+/// nodes.
 pub fn label_check(
     u_a: ArrayView2<f64>,
     u_series: ArrayView2<f64>,
@@ -136,6 +135,7 @@ pub fn label_check(
 ) -> Result<f64, LabelCheckError> {
     let error = cc_rel_l2_error(u_a, u_series);
     let n = u_a.nrows();
+    assert_eq!(n, u_a.ncols(), "label_check: fields must be square");
     if n >= LABEL_CHECK_MIN_N && (error.is_nan() || error > LABEL_CHECK_TOL) {
         return Err(LabelCheckError {
             sample,
@@ -149,10 +149,10 @@ pub fn label_check(
 
 /// Generates one split (design §5.1): f, u_A, the label check and error 2.
 ///
-/// Builds one [`CollocationSolver`], one set of Clenshaw–Curtis weights and one pair of
-/// transfers for the split, then for sample i draws the forcing of seed
-/// `base_seed + i` ([`draw_xi`]) at the truncation [`SplitSpec::truncation`], evaluates
-/// it at the CGL nodes, solves, and checks the label against the exact series.
+/// Builds one [`CollocationSolver`] and one pair of transfers for the split, then for
+/// sample i draws the forcing of seed `base_seed + i` ([`draw_xi`]) at the truncation
+/// [`SplitSpec::truncation`], evaluates it at the CGL nodes, solves, and checks the label
+/// against the exact series.
 ///
 /// # Errors
 /// [`LabelCheckError`] for the first sample whose label check fails, when
@@ -167,7 +167,6 @@ pub fn generate(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
     assert!(n >= 3, "generate: n must be >= 3, got {n}");
     let k = spec.truncation();
     let x = nodes(n);
-    let w = clencurt(n);
     let solver = CollocationSolver::new(n, n);
     let transfers = Transfers::new(n);
 
@@ -190,12 +189,7 @@ pub fn generate(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
         let u_series = evaluate(solution_coeffs(c.view()).view(), x.view(), x.view());
         label.push(label_check(u_i.view(), u_series.view(), i, seed)?);
         let round_trip = transfers.to_cheb(transfers.to_uniform(u_i.view()).view());
-        err2.push(cc_rel_l2_error_weighted(
-            round_trip.view(),
-            u_i.view(),
-            w.view(),
-            w.view(),
-        ));
+        err2.push(cc_rel_l2_error(round_trip.view(), u_i.view()));
     }
 
     Ok(Split {
@@ -225,10 +219,10 @@ pub fn split_stem(split: &Split, name: &str) -> String {
 /// [`split_stem`] (design §5.1). Creates `dir` if needed and overwrites existing files.
 ///
 /// The `.npz` holds `f` and `u` (`[N, n, n]`, f64, 'ij') and the CGL nodes `x` and `y`
-/// (`[n]`, both [`Split::x`]), uncompressed. The JSON sidecar records n and s, K and whether it was explicit,
-/// τ, α, K_MAX, the RNG, the base seed and count, ε_K, the label check (max, mean,
-/// enforced, tolerance), error 2 (max, mean, d, s), [`CONVENTION_VERSION`], the crate
-/// version, `git_commit` and the wall time in seconds. `name` is the split's name, e.g.
+/// (`[n]`, both [`Split::x`]), uncompressed. The JSON sidecar records n and s, K and
+/// whether it was explicit, τ, α, K_MAX, the RNG, the base seed and count, ε_K, the label
+/// check (max, mean, enforced, tolerance), error 2 (max, mean, d, s),
+/// [`CONVENTION_VERSION`], the crate version, `git_commit` and the wall time in seconds. `name` is the split's name, e.g.
 /// `"train"` or `"test"`. Returns the two paths.
 ///
 /// # Errors
@@ -248,7 +242,8 @@ pub fn write_split(
     for (field, array) in [("f", &split.f), ("u", &split.u)] {
         npz.add_array(field, array).map_err(io::Error::other)?;
     }
-    // `y` repeats `x`: the file format keeps both axes (design §5.1).
+    // `y` repeats `x`: the file format keeps both axes (design §5.1), and the loader checks
+    // both against the CGL nodes.
     for (field, array) in [("x", &split.x), ("y", &split.x)] {
         npz.add_array(field, array).map_err(io::Error::other)?;
     }
@@ -353,6 +348,10 @@ mod tests {
 
     #[test]
     fn files_round_trip() {
+        use crate::neural_operators::data::loaders::base_dataset::DatasetConfig;
+        use crate::neural_operators::data::loaders::poisson::{
+            PoissonConfig, load_poisson_cheb, load_poisson_uniform,
+        };
         let spec = SplitSpec {
             n: 17,
             k: None,
@@ -417,55 +416,28 @@ mod tests {
         assert_eq!(v["git_commit"], "abc123");
         assert!(v["wall_time_s"].as_f64().unwrap() > 0.0);
 
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn generator_nodes_within_node_tol_of_rlst() {
-        use crate::neural_operators::chebyshev::points::nodes as rlst_nodes;
-        use crate::neural_operators::data::loaders::poisson::NODE_TOL;
-        for n in [33, 65, 129, 257] {
-            let diff = (&nodes(n) - &rlst_nodes(n))
-                .iter()
-                .fold(0.0_f64, |m, d| m.max(d.abs()));
-            assert!(diff <= NODE_TOL, "n = {n}: max |diff| {diff:e}");
-        }
-    }
-
-    #[test]
-    fn written_split_loads() {
-        use crate::neural_operators::data::loaders::base_dataset::DatasetConfig;
-        use crate::neural_operators::data::loaders::poisson::{
-            PoissonConfig, load_poisson_cheb, load_poisson_uniform,
+        // The loaders read the written split back: raw on the CGL grid, and on the
+        // uniform grid s = n − 1 beside a written test split.
+        assert_eq!(load_poisson_cheb(&npz_path, 17, 2).unwrap(), split.u);
+        let test_spec = SplitSpec {
+            n: 17,
+            k: None,
+            base_seed: 100,
+            count: 1,
         };
-        let n = 9;
-        let dir =
-            std::env::temp_dir().join(format!("sciml_rs_written_split_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        let mut paths = Vec::new();
-        for (name, base_seed, count) in [("train", 0, 3), ("test", 100, 2)] {
-            let spec = SplitSpec {
-                n,
-                k: None,
-                base_seed,
-                count,
-            };
-            let split = generate(&spec).unwrap();
-            let (npz, _) = write_split(&dir, name, &split, "abc123").unwrap();
-            let u = load_poisson_cheb(&npz, n, count).unwrap();
-            assert_eq!(u, split.u, "{name}");
-            paths.push(npz);
-        }
+        let test_split = generate(&test_spec).unwrap();
+        let (test_path, _) = write_split(&dir, "test", &test_split, "abc123").unwrap();
         let config = PoissonConfig::new(
             DatasetConfig {
-                n_train: 3,
-                n_test: 2,
+                n_train: 2,
+                n_test: 1,
             },
-            n,
+            17,
         );
-        let (train, test, _) = load_poisson_uniform::<f64>(&paths[0], &paths[1], &config).unwrap();
-        assert_eq!(train.inputs().shape(), [3, n - 1, n - 1, 1]);
-        assert_eq!(test.targets().shape(), [2, n - 1, n - 1]);
+        let (train, test, _) = load_poisson_uniform::<f64>(&npz_path, &test_path, &config).unwrap();
+        assert_eq!(train.inputs().shape(), [2, 16, 16, 1]);
+        assert_eq!(test.targets().shape(), [1, 16, 16]);
+
         fs::remove_dir_all(&dir).unwrap();
     }
 

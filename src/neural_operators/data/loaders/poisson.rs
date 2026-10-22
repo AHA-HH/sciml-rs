@@ -40,7 +40,7 @@ use ndarray::{Array1, Array3, ArrayD, Axis, Ix3, s};
 use std::path::Path;
 
 /// Tolerance on the stored `x`, `y` nodes against the closed-form CGL nodes.
-pub(crate) const NODE_TOL: f64 = 1e-14;
+const NODE_TOL: f64 = 1e-14;
 
 /// Poisson-specific config: the Chebyshev size `n` of the stored fields.
 #[derive(Config, Debug)]
@@ -142,10 +142,10 @@ pub fn load_poisson_uniform<T: HostFloat>(
     // The transfers are built once and shared by both splits; each split's reader and
     // Chebyshev fields are freed before the next file is parsed.
     let transfers = Transfers::new(n);
-    let nodes = nodes(n);
+    let cgl = nodes(n);
     let load_split = |path: &Path, split: &str, count: usize| -> Result<_, LoadError> {
         let mut reader = NpzFileReader::new(path)?;
-        check_nodes(&mut reader, split, n, &nodes)?;
+        check_nodes(&mut reader, split, n, &cgl)?;
         let f = read_samples(&mut reader, split, "f", n, count)?;
         let f = transfer_samples(f, count, &transfers);
         let u = read_samples(&mut reader, split, "u", n, count)?;

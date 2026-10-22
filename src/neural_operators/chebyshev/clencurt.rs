@@ -82,9 +82,8 @@ pub fn cc_norm_sq(v: ArrayView2<f64>, wx: ArrayView1<f64>, wy: ArrayView1<f64>) 
 /// `a` and `b` are `[n_x, n_y]` fields stored 'ij' (`v[i, j] = v(x_i, y_j)`). Before
 /// squaring, a − b is divided by max |a − b| and b by max |b|, so fields far from unit
 /// size (below about 1e-154 or above about 1e154) neither underflow nor overflow, even
-/// when `a` and `b` differ greatly in magnitude. Returns NaN or infinity when ‖b‖ = 0, as
-/// the `rel_l2_error` test oracle (feature `chebyshev`) does, and equals it with
-/// `clenshaw_curtis` weights to round-off. Builds the weights on every call; a caller that already holds them uses
+/// when `a` and `b` differ greatly in magnitude. Returns NaN or infinity when ‖b‖ = 0.
+/// Builds the weights on every call; a caller that already holds them uses
 /// [`cc_rel_l2_error_weighted`].
 ///
 /// # Panics
@@ -312,7 +311,6 @@ mod tests {
     #[cfg(feature = "chebyshev")]
     #[test]
     fn cc_rel_l2_matches_gated() {
-        use super::super::norm::rel_l2_error;
         use super::super::quadrature::clenshaw_curtis;
         type Field = fn(f64, f64) -> f64;
         let fields: [(usize, usize, Field, Field); 3] = [
@@ -334,7 +332,13 @@ mod tests {
             let (a, b) = (sample(nx, ny, fa), sample(nx, ny, fb));
             let ours = cc_rel_l2_error(a.view(), b.view());
             let (wx, wy) = (clenshaw_curtis(nx), clenshaw_curtis(ny));
-            let gated = rel_l2_error(a.view(), b.view(), wx.view(), wy.view());
+            // Unscaled Σ wx_i wy_j v² with the RLST weights.
+            let naive = |v: ArrayView2<f64>| {
+                v.indexed_iter()
+                    .map(|((i, j), x)| wx[i] * wy[j] * x * x)
+                    .sum::<f64>()
+            };
+            let gated = (naive((&a - &b).view()) / naive(b.view())).sqrt();
             assert!(
                 (ours - gated).abs() <= 1e-14 * gated,
                 "{nx}x{ny}: {ours} vs {gated}"
