@@ -5,6 +5,10 @@
 //! in [`poisson`](super::poisson), which writes it into a run's `errors.json`. It is
 //! built without `datagen`, so both can import it.
 
+// Burn's `#[derive(Config)]` writes `field: field` in the `new` it generates, in an
+// impl block outside the struct's attributes (burn-derive `config/analyzer_struct.rs`).
+#![allow(clippy::redundant_field_names)]
+
 use burn::config::Config;
 
 /// Mean and max of one error over the samples. Serialised with the keys `mean` and

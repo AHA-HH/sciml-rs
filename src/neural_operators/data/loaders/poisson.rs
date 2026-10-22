@@ -16,7 +16,8 @@
 //! (≤ 1e-15) on the analytic test fields, and for n ≥ 65 within 2e-8 on GRF solutions u
 //! and 3.4e-6 on GRF forcings f (Phase 0 T3, `spikes/transfers/REPORT.md` table 1). The
 //! round-trip error of design §7 (error 2) is recorded per split in the dataset's `.json`
-//! sidecar by the generator; this loader does not read the sidecar.
+//! sidecar by the generator; this loader does not read the sidecar. `SidecarRecord` is
+//! that sidecar's type, which the generator writes and the evaluation reads.
 //!
 //! `load_poisson_cheb` reads one split's raw solutions `u` on the CGL grid, untransferred,
 //! with the same validation: the reference for the errors on the Chebyshev grid (design §7).
@@ -26,6 +27,10 @@
 //! with the `x` normalizer fit on `x_train`; both target splits stay in physical units, and
 //! predictions are decoded back to physical scale before the loss, not targets encoded
 //! forward. The returned `normalizers.y` is what the caller needs to do that decode.
+
+// Burn's `#[derive(Config)]` writes `field: field` in the `new` it generates, in an
+// impl block outside the struct's attributes (burn-derive `config/analyzer_struct.rs`).
+#![allow(clippy::redundant_field_names)]
 
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes};
 use crate::neural_operators::data::{
@@ -38,6 +43,7 @@ use crate::neural_operators::data::{
     },
 };
 use burn::config::Config;
+use burn::serde::{Deserialize, Serialize};
 use ndarray::{Array1, Array3, ArrayD, Axis, Ix3, s};
 use std::path::Path;
 
@@ -102,6 +108,86 @@ pub fn stage(n: usize) -> Result<PoissonSet, LoadError> {
             "no Poisson stage with n = {n}; expected one of {ns:?}"
         ))
     })
+}
+
+/// A split's `.json` sidecar (datasets/README.md): written by the generator
+/// (`pde::poisson::dataset::write_split`), read with [`Config::load`] by the evaluation.
+///
+/// The fields are declared in key order, as the files hold them sorted. Serde derives
+/// with `Config` implemented by hand, not `#[derive(Config)]`, because the keys `K`,
+/// `K_explicit`, `K_max` and `eps_K` need renames, which that derive does not carry into
+/// its generated serde struct.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(crate = "burn::serde")]
+pub struct SidecarRecord {
+    /// The GRF truncation K in effect.
+    #[serde(rename = "K")]
+    pub k: usize,
+    /// Whether K was given explicitly rather than K(n).
+    #[serde(rename = "K_explicit")]
+    pub k_explicit: bool,
+    /// The largest production truncation, `K_MAX`.
+    #[serde(rename = "K_max")]
+    pub k_max: usize,
+    /// α of the GRF covariance.
+    pub alpha: f64,
+    /// Sample i uses seed `base_seed + i`.
+    pub base_seed: u64,
+    /// The `CONVENTION_VERSION` the split was generated under.
+    pub convention_version: u32,
+    /// The number of samples in the split.
+    pub count: usize,
+    /// The crate version that generated the split.
+    pub crate_version: String,
+    /// ε_K, the fraction of the GRF's expected energy outside the truncation K.
+    #[serde(rename = "eps_K")]
+    pub eps_k: f64,
+    /// Error 2 (transfer) over the split.
+    pub error2: SidecarError2,
+    /// The commit that generated the split.
+    pub git_commit: String,
+    /// The label check over the split.
+    pub label_check: SidecarLabelCheck,
+    /// CGL nodes per axis.
+    pub n: usize,
+    /// The RNG the forcings were drawn with.
+    pub rng: String,
+    /// The uniform grid size s = n − 1.
+    pub s: usize,
+    /// The split's name, e.g. `"train"` or `"test"`.
+    pub split: String,
+    /// τ of the GRF covariance.
+    pub tau: f64,
+    /// The generation wall time in seconds.
+    pub wall_time_s: f64,
+}
+
+impl Config for SidecarRecord {}
+
+/// The sidecar's `error2` entry, in key order.
+#[derive(Config, Debug)]
+pub struct SidecarError2 {
+    /// The transfer degree d.
+    pub d: usize,
+    /// Max over the split.
+    pub max: f64,
+    /// Mean over the split.
+    pub mean: f64,
+    /// The uniform grid size s.
+    pub s: usize,
+}
+
+/// The sidecar's `label_check` entry, in key order.
+#[derive(Config, Debug)]
+pub struct SidecarLabelCheck {
+    /// Whether the tolerance was enforced (n ≥ 65).
+    pub enforced: bool,
+    /// Max over the split.
+    pub max: f64,
+    /// Mean over the split.
+    pub mean: f64,
+    /// The label check's tolerance.
+    pub tolerance: f64,
 }
 
 /// Builds the Poisson dataset on the uniform grid: inputs `[N, s, s, 1]` (the normalized
@@ -358,6 +444,39 @@ mod tests {
     const N: usize = 9;
     const N_TRAIN: usize = 3;
     const N_TEST: usize = 2;
+
+    /// A sidecar `generate_poisson` wrote, copied from `datasets/poisson/`.
+    const SIDECAR_FIXTURE: &str =
+        include_str!("../../../../tests/fixtures/poisson_n65_K32_test.json");
+
+    #[test]
+    fn sidecar_fixture_parses_and_round_trips() {
+        let sidecar = SidecarRecord::load_binary(SIDECAR_FIXTURE.as_bytes()).unwrap();
+        assert_eq!(
+            (sidecar.n, sidecar.s, sidecar.k, sidecar.count),
+            (65, 64, 32, 200)
+        );
+        assert_eq!(sidecar.split, "test");
+        assert_eq!((sidecar.error2.d, sidecar.error2.s), (2, 64));
+        assert!(sidecar.label_check.enforced);
+
+        // Written back as the writer writes it (pretty, plus a newline), every line matches
+        // the fixture: keys, nesting and layout byte for byte, and numbers to an ulp, as
+        // serde_json parses floats to within an ulp without its `float_roundtrip` feature.
+        let written = burn::config::config_to_json(&sidecar) + "\n";
+        assert_eq!(written.lines().count(), SIDECAR_FIXTURE.lines().count());
+        for (w, f) in written.lines().zip(SIDECAR_FIXTURE.lines()) {
+            if w == f {
+                continue;
+            }
+            let (wk, wv) = w.split_once(": ").expect(w);
+            let (fk, fv) = f.split_once(": ").expect(f);
+            assert_eq!(wk, fk);
+            let num = |v: &str| v.trim_end_matches(',').parse::<f64>().expect(v);
+            let (wv, fv) = (num(wv), num(fv));
+            assert!((wv - fv).abs() <= 1e-15 * fv.abs(), "{w} vs {f}");
+        }
+    }
 
     fn cfg(n_train: usize, n_test: usize) -> PoissonConfig {
         PoissonConfig::new(DatasetConfig { n_train, n_test }, N)

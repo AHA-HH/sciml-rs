@@ -28,7 +28,9 @@ use super::grf::{
 };
 use crate::CONVENTION_VERSION;
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, cc_rel_l2_error, nodes};
-use crate::neural_operators::data::loaders::poisson::PoissonSet;
+use crate::neural_operators::data::loaders::poisson::{
+    PoissonSet, SidecarError2, SidecarLabelCheck, SidecarRecord,
+};
 use crate::neural_operators::metrics::stats::ErrorStats;
 
 /// Bound on the label check, relative CC-L², enforced for n ≥ [`LABEL_CHECK_MIN_N`]
@@ -223,7 +225,7 @@ pub fn split_stem(split: &Split, name: &str) -> String {
 /// whether it was explicit, τ, α, K_MAX, the RNG, the base seed and count, ε_K, the label
 /// check (max, mean, enforced, tolerance), error 2 (max, mean, d, s),
 /// [`CONVENTION_VERSION`], the crate version, `git_commit` and the wall time in seconds. `name` is the split's name, e.g.
-/// `"train"` or `"test"`. Returns the two paths.
+/// `"train"` or `"test"`. Returns the two paths. The sidecar is a [`SidecarRecord`].
 ///
 /// # Errors
 /// Any I/O error from creating `dir` or writing either file.
@@ -250,36 +252,36 @@ pub fn write_split(
     npz.finish().map_err(io::Error::other)?;
 
     let n = split.spec.n;
-    let sidecar = serde_json::json!({
-        "split": name,
-        "n": n,
-        "s": n - 1,
-        "K": split.k,
-        "K_explicit": split.spec.k.is_some(),
-        "tau": TAU,
-        "alpha": ALPHA,
-        "K_max": K_MAX,
-        "rng": RNG,
-        "base_seed": split.spec.base_seed,
-        "count": split.spec.count,
-        "eps_K": eps_k(split.k),
-        "label_check": {
-            "max": split.label_check.max,
-            "mean": split.label_check.mean,
-            "enforced": split.label_check_enforced,
-            "tolerance": LABEL_CHECK_TOL,
+    let sidecar = SidecarRecord {
+        k: split.k,
+        k_explicit: split.spec.k.is_some(),
+        k_max: K_MAX,
+        alpha: ALPHA,
+        base_seed: split.spec.base_seed,
+        convention_version: CONVENTION_VERSION,
+        count: split.spec.count,
+        crate_version: env!("CARGO_PKG_VERSION").to_string(),
+        eps_k: eps_k(split.k),
+        error2: SidecarError2 {
+            d: TRANSFER_DEGREE,
+            max: split.error2.max,
+            mean: split.error2.mean,
+            s: n - 1,
         },
-        "error2": {
-            "max": split.error2.max,
-            "mean": split.error2.mean,
-            "d": TRANSFER_DEGREE,
-            "s": n - 1,
+        git_commit: git_commit.to_string(),
+        label_check: SidecarLabelCheck {
+            enforced: split.label_check_enforced,
+            max: split.label_check.max,
+            mean: split.label_check.mean,
+            tolerance: LABEL_CHECK_TOL,
         },
-        "convention_version": CONVENTION_VERSION,
-        "crate_version": env!("CARGO_PKG_VERSION"),
-        "git_commit": git_commit,
-        "wall_time_s": split.wall_time.as_secs_f64(),
-    });
+        n,
+        rng: RNG.to_string(),
+        s: n - 1,
+        split: name.to_string(),
+        tau: TAU,
+        wall_time_s: split.wall_time.as_secs_f64(),
+    };
     let text = serde_json::to_string_pretty(&sidecar).map_err(io::Error::other)?;
     fs::write(&json_path, text + "\n")?;
     Ok((npz_path, json_path))
@@ -381,6 +383,38 @@ mod tests {
         }
 
         let text = fs::read_to_string(&json_path).unwrap();
+        // The typed record writes the bytes the untyped writer did before it (phase 4s T19)
+        let untyped = serde_json::json!({
+            "split": "train",
+            "n": 17,
+            "s": 16,
+            "K": split.k,
+            "K_explicit": split.spec.k.is_some(),
+            "tau": TAU,
+            "alpha": ALPHA,
+            "K_max": K_MAX,
+            "rng": RNG,
+            "base_seed": split.spec.base_seed,
+            "count": split.spec.count,
+            "eps_K": eps_k(split.k),
+            "label_check": {
+                "max": split.label_check.max,
+                "mean": split.label_check.mean,
+                "enforced": split.label_check_enforced,
+                "tolerance": LABEL_CHECK_TOL,
+            },
+            "error2": {
+                "max": split.error2.max,
+                "mean": split.error2.mean,
+                "d": TRANSFER_DEGREE,
+                "s": 16,
+            },
+            "convention_version": CONVENTION_VERSION,
+            "crate_version": env!("CARGO_PKG_VERSION"),
+            "git_commit": "abc123",
+            "wall_time_s": split.wall_time.as_secs_f64(),
+        });
+        assert_eq!(text, serde_json::to_string_pretty(&untyped).unwrap() + "\n");
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["split"], "train");
         assert_eq!(v["n"], 17);

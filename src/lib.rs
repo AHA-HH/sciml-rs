@@ -44,7 +44,6 @@ extern crate lapack_src;
 ))]
 compile_error!("the datagen feature has a BLAS/LAPACK provider only on macOS and Linux");
 
-#[allow(clippy::redundant_field_names)]
 pub mod neural_operators;
 
 /// The version of `docs/CONVENTIONS.md` this code implements (CONVENTIONS §9).
