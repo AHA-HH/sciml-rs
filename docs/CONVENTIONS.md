@@ -226,14 +226,16 @@ the code that implements it in the same pull request.
   ddof = 1; ε = 1e-5 by default (`with_eps` to change). Needs at least 2 samples.
 - Darcy and Poisson (`loaders::common::Normalizers`) normalise x and y pointwise;
   statistics are fitted on the training split only, in f64 on the host. `x_test` is
-  encoded with the training x statistics; `y_test` stays in physical units, and
-  predictions are decoded with the y normaliser before the test loss (as in Li et al.).
+  encoded with the training x statistics. Both y splits are stored in physical units; the
+  prediction is decoded with the y normaliser before the loss, in training and evaluation
+  (Phase 4s T17, design §12 decision 28).
   Burgers does not normalise.
 - Subsampling keeps every `rate`-th point along an axis (`transforms::subsample`).
 
 ### Verification
 `encode_decode_round_trips`, `unit_gaussian_two_samples_uses_sample_std`,
 `flat_decoder_matches_ndarray_decode`, `inputs_hold_the_normalized_coefficient_only`,
+`normalization_matches_darcy`, `train_loss_matches_old_asymmetric_path`,
 `single_train_sample_is_invalid_not_nan`.
 
 ## 11. Losses

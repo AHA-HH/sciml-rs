@@ -11,7 +11,7 @@
 //! `Batch<R, RM1>`, and a generic `impl<const R: usize> TrainStep for FNO<R>`
 //! leaves `RM1` unconstrained (stable Rust cannot write `R - 1` in a type), so
 //! the impls are per rank. Datasets that need a decoder (Darcy) are not
-//! covered: the step passes no postprocess hook.
+//! covered: the step passes no decoder.
 
 use burn::{
     prelude::*,
@@ -21,7 +21,7 @@ use burn::{
 use crate::neural_operators::{
     data::batcher::Batch,
     models::fno::FNO,
-    training::step::{StepLoss, forward_loss, identity},
+    training::step::{StepLoss, forward_loss},
 };
 
 impl FNO<3> {
@@ -39,7 +39,7 @@ impl FNO<3> {
             l2_sum,
             out,
             target,
-        } = forward_loss(self, batch, &identity);
+        } = forward_loss(self, batch, None);
         let loss = l2_sum.clone().div_scalar(target.dims()[0] as f64);
 
         (

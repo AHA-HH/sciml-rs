@@ -1306,6 +1306,28 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       generator. **No alias** `chebyshev = ["datagen"]`: nothing outside the repository
       uses the name. The CI job becomes `run-tests-datagen`.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
+28. **Phase 4s T17: y_train stored in physical units (2026-10-22).**
+    - **What changes.** Both y splits are stored in physical units: the loaders
+      (`normalize_split_pair`) still fit the y normaliser on the physical `y_train` but no
+      longer encode it. Training and evaluation decode the model output only, through one
+      hook, `Option<&FlatDecoder>`, taken by `train_epoch`, `evaluate` and
+      `training_loop`. The `Postprocess` closure pair and the public `identity` are
+      deleted, so callers can no longer wire the two sides inconsistently.
+    - **Options.** Accept (the training loss is unchanged mathematically and numerically
+      changes only by f32 round-off, since the target is no longer encoded and decoded);
+      the bolder variant, the decoder inside the model so `load_fno` / `predict_host`
+      return physical units (changes the model's record format, out of scope for 4s, left
+      as a follow-up); or decline and keep the closures.
+    - **Accepted.** CONVENTIONS §10 prose changes ("both y splits are stored in physical
+      units; the prediction is decoded before the loss"), with no `CONVENTION_VERSION`
+      bump: §10 is outside the version-bumping set (§9). `y_normalizer.json` keeps its
+      meaning, so saved runs still evaluate. The check is
+      `train_loss_matches_old_asymmetric_path` (one epoch against the old path inlined as
+      the oracle, relative difference ≤ 1e-6), unchanged `predict_darcy` /
+      `predict_poisson` output on existing runs, and a short `train_darcy` run whose
+      train-loss curve matches the old one to about 1e-6 relative
+      (`docs/phase4s/README.md` Results).
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
 
 ## References
 

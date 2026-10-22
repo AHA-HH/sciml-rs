@@ -1,10 +1,10 @@
 //! The tail shared by the normalizing loaders (Darcy, Poisson): fit and apply the
 //! normalizers, add the input channel axis and cast to the host dtype.
 //!
-//! Normalization asymmetry (CONVENTIONS §10): `x_test` is encoded with the `x` normalizer
-//! fit on `x_train`, but `y_test` is left un-encoded: predictions are decoded back to
-//! physical scale before comparison, not targets encoded forward. The returned
-//! [`Normalizers::y`] is what the caller needs to do that decode.
+//! Normalization (CONVENTIONS §10): both inputs are encoded with the `x` normalizer fit on
+//! `x_train`; both target splits stay in physical units, and predictions are decoded back
+//! to physical scale before the loss, not targets encoded forward. The returned
+//! [`Normalizers::y`], fit on `y_train`, is what the caller needs to do that decode.
 
 use crate::neural_operators::data::{
     dataset::OperatorDataset, host_float::HostFloat, io::errors::LoadError,
@@ -36,7 +36,7 @@ pub(crate) fn check_n_train(n_train: usize) -> Result<(), LoadError> {
 }
 
 /// Normalizes a train/test pair and packages it: fits `x` on `x_train` and encodes both
-/// inputs; fits `y` on `y_train` and encodes `y_train` only (`y_test` stays physical,
+/// inputs; fits `y` on `y_train` and encodes neither target split (both stay physical,
 /// CONVENTIONS §10); adds a trailing channel axis to the inputs and casts to `T`.
 ///
 /// All four fields are `[N, *spatial]` in `f64` with matching spatial shapes; the
@@ -59,7 +59,6 @@ pub(crate) fn normalize_split_pair<T: HostFloat>(
     let x_test = with_channel(x.encode(x_test));
 
     let y = UnitGaussianNormalizer::fit(&y_train);
-    let y_train = y.encode(y_train);
 
     (
         OperatorDataset::from_f64(x_train, y_train),

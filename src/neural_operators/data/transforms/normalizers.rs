@@ -135,6 +135,15 @@ impl FlatDecoder {
         }
     }
 
+    /// The same decoder on the inner (non-autodiff) device, for evaluating a model taken
+    /// with `valid()`.
+    pub fn inner(&self) -> Self {
+        Self {
+            mean: self.mean.clone().inner(),
+            scale: self.scale.clone().inner(),
+        }
+    }
+
     /// `x * (std + eps) + mean`, broadcast over the batch axis.
     pub fn decode(&self, x: Tensor<2>) -> Tensor<2> {
         x * self.scale.clone().unsqueeze::<2>() + self.mean.clone().unsqueeze::<2>()

@@ -7,11 +7,11 @@
 //! applying normalization. Inputs carry the data channel only; the model
 //! appends the 2D grid coordinates itself (see `FNO::forward`).
 //!
-//! normalization asymmetry (matches the reference implementation exactly):
-//! `x_test` is encoded using the `x` normalizer fit on `x_train`, but
-//! `y_test` is left un-encoded - predictions are decoded back to physical
-//! scale before comparison, not targets encoded forward. The returned
-//! `y_normalizer` is what the caller needs to do that decode.
+//! normalization (CONVENTIONS §10): both inputs are encoded using the `x`
+//! normalizer fit on `x_train`; both target splits stay in physical units -
+//! predictions are decoded back to physical scale before the loss, not targets
+//! encoded forward. The returned `normalizers.y`, fit on `y_train`, is what the
+//! caller needs to do that decode.
 
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
@@ -252,10 +252,10 @@ mod tests {
             let n = a.shape()[0];
             a.into_shape_with_order(IxDyn(&[n, s, s, 1])).unwrap()
         };
-        // x encoded with the train normalizer, y_train encoded, y_test raw.
+        // x encoded with the train normalizer, both y splits raw.
         assert_eq!(*train.inputs(), as_input(norms.x.encode(x_train)));
         assert_eq!(*test.inputs(), as_input(norms.x.encode(x_test)));
-        assert_eq!(*train.targets(), norms.y.encode(y_train));
+        assert_eq!(*train.targets(), y_train);
         assert_eq!(*test.targets(), y_test);
     }
 
@@ -313,7 +313,7 @@ mod tests {
             sums,
             [
                 13857006548521320448,
-                4635368094174281728,
+                4645398979642392576, // y_train physical since 4s T17
                 13869920727614881792,
                 4646307104645971968,
                 4626803676421486758,

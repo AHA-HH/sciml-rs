@@ -20,9 +20,9 @@
 //! with the same validation: the reference for the errors on the Chebyshev grid (design §7).
 //! `load_poisson_cheb_field` does the same for either field, `f` or `u`.
 //!
-//! Normalization asymmetry (CONVENTIONS §10, as in `load_darcy_uniform`): `x_test` is
-//! encoded with the `x` normalizer fit on `x_train`, but `y_test` is left un-encoded:
-//! predictions are decoded back to physical scale before comparison, not targets encoded
+//! Normalization (CONVENTIONS §10, as in `load_darcy_uniform`): both inputs are encoded
+//! with the `x` normalizer fit on `x_train`; both target splits stay in physical units, and
+//! predictions are decoded back to physical scale before the loss, not targets encoded
 //! forward. The returned `normalizers.y` is what the caller needs to do that decode.
 
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes};
@@ -403,19 +403,18 @@ mod tests {
         let dir = fresh_dir("transfer");
         let (train_path, test_path) = write_valid_pair(&dir);
         let config = cfg(N_TRAIN, N_TEST);
-        let (train, test, norms) =
+        let (train, test, _) =
             load_poisson_uniform::<f64>(&train_path, &test_path, &config).unwrap();
 
         let xu = uniform_nodes(config.s());
         let u_train = poly_field(N_TRAIN, 0.0, &xu, &xu) * -2.0;
         let u_test = poly_field(N_TEST, 0.5, &xu, &xu) * -2.0;
-        let decoded = norms.y.decode(train.targets().clone());
-        assert!(rel_err(&decoded, &u_train) < 1e-12, "train");
+        assert!(rel_err(train.targets(), &u_train) < 1e-12, "train");
         assert!(rel_err(test.targets(), &u_test) < 1e-12, "test");
     }
 
     #[test]
-    fn normalizer_asymmetry_matches_darcy() {
+    fn normalization_matches_darcy() {
         let dir = fresh_dir("asymmetry");
         let (train_path, test_path) = write_valid_pair(&dir);
         let config = cfg(N_TRAIN, N_TEST);
@@ -435,10 +434,10 @@ mod tests {
             let n = a.shape()[0];
             a.into_shape_with_order(IxDyn(&[n, s, s, 1])).unwrap()
         };
-        // x encoded with the train normalizer, y_train encoded, y_test raw.
+        // x encoded with the train normalizer, both y splits raw.
         assert_eq!(*train.inputs(), as_input(norms.x.encode(f_tr)));
         assert_eq!(*test.inputs(), as_input(norms.x.encode(f_te)));
-        assert_eq!(*train.targets(), norms.y.encode(u_tr));
+        assert_eq!(*train.targets(), u_tr);
         assert_eq!(*test.targets(), u_te);
     }
 
@@ -476,7 +475,7 @@ mod tests {
             sums,
             [
                 4595258215196790784,
-                13814127751935827968,
+                13895949219414011904, // y_train physical since 4s T17
                 4586251015942045696,
                 13890022982133194752,
                 4651835031652120632,

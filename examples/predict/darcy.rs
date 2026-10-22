@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use burn::{prelude::*, tensor::Device};
+use burn::tensor::Device;
 use sciml_rs::neural_operators::{
     data::{
         device_batcher::device_loader,
@@ -48,15 +48,14 @@ fn main() {
 
     let test_loader = device_loader::<4, 3, _>(&test_data, &device, 20, None);
 
-    // Predictions come out normalized; test targets were never encoded
+    // Predictions come out normalized; targets are physical
     let normalizers = run
         .normalizers()
         .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
         .expect("a Darcy run has normalizers");
     let decoder = FlatDecoder::new(&normalizers.y, &device);
-    let eval_post = move |out: Tensor<2>, target: Tensor<2>| (decoder.decode(out), target);
 
-    let l2 = evaluate::<4, 3>(&model, &test_loader, &eval_post);
+    let l2 = evaluate::<4, 3>(&model, &test_loader, Some(&decoder));
 
     println!("loaded model test_l2: {l2:.10}");
     println!(

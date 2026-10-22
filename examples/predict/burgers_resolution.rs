@@ -29,7 +29,7 @@ use sciml_rs::neural_operators::{
     },
     models::fno::FNOConfig,
     runs::RunDir,
-    training::step::{evaluate, identity},
+    training::step::evaluate,
 };
 
 /// Subsample rates swept when none are given: s = 64 to 8192.
@@ -80,7 +80,7 @@ fn main() {
         let (_, test_data) = load_burgers_uniform::<f32>(&data_path, &cfg)
             .unwrap_or_else(|e| panic!("could not load Burgers data at rate {rate}: {e}"));
         let test_loader = device_loader::<3, 2, _>(&test_data, &device, BATCH_SIZE, None);
-        (cfg.s(), evaluate::<3, 2>(&model, &test_loader, &identity))
+        (cfg.s(), evaluate::<3, 2>(&model, &test_loader, None))
     };
 
     let trained_rate = trained_cfg.subsample_rate;
