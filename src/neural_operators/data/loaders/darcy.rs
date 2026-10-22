@@ -5,7 +5,8 @@
 //! builds train/test `OperatorDataset`s from separate `.mat` files: reading,
 //! truncating to configured sizes, subsampling both spatial axes, fitting and
 //! applying normalization. Inputs carry the data channel only; the model
-//! appends the 2D grid coordinates itself (see `FNO::forward`).
+//! appends the 2D grid coordinates itself (see `FNO::forward`). `load_darcy_test` builds
+//! the test split alone, encoded with a run's saved normalizers.
 //!
 //! normalization (CONVENTIONS §10): both inputs are encoded using the `x`
 //! normalizer fit on `x_train`; both target splits stay in physical units -
@@ -19,7 +20,7 @@ use crate::neural_operators::data::{
     io::{errors::LoadError, readers::mat::MatFileReader},
     loaders::{
         base_dataset::DatasetConfig,
-        common::{Normalizers, check_n_train, normalize_split_pair},
+        common::{Normalizers, check_n_train, normalize_split_pair, normalize_test_split},
     },
 };
 use burn::config::Config;
@@ -70,36 +71,77 @@ pub fn load_darcy_uniform<T: HostFloat>(
     }
     check_n_train(config.base.n_train)?;
 
-    // Read input ('coeff') and target ('sol') from each split's .mat file,
-    // validate them, then truncate to the configured sample count and subsample
-    // both spatial axes in one strided copy. Doing this per split means the
-    // reader and full-size fields of one file are freed before the next is
-    // parsed. Without the truncation, dataset size is whatever the file holds.
     let r = config.subsample_rate;
-    let load_split = |path: &Path, split: &str, n: usize| -> Result<_, LoadError> {
-        let (x, y) = {
-            let reader = MatFileReader::new(path)?;
-            (reader.read_field("coeff")?, reader.read_field("sol")?)
-        };
-        for (name, field) in [("coeff", &x), ("sol", &y)] {
-            if field.ndim() != 3 {
-                return Err(LoadError::Invalid(format!(
-                    "{split} field '{name}' must be [samples, s, s], got shape {:?}",
-                    field.shape()
-                )));
-            }
-            if n > field.shape()[0] {
-                return Err(LoadError::Invalid(format!(
-                    "requested {n} {split} samples but '{name}' has {}",
-                    field.shape()[0]
-                )));
-            }
-        }
-        Ok((take_subsampled(x, n, r), take_subsampled(y, n, r)))
-    };
-    let (x_train, y_train) = load_split(train_path.as_ref(), "train", config.base.n_train)?;
-    let (x_test, y_test) = load_split(test_path.as_ref(), "test", config.base.n_test)?;
+    let (x_train, y_train) = read_split(train_path.as_ref(), "train", config.base.n_train, r)?;
+    let (x_test, y_test) = read_split(test_path.as_ref(), "test", config.base.n_test, r)?;
     darcy_from_fields(x_train, y_train, x_test, y_test, config)
+}
+
+/// Builds the Darcy test split only, encoded with `normalizers` (a run's saved ones,
+/// [`RunDir::normalizers`](crate::neural_operators::runs::RunDir::normalizers)) instead
+/// of normalizers refit on the train split, which is not read: inputs `[n_test, s, s, 1]`,
+/// targets `[n_test, s, s]`. With the normalizers [`load_darcy_uniform`] fits, the dataset
+/// equals its test split bit for bit.
+///
+/// # Errors
+/// [`LoadError::Reader`] if the file can't be read or lacks `coeff`/`sol`;
+/// [`LoadError::Invalid`] if the fields aren't `[samples, s, s]`, the file has fewer than
+/// `n_test` samples, the subsample rate doesn't give `config.s()` points per axis, or
+/// `normalizers.x` was not fitted on `[s, s]`.
+pub fn load_darcy_test<T: HostFloat>(
+    test_path: impl AsRef<Path>,
+    config: &DarcyConfig,
+    normalizers: &Normalizers,
+) -> Result<OperatorDataset<T>, LoadError> {
+    if config.subsample_rate == 0 {
+        return Err(LoadError::Invalid("subsample_rate must be > 0".into()));
+    }
+    let (x_test, y_test) = read_split(
+        test_path.as_ref(),
+        "test",
+        config.base.n_test,
+        config.subsample_rate,
+    )?;
+    let s = config.s();
+    if [&x_test, &y_test].iter().any(|a| a.shape()[1..] != [s, s]) {
+        return Err(LoadError::Invalid(format!(
+            "subsampled test grids must be {s}x{s} (config.s()), got {:?}",
+            &x_test.shape()[1..]
+        )));
+    }
+    normalize_test_split(x_test, y_test, normalizers)
+}
+
+/// Reads input (`coeff`) and target (`sol`) from one split's `.mat` file, validates them,
+/// then truncates to `n` samples and subsamples both spatial axes by `r` in one strided
+/// copy. The reader and full-size fields are freed before the caller parses the next
+/// file. Without the truncation, dataset size is whatever the file holds. `split` only
+/// labels the error messages.
+fn read_split(
+    path: &Path,
+    split: &str,
+    n: usize,
+    r: usize,
+) -> Result<(ArrayD<f64>, ArrayD<f64>), LoadError> {
+    let (x, y) = {
+        let reader = MatFileReader::new(path)?;
+        (reader.read_field("coeff")?, reader.read_field("sol")?)
+    };
+    for (name, field) in [("coeff", &x), ("sol", &y)] {
+        if field.ndim() != 3 {
+            return Err(LoadError::Invalid(format!(
+                "{split} field '{name}' must be [samples, s, s], got shape {:?}",
+                field.shape()
+            )));
+        }
+        if n > field.shape()[0] {
+            return Err(LoadError::Invalid(format!(
+                "requested {n} {split} samples but '{name}' has {}",
+                field.shape()[0]
+            )));
+        }
+    }
+    Ok((take_subsampled(x, n, r), take_subsampled(y, n, r)))
 }
 
 /// The rest of [`load_darcy_uniform`] on truncated, subsampled fields:

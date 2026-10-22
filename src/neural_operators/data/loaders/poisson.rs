@@ -7,6 +7,8 @@
 //! n × n CGL grid. It reads and validates them, transfers every sample to the uniform grid
 //! of size s = n − 1 and then normalizes, as Darcy does. Inputs carry the forcing only;
 //! the model appends the 2D grid coordinates itself (see `FNO::forward`).
+//! `load_poisson_uniform_test` builds the test split alone, encoded with a run's saved
+//! normalizers, so predict neither reads nor transfers the train split.
 //!
 //! Transfer: T_cu (`chebyshev::Transfers::to_uniform`, CONVENTIONS §12) is applied along both
 //! axes at load time, in f64, before normalization; transferred fields are never written
@@ -32,7 +34,7 @@ use crate::neural_operators::data::{
     io::{errors::LoadError, readers::npz::NpzFileReader},
     loaders::{
         base_dataset::DatasetConfig,
-        common::{Normalizers, check_n_train, normalize_split_pair},
+        common::{Normalizers, check_n_train, normalize_split_pair, normalize_test_split},
     },
 };
 use burn::config::Config;
@@ -131,30 +133,77 @@ pub fn load_poisson_uniform<T: HostFloat>(
     config: &PoissonConfig,
 ) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
     check_n_train(config.base.n_train)?;
-    let n = config.n;
+    check_transfer_n(config.n)?;
+
+    // The transfers are built once and shared by both splits; each split's reader and
+    // Chebyshev fields are freed before the next file is parsed.
+    let transfers = Transfers::new(config.n);
+    let (f_train, u_train) = read_uniform_split(
+        train_path.as_ref(),
+        "train",
+        config.base.n_train,
+        &transfers,
+    )?;
+    let (f_test, u_test) =
+        read_uniform_split(test_path.as_ref(), "test", config.base.n_test, &transfers)?;
+    Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
+}
+
+/// Builds the Poisson test split only, on the uniform grid, encoded with `normalizers` (a
+/// run's saved ones,
+/// [`RunDir::normalizers`](crate::neural_operators::runs::RunDir::normalizers)) instead of
+/// normalizers refit on the train split, which is neither read nor transferred: inputs
+/// `[n_test, s, s, 1]`, targets `[n_test, s, s]`. With the normalizers
+/// [`load_poisson_uniform`] fits, the dataset equals its test split bit for bit.
+///
+/// The file is validated as [`load_poisson_uniform`] validates it.
+///
+/// # Errors
+/// [`LoadError::Reader`] if the file can't be read or lacks `f`/`u`/`x`/`y`;
+/// [`LoadError::Invalid`] if `config.n <` [`Transfers::MIN_N`], `f` or `u` isn't
+/// `[samples, n, n]`, `x` or `y` isn't `[n]` or differs from the CGL nodes by more than
+/// 1e-14, the file has fewer than `n_test` samples, or `normalizers.x` was not fitted on
+/// `[s, s]`.
+pub fn load_poisson_uniform_test<T: HostFloat>(
+    test_path: impl AsRef<Path>,
+    config: &PoissonConfig,
+    normalizers: &Normalizers,
+) -> Result<OperatorDataset<T>, LoadError> {
+    check_transfer_n(config.n)?;
+    let transfers = Transfers::new(config.n);
+    let (f_test, u_test) =
+        read_uniform_split(test_path.as_ref(), "test", config.base.n_test, &transfers)?;
+    normalize_test_split(f_test, u_test, normalizers)
+}
+
+/// Checks that T_uc of degree [`TRANSFER_DEGREE`] works at `n`: s = n − 1 > d.
+fn check_transfer_n(n: usize) -> Result<(), LoadError> {
     if n < Transfers::MIN_N {
         return Err(LoadError::Invalid(format!(
             "n must be >= {} (T_uc of degree {TRANSFER_DEGREE} needs s = n - 1 > d), got {n}",
             Transfers::MIN_N
         )));
     }
+    Ok(())
+}
 
-    // The transfers are built once and shared by both splits; each split's reader and
-    // Chebyshev fields are freed before the next file is parsed.
-    let transfers = Transfers::new(n);
-    let cgl = nodes(n);
-    let load_split = |path: &Path, split: &str, count: usize| -> Result<_, LoadError> {
-        let mut reader = NpzFileReader::new(path)?;
-        check_nodes(&mut reader, split, n, &cgl)?;
-        let f = read_samples(&mut reader, split, "f", n, count)?;
-        let f = transfer_samples(f, count, &transfers);
-        let u = read_samples(&mut reader, split, "u", n, count)?;
-        let u = transfer_samples(u, count, &transfers);
-        Ok((f, u))
-    };
-    let (f_train, u_train) = load_split(train_path.as_ref(), "train", config.base.n_train)?;
-    let (f_test, u_test) = load_split(test_path.as_ref(), "test", config.base.n_test)?;
-    Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
+/// Reads one split's `f` and `u`, validated, and transfers the first `count` samples of
+/// each to the uniform grid with `transfers`: `([count, s, s], [count, s, s])`. `split`
+/// only labels the error messages.
+fn read_uniform_split(
+    path: &Path,
+    split: &str,
+    count: usize,
+    transfers: &Transfers,
+) -> Result<(ArrayD<f64>, ArrayD<f64>), LoadError> {
+    let n = transfers.s() + 1;
+    let mut reader = NpzFileReader::new(path)?;
+    check_nodes(&mut reader, split, n, &nodes(n))?;
+    let f = read_samples(&mut reader, split, "f", n, count)?;
+    let f = transfer_samples(f, count, transfers);
+    let u = read_samples(&mut reader, split, "u", n, count)?;
+    let u = transfer_samples(u, count, transfers);
+    Ok((f, u))
 }
 
 /// Reads the first `count` raw solutions `u` of one split on the n × n CGL grid,
@@ -485,6 +534,44 @@ mod tests {
             ],
             "{sums:?}"
         );
+    }
+
+    // --- phase 4s T18: predict encodes the test split with the run's saved normalizers ---
+
+    #[test]
+    fn test_loader_with_saved_normalizers_matches_refit() {
+        use crate::neural_operators::runs::RunDir;
+
+        let dir = fresh_dir("saved_normalizers");
+        let (train_path, test_path) = write_valid_pair(&dir);
+        let config = cfg(N_TRAIN, N_TEST);
+        let (_, refit, fitted) =
+            load_poisson_uniform::<f32>(&train_path, &test_path, &config).unwrap();
+
+        // through the run directory, as predict reads them
+        let run = RunDir::create(&dir, "run").unwrap();
+        run.save_normalizers(&fitted).unwrap();
+        let saved = run.normalizers().unwrap().expect("normalizers were saved");
+        let test = load_poisson_uniform_test::<f32>(&test_path, &config, &saved).unwrap();
+
+        let bits = |a: &ArrayD<f32>| a.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+        assert_eq!(test.inputs().shape(), refit.inputs().shape());
+        assert_eq!(test.targets().shape(), refit.targets().shape());
+        assert_eq!(bits(test.inputs()), bits(refit.inputs()));
+        assert_eq!(bits(test.targets()), bits(refit.targets()));
+
+        // normalizers fitted at another s are rejected, not broadcast into a panic
+        let mut other = cfg(N_TRAIN, N_TEST);
+        other.n = N + 4;
+        let x = nodes(other.n);
+        let f = poly_field(N_TRAIN, 0.0, &x, &x);
+        let train_path = write_npz(&dir, "other.npz", &f, &f, &x, &x);
+        let (_, _, wrong) = load_poisson_uniform::<f32>(&train_path, &train_path, &other).unwrap();
+        let err = load_poisson_uniform_test::<f32>(&test_path, &config, &wrong)
+            .err()
+            .expect("loading should fail");
+        assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
+        assert!(err.to_string().contains("fitted on [12, 12]"), "{err}");
     }
 
     #[test]

@@ -2,9 +2,10 @@
 //!
 //! Run with: cargo run --release --example predict_darcy -- runs/darcy_fno_<timestamp>
 //!
-//! Loads the model, the dataset config and the y normalizer from the run directory
-//! (`RunDir`) - all are needed, since weights alone can't reconstruct the model and
-//! predictions come out in normalized units.
+//! Loads the model, the dataset config and both normalizers from the run directory
+//! (`RunDir`) - all are needed, since weights alone can't reconstruct the model, the
+//! inputs are encoded with the run's x normalizer and predictions come out in normalized
+//! units. Only the test split is read (`load_darcy_test`).
 
 use std::path::Path;
 
@@ -12,7 +13,7 @@ use burn::tensor::Device;
 use sciml_rs::neural_operators::{
     data::{
         device_batcher::device_loader,
-        loaders::darcy::{DarcyConfig, load_darcy_uniform},
+        loaders::darcy::{DarcyConfig, load_darcy_test},
         transforms::normalizers::FlatDecoder,
     },
     runs::RunDir,
@@ -38,21 +39,27 @@ fn main() {
     let dataset_cfg: DarcyConfig = run
         .data_config()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
+    // The statistics the model was trained with: x encodes the inputs, y decodes
+    let normalizers = run
+        .normalizers()
+        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
+        .unwrap_or_else(|| {
+            panic!(
+                "{} has no normalizers; a Darcy run has them",
+                run.path().display()
+            )
+        });
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
-    let (_, test_data, _) = load_darcy_uniform::<f32>(
-        datasets.join("piececonst_r421_N1024_smooth1.mat"),
+    let test_data = load_darcy_test::<f32>(
         datasets.join("piececonst_r421_N1024_smooth2.mat"),
         &dataset_cfg,
+        &normalizers,
     )
     .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
     let test_loader = device_loader::<4, 3, _>(&test_data, &device, 20, None);
 
     // Predictions come out normalized; targets are physical
-    let normalizers = run
-        .normalizers()
-        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
-        .expect("a Darcy run has normalizers");
     let decoder = FlatDecoder::new(&normalizers.y, &device);
 
     let l2 = evaluate::<4, 3>(&model, &test_loader, Some(&decoder));
