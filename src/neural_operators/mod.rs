@@ -8,5 +8,6 @@ pub mod metrics;
 pub mod models;
 #[cfg(feature = "chebyshev")]
 pub mod pde;
+pub mod runs;
 pub mod training;
 pub mod utils;

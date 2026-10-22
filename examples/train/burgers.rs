@@ -16,17 +16,14 @@
 //! at different resolutions without retraining.
 
 // Import the necessary modules for training a Fourier Neural Operator
-use burn::{
-    store::{BurnpackStore, ModuleSnapshot},
-    tensor::Device,
-};
+use burn::tensor::Device;
 use sciml_rs::neural_operators::{
     data::loaders::{
         base_dataset::DatasetConfig,
         burgers::{BurgersConfig, load_burgers_uniform},
     },
-    metrics::io::write_run_artifacts,
     models::fno::FNOConfig,
+    runs::RunDir,
     training::trainer::{TrainingConfig, train_fno},
 };
 use std::path::Path;
@@ -107,21 +104,17 @@ fn main() {
     let (model, metrics) =
         train_fno::<3, 2, _>(train_data, test_data, None, &model_cfg, &train_cfg, &device);
 
-    // Writes metrics and configs files to runs/burgers_fno_<timestamp>/
-    let dir = write_run_artifacts(
+    // Writes configs, metrics and weights to runs/burgers_fno_<timestamp>/
+    let run = RunDir::create(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"),
         "burgers_fno",
-        &metrics,
-        &model_cfg,
-        &train_cfg,
-        &dataset_cfg,
     )
-    .unwrap_or_else(|e| panic!("could not write run artifacts: {e}"));
+    .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
+    run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
+        .expect("could not save configs");
+    run.save_metrics(&metrics).expect("could not save metrics");
+    run.save_weights(&model)
+        .unwrap_or_else(|e| panic!("could not save model weights: {e}"));
 
-    // Writes model weights file to the same directory
-    let mut store = BurnpackStore::from_file(dir.join("model_weights"));
-    model
-        .save_into(&mut store)
-        .expect("could not save model weights");
-
-    println!("run written to {}", dir.display());
+    println!("run written to {}", run.path().display());
 }

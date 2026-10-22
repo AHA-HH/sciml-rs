@@ -1,10 +1,7 @@
 //! Metrics reporting
 //!
-//! Persisting per-epoch training metrics to CSV and rendering loss and
-//! learning-rate curves to PNG; the Poisson errors on the Chebyshev grid and their
-//! summary statistics.
+//! The Poisson errors on the Chebyshev grid and their summary statistics. Per-epoch
+//! training metrics and their CSV and plot live in [`crate::neural_operators::runs`].
 
-pub mod io;
-pub mod plots;
 pub mod poisson;
 pub mod stats;

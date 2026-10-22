@@ -1,14 +1,9 @@
-//! CSV persistence for per-epoch training metrics.
+//! `metrics.csv`: per-epoch training metrics, one row per epoch with a header row.
 
-use crate::neural_operators::{
-    metrics::plots::plot_metrics,
-    models::fno::FNOConfig,
-    training::{metrics::EpochMetrics, trainer::TrainingConfig},
-};
-use burn::config::Config;
+use super::EpochMetrics;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Reads a metrics CSV written by [`write_metrics_csv`] back into
 /// `EpochMetrics`.
@@ -17,7 +12,7 @@ use std::path::{Path, PathBuf};
 /// I/O errors from opening or reading the file, and
 /// [`io::ErrorKind::InvalidData`] naming the line for a row with missing or
 /// unparsable fields.
-pub fn read_metrics_csv(path: impl AsRef<Path>) -> io::Result<Vec<EpochMetrics>> {
+pub(super) fn read_metrics_csv(path: impl AsRef<Path>) -> io::Result<Vec<EpochMetrics>> {
     let reader = BufReader::new(File::open(path)?);
     let mut metrics = Vec::new();
 
@@ -46,7 +41,10 @@ pub fn read_metrics_csv(path: impl AsRef<Path>) -> io::Result<Vec<EpochMetrics>>
 }
 
 /// Writes per-epoch metrics to CSV, one row per epoch, with a header row.
-pub fn write_metrics_csv(path: impl AsRef<Path>, metrics: &[EpochMetrics]) -> io::Result<()> {
+pub(super) fn write_metrics_csv(
+    path: impl AsRef<Path>,
+    metrics: &[EpochMetrics],
+) -> io::Result<()> {
     let mut file = File::create(path)?;
     writeln!(file, "epoch,train_mse,train_l2,test_l2,current_lr")?;
     for m in metrics {
@@ -57,43 +55,6 @@ pub fn write_metrics_csv(path: impl AsRef<Path>, metrics: &[EpochMetrics]) -> io
         )?;
     }
     Ok(())
-}
-
-/// Writes the three configs, `metrics.csv` and `plots.png` into a fresh
-/// timestamped run directory under `runs/` and returns the directory.
-///
-/// The plot is optional: if gnuplot is unavailable a warning is printed and
-/// the run directory is still returned, so callers can go on to save weights.
-///
-/// # Errors
-/// If the directory, a config file, or the CSV can't be written.
-pub fn write_run_artifacts<D: Config>(
-    name: &str,
-    metrics: &[EpochMetrics],
-    model_cfg: &FNOConfig,
-    train_cfg: &TrainingConfig,
-    data_cfg: &D,
-) -> io::Result<PathBuf> {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(io::Error::other)?
-        .as_secs();
-
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("runs")
-        .join(format!("{name}_{stamp}"));
-    std::fs::create_dir_all(&dir)?;
-
-    model_cfg.save(dir.join("model_cfg.json"))?;
-    train_cfg.save(dir.join("train_cfg.json"))?;
-    data_cfg.save(dir.join("data_cfg.json"))?;
-
-    write_metrics_csv(dir.join("metrics.csv"), metrics)?;
-    if let Err(e) = plot_metrics(dir.join("plots.png"), metrics, name) {
-        eprintln!("warning: skipping plots.png ({e})");
-    }
-
-    Ok(dir)
 }
 
 #[cfg(test)]

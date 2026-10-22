@@ -44,12 +44,15 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   argument, and the panics).
 
 ## Layout
-- `src/neural_operators/`: `models/fno.rs` (FNOConfig, FNO), `models/run.rs` (`load_fno`,
-  `predict_host`: a saved run's model, batched inference to host f64),
-  `layers/spectral_convolution.rs` (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/`
-  (loaders, batchers, io for npy/npz/.mat, transforms), `training/`, `metrics/` (run
-  artifacts, gnuplot), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
-  (`backend_features`).
+- `src/neural_operators/`: `models/fno.rs` (FNOConfig, FNO), `models/run.rs` (`predict_host`:
+  batched inference to host f64), `layers/spectral_convolution.rs` (SpectralConv,
+  SpectralInit), `losses/` (LpLoss), `data/` (loaders, batchers, io for npy/npz/.mat,
+  transforms), `training/`, `metrics/` (Poisson errors, `ErrorStats`), `utils/fft.rs`
+  (icfft_full_spectrum), `utils/backend.rs` (`backend_features`).
+- `runs` (`RunDir`, `EpochMetrics`) owns the run directory: `create(root, name)` and the
+  `save_*` writers (configs, `metrics.csv` + gnuplot `plots.png`, normalizers, weights);
+  `open(dir)`, `load_fno`, `config(ConfigFile::…)`, `normalizers()`, `metrics()`. Run-file
+  names appear nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `src/neural_operators/chebyshev/`: CGL `nodes`, `diff_matrix`/`diff2_matrix`,
   `clenshaw_curtis`, `l2_norm`/`rel_l2_error` are behind the `chebyshev` feature (need
   system libfftw3).
@@ -72,7 +75,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   dataset's split files (`poisson_n{n}_K{K}_{split}`) and `STAGES` / `stage(n)` are the
   training stages; examples take file names from these, not literals.
 - `metrics/poisson` is ungated (ndarray, f64): `poisson_errors` gives design §7's errors 2–5
-  on the Chebyshev grid and `check_error3` the cross-check against `metrics.csv`, driven by
+  on the Chebyshev grid and `check_error3` the cross-check against the run's metrics, driven by
   `examples/predict/poisson.rs` (`predict_poisson`), which writes `errors.json` into the
   run directory.
 - `training/trainer` (`train_fno`, one trainer for every PDE: `Some(y)` decodes with the

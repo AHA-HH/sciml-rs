@@ -13,9 +13,9 @@
 //! saved ones, and the mean error 3 is cross-checked against the run's last test_l2.
 //! Needs the datasets: see datasets/README.md.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use burn::{prelude::*, tensor::Device};
+use burn::tensor::Device;
 use sciml_rs::neural_operators::{
     data::loaders::poisson::{
         PoissonConfig, PoissonSet, load_poisson_cheb, load_poisson_uniform, stage,
@@ -24,7 +24,8 @@ use sciml_rs::neural_operators::{
         poisson::{check_error3, poisson_errors},
         stats::ErrorStats,
     },
-    models::run::{load_fno, predict_host},
+    models::run::predict_host,
+    runs::{ConfigFile, RunDir},
     utils::backend::backend_features,
 };
 
@@ -33,7 +34,9 @@ const BATCH_SIZE: usize = 20;
 fn main() {
     let mut args = std::env::args().skip(1);
     let usage = "usage: poisson_resolution <run_dir> <n> [<n> ...]";
-    let dir = PathBuf::from(args.next().expect(usage));
+    let run =
+        RunDir::open(args.next().expect(usage)).unwrap_or_else(|e| panic!("open the run: {e}"));
+    let dir = run.path();
     let ns: Vec<usize> = args
         .map(|a| {
             a.parse()
@@ -43,9 +46,13 @@ fn main() {
     assert!(!ns.is_empty(), "{usage}");
     // Inference only: no autodiff, so forward passes record no backward graph.
     let device = Device::default();
-    let model = load_fno::<4>(&dir, &device).unwrap_or_else(|e| panic!("load the model: {e}"));
+    let model = run
+        .load_fno::<4>(&device)
+        .unwrap_or_else(|e| panic!("load the model: {e}"));
 
-    let trained_cfg = PoissonConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
+    let trained_cfg = run
+        .config::<PoissonConfig>(ConfigFile::Data)
+        .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let k = stage(trained_cfg.n)
         .unwrap_or_else(|e| panic!("the run's stage: {e}"))
         .k;
@@ -108,7 +115,8 @@ fn main() {
         );
 
         if trained_here {
-            let check = check_error3(dir.join("metrics.csv"), e3.mean).expect("read metrics.csv");
+            let check = check_error3(&run.metrics().expect("read metrics.csv"), e3.mean)
+                .expect("metrics.csv has epochs");
             println!("      check: {check}");
             cross_check_ok &= check.passed;
         }
