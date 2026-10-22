@@ -1324,9 +1324,10 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       meaning, so saved runs still evaluate. The check is
       `train_loss_matches_old_asymmetric_path` (one epoch against the old path inlined as
       the oracle, relative difference ≤ 1e-6), unchanged `predict_darcy` /
-      `predict_poisson` output on existing runs, and a short `train_darcy` run whose
-      train-loss curve matches the old one to about 1e-6 relative
-      (`docs/phase4s/README.md` Results).
+      `predict_poisson` output on existing runs, and a short `train_darcy` run (3 epochs,
+      Flex) against the old code: relative difference 1.7e-6 in train L² after epoch 0,
+      growing to 1.5e-5 and 3.1e-5 after epochs 1 and 2 (test L² up to 8.4e-5), as the
+      per-step round-off compounds over about 750 Adam steps per epoch (PR #55).
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
 
 ## References
