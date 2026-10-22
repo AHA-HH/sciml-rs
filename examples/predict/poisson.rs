@@ -28,6 +28,7 @@ use sciml_rs::neural_operators::{
     metrics::poisson::{evaluate, poisson_errors},
     models::predict::predict_host,
     runs::RunDir,
+    utils::backend::backend_features,
 };
 
 const BATCH_SIZE: usize = 20;
@@ -88,6 +89,7 @@ fn main() {
         &sidecar,
         metrics.last().expect("metrics.csv has epochs"),
         format!("{device:?}"),
+        backend_features().into_iter().map(String::from).collect(),
         dir,
     );
     println!("\n{eval}");

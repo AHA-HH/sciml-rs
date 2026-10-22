@@ -140,7 +140,7 @@ when the task starts.
 | --- | --- | --- | --- |
 | [T17](T17-y-train-physical.md) | ⚑ **Decision: CONVENTIONS §10.** `y_train` is stored in physical units and only the prediction is decoded. `Postprocess`, `identity` and the closure pair are deleted; the hook is one `Option<FlatDecoder>`. f32 round-off only; proposed in the PR description | T3-1, D1 | T13 |
 | [T18](T18-x-normalizer.md) | ⚑ **Decision: `x_normalizer.json`.** Either predict reads it (and stops re-reading and re-transferring the train split), or training stops writing it. `poisson_resolution` keeps refitting on purpose | D2 | T9, T10 ∥ T17 |
-| [T19](T19-sidecar-and-eval.md) | A typed `SidecarRecord` shared by generator and loader (byte-compatible; **test first:** parse an existing sidecar fixture). `PoissonErrorsRecord` and the worst-sample / cross-check / boundary verdict move into `metrics::poisson::evaluate` with `Display`; `predict_poisson` and `poisson_resolution` call it. The `Config`-derive allows are scoped per file, and `lib.rs:48`'s blanket allow is deleted | T4-5, T6-2, S5, D3 | T8, T10 ∥ T17, T18 |
+| [T19](T19-sidecar-and-eval.md) | A typed `SidecarRecord` shared by generator and loader (byte-compatible; **test first:** parse an existing sidecar fixture). `PoissonErrorsRecord` and the worst-sample / cross-check / boundary verdict move into `metrics::poisson::evaluate`, which returns a `PoissonEvaluation` (the record plus the two cross-checks) with `Display`; `predict_poisson` calls it, and `poisson_resolution` keeps its own per-n table and runs `check_error3` at the trained n. The `Config`-derive allows are scoped per file, and `lib.rs:48`'s blanket allow is deleted | T4-5, T6-2, S5, D3 | T8, T10 ∥ T17, T18 |
 
 ### Group 6: decomposition and polish
 

@@ -30,7 +30,6 @@ use crate::neural_operators::chebyshev::{
 };
 use crate::neural_operators::data::loaders::poisson::SidecarRecord;
 use crate::neural_operators::runs::EpochMetrics;
-use crate::neural_operators::utils::backend::backend_features;
 use burn::config::Config;
 use ndarray::{Array1, Array2, ArrayView2, ArrayView3, Axis};
 use std::fmt;
@@ -165,7 +164,7 @@ impl fmt::Display for Error3Check {
 /// (CONVENTIONS §11), so on the run's own test split the two agree to f32 round-off.
 pub fn check_error3(last: &EpochMetrics, mean_error3: f64) -> Error3Check {
     let test_l2 = f64::from(last.test_l2);
-    let rel_diff = (mean_error3 - test_l2).abs() / test_l2.abs();
+    let rel_diff = rel_diff(mean_error3, test_l2);
     Error3Check {
         epoch: last.epoch,
         test_l2,
@@ -285,6 +284,8 @@ pub struct PoissonEvaluation {
 ///   [`ERROR2_TOL`], only when it covers exactly the evaluated samples.
 /// - `last`: the run's last epoch; the mean error 3 is checked with [`check_error3`].
 /// - `device`: the device the forward pass ran on, as Burn prints it.
+/// - `backend_features`: the backend features the binary was built with
+///   ([`backend_features`](crate::neural_operators::utils::backend::backend_features)).
 /// - `run_dir`: the run directory, only for the report.
 ///
 /// The worst sample is the first holding the max error 4, NaN included, as
@@ -300,6 +301,7 @@ pub fn evaluate(
     sidecar: &SidecarRecord,
     last: &EpochMetrics,
     device: String,
+    backend_features: Vec<String>,
     run_dir: &Path,
 ) -> PoissonEvaluation {
     let n_test = errors.total.len();
@@ -349,7 +351,7 @@ pub fn evaluate(
         n_test,
         n,
         device,
-        backend_features: backend_features().into_iter().map(String::from).collect(),
+        backend_features,
         error1: ERROR1_QUOTE.to_string(),
         error2: e2,
         error2_sidecar: e2_sidecar,
@@ -669,6 +671,7 @@ mod tests {
             sidecar,
             &last_epoch(),
             "Cpu".into(),
+            vec![],
             Path::new("runs/x"),
         )
     }
@@ -740,6 +743,7 @@ mod tests {
             &sidecar(1, 1e-5),
             &last_epoch(),
             "Cpu".into(),
+            vec![],
             Path::new("x"),
         );
     }
