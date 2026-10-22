@@ -14,8 +14,8 @@
 //! `y_normalizer` is what the caller needs to do that decode.
 
 use crate::neural_operators::data::{
-    dataitem::HostFloat,
     dataset::OperatorDataset,
+    host_float::HostFloat,
     io::{errors::LoadError, readers::mat::MatFileReader},
     loaders::{
         base_dataset::DatasetConfig,

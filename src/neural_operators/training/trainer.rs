@@ -2,7 +2,7 @@
 
 use burn::{
     config::Config,
-    data::{dataloader::DataLoader, dataset::Dataset},
+    data::dataloader::DataLoader,
     lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
     module::Module,
     optim::{
@@ -18,9 +18,9 @@ use std::sync::Arc;
 use crate::neural_operators::{
     data::{
         batcher::Batch,
-        dataitem::HostFloat,
         dataset::OperatorDataset,
         device_batcher::device_loader,
+        host_float::HostFloat,
         transforms::normalizers::{FlatDecoder, UnitGaussianNormalizer},
     },
     losses::data_losses::{LpLoss, Reduction},
@@ -447,7 +447,7 @@ fn train_built<const R: usize, const RM1: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::data::batcher::OperatorBatcher;
+    use crate::neural_operators::data::batcher::{HostItems, OperatorBatcher};
     use crate::neural_operators::{
         chebyshev::nodes_closed_form,
         data::loaders::{
@@ -585,7 +585,7 @@ mod tests {
         let loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
             .set_device(Device::default())
             .batch_size(2)
-            .build(tiny_dataset(n_test));
+            .build(HostItems(tiny_dataset(n_test)));
         let expected = eval_epoch(&model.valid(), &loader, &identity) / n_test as f32;
         let test_l2 = metrics.last().unwrap().test_l2;
         assert!(
@@ -636,11 +636,11 @@ mod tests {
             .set_device(device.clone())
             .batch_size(train_cfg.batch_size)
             .shuffle(train_cfg.seed)
-            .build(tiny_dataset(n_train));
+            .build(HostItems(tiny_dataset(n_train)));
         host.test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
             .set_device(device.clone().inner())
             .batch_size(train_cfg.test_batch_size)
-            .build(tiny_dataset(n_test));
+            .build(HostItems(tiny_dataset(n_test)));
         let (old_model, old) = training_loop(host, &train_cfg, &identity, &identity);
 
         assert_eq!(metric_bits(&new), metric_bits(&old));

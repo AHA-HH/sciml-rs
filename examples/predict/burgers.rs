@@ -4,10 +4,10 @@
 //!
 //! Loads the model and the dataset config from the run directory (`RunDir`).
 
-use burn::{data::dataloader::DataLoaderBuilder, tensor::Device};
+use burn::tensor::Device;
 use sciml_rs::neural_operators::{
     data::{
-        batcher::OperatorBatcher,
+        device_batcher::device_loader,
         loaders::burgers::{BurgersConfig, load_burgers_uniform},
     },
     runs::{ConfigFile, RunDir},
@@ -40,10 +40,7 @@ fn main() {
     let (_, test_data) = load_burgers_uniform::<f32>(&data_path, &dataset_cfg)
         .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
 
-    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
-        .set_device(device.clone())
-        .batch_size(20)
-        .build(test_data);
+    let test_loader = device_loader::<3, 2, _>(&test_data, &device, 20, None);
 
     // Burgers has no normalizer, so predictions need no postprocessing - hence `identity`
     // Compare examples/predict/darcy.rs, which decodes

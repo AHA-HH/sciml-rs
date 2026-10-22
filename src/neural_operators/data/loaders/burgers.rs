@@ -7,8 +7,8 @@
 //! only; the model appends the grid coordinates itself (see `FNO::forward`).
 
 use crate::neural_operators::data::{
-    dataitem::HostFloat,
     dataset::OperatorDataset,
+    host_float::HostFloat,
     io::{errors::LoadError, readers::mat::MatFileReader},
     loaders::{base_dataset::DatasetConfig, common::with_channel},
     split::train_test_split,

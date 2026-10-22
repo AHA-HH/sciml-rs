@@ -7,7 +7,7 @@
 //! [`Normalizers::y`] is what the caller needs to do that decode.
 
 use crate::neural_operators::data::{
-    dataitem::HostFloat, dataset::OperatorDataset, io::errors::LoadError,
+    dataset::OperatorDataset, host_float::HostFloat, io::errors::LoadError,
     transforms::normalizers::UnitGaussianNormalizer,
 };
 use ndarray::{ArrayD, Axis};

@@ -8,7 +8,7 @@
 //! built over the [`OperatorDataset`] itself with the same settings.
 
 use crate::neural_operators::data::{
-    batcher::Batch, dataitem::HostFloat, dataset::OperatorDataset,
+    batcher::Batch, dataset::OperatorDataset, host_float::HostFloat,
 };
 use burn::{
     Tensor,
@@ -160,7 +160,7 @@ pub fn device_loader<const R: usize, const RM1: usize, T: HostFloat>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::data::batcher::OperatorBatcher;
+    use crate::neural_operators::data::batcher::{HostItems, OperatorBatcher};
     use ndarray::IxDyn;
 
     /// `n` samples, inputs `[n, 4, 2]`, targets `[n, 4]`; every value encodes
@@ -187,7 +187,7 @@ mod tests {
             Some(seed) => b.shuffle(seed),
             None => b,
         };
-        b.build(dataset(n))
+        b.build(HostItems(dataset(n)))
     }
 
     /// Every batch of `epochs` passes, as raw f32 bits plus dims and autodiff flag.

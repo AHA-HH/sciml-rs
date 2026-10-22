@@ -9,10 +9,10 @@
 
 use std::path::Path;
 
-use burn::{data::dataloader::DataLoaderBuilder, tensor::Device};
+use burn::tensor::Device;
 use sciml_rs::neural_operators::{
     data::{
-        batcher::OperatorBatcher,
+        device_batcher::device_loader,
         loaders::{
             base_dataset::DatasetConfig,
             burgers::{BurgersConfig, load_burgers_uniform},
@@ -63,10 +63,7 @@ fn main() {
 
         let (_, test_data) = load_burgers_uniform::<f32>(&data_path, &cfg)
             .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
-        let test_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
-            .set_device(device.clone())
-            .batch_size(20)
-            .build(test_data);
+        let test_loader = device_loader::<3, 2, _>(&test_data, &device, 20, None);
 
         let l2 = eval_epoch::<3, 2>(&model, &test_loader, &identity);
         let marker = if rate == trained_cfg.subsample_rate {
