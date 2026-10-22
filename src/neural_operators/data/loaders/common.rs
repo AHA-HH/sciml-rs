@@ -55,16 +55,49 @@ pub(crate) fn normalize_split_pair<T: HostFloat>(
         "normalize_split_pair needs n_train >= 2"
     );
     let x = UnitGaussianNormalizer::fit(&x_train);
-    let x_train = with_channel(x.encode(x_train));
-    let x_test = with_channel(x.encode(x_test));
-
     let y = UnitGaussianNormalizer::fit(&y_train);
 
     (
-        OperatorDataset::from_f64(x_train, y_train),
-        OperatorDataset::from_f64(x_test, y_test),
+        encode_split(&x, x_train, y_train),
+        encode_split(&x, x_test, y_test),
         Normalizers { x, y },
     )
+}
+
+/// Packages a test split with normalizers fitted at training time (a run's saved ones):
+/// encodes `x_test` with `normalizers.x`, keeps `y_test` physical, adds the channel axis
+/// and casts to `T`, exactly as [`normalize_split_pair`] does with the refit ones.
+///
+/// `x_test` and `y_test` are `[N, *spatial]` in `f64`; the dataset holds inputs
+/// `[N, *spatial, 1]` and targets `[N, *spatial]`.
+///
+/// # Errors
+/// [`LoadError::Invalid`] if `normalizers.x` was not fitted on `*spatial`.
+/// `normalizers.y` is not checked here: targets stay physical, and it is only used to
+/// decode predictions downstream.
+pub(crate) fn normalize_test_split<T: HostFloat>(
+    x_test: ArrayD<f64>,
+    y_test: ArrayD<f64>,
+    normalizers: &Normalizers,
+) -> Result<OperatorDataset<T>, LoadError> {
+    let fitted = normalizers.x.mean().shape();
+    if fitted != &x_test.shape()[1..] {
+        return Err(LoadError::Invalid(format!(
+            "the x normalizer was fitted on {fitted:?}, but the test samples are {:?}",
+            &x_test.shape()[1..]
+        )));
+    }
+    Ok(encode_split(&normalizers.x, x_test, y_test))
+}
+
+/// The encode step shared by both entry points: inputs encoded with `x` and given the
+/// channel axis, targets left physical (CONVENTIONS §10), both cast to `T`.
+fn encode_split<T: HostFloat>(
+    x: &UnitGaussianNormalizer,
+    inputs: ArrayD<f64>,
+    targets: ArrayD<f64>,
+) -> OperatorDataset<T> {
+    OperatorDataset::from_f64(with_channel(x.encode(inputs)), targets)
 }
 
 /// `[N, *spatial]` → `[N, *spatial, 1]`: the single data channel the model expects.

@@ -1329,6 +1329,31 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       growing to 1.5e-5 and 3.1e-5 after epochs 1 and 2 (test L² up to 8.4e-5), as the
       per-step round-off compounds over about 750 Adam steps per epoch (PR #55).
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
+29. **Phase 4s T18: predict reads the saved normalisers (2026-10-22).**
+    - **What changes.** `predict_darcy`, `darcy_plot`, `predict_poisson` and
+      `poisson_plot` take both normalisers from the run (`RunDir::normalizers`) and load
+      only the test split, through `load_darcy_test` / `load_poisson_uniform_test`, which
+      share the encode step with `normalize_split_pair`. The train split is no longer
+      read, nor, for Poisson, transferred. A run without `x_normalizer.json` fails with
+      an error naming the run directory and the file. The normaliser JSON format is
+      unchanged.
+    - **Options.** Read it (predict uses exactly the statistics the model was trained
+      with, even if the train file on disk changes; needs a test-split loader taking
+      fitted normalisers), or stop writing it (simpler; predict keeps refitting, and the
+      file disappears from new runs).
+    - **Read it.** `poisson_resolution` keeps refitting at each n (decision 18): a
+      pointwise normaliser fitted at one s has the wrong shape at another. The check is
+      `test_loader_with_saved_normalizers_matches_refit` (the test split encoded with
+      normalisers saved to and read back from a run directory equals the refit path bit
+      for bit) and unchanged `predict_poisson` (stdout and `errors.json` byte-identical)
+      and `predict_darcy` output on existing runs. Speed: not measurably faster.
+      `predict_poisson` took 30.66, 31.12 and 38.74 s wall-clock against 30.24 s before;
+      the whole stage 2 train + test load measures 0.167 s, so the saving is under the
+      run-to-run noise. Every Phase 3+ Darcy and Poisson run has `x_normalizer.json`;
+      only the two earliest Darcy runs (`darcy_fno_1788200386`, `darcy_fno_1788203803`)
+      have neither normaliser, so no predict example could evaluate them before T18
+      either (the T18 PR, stacked on PR #55).
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
 
 ## References
 

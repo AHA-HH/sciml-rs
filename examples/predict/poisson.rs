@@ -4,10 +4,11 @@
 //! Run with: cargo run --release --example predict_poisson -- runs/poisson_fno_p<p>_<timestamp>
 //! (add `--features metal` for the GPU).
 //!
-//! Loads the model, the y normalizer and the dataset config from the run directory
+//! Loads the model, both normalizers and the dataset config from the run directory
 //! (`RunDir`), as `predict_darcy` does; the config's n picks the stage
-//! (`loaders::poisson::stage`). The test inputs come
-//! from `load_poisson_uniform`, the raw CGL solutions from `load_poisson_cheb`;
+//! (`loaders::poisson::stage`). The test inputs come from `load_poisson_uniform_test`,
+//! encoded with the run's x normalizer (the train split is not read), the raw CGL
+//! solutions from `load_poisson_cheb`;
 //! predictions are decoded with the y normalizer and copied to the host as f64. Error 1
 //! needs the `datagen` feature and is quoted from Phase 1. Cross-checks error 2 against
 //! the test split's `.json` sidecar and the mean error 3 against the run's last test_l2,
@@ -21,7 +22,7 @@ use burn::{prelude::*, tensor::Device};
 use ndarray::Axis;
 use sciml_rs::neural_operators::{
     chebyshev::TRANSFER_DEGREE,
-    data::loaders::poisson::{PoissonConfig, load_poisson_cheb, load_poisson_uniform, stage},
+    data::loaders::poisson::{PoissonConfig, load_poisson_cheb, load_poisson_uniform_test, stage},
     metrics::{
         poisson::{check_error3, poisson_errors},
         stats::ErrorStats,
@@ -136,11 +137,16 @@ fn main() {
     let n_test = dataset_cfg.base.n_test;
     let s = dataset_cfg.s();
 
+    // The statistics the model was trained with: x encodes the inputs, y decodes
+    let normalizers = run
+        .normalizers()
+        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
+        .unwrap_or_else(|| panic!("{}/y_normalizer.json not found", dir.display()));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
-    let (_, test_data, _) = load_poisson_uniform::<f32>(
-        datasets.join(set.npz("train")),
+    let test_data = load_poisson_uniform_test::<f32>(
         datasets.join(set.npz("test")),
         &dataset_cfg,
+        &normalizers,
     )
     .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
     let u = load_poisson_cheb(datasets.join(set.npz("test")), n, n_test)
@@ -149,12 +155,7 @@ fn main() {
     // Forward pass in batches, in sample order; outputs are normalized [N, s, s]
     let pred = predict_host(&model, test_data.inputs().view(), BATCH_SIZE, &device);
     // Decode to physical scale in f64; the test targets were never encoded
-    let y_norm = run
-        .normalizers()
-        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
-        .expect("a Poisson run has normalizers")
-        .y;
-    let pred = y_norm.decode(pred.into_dyn());
+    let pred = normalizers.y.decode(pred.into_dyn());
     let pred = pred
         .into_dimensionality::<ndarray::Ix3>()
         .expect("decoded predictions are [N, s, s]");

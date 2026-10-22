@@ -8,7 +8,7 @@ use std::path::Path;
 use burn::tensor::Device;
 use gnuplot::{AxesCommon, Caption, Figure};
 use sciml_rs::neural_operators::{
-    data::loaders::darcy::{DarcyConfig, load_darcy_uniform},
+    data::loaders::darcy::{DarcyConfig, load_darcy_test},
     models::predict::predict_host,
     runs::RunDir,
 };
@@ -30,21 +30,21 @@ fn main() {
     let dataset_cfg: DarcyConfig = run
         .data_config()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
+    // The run's normalizers: x encodes the test inputs, y decodes the prediction
+    let normalizers = run
+        .normalizers()
+        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
+        .unwrap_or_else(|| panic!("{}/y_normalizer.json not found", run.path().display()));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     // f64 host storage: the plot reads the sample back as f64. The model
     // still sees the same f32 values (see `HostFloat`).
-    let (_, test_data, _) = load_darcy_uniform::<f64>(
-        datasets.join("piececonst_r421_N1024_smooth1.mat"),
+    let test_data = load_darcy_test::<f64>(
         datasets.join("piececonst_r421_N1024_smooth2.mat"),
         &dataset_cfg,
+        &normalizers,
     )
     .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
-
-    let y_norm = run
-        .normalizers()
-        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
-        .expect("a Darcy run has normalizers")
-        .y;
+    let y_norm = normalizers.y;
 
     // One sample. input is [s, s, 1]: the coefficient field only; the model
     // appends the two grid channels itself.

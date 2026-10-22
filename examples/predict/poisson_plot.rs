@@ -6,8 +6,9 @@
 //! the run is runs/poisson_fno_p<p>_<timestamp> or runs/poisson_fno_n<n>_p<p>_<timestamp>
 //! (sample indexes the test split, default 0; add `--features metal` for the GPU).
 //!
-//! Loads the model, the dataset config and the y normalizer from the run directory
-//! (`RunDir`), as `predict_poisson` does, runs the one sample and decodes it to f64. f and u
+//! Loads the model, the dataset config and both normalizers from the run directory
+//! (`RunDir`), as `predict_poisson` does, encodes the test split with the run's x
+//! normalizer (`load_poisson_uniform_test`), runs the one sample and decodes it to f64. f and u
 //! are the raw split's CGL fields (`load_poisson_cheb_field`). Each panel draws every one
 //! of the n² CGL nodes as a filled cell at its (x, y) coordinates, reaching halfway to its
 //! neighbours, so the cells tile [−1, 1]² and the clustering towards the edges shows.
@@ -23,7 +24,9 @@ use gnuplot::{AutoOption::Fix, AxesCommon, Color, Figure, PaletteType, VariableP
 use ndarray::{ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
     chebyshev::{Transfers, cc_rel_l2_error, nodes},
-    data::loaders::poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform, stage},
+    data::loaders::poisson::{
+        PoissonConfig, load_poisson_cheb_field, load_poisson_uniform_test, stage,
+    },
     models::predict::predict_host,
     runs::RunDir,
 };
@@ -94,9 +97,12 @@ fn main() {
     );
     let s = dataset_cfg.s();
 
-    let (_, test_data, _) =
-        load_poisson_uniform::<f32>(datasets.join(set.npz("train")), &test_file, &dataset_cfg)
-            .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
+    let normalizers = run
+        .normalizers()
+        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
+        .unwrap_or_else(|| panic!("{}/y_normalizer.json not found", dir.display()));
+    let test_data = load_poisson_uniform_test::<f32>(&test_file, &dataset_cfg, &normalizers)
+        .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
     let load_cheb = |field| {
         load_poisson_cheb_field(&test_file, field, n, sample + 1)
             .unwrap_or_else(|e| panic!("could not load the CGL field '{field}': {e}"))
@@ -110,12 +116,8 @@ fn main() {
     let pred = predict_host(&model, input.into_dyn(), 1, &device).index_axis_move(Axis(0), 0);
     assert_eq!(pred.shape(), [s, s], "prediction is [s, s]");
     // Decode to physical scale in f64, then transfer to the CGL grid as error 4 does
-    let y_norm = run
-        .normalizers()
-        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
-        .expect("a Poisson run has normalizers")
-        .y;
-    let pred = y_norm
+    let pred = normalizers
+        .y
         .decode(pred.into_dyn())
         .into_dimensionality::<ndarray::Ix2>()
         .expect("decoded prediction is [s, s]");

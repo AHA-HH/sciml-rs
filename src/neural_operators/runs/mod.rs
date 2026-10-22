@@ -361,6 +361,16 @@ mod tests {
         assert_eq!(loaded.x.std(), saved.x.std());
         assert_eq!(loaded.y.mean(), saved.y.mean());
         assert_eq!(loaded.y.std(), saved.y.std());
+
+        // predict needs both: a missing x normalizer names the run and the file
+        std::fs::remove_file(run.path().join(X_NORMALIZER)).unwrap();
+        let err = run
+            .normalizers()
+            .err()
+            .expect("x_normalizer.json is missing");
+        let msg = err.to_string();
+        assert!(msg.contains(&run.path().display().to_string()), "{msg}");
+        assert!(msg.contains("x_normalizer.json"), "{msg}");
         std::fs::remove_dir_all(&root).unwrap();
     }
 
