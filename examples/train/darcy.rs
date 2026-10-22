@@ -79,6 +79,14 @@ fn main() {
         .with_weight_decay(1e-4)
         .with_min_lr(1e-5);
 
+    // Writes configs, metrics, normalizers and weights to runs/darcy_fno_<timestamp>/.
+    // Created before training: train_fno appends each epoch's row of metrics.csv to it
+    let run = RunDir::create(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"),
+        "darcy_fno",
+    )
+    .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
+
     // y_normalizer is fitted on y_train during loading. train_fno uses it
     // to decode both prediction and target during training, but only the
     // prediction during evaluation - y_test was never encoded
@@ -89,14 +97,9 @@ fn main() {
         &model_cfg,
         &train_cfg,
         &device,
+        &run,
     );
 
-    // Writes configs, metrics, normalizers and weights to runs/darcy_fno_<timestamp>/
-    let run = RunDir::create(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"),
-        "darcy_fno",
-    )
-    .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
     run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
         .expect("could not save configs");
     run.save_metrics(&metrics).expect("could not save metrics");
