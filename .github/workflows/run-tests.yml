@@ -54,8 +54,8 @@ jobs:
           cargo clippy --no-deps -- -D warnings
           cargo clippy --no-deps --examples -- -D warnings
 
-  run-tests-chebyshev:
-    name: run-tests-chebyshev
+  run-tests-datagen:
+    name: run-tests-datagen
     runs-on: ubuntu-latest
     steps:
       - name: Install Rust
@@ -73,8 +73,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libopenblas-dev libfftw3-dev pkg-config libclang-dev
 
-      - name: Clippy (chebyshev)
-        run: cargo clippy --no-deps --features chebyshev --all-targets -- -D warnings
+      - name: Clippy (datagen)
+        run: cargo clippy --no-deps --features datagen --all-targets -- -D warnings
 
-      - name: Run tests (chebyshev)
-        run: cargo test --features chebyshev
+      - name: Run tests (datagen)
+        run: cargo test --features datagen

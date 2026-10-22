@@ -10,7 +10,7 @@
 //! Production uses d = [`TRANSFER_DEGREE`] = 2 and s = n − 1 (design §12, decisions 5 and
 //! 8), bundled as [`Transfers`]; the functions take both as arguments so the tests can
 //! vary them. Nodes and weights are closed forms, so this module needs only ndarray and is
-//! built without the `chebyshev` feature (decision 13).
+//! built without the `datagen` feature (decision 13).
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use std::f64::consts::PI;
@@ -49,7 +49,7 @@ pub fn uniform_nodes(s: usize) -> Array1<f64> {
 /// With N = n − 1 and θ = πj/N, −cos θ = sin(θ − π/2) = sin(π(2j − N)/(2N)), which is
 /// the form computed here. It gives exact ±1, an exact 0 for odd n, and exact
 /// antisymmetry x_j = −x_{N−j}. It agrees with RLST's nodes (the `points::nodes` test
-/// oracle, feature `chebyshev`) to round-off. Returns shape `[n]`.
+/// oracle, feature `datagen`) to round-off. Returns shape `[n]`.
 ///
 /// # Panics
 /// If `n < 2`.
@@ -494,7 +494,7 @@ mod tests {
     }
 
     /// Oracle tests against RLST and the Clenshaw–Curtis norm; they need the feature.
-    #[cfg(feature = "chebyshev")]
+    #[cfg(feature = "datagen")]
     mod rlst_oracle {
         use super::super::super::cc_rel_l2_error_weighted;
         use super::super::super::points::nodes as rlst_nodes;

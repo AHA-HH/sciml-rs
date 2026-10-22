@@ -26,7 +26,7 @@ PyTorch neural operators toolbox, run locally.
 
 −Δu = f on [−1, 1]² with u = 0 on the boundary, f a Gaussian random field. Reference
 solutions come from a Chebyshev collocation solver in this crate (behind the
-`chebyshev` feature). Fields are interpolated to a uniform grid for the unchanged FNO,
+`datagen` feature). Fields are interpolated to a uniform grid for the unchanged FNO,
 and predictions are mapped back to the Chebyshev nodes; that round trip adds at most
 about 2e-5. Evaluated on finer grids without retraining, the 65² model's error grows
 7× by n = 257 at padding 4 but only 1.4× without padding. Details and all five error
@@ -107,10 +107,10 @@ it, and the FNO needs the FFT.
 Drop `--features metal` to run on the CPU, or swap in another backend above.
 
 The Poisson examples generate their own data first. Generation needs the
-`chebyshev` feature, a system FFTW and, on Linux, OpenBLAS
+`datagen` feature, a system FFTW and, on Linux, OpenBLAS
 (`brew install fftw`; `apt install libfftw3-dev libopenblas-dev`):
 
-    cargo run --release --features chebyshev --example generate_poisson   # writes datasets/poisson/
+    cargo run --release --features datagen --example generate_poisson   # writes datasets/poisson/
     cargo run --release --example train_poisson --features metal [-- [<padding>] [<n>]]
     cargo run --release --example predict_poisson -- runs/<run_dir>
     cargo run --release --example poisson_plot -- runs/<run_dir> [<sample>]

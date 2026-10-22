@@ -9,7 +9,7 @@ description = "Phase 0 T4: Chebyshev collocation and sparse SPD Poisson solver m
 [workspace]
 
 [dependencies]
-# Same rlst and BLAS/LAPACK providers as the root crate's `chebyshev` feature (T2).
+# Same rlst and BLAS/LAPACK providers as the root crate's `chebyshev` feature (T2; now `datagen`).
 rlst = { version = "=0.9.0", default-features = false }
 ndarray = "=0.17.2"
 # T3's GRF sampler and CGL/Clenshaw–Curtis helpers, so the draws match T3 exactly.

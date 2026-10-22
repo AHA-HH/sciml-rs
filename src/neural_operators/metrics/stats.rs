@@ -1,9 +1,9 @@
 //! Summary statistics of a per-sample error over a split.
 //!
 //! [`ErrorStats`] is shared by the Poisson generator (`pde::poisson::dataset`, feature
-//! `chebyshev`), which writes it into each split's `.json` sidecar, and by the evaluation
+//! `datagen`), which writes it into each split's `.json` sidecar, and by the evaluation
 //! in [`poisson`](super::poisson), which writes it into a run's `errors.json`. It is
-//! built without `chebyshev`, so both can import it.
+//! built without `datagen`, so both can import it.
 
 use burn::config::Config;
 

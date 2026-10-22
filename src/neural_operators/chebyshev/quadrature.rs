@@ -1,11 +1,11 @@
 //! Clenshaw–Curtis quadrature weights on the ascending CGL nodes.
 //!
-//! Test oracle (feature `chebyshev`, tests only): the RLST-backed weights, against which
+//! Test oracle (feature `datagen`, tests only): the RLST-backed weights, against which
 //! [`clencurt`](super::clencurt) is checked (design §12, decision 26).
 
 use ndarray::Array1;
 
-use super::{check_n, unit_coeffs};
+use super::{check_n, differentiation::unit_coeffs};
 
 /// Clenshaw–Curtis weights w, shape `[n]`, on the ascending CGL nodes
 /// (CONVENTIONS §12): Σ_j w_j f(x_j) approximates ∫_{−1}^{1} f(x) dx, exactly for

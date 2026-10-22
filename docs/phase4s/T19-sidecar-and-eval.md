@@ -42,7 +42,7 @@ Phase 4s, task 19. Branch `phase4s/T19-sidecar-and-eval`. Depends on T8 and T10.
    - The generator serialises it and the example loads it.
    - Its JSON must stay byte-compatible: the same keys, nesting and number formatting
      (compare the fixture's bytes, or at least its parsed `serde_json::Value`).
-   - Note: `serde_json` is behind the `chebyshev` feature. Using Burn's `Config` derive,
+   - Note: `serde_json` is behind the `datagen` feature. Using Burn's `Config` derive,
      which brings its own serialisation, keeps the record ungated. Check this.
 3. **`metrics::poisson::evaluate(...) -> PoissonErrorsRecord`:**
    - It moves the worst sample, the error-2 cross-check, the `check_error3` cross-check and
@@ -77,7 +77,7 @@ Phase 4s, task 19. Branch `phase4s/T19-sidecar-and-eval`. Depends on T8 and T10.
 - `predict_poisson` on `runs/poisson_fno_p4_1791922918` prints the same text, with the
   same five errors and verdict, and writes an `errors.json` equal to the previous one
   (diff the files). Fill the Results row.
-- `cargo clippy --all-targets -- -D warnings` passes, and also with `--features chebyshev`
+- `cargo clippy --all-targets -- -D warnings` passes, and also with `--features datagen`
   (or the renamed feature).
 - `git grep -n 'allow(clippy::redundant_field_names)'` shows only per-type allows.
 

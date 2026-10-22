@@ -30,10 +30,10 @@ Differential Equations* (2021).
 ## Poisson (generated)
 
 The Poisson datasets of `docs/design/2d-chebyshev-poisson-fno.md` §5 are generated, not
-downloaded. They need the `chebyshev` feature (system libfftw3, and OpenBLAS on Linux):
+downloaded. They need the `datagen` feature (system libfftw3, and OpenBLAS on Linux):
 
 ```sh
-cargo run --release --features chebyshev --example generate_poisson
+cargo run --release --features datagen --example generate_poisson
 ```
 
 This writes `datasets/poisson/`. Edit `DATASETS` at the top of

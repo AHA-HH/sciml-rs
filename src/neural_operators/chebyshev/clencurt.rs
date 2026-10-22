@@ -2,9 +2,9 @@
 //! (CONVENTIONS §12, design §3.4).
 //!
 //! The weights follow Trefethen's `clencurt` (*Spectral Methods in MATLAB*, ch. 12), so
-//! this module needs only ndarray and is built without the `chebyshev` feature: evaluation
+//! this module needs only ndarray and is built without the `datagen` feature: evaluation
 //! on the Chebyshev grid needs no RLST, BLAS or FFTW (design §12, decision 15). They agree
-//! with the RLST-backed `quadrature::clenshaw_curtis` test oracle (feature `chebyshev`) to
+//! with the RLST-backed `quadrature::clenshaw_curtis` test oracle (feature `datagen`) to
 //! round-off.
 
 use ndarray::{Array1, ArrayView1, ArrayView2, Zip};
@@ -24,7 +24,7 @@ use super::check_n;
 ///
 /// Trefethen's nodes are descending; the weights are symmetric, so the same array serves
 /// the ascending nodes. Only j ≤ N/2 is computed and mirrored, so w_j = w_{N−j} exactly.
-/// O(n²). Agrees with the `clenshaw_curtis` test oracle (feature `chebyshev`) to round-off.
+/// O(n²). Agrees with the `clenshaw_curtis` test oracle (feature `datagen`) to round-off.
 ///
 /// # Panics
 /// If `n < 2`.
@@ -293,7 +293,7 @@ mod tests {
         cc_rel_l2_error(v.view(), v.view());
     }
 
-    #[cfg(feature = "chebyshev")]
+    #[cfg(feature = "datagen")]
     #[test]
     fn clencurt_matches_rlst_weights() {
         use super::super::quadrature::clenshaw_curtis;
@@ -308,7 +308,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "chebyshev")]
+    #[cfg(feature = "datagen")]
     #[test]
     fn cc_rel_l2_matches_gated() {
         use super::super::quadrature::clenshaw_curtis;

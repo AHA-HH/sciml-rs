@@ -16,6 +16,9 @@
 //!
 //! Training entry points are in `examples/train/` (`burgers.rs`, `darcy.rs`);
 //! re-evaluation of saved runs is in `examples/predict/`.
+//!
+//! The optional `datagen` feature enables RLST (BLAS/LAPACK, FFTW), the Poisson reference
+//! solvers in `neural_operators::pde` and the `generate_poisson` dataset generator.
 
 // Without a backend Burn's `Device::default()` panics at runtime; fail the
 // build instead with an actionable message.
@@ -31,15 +34,15 @@ compile_error!("sciml-rs needs a backend feature: flex (default), metal, cuda or
 // (rlst 0.9.0 `src/doc/getting_started.rs`). The provider crates are only
 // linked, never called; naming them here pulls them into every binary that
 // depends on this crate. Cargo.toml only declares providers for macOS and Linux.
-#[cfg(all(feature = "chebyshev", any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(feature = "datagen", any(target_os = "macos", target_os = "linux")))]
 extern crate blas_src;
-#[cfg(all(feature = "chebyshev", any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(feature = "datagen", any(target_os = "macos", target_os = "linux")))]
 extern crate lapack_src;
 #[cfg(all(
-    feature = "chebyshev",
+    feature = "datagen",
     not(any(target_os = "macos", target_os = "linux"))
 ))]
-compile_error!("the chebyshev feature has a BLAS/LAPACK provider only on macOS and Linux");
+compile_error!("the datagen feature has a BLAS/LAPACK provider only on macOS and Linux");
 
 #[allow(clippy::redundant_field_names)]
 pub mod neural_operators;

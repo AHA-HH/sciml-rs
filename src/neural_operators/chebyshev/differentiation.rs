@@ -1,9 +1,18 @@
 //! Chebyshev differentiation matrices on the ascending CGL nodes.
 
 use ndarray::Array2;
+use rlst::DynArray;
 use rlst::chebychev::{ChebychevCoefficientsToData, DerivativeOfChebychevSeries1d};
 
-use super::{check_n, unit_coeffs};
+use super::check_n;
+
+/// Chebyshev coefficients c_0..c_{n−1} of the CGL interpolant of the unit vector
+/// e_j, with e_j indexed in RLST's descending node order.
+pub(super) fn unit_coeffs(n: usize, j: usize) -> DynArray<f64, 1> {
+    let mut e = DynArray::<f64, 1>::from_shape([n]);
+    e[[j]] = 1.0;
+    e.chebychev_coeffs_from_data_second_kind()
+}
 
 /// First-derivative matrix D, shape `[n, n]`, on the ascending CGL nodes
 /// (CONVENTIONS §12): `(D v)[i]` is the derivative at x_i of the degree-(n − 1)
