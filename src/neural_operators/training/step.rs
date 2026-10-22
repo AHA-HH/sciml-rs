@@ -1,24 +1,16 @@
 //! The loss step shared by training, evaluation and the `Learner`: flatten the model output
-//! and target, apply the postprocess hook, take the summed relative L² (CONVENTIONS §11);
+//! and target, decode the output if a decoder is given, take the summed relative L²
+//! (CONVENTIONS §11);
 //! and [`evaluate`], the per-sample mean of that loss over a loader.
 
 use burn::{data::dataloader::DataLoader, prelude::*};
 use std::sync::Arc;
 
 use crate::neural_operators::{
-    data::batcher::Batch,
+    data::{batcher::Batch, transforms::normalizers::FlatDecoder},
     losses::data_losses::{LpLoss, Reduction},
     models::fno::FNO,
 };
-
-/// Rank-free postprocess applied after flattening: decode, or pass through.
-pub type Postprocess = dyn Fn(Tensor<2>, Tensor<2>) -> (Tensor<2>, Tensor<2>);
-
-/// The [`Postprocess`] that changes nothing: for data trained and evaluated in physical
-/// units.
-pub fn identity(out: Tensor<2>, target: Tensor<2>) -> (Tensor<2>, Tensor<2>) {
-    (out, target)
-}
 
 /// Collapse model output (rank `IR`, trailing channel axis) and target
 /// (rank `RM1 = R - 1`) to the rank-2 pair `LpLoss` requires.
@@ -79,9 +71,9 @@ pub fn flatten_pair<const R: usize, const RM1: usize>(
 pub(crate) struct StepLoss {
     /// Relative L2 summed over the batch, `[1]`.
     pub l2_sum: Tensor<1>,
-    /// Post-processed model output, `[b, n_points]`.
+    /// Model output, decoded if a decoder was given, `[b, n_points]`.
     pub out: Tensor<2>,
-    /// Post-processed target, `[b, n_points]`.
+    /// Target in physical units, `[b, n_points]`.
     pub target: Tensor<2>,
 }
 
@@ -91,8 +83,9 @@ pub(crate) struct StepLoss {
 /// the loss is defined once.
 ///
 /// Runs `model` on `batch.inputs` (`[b, ...spatial, data_channels]`), collapses output
-/// and `batch.targets` (`[b, ...spatial]`) with [`flatten_pair`] and applies `post`
-/// before the loss (`LpLoss::new(R - 2, 2, Reduction::Sum)`).
+/// and `batch.targets` (`[b, ...spatial]`) with [`flatten_pair`], decodes the output with
+/// `decoder` if given (targets are physical, CONVENTIONS §10), then takes the loss
+/// (`LpLoss::new(R - 2, 2, Reduction::Sum)`).
 ///
 /// # Panics
 ///
@@ -100,11 +93,14 @@ pub(crate) struct StepLoss {
 pub(crate) fn forward_loss<const R: usize, const RM1: usize>(
     model: &FNO<R>,
     batch: Batch<R, RM1>,
-    post: &Postprocess,
+    decoder: Option<&FlatDecoder>,
 ) -> StepLoss {
     let out = model.forward(batch.inputs);
     let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
-    let (out, target) = post(out, target);
+    let out = match decoder {
+        Some(d) => d.decode(out),
+        None => out,
+    };
     let l2_sum = LpLoss::new(R - 2, 2, Reduction::Sum).rel(out.clone(), target.clone());
     StepLoss {
         l2_sum,
@@ -119,20 +115,25 @@ pub(crate) fn forward_loss<const R: usize, const RM1: usize>(
 ///
 /// - `loader` yields [`Batch`]es with inputs `[B, *spatial, C]` and targets `[B, *spatial]`,
 ///   e.g. from `device_loader` on a plain (non-autodiff) device.
-/// - `post` maps `(output, target)` to what the loss compares: [`identity`] in physical
-///   units, or a closure decoding the output with the target normaliser.
+/// - `decoder` decodes the output with the target normaliser, on the loader's device;
+///   `None` for data without one (Burgers).
 ///
 /// # Panics
 /// If `loader` yields no batches.
 pub fn evaluate<const R: usize, const RM1: usize>(
     model: &FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
-    post: &Postprocess,
+    decoder: Option<&FlatDecoder>,
 ) -> f32 {
     let l2_sum = loader
         .iter()
         .map(|batch| {
-            forward_loss(model, batch.expect("dataset error during evaluation"), post).l2_sum
+            forward_loss(
+                model,
+                batch.expect("dataset error during evaluation"),
+                decoder,
+            )
+            .l2_sum
         })
         .reduce(|sum, l2| sum + l2)
         .expect("evaluation loader produced no batches");
@@ -143,7 +144,10 @@ pub fn evaluate<const R: usize, const RM1: usize>(
 mod tests {
     use super::*;
     use crate::neural_operators::{
-        data::{dataset::OperatorDataset, device_batcher::device_loader},
+        data::{
+            dataset::OperatorDataset, device_batcher::device_loader,
+            transforms::normalizers::UnitGaussianNormalizer,
+        },
         models::fno::FNOConfig,
         training::fixtures::{tiny_dataset, tiny_dataset_2d, tiny_model_cfg},
     };
@@ -158,9 +162,10 @@ mod tests {
         assert_eq!(t.dims(), [2, 30]);
     }
 
-    /// `forward_loss` against a hand-written oracle: forward, `flatten_pair`, the hook,
-    /// then `LpLoss::new(R - 2, 2, Sum).rel`, bit for bit. The hook doubles the
-    /// prediction, so a loss taken before the hook, or tensors returned without it, fail.
+    /// `forward_loss` against a hand-written oracle: forward, `flatten_pair`, the decoder,
+    /// then `LpLoss::new(R - 2, 2, Sum).rel`, bit for bit. The decoder scales and shifts
+    /// the prediction only, so a loss taken before decoding, a decoded target, or tensors
+    /// returned without decoding fail.
     fn assert_forward_loss_matches_oracle<const R: usize, const RM1: usize>(
         model: &FNO<R>,
         data: &OperatorDataset<f64>,
@@ -174,11 +179,11 @@ mod tests {
 
         let (o, t) =
             flatten_pair::<R, RM1>(model.forward(batch.inputs.clone()), batch.targets.clone());
-        let o = o.mul_scalar(2.0);
+        let decoder = FlatDecoder::new(&UnitGaussianNormalizer::fit(data.targets()), device);
+        let o = decoder.decode(o);
         let expected = LpLoss::new(R - 2, 2, Reduction::Sum).rel(o.clone(), t.clone());
 
-        let double = |out: Tensor<2>, target: Tensor<2>| (out.mul_scalar(2.0), target);
-        let step = forward_loss(model, batch, &double);
+        let step = forward_loss(model, batch, Some(&decoder));
 
         assert_eq!(step.l2_sum.dims(), [1]);
         assert_eq!(
@@ -227,10 +232,10 @@ mod tests {
             .next()
             .expect("one batch")
             .expect("dataset error");
-        let sum = forward_loss(&model, whole, &identity)
+        let sum = forward_loss(&model, whole, None)
             .l2_sum
             .into_scalar::<f32>();
-        let mean = evaluate(&model, &batched, &identity);
+        let mean = evaluate(&model, &batched, None);
         assert!(
             (mean - sum / n_test as f32).abs() <= 1e-6 * mean.abs(),
             "{mean} != {sum} / {n_test}"

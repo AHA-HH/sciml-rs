@@ -11,7 +11,7 @@ use sciml_rs::neural_operators::{
         loaders::burgers::{BurgersConfig, load_burgers_uniform},
     },
     runs::RunDir,
-    training::step::{evaluate, identity},
+    training::step::evaluate,
 };
 use std::path::Path;
 
@@ -42,9 +42,9 @@ fn main() {
 
     let test_loader = device_loader::<3, 2, _>(&test_data, &device, 20, None);
 
-    // Burgers has no normalizer, so predictions need no postprocessing - hence `identity`
+    // Burgers has no normalizer, so predictions need no decoding - hence `None`
     // Compare examples/predict/darcy.rs, which decodes
-    let l2 = evaluate::<3, 2>(&model, &test_loader, &identity);
+    let l2 = evaluate::<3, 2>(&model, &test_loader, None);
 
     println!("loaded model test_l2: {l2:.10}");
     // `train_burgers_learner` runs have no metrics.csv to compare against
