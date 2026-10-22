@@ -21,7 +21,6 @@ use sciml_rs::neural_operators::{
         loaders::darcy::{DarcyConfig, load_darcy_uniform},
         transforms::normalizers::{FlatDecoder, NormalizerRecord, UnitGaussianNormalizer},
     },
-    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
     training::trainer::eval_epoch,
 };
@@ -63,8 +62,7 @@ fn main() {
     let decoder = FlatDecoder::new(&y_norm, &device);
     let eval_post = move |out: Tensor<2>, target: Tensor<2>| (decoder.decode(out), target);
 
-    let loss_fn = LpLoss::new(2, 2, Reduction::Sum);
-    let l2 = eval_epoch::<4, 3>(&model, &test_loader, &loss_fn, &eval_post);
+    let l2 = eval_epoch::<4, 3>(&model, &test_loader, &eval_post);
 
     println!(
         "loaded model test_l2: {:.10}",

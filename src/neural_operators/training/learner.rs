@@ -1,12 +1,17 @@
 //! Burn `Learner` integration: [`TrainStep`] and [`InferenceStep`] for the
-//! 1D FNO, so it can be trained with `SupervisedTraining` (and its TUI) as
-//! an alternative to the hand-written loop in
-//! [`trainer`](crate::neural_operators::training::trainer).
+//! 1D FNO, so it can be trained with `SupervisedTraining` (its TUI, metric
+//! logging and summary).
 //!
-//! Only `FNO<3>` (Burgers: batch + 1 spatial + channel) is supported. The
-//! impls are per rank because `Batch<R, RM1>` would leave `RM1` unconstrained
-//! in a generic `impl<const R: usize> TrainStep for FNO<R>`. Datasets that
-//! need a decoder (Darcy) are not covered: the step has no postprocess hook.
+//! This is a showcase, kept as the template for using Burn's `Learner`:
+//! [`train_epoch`](crate::neural_operators::training::trainer::train_epoch) is
+//! the canonical loop, and this is its Burgers-only (`FNO<3>`) equivalent. Both
+//! take their loss from the crate-private `trainer::forward_loss`.
+//!
+//! `TrainStep` cannot be generic over R here: its `Input` would be
+//! `Batch<R, RM1>`, and a generic `impl<const R: usize> TrainStep for FNO<R>`
+//! leaves `RM1` unconstrained (stable Rust cannot write `R - 1` in a type), so
+//! the impls are per rank. Datasets that need a decoder (Darcy) are not
+//! covered: the step passes no postprocess hook.
 
 use burn::{
     prelude::*,
@@ -15,9 +20,8 @@ use burn::{
 
 use crate::neural_operators::{
     data::batcher::Batch,
-    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNO,
-    training::trainer::flatten_pair,
+    training::trainer::{StepLoss, forward_loss, identity},
 };
 
 impl FNO<3> {
@@ -25,24 +29,25 @@ impl FNO<3> {
     ///
     /// Returns the summed relative L2 over the batch (the quantity
     /// [`train_epoch`](crate::neural_operators::training::trainer::train_epoch)
-    /// backpropagates) and a [`RegressionOutput`] whose `loss` is that sum
-    /// divided by the batch size. The division only affects the reported
-    /// metric, so the Learner shows a per-sample relative L2 comparable to
-    /// `train_l2` / `test_l2` in `EpochMetrics`.
+    /// backpropagates, from the same [`forward_loss`]) and a
+    /// [`RegressionOutput`] whose `loss` is that sum divided by the batch size.
+    /// The division only affects the reported metric, so the Learner shows a
+    /// per-sample relative L2 comparable to `train_l2` / `test_l2` in
+    /// `EpochMetrics`.
     fn learner_forward(&self, batch: Batch<3, 2>) -> (Tensor<1>, RegressionOutput) {
-        let out = self.forward(batch.inputs);
-        let (output, targets) = flatten_pair::<3, 2>(out, batch.targets);
-        let b = targets.dims()[0];
-
-        let l2_sum = LpLoss::new(1, 2, Reduction::Sum).rel(output.clone(), targets.clone());
-        let loss = l2_sum.clone().div_scalar(b as f64);
+        let StepLoss {
+            l2_sum,
+            out,
+            target,
+        } = forward_loss(self, batch, &identity);
+        let loss = l2_sum.clone().div_scalar(target.dims()[0] as f64);
 
         (
             l2_sum,
             RegressionOutput {
                 loss,
-                output,
-                targets,
+                output: out,
+                targets: target,
             },
         )
     }
@@ -71,8 +76,9 @@ impl InferenceStep for FNO<3> {
 mod tests {
     use super::*;
     use crate::neural_operators::{
+        losses::data_losses::{LpLoss, Reduction},
         models::fno::FNOConfig,
-        training::trainer::{flatten_pair, identity},
+        training::trainer::flatten_pair,
     };
     use burn::optim::{
         GradientsParams, SgdConfig, lr_scheduler::module_lr_scheduler::ModuleLearningRate,
@@ -122,11 +128,10 @@ mod tests {
             .init()
             .step(lr.clone(), model.clone(), learner_grads);
 
-        // Hand-written path, as in `train_epoch`.
+        // Hand-written oracle, independent of `forward_loss`.
         let batch = tiny_batch(&device);
         let out = model.forward(batch.inputs);
         let (out, target) = flatten_pair::<3, 2>(out, batch.targets);
-        let (out, target) = identity(out, target);
         let l2 = LpLoss::new(1, 2, Reduction::Sum).rel(out, target);
         let manual_grads = GradientsParams::from_grads(l2.backward(), &model);
         let manual_model = SgdConfig::new()

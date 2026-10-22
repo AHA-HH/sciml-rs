@@ -32,7 +32,6 @@ use sciml_rs::neural_operators::{
             burgers::{BurgersConfig, load_burgers_uniform},
         },
     },
-    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
     training::trainer::{eval_epoch, identity},
 };
@@ -63,7 +62,6 @@ fn main() {
         data_path.display()
     );
 
-    let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
     let mut results = Vec::new();
 
     // Training resolution first, then progressively finer grids.
@@ -81,7 +79,7 @@ fn main() {
             .batch_size(20)
             .build(test_data);
 
-        let l2 = eval_epoch::<3, 2>(&model, &test_loader, &loss_fn, &identity) / n_test as f32;
+        let l2 = eval_epoch::<3, 2>(&model, &test_loader, &identity) / n_test as f32;
         results.push((s, l2));
     }
 

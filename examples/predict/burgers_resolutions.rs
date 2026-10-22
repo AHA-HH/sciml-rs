@@ -23,7 +23,6 @@ use sciml_rs::neural_operators::{
             burgers::{BurgersConfig, load_burgers_uniform},
         },
     },
-    losses::data_losses::{LpLoss, Reduction},
     models::fno::FNOConfig,
     training::trainer::{eval_epoch, identity},
 };
@@ -52,8 +51,6 @@ fn main() {
         data_path.display()
     );
 
-    let loss_fn = LpLoss::new(1, 2, Reduction::Sum);
-
     // s = 8192 / rate. Each rate must divide 8192 so the subsampled grid
     // matches `BurgersConfig::s()` (the loader rejects others); the FFT itself
     // handles any s.
@@ -74,7 +71,7 @@ fn main() {
             .batch_size(20)
             .build(test_data);
 
-        let l2 = eval_epoch::<3, 2>(&model, &test_loader, &loss_fn, &identity);
+        let l2 = eval_epoch::<3, 2>(&model, &test_loader, &identity);
         let marker = if rate == trained_cfg.subsample_rate {
             "  <- trained here"
         } else {

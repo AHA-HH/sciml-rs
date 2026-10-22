@@ -8,6 +8,12 @@
 //!
 //! The reported loss is the per-sample relative L2, comparable to `train_l2`
 //! / `test_l2` printed by `train_burgers`.
+//!
+//! A showcase of Burn's `Learner`: `train_burgers` (the hand-written
+//! `train_epoch` loop) is the canonical trainer. The run goes to
+//! `runs/burgers_fno_learner_<unix_secs>/` with the same configs and weights as
+//! `train_burgers`, so `predict_burgers` can evaluate it, plus Burn's own logs.
+//! There is no `metrics.csv`: the Learner does not return per-epoch metrics.
 
 use burn::{
     config::Config,
@@ -27,8 +33,7 @@ use sciml_rs::neural_operators::{
     training::trainer::{TrainingConfig, build_training_components},
 };
 use std::path::Path;
-
-const ARTIFACT_DIR: &str = "runs/burgers_fno_learner";
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
     // Model and training tensors live on the autodiff device; the Learner
@@ -65,9 +70,11 @@ fn main() {
         padding: None,
     };
 
-    // Fewer epochs than `train_burgers` so a TUI run finishes quickly.
+    // 100 epochs, fewer than `train_burgers`' 500, so a TUI run finishes
+    // quickly. Same metric as `train_burgers`, but after fewer epochs, so the
+    // values differ.
     let train_cfg = TrainingConfig::new()
-        .with_epochs(500)
+        .with_epochs(100)
         .with_batch_size(20)
         .with_learning_rate(1e-3)
         .with_weight_decay(1e-4)
@@ -79,23 +86,34 @@ fn main() {
         &model_cfg, &train_cfg, train_data, test_data, &device,
     );
 
-    std::fs::create_dir_all(ARTIFACT_DIR).expect("could not create artifact dir");
+    // Timestamped run directory, as `write_run_artifacts` names them. The
+    // configs go in before training so a run stopped early is still described.
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before 1970")
+        .as_secs();
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("runs")
+        .join(format!("burgers_fno_learner_{stamp}"));
+    std::fs::create_dir_all(&dir).expect("could not create run directory");
 
-    let result = SupervisedTraining::new(ARTIFACT_DIR, c.train_loader, c.test_loader)
-        .metric_train_numeric(LossMetric::new())
-        .metric_valid_numeric(LossMetric::new())
-        .metric_train_numeric(LearningRateMetric::new())
-        .num_epochs(train_cfg.epochs)
-        .summary()
-        .launch(Learner::new(c.model, c.optim, c.scheduler));
-
-    let dir = Path::new(ARTIFACT_DIR);
     model_cfg
         .save(dir.join("model_cfg.json"))
         .expect("could not save model config");
     train_cfg
         .save(dir.join("train_cfg.json"))
         .expect("could not save training config");
+    dataset_cfg
+        .save(dir.join("data_cfg.json"))
+        .expect("could not save dataset config");
+
+    let result = SupervisedTraining::new(&dir, c.train_loader, c.test_loader)
+        .metric_train_numeric(LossMetric::new())
+        .metric_valid_numeric(LossMetric::new())
+        .metric_train_numeric(LearningRateMetric::new())
+        .num_epochs(train_cfg.epochs)
+        .summary()
+        .launch(Learner::new(c.model, c.optim, c.scheduler));
 
     let mut store = BurnpackStore::from_file(dir.join("model_weights"));
     result
