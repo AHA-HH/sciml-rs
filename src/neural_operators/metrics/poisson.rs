@@ -20,11 +20,10 @@
 use crate::neural_operators::chebyshev::{
     Transfers, cc_norm_sq, cc_rel_l2_error_weighted, clencurt,
 };
-use crate::neural_operators::metrics::io::read_metrics_csv;
+use crate::neural_operators::runs::EpochMetrics;
 use ndarray::{Array1, Array2, ArrayView2, ArrayView3, Axis};
 use std::fmt;
 use std::io;
-use std::path::Path;
 
 /// Per-sample errors from [`poisson_errors`], one entry per sample, in sample order.
 #[derive(Debug, Clone)]
@@ -151,14 +150,12 @@ impl fmt::Display for Error3Check {
 }
 
 /// Compares `mean_error3`, error 3 averaged over the test split, with the last test_l2 in
-/// the run's `metrics_csv`. Error 3 is the training loss's relative L² (CONVENTIONS §11),
-/// so on the run's own test split the two agree to f32 round-off.
+/// the run's `metrics` (`RunDir::metrics`). Error 3 is the training loss's relative L²
+/// (CONVENTIONS §11), so on the run's own test split the two agree to f32 round-off.
 ///
 /// # Errors
-/// What [`read_metrics_csv`] returns, and [`io::ErrorKind::InvalidData`] if the file has
-/// no epochs.
-pub fn check_error3(metrics_csv: impl AsRef<Path>, mean_error3: f64) -> io::Result<Error3Check> {
-    let metrics = read_metrics_csv(metrics_csv)?;
+/// [`io::ErrorKind::InvalidData`] if `metrics` has no epochs.
+pub fn check_error3(metrics: &[EpochMetrics], mean_error3: f64) -> io::Result<Error3Check> {
     let last = metrics
         .last()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "metrics.csv has no epochs"))?;
@@ -365,17 +362,9 @@ mod tests {
         poisson_errors(pred.view(), u.view());
     }
 
-    /// Writes `test_l2` per epoch to a fresh metrics.csv under the temp dir.
-    fn metrics_csv(test: &str, test_l2: &[f32]) -> std::path::PathBuf {
-        use crate::neural_operators::{
-            metrics::io::write_metrics_csv, training::metrics::EpochMetrics,
-        };
-        let dir = std::env::temp_dir().join(format!(
-            "sciml_rs_metrics_poisson_{test}_{}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let rows: Vec<EpochMetrics> = test_l2
+    /// One metrics row per epoch with the given `test_l2`.
+    fn metrics(test_l2: &[f32]) -> Vec<EpochMetrics> {
+        test_l2
             .iter()
             .enumerate()
             .map(|(epoch, &test_l2)| EpochMetrics {
@@ -385,27 +374,23 @@ mod tests {
                 test_l2,
                 current_lr: 1e-3,
             })
-            .collect();
-        let path = dir.join("metrics.csv");
-        write_metrics_csv(&path, &rows).unwrap();
-        path
+            .collect()
     }
 
     #[test]
     fn error3_check_uses_the_last_epoch() {
-        let path = metrics_csv("last_epoch", &[0.5, 0.25]);
-        let check = check_error3(&path, 0.25 * (1.0 + 5e-6)).unwrap();
+        let rows = metrics(&[0.5, 0.25]);
+        let check = check_error3(&rows, 0.25 * (1.0 + 5e-6)).unwrap();
         assert_eq!((check.epoch, check.test_l2), (1, 0.25));
         assert!(check.passed, "{check}");
-        let check = check_error3(&path, 0.25 * (1.0 + 2e-5)).unwrap();
+        let check = check_error3(&rows, 0.25 * (1.0 + 2e-5)).unwrap();
         assert!(!check.passed, "{check}");
         assert!(check.to_string().ends_with("FAILED"));
     }
 
     #[test]
-    fn error3_check_rejects_an_empty_csv() {
-        let path = metrics_csv("empty", &[]);
-        let err = check_error3(&path, 0.1).unwrap_err();
+    fn error3_check_rejects_no_epochs() {
+        let err = check_error3(&[], 0.1).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 }

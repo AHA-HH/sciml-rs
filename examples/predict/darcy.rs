@@ -2,46 +2,42 @@
 //!
 //! Run with: cargo run --release --example predict_darcy -- runs/darcy_fno_<timestamp>
 //!
-//! Loads the architecture from model_cfg.json, the weights from
-//! model_weights.bpk, and the y normalizer from y_normalizer.json - all three
-//! are needed, since weights alone can't reconstruct the model and predictions
-//! come out in normalized units.
+//! Loads the model, the dataset config and the y normalizer from the run directory
+//! (`RunDir`) - all are needed, since weights alone can't reconstruct the model and
+//! predictions come out in normalized units.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use burn::{
-    data::dataloader::DataLoaderBuilder,
-    prelude::*,
-    store::{BurnpackStore, ModuleSnapshot},
-    tensor::Device,
-};
+use burn::{data::dataloader::DataLoaderBuilder, prelude::*, tensor::Device};
 use sciml_rs::neural_operators::{
     data::{
         batcher::OperatorBatcher,
         loaders::darcy::{DarcyConfig, load_darcy_uniform},
-        transforms::normalizers::{FlatDecoder, NormalizerRecord, UnitGaussianNormalizer},
+        transforms::normalizers::FlatDecoder,
     },
-    models::fno::FNOConfig,
+    runs::{ConfigFile, RunDir},
     training::trainer::eval_epoch,
 };
 
 fn main() {
-    let dir = PathBuf::from(
+    let run = RunDir::open(
         std::env::args()
             .nth(1)
             .expect("usage: predict_darcy <run_dir>"),
-    );
+    )
+    .unwrap_or_else(|e| panic!("open the run: {e}"));
     // Inference only: no autodiff, so forward passes record no backward graph.
     let device = Device::default();
 
     // Architecture from config, weights from the burnpack record
-    let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
-    let mut model = model_cfg.init::<4>(&device);
-    let mut store = BurnpackStore::from_file(dir.join("model_weights.bpk"));
-    model.load_from(&mut store).expect("load model weights");
+    let model = run
+        .load_fno::<4>(&device)
+        .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     // Same test split the run was evaluated on
-    let dataset_cfg = DarcyConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
+    let dataset_cfg: DarcyConfig = run
+        .config(ConfigFile::Data)
+        .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let (_, test_data, _) = load_darcy_uniform::<f32>(
         datasets.join("piececonst_r421_N1024_smooth1.mat"),
@@ -56,10 +52,11 @@ fn main() {
         .build(test_data);
 
     // Predictions come out normalized; test targets were never encoded
-    let y_norm = UnitGaussianNormalizer::from_record(
-        &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),
-    );
-    let decoder = FlatDecoder::new(&y_norm, &device);
+    let normalizers = run
+        .normalizers()
+        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
+        .expect("a Darcy run has normalizers");
+    let decoder = FlatDecoder::new(&normalizers.y, &device);
     let eval_post = move |out: Tensor<2>, target: Tensor<2>| (decoder.decode(out), target);
 
     let l2 = eval_epoch::<4, 3>(&model, &test_loader, &eval_post);
@@ -70,6 +67,6 @@ fn main() {
     );
     println!(
         "(should match the last test_l2 in {}/metrics.csv)",
-        dir.display()
+        run.path().display()
     );
 }

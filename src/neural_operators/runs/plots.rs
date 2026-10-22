@@ -1,6 +1,6 @@
 //! Training-curve plots (loss + learning rate) via gnuplot.
 
-use crate::neural_operators::training::metrics::EpochMetrics;
+use super::EpochMetrics;
 use gnuplot::{AxesCommon, Caption, Color, Figure, GnuplotInitError, LineWidth};
 use std::path::Path;
 
@@ -8,7 +8,7 @@ use std::path::Path;
 ///
 /// # Errors
 /// If gnuplot can't be started (e.g. it isn't installed or not on `PATH`).
-pub fn plot_metrics(
+pub(super) fn plot_metrics(
     path: impl AsRef<Path>,
     metrics: &[EpochMetrics],
     title: &str,

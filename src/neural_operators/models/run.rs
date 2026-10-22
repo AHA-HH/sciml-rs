@@ -1,35 +1,13 @@
-//! A saved run's model, loaded for inference.
+//! Batched inference with a saved run's model.
 //!
-//! A training run writes `model_cfg.json` and `model_weights.bpk` into its run directory
-//! (`metrics::io::write_run_artifacts`, then the weights). [`load_fno`] rebuilds the model
-//! from them on any device; [`predict_host`] runs it over a host batch of 2D inputs and
-//! returns the outputs on the host as f64, ready for decoding and the errors.
+//! `runs::RunDir::load_fno` rebuilds the model on any device; [`predict_host`] runs it over
+//! a host batch of 2D inputs and returns the outputs on the host as f64, ready for
+//! decoding and the errors.
 
-use std::error::Error;
-use std::path::Path;
-
-use burn::{
-    config::Config,
-    store::{BurnpackStore, ModuleSnapshot},
-    tensor::{Device, Tensor, TensorData},
-};
+use burn::tensor::{Device, Tensor, TensorData};
 use ndarray::{Array3, ArrayViewD, Ix4, s};
 
-use crate::neural_operators::models::fno::{FNO, FNOConfig};
-
-/// Loads the model of the run in `dir`: the architecture from `model_cfg.json`, the
-/// weights from `model_weights.bpk`, on `device`. Pass a plain (non-autodiff) device for
-/// inference, so forward passes record no backward graph.
-///
-/// # Errors
-/// If `model_cfg.json` can't be read or parsed, or `model_weights.bpk` can't be read or
-/// doesn't fit the architecture.
-pub fn load_fno<const R: usize>(dir: &Path, device: &Device) -> Result<FNO<R>, Box<dyn Error>> {
-    let config = FNOConfig::load(dir.join("model_cfg.json"))?;
-    let mut model = config.init::<R>(device);
-    model.load_from(&mut BurnpackStore::from_file(dir.join("model_weights.bpk")))?;
-    Ok(model)
-}
+use crate::neural_operators::models::fno::FNO;
 
 /// The outputs of `model` on `inputs`, forwarded in batches of `batch_size` in sample
 /// order on `device` and copied back to the host as f64.
@@ -75,6 +53,7 @@ pub fn predict_host(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::neural_operators::models::fno::FNOConfig;
     use ndarray::{Array4, Axis};
 
     fn config() -> FNOConfig {
@@ -118,40 +97,11 @@ mod tests {
     }
 
     #[test]
-    fn load_fno_restores_a_saved_run() {
-        let device = Device::default();
-        let dir = std::env::temp_dir().join(format!("sciml_rs_load_fno_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        // as train_poisson saves a run: the config, then the weights without extension
-        config().save(dir.join("model_cfg.json")).unwrap();
-        let saved: FNO<4> = config().init::<4>(&device);
-        saved
-            .save_into(&mut BurnpackStore::from_file(dir.join("model_weights")))
-            .unwrap();
-
-        let loaded: FNO<4> = load_fno(&dir, &device).unwrap();
-        let x = inputs(2);
-        let diff = (&predict_host(&saved, x.view().into_dyn(), 2, &device)
-            - &predict_host(&loaded, x.view().into_dyn(), 2, &device))
-            .iter()
-            .fold(0.0_f64, |m, d| m.max(d.abs()));
-        assert_eq!(diff, 0.0);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
     #[should_panic(expected = "inputs must be [N, s_x, s_y, C]")]
     fn rank_three_inputs_panic() {
         let device = Device::default();
         let model: FNO<4> = config().init::<4>(&device);
         let x = Array3::<f32>::zeros((2, 8, 8));
         predict_host(&model, x.view().into_dyn(), 2, &device);
-    }
-
-    #[test]
-    fn load_fno_reports_a_missing_run() {
-        let dir = std::env::temp_dir().join("sciml_rs_load_fno_no_such_run");
-        assert!(load_fno::<4>(&dir, &Device::default()).is_err());
     }
 }

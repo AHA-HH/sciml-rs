@@ -25,7 +25,7 @@ use crate::neural_operators::{
     },
     losses::data_losses::{LpLoss, Reduction},
     models::fno::{FNO, FNOConfig},
-    training::metrics::EpochMetrics,
+    runs::EpochMetrics,
 };
 
 /// Training config

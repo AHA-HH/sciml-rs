@@ -18,18 +18,14 @@
 //! the trainer undoes before computing the loss. Needs the chosen stage's dataset: see
 //! datasets/README.md.
 
-use burn::{
-    prelude::Config,
-    store::{BurnpackStore, ModuleSnapshot},
-    tensor::Device,
-};
+use burn::tensor::Device;
 use sciml_rs::neural_operators::{
     data::loaders::{
         base_dataset::DatasetConfig,
         poisson::{PoissonConfig, load_poisson_uniform, stage},
     },
-    metrics::io::write_run_artifacts,
     models::fno::FNOConfig,
+    runs::RunDir,
     training::trainer::{TrainingConfig, train_fno},
 };
 use std::path::Path;
@@ -140,25 +136,16 @@ fn main() {
     } else {
         format!("poisson_fno_n{n}_p{padding}")
     };
-    let dir = write_run_artifacts(&name, &metrics, &model_cfg, &train_cfg, &dataset_cfg)
-        .unwrap_or_else(|e| panic!("could not write run artifacts: {e}"));
+    // Writes configs, metrics, normalizers and weights to runs/<name>_<timestamp>/
+    let run = RunDir::create(&Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"), &name)
+        .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
+    run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
+        .expect("could not save configs");
+    run.save_metrics(&metrics).expect("could not save metrics");
+    run.save_normalizers(&normalizers)
+        .expect("could not save normalizers");
+    run.save_weights(&model)
+        .unwrap_or_else(|e| panic!("could not save model weights: {e}"));
 
-    // Write normalizers files to the run directory
-    normalizers
-        .x
-        .to_record()
-        .save(dir.join("x_normalizer.json"))
-        .expect("save x normalizer");
-    normalizers
-        .y
-        .to_record()
-        .save(dir.join("y_normalizer.json"))
-        .expect("save y normalizer");
-
-    let mut store = BurnpackStore::from_file(dir.join("model_weights"));
-    model
-        .save_into(&mut store)
-        .expect("could not save model weights");
-
-    println!("run written to {}", dir.display());
+    println!("run written to {}", run.path().display());
 }

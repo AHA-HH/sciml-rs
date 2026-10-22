@@ -16,8 +16,6 @@
 //! There is no `metrics.csv`: the Learner does not return per-epoch metrics.
 
 use burn::{
-    config::Config,
-    store::{BurnpackStore, ModuleSnapshot},
     tensor::Device,
     train::{
         Learner, SupervisedTraining,
@@ -30,10 +28,10 @@ use sciml_rs::neural_operators::{
         burgers::{BurgersConfig, load_burgers_uniform},
     },
     models::fno::FNOConfig,
+    runs::RunDir,
     training::trainer::{TrainingConfig, build_training_components},
 };
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
     // Model and training tensors live on the autodiff device; the Learner
@@ -92,28 +90,16 @@ fn main() {
         &model_cfg, &train_cfg, train_data, test_data, &device,
     );
 
-    // Timestamped run directory, as `write_run_artifacts` names them. The
-    // configs go in before training so a run stopped early is still described.
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock before 1970")
-        .as_secs();
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("runs")
-        .join(format!("burgers_fno_learner_{stamp}"));
-    std::fs::create_dir_all(&dir).expect("could not create run directory");
+    // The configs go in before training so a run stopped early is still described.
+    let run = RunDir::create(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"),
+        "burgers_fno_learner",
+    )
+    .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
+    run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
+        .expect("could not save configs");
 
-    model_cfg
-        .save(dir.join("model_cfg.json"))
-        .expect("could not save model config");
-    train_cfg
-        .save(dir.join("train_cfg.json"))
-        .expect("could not save training config");
-    dataset_cfg
-        .save(dir.join("data_cfg.json"))
-        .expect("could not save dataset config");
-
-    let result = SupervisedTraining::new(&dir, c.train_loader, c.test_loader)
+    let result = SupervisedTraining::new(run.path(), c.train_loader, c.test_loader)
         .metric_train_numeric(LossMetric::new())
         .metric_valid_numeric(LossMetric::new())
         .metric_train_numeric(LearningRateMetric::new())
@@ -121,11 +107,8 @@ fn main() {
         .summary()
         .launch(Learner::new(c.model, c.optim, c.scheduler));
 
-    let mut store = BurnpackStore::from_file(dir.join("model_weights"));
-    result
-        .model
-        .save_into(&mut store)
-        .expect("could not save model weights");
+    run.save_weights(&result.model)
+        .unwrap_or_else(|e| panic!("could not save model weights: {e}"));
 
-    println!("run written to {}", dir.display());
+    println!("run written to {}", run.path().display());
 }

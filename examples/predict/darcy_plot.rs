@@ -3,38 +3,32 @@
 //!
 //! Run with: cargo run --release --example darcy_plot -- runs/darcy_fno_<timestamp>
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use burn::{
-    data::dataset::Dataset,
-    prelude::*,
-    store::{BurnpackStore, ModuleSnapshot},
-    tensor::Device,
-};
+use burn::{data::dataset::Dataset, prelude::*, tensor::Device};
 use gnuplot::{AxesCommon, Caption, Figure};
 use sciml_rs::neural_operators::{
-    data::{
-        loaders::darcy::{DarcyConfig, load_darcy_uniform},
-        transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
-    },
-    models::fno::FNOConfig,
+    data::loaders::darcy::{DarcyConfig, load_darcy_uniform},
+    runs::{ConfigFile, RunDir},
 };
 
 fn main() {
-    let dir = PathBuf::from(
+    let run = RunDir::open(
         std::env::args()
             .nth(1)
             .expect("usage: darcy_plot <run_dir>"),
-    );
+    )
+    .unwrap_or_else(|e| panic!("open the run: {e}"));
     // Inference only: no autodiff, so forward passes record no backward graph.
     let device = Device::default();
 
-    let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
-    let mut model = model_cfg.init::<4>(&device);
-    let mut store = BurnpackStore::from_file(dir.join("model_weights.bpk"));
-    model.load_from(&mut store).expect("load model weights");
+    let model = run
+        .load_fno::<4>(&device)
+        .unwrap_or_else(|e| panic!("load the model: {e}"));
 
-    let dataset_cfg = DarcyConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
+    let dataset_cfg: DarcyConfig = run
+        .config(ConfigFile::Data)
+        .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     // f64 host storage: the plot reads the sample back as f64. The model
     // still sees the same f32 values (see `HostFloat`).
@@ -45,9 +39,11 @@ fn main() {
     )
     .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
-    let y_norm = UnitGaussianNormalizer::from_record(
-        &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),
-    );
+    let y_norm = run
+        .normalizers()
+        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
+        .expect("a Darcy run has normalizers")
+        .y;
 
     // One sample. input is [s, s, 1]: the coefficient field only; the model
     // appends the two grid channels itself.
@@ -89,7 +85,7 @@ fn main() {
             .image(data.iter().copied(), s, s, None, &[Caption("")]);
     }
 
-    let path = dir.join("prediction.png");
+    let path = run.path().join("prediction.png");
     match fig.save_to_png(&path, 1800, 600) {
         Ok(()) => println!("plot written to {}", path.display()),
         Err(e) => eprintln!("plot failed ({e}) — is gnuplot installed?"),

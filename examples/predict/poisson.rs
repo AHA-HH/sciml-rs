@@ -4,8 +4,8 @@
 //! Run with: cargo run --release --example predict_poisson -- runs/poisson_fno_p<p>_<timestamp>
 //! (add `--features metal` for the GPU).
 //!
-//! Loads the model as `predict_darcy` does (model_cfg.json, model_weights.bpk,
-//! y_normalizer.json) and the dataset config from data_cfg.json, whose n picks the stage
+//! Loads the model, the y normalizer and the dataset config from the run directory
+//! (`RunDir`), as `predict_darcy` does; the config's n picks the stage
 //! (`loaders::poisson::stage`). The test inputs come
 //! from `load_poisson_uniform`, the raw CGL solutions from `load_poisson_cheb`;
 //! predictions are decoded with the y normalizer and copied to the host as f64. Error 1
@@ -15,21 +15,19 @@
 //! error 4, the one to plot with `poisson_plot`. Needs the run's stage dataset: see
 //! datasets/README.md.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use burn::{prelude::*, tensor::Device};
 use ndarray::Axis;
 use sciml_rs::neural_operators::{
     chebyshev::TRANSFER_DEGREE,
-    data::{
-        loaders::poisson::{PoissonConfig, load_poisson_cheb, load_poisson_uniform, stage},
-        transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
-    },
+    data::loaders::poisson::{PoissonConfig, load_poisson_cheb, load_poisson_uniform, stage},
     metrics::{
         poisson::{check_error3, poisson_errors},
         stats::ErrorStats,
     },
-    models::run::{load_fno, predict_host},
+    models::run::predict_host,
+    runs::{ConfigFile, RunDir},
     utils::backend::backend_features,
 };
 
@@ -116,17 +114,23 @@ fn rel_diff(a: f64, b: f64) -> f64 {
 }
 
 fn main() {
-    let dir = PathBuf::from(
+    let run = RunDir::open(
         std::env::args()
             .nth(1)
             .expect("usage: predict_poisson <run_dir>"),
-    );
+    )
+    .unwrap_or_else(|e| panic!("open the run: {e}"));
+    let dir = run.path();
     // Inference only: no autodiff, so forward passes record no backward graph.
     let device = Device::default();
 
-    let model = load_fno::<4>(&dir, &device).unwrap_or_else(|e| panic!("load the model: {e}"));
+    let model = run
+        .load_fno::<4>(&device)
+        .unwrap_or_else(|e| panic!("load the model: {e}"));
 
-    let dataset_cfg = PoissonConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
+    let dataset_cfg = run
+        .config::<PoissonConfig>(ConfigFile::Data)
+        .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let n = dataset_cfg.n;
     let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
     let n_test = dataset_cfg.base.n_test;
@@ -145,9 +149,11 @@ fn main() {
     // Forward pass in batches, in sample order; outputs are normalized [N, s, s]
     let pred = predict_host(&model, test_data.inputs().view(), BATCH_SIZE, &device);
     // Decode to physical scale in f64; the test targets were never encoded
-    let y_norm = UnitGaussianNormalizer::from_record(
-        &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),
-    );
+    let y_norm = run
+        .normalizers()
+        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
+        .expect("a Poisson run has normalizers")
+        .y;
     let pred = y_norm.decode(pred.into_dyn());
     let pred = pred
         .into_dimensionality::<ndarray::Ix3>()
@@ -223,7 +229,8 @@ fn main() {
     };
 
     // Cross-check 2: mean error 3 against the run's last test_l2
-    let e3_check = check_error3(dir.join("metrics.csv"), e3.mean).expect("read metrics.csv");
+    let e3_check = check_error3(&run.metrics().expect("read metrics.csv"), e3.mean)
+        .expect("metrics.csv has epochs");
     println!("check: {e3_check}");
 
     let boundary_to_total = e5_rms.mean / e4.mean;

@@ -16,14 +16,9 @@
 //! `BurgersConfig::s()` (the loader rejects others); the FFT itself handles
 //! any s.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use burn::{
-    config::Config,
-    data::dataloader::DataLoaderBuilder,
-    store::{BurnpackStore, ModuleSnapshot},
-    tensor::Device,
-};
+use burn::{data::dataloader::DataLoaderBuilder, tensor::Device};
 use sciml_rs::neural_operators::{
     data::{
         batcher::OperatorBatcher,
@@ -33,25 +28,28 @@ use sciml_rs::neural_operators::{
         },
     },
     models::fno::FNOConfig,
+    runs::{ConfigFile, RunDir},
     training::trainer::{eval_epoch, identity},
 };
 
 fn main() {
-    let dir = PathBuf::from(
+    let run = RunDir::open(
         std::env::args()
             .nth(1)
             .expect("usage: burgers_superresolution <run_dir>"),
-    );
+    )
+    .unwrap_or_else(|e| panic!("open the run: {e}"));
     // Inference only: no autodiff, so forward passes record no backward graph.
     let device = Device::default();
 
     // Architecture from the saved config, weights from the saved record.
-    let model_cfg = FNOConfig::load(dir.join("model_cfg.json")).expect("load model config");
-    let mut model = model_cfg.init::<3>(&device);
-    let mut store = BurnpackStore::from_file(dir.join("model_weights.bpk"));
-    model.load_from(&mut store).expect("load model weights");
+    let model = run
+        .load_fno::<3>(&device)
+        .unwrap_or_else(|e| panic!("load the model: {e}"));
 
-    let trained_cfg = BurgersConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
+    let trained_cfg: BurgersConfig = run
+        .config(ConfigFile::Data)
+        .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let (n_train, n_test) = (trained_cfg.base.n_train, trained_cfg.base.n_test);
     let trained_s = trained_cfg.s();
 
@@ -83,6 +81,9 @@ fn main() {
         results.push((s, l2));
     }
 
+    let model_cfg: FNOConfig = run
+        .config(ConfigFile::Model)
+        .unwrap_or_else(|e| panic!("load model config: {e}"));
     println!(
         "\ntrained at s = {trained_s}, modes = {:?}\n",
         model_cfg.modes

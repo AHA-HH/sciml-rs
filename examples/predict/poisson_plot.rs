@@ -6,8 +6,8 @@
 //! the run is runs/poisson_fno_p<p>_<timestamp> or runs/poisson_fno_n<n>_p<p>_<timestamp>
 //! (sample indexes the test split, default 0; add `--features metal` for the GPU).
 //!
-//! Loads the model as `predict_poisson` does (model_cfg.json, model_weights.bpk,
-//! data_cfg.json, y_normalizer.json), runs the one sample and decodes it to f64. f and u
+//! Loads the model, the dataset config and the y normalizer from the run directory
+//! (`RunDir`), as `predict_poisson` does, runs the one sample and decodes it to f64. f and u
 //! are the raw split's CGL fields (`load_poisson_cheb_field`). Each panel draws every one
 //! of the n² CGL nodes as a filled cell at its (x, y) coordinates, reaching halfway to its
 //! neighbours, so the cells tile [−1, 1]² and the clustering towards the edges shows.
@@ -16,18 +16,16 @@
 //! see datasets/README.md.
 
 use std::f64::consts::PI;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use burn::{prelude::*, tensor::Device};
+use burn::tensor::Device;
 use gnuplot::{AutoOption::Fix, AxesCommon, Color, Figure, PaletteType, VariablePaletteColor};
 use ndarray::{ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
     chebyshev::{Transfers, cc_rel_l2_error, nodes_closed_form},
-    data::{
-        loaders::poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform, stage},
-        transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
-    },
-    models::run::{load_fno, predict_host},
+    data::loaders::poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform, stage},
+    models::run::predict_host,
+    runs::{ConfigFile, RunDir},
 };
 
 /// Figure size in pixels.
@@ -66,10 +64,12 @@ fn range<'a>(fields: impl IntoIterator<Item = ArrayView2<'a, f64>>) -> (f64, f64
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let dir = PathBuf::from(
+    let run = RunDir::open(
         args.next()
             .expect("usage: poisson_plot <run_dir> [<sample>]"),
-    );
+    )
+    .unwrap_or_else(|e| panic!("open the run: {e}"));
+    let dir = run.path();
     let sample: usize = args.next().map_or(0, |a| {
         a.parse().expect("sample must be a non-negative integer")
     });
@@ -77,9 +77,13 @@ fn main() {
     let device = Device::default();
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
-    let model = load_fno::<4>(&dir, &device).unwrap_or_else(|e| panic!("load the model: {e}"));
+    let model = run
+        .load_fno::<4>(&device)
+        .unwrap_or_else(|e| panic!("load the model: {e}"));
 
-    let dataset_cfg = PoissonConfig::load(dir.join("data_cfg.json")).expect("load dataset config");
+    let dataset_cfg = run
+        .config::<PoissonConfig>(ConfigFile::Data)
+        .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let n = dataset_cfg.n;
     let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
     let test_file = datasets.join(set.npz("test"));
@@ -106,9 +110,11 @@ fn main() {
     let pred = predict_host(&model, input.into_dyn(), 1, &device).index_axis_move(Axis(0), 0);
     assert_eq!(pred.dim(), (s, s), "prediction is [s, s]");
     // Decode to physical scale in f64, then transfer to the CGL grid as error 4 does
-    let y_norm = UnitGaussianNormalizer::from_record(
-        &NormalizerRecord::load(dir.join("y_normalizer.json")).expect("load y normalizer"),
-    );
+    let y_norm = run
+        .normalizers()
+        .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
+        .expect("a Poisson run has normalizers")
+        .y;
     let pred = y_norm
         .decode(pred.into_dyn())
         .into_dimensionality::<ndarray::Ix2>()
@@ -136,7 +142,7 @@ fn main() {
     let (f_lo, f_hi) = range([f.view()]);
     let (u_lo, u_hi) = range([u.view(), u_hat.view()]);
     let e_max = err.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-    let run = dir
+    let run_name = dir
         .file_name()
         .map_or_else(|| dir.display().to_string(), |d| d.to_string_lossy().into());
 
@@ -144,7 +150,7 @@ fn main() {
     // plain text: run names and T_uc hold '_', which enhanced text reads as a subscript
     fig.set_enhanced_text(false);
     fig.set_multiplot_layout(2, 2).set_title(&format!(
-        "{run}, test sample {sample}: error 4 = {error4:.3e}"
+        "{run_name}, test sample {sample}: error 4 = {error4:.3e}"
     ));
     for (field, title, (lo, hi), diverging) in [
         (&f, "forcing f", (f_lo, f_hi), false),
