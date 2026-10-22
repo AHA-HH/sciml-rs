@@ -44,15 +44,20 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   argument, and the panics).
 
 ## Layout
-- `src/neural_operators/`: `models/fno.rs` (FNOConfig, FNO), `models/run.rs` (`predict_host`:
-  batched inference to host f64), `layers/spectral_convolution.rs` (SpectralConv,
-  SpectralInit), `losses/` (LpLoss), `data/` (loaders, batchers, io for npy/npz/.mat,
-  transforms), `training/`, `metrics/` (Poisson errors, `ErrorStats`), `utils/fft.rs`
-  (icfft_full_spectrum), `utils/backend.rs` (`backend_features`).
-- `runs` (`RunDir`, `EpochMetrics`) owns the run directory: `create(root, name)` and the
-  `save_*` writers (configs, `metrics.csv` + gnuplot `plots.png`, normalizers, weights);
-  `open(dir)`, `load_fno`, `config(ConfigFile::…)`, `normalizers()`, `metrics()`. Run-file
-  names appear nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
+- `src/neural_operators/`: `models/fno.rs` (FNOConfig, FNO), `models/predict.rs`
+  (`predict_host`: batched inference to host f64, any rank), `layers/spectral_convolution.rs`
+  (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
+  npy/npz/.mat, transforms; `host_oracle` is the test-only host batcher), `metrics/` (Poisson
+  errors, `ErrorStats`), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
+  (`backend_features`).
+- `training/`: `config` (`TrainingConfig`), `step` (`flatten_pair`, `forward_loss`,
+  `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
+  `training_loop` with its `EpochObserver`, `train_fno`), `learner` (Burn `Learner` impls).
+- `runs` (`RunDir`, `EpochMetrics`) owns the run directory: `create(root, name)`,
+  `save_configs`, `append_metrics` (the only `metrics.csv` writer, one row per epoch),
+  `save_plot`, `save_normalizers`, `save_weights`; `open(dir)`, `load_fno`, `model_config`,
+  `data_config::<C>`, `normalizers()`, `metrics()`. Run-file names appear nowhere else;
+  examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `src/neural_operators/chebyshev/`: CGL `nodes`, `diff_matrix`/`diff2_matrix`,
   `clenshaw_curtis`, `l2_norm`/`rel_l2_error` are behind the `chebyshev` feature (need
   system libfftw3).
@@ -143,7 +148,8 @@ An exact test filter needs the full module path:
 - `device_loader(&data, &device, batch_size, shuffle)` uploads a split once and batches it
   on `device`: pass the `.autodiff()` device for training, or no gradients flow. The trainer
   evaluates on `device.inner()`; predict examples pass their plain `Device::default()`.
-  `OperatorBatcher` (host batching) is a test-only oracle for its bit-identity tests.
+  `data::host_oracle::OperatorBatcher` (host batching) is a test-only oracle for its
+  bit-identity tests.
 
 ## Navigating the code
 Prefer LSP tools (go-to-definition, find-references) over `grep` for symbols. Use `grep`
@@ -165,7 +171,7 @@ than trusting prose when checking how an API behaves.
   default 65; needs that stage in `datasets/poisson/`). On cuda:
   `--no-default-features --features cuda`
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
-  (also `burgers_resolution`, `burgers_superresolution` on Burgers runs;
+  (also `burgers_resolution -- runs/<run_dir> [<rate> ...]` on Burgers runs, s = 8192 / rate;
   `predict_darcy`, `darcy_plot` on Darcy runs)
 - Evaluate a Poisson run (the five errors, the boundary verdict, the worst sample):
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`

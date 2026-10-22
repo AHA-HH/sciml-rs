@@ -1,7 +1,7 @@
 //! Models
 //!
-//! Full operator networks assembled from the layer primitives, plus the
-//! shared model trait they implement, and loading a saved run's model (`run`).
+//! Full operator networks assembled from the layer primitives (`fno`), and batched
+//! inference to the host (`predict`).
 
 pub mod fno;
-pub mod run;
+pub mod predict;

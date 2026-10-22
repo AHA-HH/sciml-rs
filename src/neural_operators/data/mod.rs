@@ -7,6 +7,8 @@ pub mod batcher;
 pub mod dataset;
 pub mod device_batcher;
 pub mod host_float;
+#[cfg(test)]
+pub(crate) mod host_oracle;
 pub mod io;
 pub mod loaders;
 pub mod split;

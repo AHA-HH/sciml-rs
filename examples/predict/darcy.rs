@@ -15,8 +15,8 @@ use sciml_rs::neural_operators::{
         loaders::darcy::{DarcyConfig, load_darcy_uniform},
         transforms::normalizers::FlatDecoder,
     },
-    runs::{ConfigFile, RunDir},
-    training::trainer::eval_epoch,
+    runs::RunDir,
+    training::step::evaluate,
 };
 
 fn main() {
@@ -36,7 +36,7 @@ fn main() {
 
     // Same test split the run was evaluated on
     let dataset_cfg: DarcyConfig = run
-        .config(ConfigFile::Data)
+        .data_config()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let (_, test_data, _) = load_darcy_uniform::<f32>(
@@ -56,12 +56,9 @@ fn main() {
     let decoder = FlatDecoder::new(&normalizers.y, &device);
     let eval_post = move |out: Tensor<2>, target: Tensor<2>| (decoder.decode(out), target);
 
-    let l2 = eval_epoch::<4, 3>(&model, &test_loader, &eval_post);
+    let l2 = evaluate::<4, 3>(&model, &test_loader, &eval_post);
 
-    println!(
-        "loaded model test_l2: {:.10}",
-        l2 / dataset_cfg.base.n_test as f32
-    );
+    println!("loaded model test_l2: {l2:.10}");
     println!(
         "(should match the last test_l2 in {}/metrics.csv)",
         run.path().display()

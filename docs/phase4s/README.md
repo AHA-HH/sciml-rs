@@ -214,9 +214,9 @@ Filled in as tasks merge. Phase 4s is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| Line delta per task (prod / test) and the test count before / after | | T1–T24 |
-| `predict_poisson` on `runs/poisson_fno_p4_1791922918`: the five errors unchanged after T10, T13, T19 | | T10, T13, T19 |
-| `predict_burgers` / `predict_darcy` test L² unchanged after T10, T11, T13 | | T10, T11, T13 |
+| Line delta per task (prod / test) and the test count before / after | T9: +146 / −165 refactor, +112 test (pins); lib 202 → 205<br>T10: +633 / −408 (about 140 of the added lines are tests); lib 205 → 207<br>T11: +129 / −168; lib 207 → 206, doctests 9 → 7 (3 deliberate deletions)<br>T12: +193 / −45 (`trainer.rs` about +47 prod / +73 test); lib 206 → 208<br>T13: +208 / −227 (about +35 test), then the review fixes +667 / −684 (`trainer.rs` 1004 → 732, split into `training/{config, step, trainer}`); lib 208 → 209 (one test deleted with its error path) | T1–T24 |
+| `predict_poisson` on `runs/poisson_fno_p4_1791922918`: the five errors unchanged after T10, T13, T19 | Unchanged after T10 and T13 (error 3 mean 1.0686e-2, error 4 mean 1.0688e-2, error 2 mean 2.0335e-5); T19 to come | T10, T13, T19 |
+| `predict_burgers` / `predict_darcy` test L² unchanged after T10, T11, T13 | Unchanged after T10, T11 and T13: `burgers_fno_1790881218` 0.0020854936, `darcy_fno_1790729160` 0.0095942197 | T10, T11, T13 |
 | `train_burgers_learner` run evaluated by `predict_burgers` | | T2 |
 | Decisions taken on T14, T15, T17, T18 (decision 25 or later) | | T14, T15, T17, T18 |
 | Datasets regenerated or kept; label check and error 2 if regenerated | | T14, T15 |

@@ -26,8 +26,8 @@ use sciml_rs::neural_operators::{
         poisson::{check_error3, poisson_errors},
         stats::ErrorStats,
     },
-    models::run::predict_host,
-    runs::{ConfigFile, RunDir},
+    models::predict::predict_host,
+    runs::RunDir,
     utils::backend::backend_features,
 };
 
@@ -129,7 +129,7 @@ fn main() {
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let dataset_cfg = run
-        .config::<PoissonConfig>(ConfigFile::Data)
+        .data_config::<PoissonConfig>()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let n = dataset_cfg.n;
     let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
@@ -229,8 +229,8 @@ fn main() {
     };
 
     // Cross-check 2: mean error 3 against the run's last test_l2
-    let e3_check = check_error3(&run.metrics().expect("read metrics.csv"), e3.mean)
-        .expect("metrics.csv has epochs");
+    let metrics = run.metrics().expect("read metrics.csv");
+    let e3_check = check_error3(metrics.last().expect("metrics.csv has epochs"), e3.mean);
     println!("check: {e3_check}");
 
     let boundary_to_total = e5_rms.mean / e4.mean;

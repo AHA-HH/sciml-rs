@@ -24,8 +24,8 @@ use ndarray::{ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
     chebyshev::{Transfers, cc_rel_l2_error, nodes_closed_form},
     data::loaders::poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform, stage},
-    models::run::predict_host,
-    runs::{ConfigFile, RunDir},
+    models::predict::predict_host,
+    runs::RunDir,
 };
 
 /// Figure size in pixels.
@@ -82,7 +82,7 @@ fn main() {
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let dataset_cfg = run
-        .config::<PoissonConfig>(ConfigFile::Data)
+        .data_config::<PoissonConfig>()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let n = dataset_cfg.n;
     let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
@@ -108,7 +108,7 @@ fn main() {
     // Forward one sample: [1, s, s, 1] in, normalized [s, s] out
     let input = test_data.inputs().slice(s![sample..=sample, .., .., ..]);
     let pred = predict_host(&model, input.into_dyn(), 1, &device).index_axis_move(Axis(0), 0);
-    assert_eq!(pred.dim(), (s, s), "prediction is [s, s]");
+    assert_eq!(pred.shape(), [s, s], "prediction is [s, s]");
     // Decode to physical scale in f64, then transfer to the CGL grid as error 4 does
     let y_norm = run
         .normalizers()
