@@ -513,6 +513,52 @@ mod tests {
         assert_eq!(*test.targets(), u_te);
     }
 
+    /// Order-sensitive sum, compared bit for bit.
+    fn checksum<T: Copy + Into<f64>>(a: &ArrayD<T>) -> u64 {
+        let sum: f64 = a
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| v.into() * (i + 1) as f64)
+            .sum();
+        sum.to_bits()
+    }
+
+    // --- phase 4s T9: the loader tail's output is pinned across its refactor ---
+
+    #[test]
+    fn poisson_output_is_pinned() {
+        let dir = fresh_dir("pinned");
+        let (train_path, test_path) = write_valid_pair(&dir);
+        let config = cfg(N_TRAIN, N_TEST);
+        let (train, test, norms) =
+            load_poisson_uniform::<f32>(&train_path, &test_path, &config).unwrap();
+
+        let sums = [
+            checksum(train.inputs()),
+            checksum(train.targets()),
+            checksum(test.inputs()),
+            checksum(test.targets()),
+            checksum(norms.x.mean()),
+            checksum(norms.x.std()),
+            checksum(norms.y.mean()),
+            checksum(norms.y.std()),
+        ];
+        assert_eq!(
+            sums,
+            [
+                4595258215196790784,
+                13814127751935827968,
+                4586251015942045696,
+                13890022982133194752,
+                4651835031652120632,
+                4650335882944466476,
+                13879710668134266936,
+                4654839482571836972,
+            ],
+            "{sums:?}"
+        );
+    }
+
     #[test]
     fn missing_file_is_a_reader_error() {
         let err = load_poisson_uniform::<f32>("/nope/train.npz", "/nope/test.npz", &cfg(2, 1))

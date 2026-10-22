@@ -303,4 +303,70 @@ mod tests {
         assert_eq!(*train.targets(), norms.y.encode(y_train));
         assert_eq!(*test.targets(), y_test);
     }
+
+    /// Order-sensitive sum, compared bit for bit.
+    fn checksum<T: Copy + Into<f64>>(a: &ArrayD<T>) -> u64 {
+        let sum: f64 = a
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| v.into() * (i + 1) as f64)
+            .sum();
+        sum.to_bits()
+    }
+
+    // --- phase 4s T9: the loader tail's output is pinned across its refactor ---
+
+    #[test]
+    fn darcy_output_is_pinned() {
+        let config = DarcyConfig::new(
+            DatasetConfig {
+                n_train: 3,
+                n_test: 2,
+            },
+            105,
+        ); // s = 5
+        let s = config.s();
+        let field = |n: usize, seed: f64| {
+            ArrayD::from_shape_fn(IxDyn(&[n, s, s]), |i| {
+                ((i[0] * s * s + i[1] * s + i[2]) as f64 * 0.37 + seed).sin() * (1.0 + seed)
+            })
+        };
+        let (train, test, norms) = darcy_from_fields::<f32>(
+            field(3, 0.0),
+            field(3, 1.0),
+            field(2, 2.0),
+            field(2, 3.0),
+            &config,
+        )
+        .expect("valid fields");
+
+        assert_eq!(train.inputs().shape(), [3, s, s, 1]);
+        assert_eq!(train.targets().shape(), [3, s, s]);
+        assert_eq!(test.inputs().shape(), [2, s, s, 1]);
+        assert_eq!(test.targets().shape(), [2, s, s]);
+        let sums = [
+            checksum(train.inputs()),
+            checksum(train.targets()),
+            checksum(test.inputs()),
+            checksum(test.targets()),
+            checksum(norms.x.mean()),
+            checksum(norms.x.std()),
+            checksum(norms.y.mean()),
+            checksum(norms.y.std()),
+        ];
+        assert_eq!(
+            sums,
+            [
+                13857006548521320448,
+                4635368094174281728,
+                13869920727614881792,
+                4646307104645971968,
+                4626803676421486758,
+                4643276683912197713,
+                4630239275482198924,
+                4646823668636631701,
+            ],
+            "{sums:?}"
+        );
+    }
 }
