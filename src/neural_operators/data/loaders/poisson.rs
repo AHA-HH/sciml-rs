@@ -27,8 +27,8 @@
 
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes_closed_form};
 use crate::neural_operators::data::{
-    dataitem::HostFloat,
     dataset::OperatorDataset,
+    host_float::HostFloat,
     io::{errors::LoadError, readers::npz::NpzFileReader},
     loaders::{
         base_dataset::DatasetConfig,

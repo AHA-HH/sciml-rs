@@ -1222,7 +1222,7 @@ mod tests {
 
     // --- issue #13: grid channels generated on the device ---
 
-    use crate::neural_operators::data::dataitem::HostFloat;
+    use crate::neural_operators::data::host_float::HostFloat;
     use ndarray::{Array1, ArrayD, Dimension, IxDyn};
 
     /// 'ij'-indexed grids from per-axis coordinates: grid `a` has shape

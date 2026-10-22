@@ -140,9 +140,10 @@ An exact test filter needs the full module path:
   unusable (no FFT). Building with no backend feature is a `compile_error!`.
 - Metal: a channels-first `cat` after a permute zeroed grid entries, so `FNO::grid_cl`
   builds the grid channels-last (regression test in `fno.rs`).
-- `OperatorBatcher` does not choose a device: a DataLoader without `set_device` puts
-  batches on non-autodiff `Device::default()`, so training gets no gradients unless the
-  device is `.autodiff()`. Evaluation runs on `device.inner()`.
+- `device_loader(&data, &device, batch_size, shuffle)` uploads a split once and batches it
+  on `device`: pass the `.autodiff()` device for training, or no gradients flow. The trainer
+  evaluates on `device.inner()`; predict examples pass their plain `Device::default()`.
+  `OperatorBatcher` (host batching) is a test-only oracle for its bit-identity tests.
 
 ## Navigating the code
 Prefer LSP tools (go-to-definition, find-references) over `grep` for symbols. Use `grep`

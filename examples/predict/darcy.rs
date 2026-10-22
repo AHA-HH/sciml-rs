@@ -8,10 +8,10 @@
 
 use std::path::Path;
 
-use burn::{data::dataloader::DataLoaderBuilder, prelude::*, tensor::Device};
+use burn::{prelude::*, tensor::Device};
 use sciml_rs::neural_operators::{
     data::{
-        batcher::OperatorBatcher,
+        device_batcher::device_loader,
         loaders::darcy::{DarcyConfig, load_darcy_uniform},
         transforms::normalizers::FlatDecoder,
     },
@@ -46,10 +46,7 @@ fn main() {
     )
     .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
-    let test_loader = DataLoaderBuilder::new(OperatorBatcher::<4, 3>::new())
-        .set_device(device.clone())
-        .batch_size(20)
-        .build(test_data);
+    let test_loader = device_loader::<4, 3, _>(&test_data, &device, 20, None);
 
     // Predictions come out normalized; test targets were never encoded
     let normalizers = run

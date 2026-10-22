@@ -1,21 +1,58 @@
-//! Batching for operator-learning data: stacks individual [`DataItem`]s into
-//! rank-`R`/`R-1` tensors for training.
+//! The batch type every loader yields, and the host-side batcher kept as a test oracle.
+//!
+//! Loaders are built with [`device_loader`](super::device_batcher::device_loader).
+//! `OperatorBatcher` (test-only) stacks host rows per batch, the pre-device-loader path;
+//! the bit-identity tests compare `device_loader` against it.
 
-use crate::neural_operators::data::dataitem::{DataItem, HostFloat};
-use burn::{Tensor, data::dataloader::batcher::Batcher, prelude::*};
+#[cfg(test)]
+use crate::neural_operators::data::{dataset::OperatorDataset, host_float::HostFloat};
+use burn::Tensor;
+#[cfg(test)]
+use burn::data::dataset::{Dataset, DatasetError};
+#[cfg(test)]
+use burn::{data::dataloader::batcher::Batcher, prelude::*};
+#[cfg(test)]
+use ndarray::{ArrayD, Axis};
 
 /// A batch of stacked input/target tensor pairs.
 ///
 /// `R` = input tensor rank (batch + spatial dims + channel axis).
-/// `RM1` = target tensor rank, constrained to `R - 1` (targets have no
-/// channel axis) - enforced at compile time by [`OperatorBatcher::new`].
+/// `RM1` = target tensor rank, `R - 1` (targets have no channel axis).
 #[derive(Clone, Debug)]
 pub struct Batch<const R: usize, const RM1: usize> {
+    /// `[B, *spatial, C]`, channels-last.
     pub inputs: Tensor<R>,
+    /// `[B, *spatial]`.
     pub targets: Tensor<RM1>,
 }
 
-/// Stacks [`DataItem`]s into a [`Batch`] for a fixed input/target rank pair.
+/// Test-only: an [`OperatorDataset`] as Burn `Dataset` of `(input, target)` rows, the
+/// host-side items [`OperatorBatcher`] stacks.
+#[cfg(test)]
+pub(crate) struct HostItems<T: HostFloat>(pub OperatorDataset<T>);
+
+#[cfg(test)]
+impl<T: HostFloat> Dataset<(ArrayD<T>, ArrayD<T>)> for HostItems<T> {
+    fn get(&self, index: usize) -> Result<(ArrayD<T>, ArrayD<T>), DatasetError> {
+        if index >= self.0.len() {
+            return Err(DatasetError::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("index {index} out of bounds (len {})", self.0.len()),
+            )));
+        }
+        Ok((
+            self.0.inputs().index_axis(Axis(0), index).to_owned(),
+            self.0.targets().index_axis(Axis(0), index).to_owned(),
+        ))
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+/// Test-only: stacks `(input, target)` rows of [`HostItems`] into a [`Batch`] for a fixed
+/// input/target rank pair.
 ///
 /// Batches are placed on whatever device the DataLoader supplies to
 /// [`Batcher::batch`]. In a hand-written loop, choose it with
@@ -25,8 +62,10 @@ pub struct Batch<const R: usize, const RM1: usize> {
 ///
 /// Zero-sized; the private field forces construction through
 /// [`OperatorBatcher::new`] so the rank guard always runs.
-pub struct OperatorBatcher<const R: usize, const RM1: usize>(());
+#[cfg(test)]
+pub(crate) struct OperatorBatcher<const R: usize, const RM1: usize>(());
 
+#[cfg(test)]
 impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
     /// Compile-time guard: evaluated in `new`, so a wrong rank pairing fails
     /// to build instead of panicking at runtime.
@@ -35,68 +74,46 @@ impl<const R: usize, const RM1: usize> OperatorBatcher<R, RM1> {
         "targets rank must be inputs rank minus one (no channel dim)"
     );
 
-    /// Constructs a batcher.
-    ///
-    /// The batcher does not choose a device. If the DataLoader is built
-    /// without `DataLoaderBuilder::set_device`, batches land on
-    /// `Device::default()`, which is **not** an autodiff device, so training
-    /// on them fails or produces no gradients. Pass
-    /// `device.clone().autodiff()` for training loaders.
-    ///
-    /// `RM1` must be `R - 1`, the only rank pairing this batcher supports:
-    ///
-    /// ```
-    /// use sciml_rs::neural_operators::data::batcher::OperatorBatcher;
-    ///
-    /// let _batcher = OperatorBatcher::<3, 2>::new();
-    /// ```
-    ///
-    /// Any other pairing is rejected at compile time:
-    ///
-    /// ```compile_fail,E0080
-    /// use sciml_rs::neural_operators::data::batcher::OperatorBatcher;
-    ///
-    /// let _batcher = OperatorBatcher::<3, 3>::new();
-    /// ```
-    #[allow(clippy::new_without_default)] // a derived `Default` would skip `RANK_OK`
-    pub fn new() -> Self {
+    /// Constructs a batcher. `RM1` must be `R - 1`; any other pairing fails to compile.
+    pub(crate) fn new() -> Self {
         let () = Self::RANK_OK;
         Self(())
     }
 }
 
-impl<const R: usize, const RM1: usize, T: HostFloat> Batcher<DataItem<T>, Batch<R, RM1>>
+#[cfg(test)]
+impl<const R: usize, const RM1: usize, T: HostFloat> Batcher<(ArrayD<T>, ArrayD<T>), Batch<R, RM1>>
     for OperatorBatcher<R, RM1>
 {
     /// Places the batch on `device`, as supplied by the DataLoader (set with
     /// `DataLoaderBuilder::set_device`, or by the `Learner` via `to_device`),
     /// converting from the host dtype `T` to the device's default float dtype.
-    fn batch(&self, items: Vec<DataItem<T>>, device: &Device) -> Batch<R, RM1> {
+    fn batch(&self, items: Vec<(ArrayD<T>, ArrayD<T>)>, device: &Device) -> Batch<R, RM1> {
         let n = items.len();
 
         assert!(!items.is_empty(), "cannot construct an empty batch");
 
-        let input_item_shape = items[0].input.shape();
+        let input_item_shape = items[0].0.shape();
 
         let input_shape: [usize; R] =
             core::array::from_fn(|i| if i == 0 { n } else { input_item_shape[i - 1] });
 
-        let target_item_shape = items[0].target.shape();
+        let target_item_shape = items[0].1.shape();
 
         let target_shape: [usize; RM1] =
             core::array::from_fn(|i| if i == 0 { n } else { target_item_shape[i - 1] });
 
-        let input_item_len = items[0].input.len();
-        let target_item_len = items[0].target.len();
+        let input_item_len = items[0].0.len();
+        let target_item_len = items[0].1.len();
 
         let mut input_data = Vec::with_capacity(n * input_item_len);
 
         let mut target_data = Vec::with_capacity(n * target_item_len);
 
         // Fill both buffers in a single traversal of the batch.
-        for item in &items {
-            input_data.extend(item.input.iter().copied());
-            target_data.extend(item.target.iter().copied());
+        for (input, target) in &items {
+            input_data.extend(input.iter().copied());
+            target_data.extend(target.iter().copied());
         }
 
         let inputs = Tensor::<R>::from_data(
@@ -124,12 +141,12 @@ mod tests {
         let batcher = OperatorBatcher::<3, 2>::new();
 
         // Two items: input [4, 2], target [4]. Values encode their origin.
-        let items: Vec<DataItem<f64>> = (0..2)
-            .map(|k| DataItem {
-                input: ArrayD::from_shape_fn(IxDyn(&[4, 2]), |i| {
-                    (k * 100 + i[0] * 10 + i[1]) as f64
-                }),
-                target: ArrayD::from_shape_fn(IxDyn(&[4]), |i| (k * 100 + i[0]) as f64),
+        let items: Vec<(ArrayD<f64>, ArrayD<f64>)> = (0..2)
+            .map(|k| {
+                (
+                    ArrayD::from_shape_fn(IxDyn(&[4, 2]), |i| (k * 100 + i[0] * 10 + i[1]) as f64),
+                    ArrayD::from_shape_fn(IxDyn(&[4]), |i| (k * 100 + i[0]) as f64),
+                )
             })
             .collect();
 
@@ -147,10 +164,10 @@ mod tests {
     fn batch_lands_on_the_supplied_device() {
         let batcher = OperatorBatcher::<3, 2>::new();
         let items = || {
-            vec![DataItem {
-                input: ArrayD::<f64>::zeros(IxDyn(&[4, 2])),
-                target: ArrayD::zeros(IxDyn(&[4])),
-            }]
+            vec![(
+                ArrayD::<f64>::zeros(IxDyn(&[4, 2])),
+                ArrayD::<f64>::zeros(IxDyn(&[4])),
+            )]
         };
 
         let ad = batcher.batch(items(), &Device::default().autodiff());
@@ -171,20 +188,19 @@ mod tests {
         let device = Device::default();
         let batcher = OperatorBatcher::<3, 2>::new();
 
-        let items_f64: Vec<DataItem<f64>> = (0..3)
-            .map(|k| DataItem {
-                input: ArrayD::from_shape_fn(IxDyn(&[5, 2]), |i| {
-                    ((k * 10 + i[0] * 2 + i[1]) as f64 * 0.731).sin() / 3.0
-                }),
-                target: ArrayD::from_shape_fn(IxDyn(&[5]), |i| 1e-3 + (k + i[0]) as f64 / 7.0),
+        let items_f64: Vec<(ArrayD<f64>, ArrayD<f64>)> = (0..3)
+            .map(|k| {
+                (
+                    ArrayD::from_shape_fn(IxDyn(&[5, 2]), |i| {
+                        ((k * 10 + i[0] * 2 + i[1]) as f64 * 0.731).sin() / 3.0
+                    }),
+                    ArrayD::from_shape_fn(IxDyn(&[5]), |i| 1e-3 + (k + i[0]) as f64 / 7.0),
+                )
             })
             .collect();
-        let items_f32: Vec<DataItem<f32>> = items_f64
+        let items_f32: Vec<(ArrayD<f32>, ArrayD<f32>)> = items_f64
             .iter()
-            .map(|it| DataItem {
-                input: it.input.mapv(f32::from_f64),
-                target: it.target.mapv(f32::from_f64),
-            })
+            .map(|(input, target)| (input.mapv(f32::from_f64), target.mapv(f32::from_f64)))
             .collect();
 
         let a = batcher.batch(items_f64, &device);

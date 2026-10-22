@@ -1,6 +1,4 @@
-//! Shared data-pipeline types used by both `OperatorDataset` and `OperatorBatcher`.
-
-use ndarray::ArrayD;
+//! The host storage dtype of the preprocessed datasets.
 
 mod sealed {
     pub trait Sealed {}
@@ -34,11 +32,4 @@ impl HostFloat for f64 {
     fn from_f64(v: f64) -> Self {
         v
     }
-}
-
-/// A single training example: one input/target pair seen by the model during training.
-#[derive(Clone, Debug)]
-pub struct DataItem<T: HostFloat> {
-    pub input: ArrayD<T>,
-    pub target: ArrayD<T>,
 }

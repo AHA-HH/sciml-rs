@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use burn::{data::dataset::Dataset, prelude::*, tensor::Device};
+use burn::{prelude::*, tensor::Device};
 use gnuplot::{AxesCommon, Caption, Figure};
 use sciml_rs::neural_operators::{
     data::loaders::darcy::{DarcyConfig, load_darcy_uniform},
@@ -47,19 +47,19 @@ fn main() {
 
     // One sample. input is [s, s, 1]: the coefficient field only; the model
     // appends the two grid channels itself.
-    let item = test_data.get(0).expect("test set is non-empty");
+    let input = test_data.inputs().index_axis(ndarray::Axis(0), 0);
+    let target = test_data.targets().index_axis(ndarray::Axis(0), 0);
     let s = dataset_cfg.s();
 
-    let coeff: Vec<f64> = item
-        .input
+    let coeff: Vec<f64> = input
         .slice(ndarray::s![.., .., 0])
         .iter()
         .copied()
         .collect();
-    let truth: Vec<f64> = item.target.iter().copied().collect();
+    let truth: Vec<f64> = target.iter().copied().collect();
 
     // Forward one sample: [s, s, 1] -> [1, s, s, 1] -> [1, s, s, 1].
-    let x_flat: Vec<f64> = item.input.iter().copied().collect();
+    let x_flat: Vec<f64> = input.iter().copied().collect();
     let x = Tensor::<4>::from_data(TensorData::new(x_flat, vec![1, s, s, 1]), &device);
     let out = model.forward(x).reshape([s, s]);
 
