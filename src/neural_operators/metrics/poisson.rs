@@ -13,8 +13,8 @@
 //! [`check_error3`] cross-checks the mean error 3 against the run's last test_l2. Each
 //! error is summarised over the samples with [`ErrorStats`](super::stats::ErrorStats).
 //!
-//! Error 1 (the solver) needs the `chebyshev` feature and is quoted, not recomputed (design
-//! §12, decision 16). Everything here is ndarray and f64, built without `chebyshev`
+//! Error 1 (the solver) needs the `datagen` feature and is quoted, not recomputed (design
+//! §12, decision 16). Everything here is ndarray and f64, built without `datagen`
 //! (decision 15). Grids, transfers and norms follow CONVENTIONS §12.
 
 use crate::neural_operators::chebyshev::{

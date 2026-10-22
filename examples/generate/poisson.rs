@@ -1,6 +1,6 @@
 //! Poisson datasets on the Chebyshev grid (design §5.1, §5.3)
 //!
-//! Run with: cargo run --release --features chebyshev --example generate_poisson
+//! Run with: cargo run --release --features datagen --example generate_poisson
 //!
 //! Writes one `.npz` and one JSON sidecar per split to `datasets/poisson/` (git-ignored),
 //! named `poisson_n{n}_K{K}_{split}`. Each sample is a GRF forcing f and its solver-A

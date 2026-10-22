@@ -1,6 +1,6 @@
 //! Chebyshev–Gauss–Lobatto nodes in ascending order.
 //!
-//! Test oracle (feature `chebyshev`, tests only): RLST's nodes, against which the closed-form
+//! Test oracle (feature `datagen`, tests only): RLST's nodes, against which the closed-form
 //! [`nodes`](super::nodes) is checked (design §12, decision 26).
 
 use ndarray::Array1;

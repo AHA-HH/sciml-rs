@@ -58,16 +58,16 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   `save_plot`, `save_normalizers`, `save_weights`; `open(dir)`, `load_fno`, `model_config`,
   `data_config::<C>`, `normalizers()`, `metrics()`. Run-file names appear nowhere else;
   examples pass `CARGO_MANIFEST_DIR/runs` as the root.
-- `src/neural_operators/chebyshev/`: `diff_matrix`/`diff2_matrix` are behind the
-  `chebyshev` feature (need system libfftw3). `points` and `quadrature` (RLST nodes,
-  `clenshaw_curtis`) are `#[cfg(all(test, feature = "chebyshev"))]` oracles for the closed
-  forms.
+- `src/neural_operators/chebyshev/` builds without features, except `diff_matrix`/
+  `diff2_matrix`, behind the `datagen` feature (need system libfftw3; design §12, decision
+  27). `points` and `quadrature` (RLST nodes, `clenshaw_curtis`) are
+  `#[cfg(all(test, feature = "datagen"))]` oracles for the closed forms.
 - `chebyshev/transfer` is ungated (ndarray only): `nodes` (closed-form CGL nodes),
   `uniform_nodes`, `cheb_to_uniform` (T_cu), `uniform_to_cheb` (T_uc, Floater–Hormann),
   `apply`, `Transfers`.
 - `chebyshev/clencurt` is ungated (ndarray only): `clencurt` (closed-form Clenshaw–Curtis
   weights, Trefethen) and `cc_rel_l2_error` (relative CC-L² error on the CGL tensor grid).
-- `src/neural_operators/pde/poisson/` (behind `chebyshev`): `collocation`
+- `src/neural_operators/pde/poisson/` (behind `datagen`): `collocation`
   (`CollocationSolver`, solver A, fast diagonalisation); `sparse` (`SparseSolver`, solver C,
   Q1 + unpreconditioned CG, validation oracle, test-only); `manufactured` (test-only fixtures).
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`
@@ -105,7 +105,9 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 ## Build environment
 Stable Rust, edition 2024 (Rust 1.85+), with `rustfmt` and `clippy`. `gnuplot` is
 optional: plots are skipped with a warning when it is missing. Examples need the datasets;
-tests do not. `.cargo/config.toml` links with `lld` on aarch64 Linux.
+tests do not. `.cargo/config.toml` links with `lld` on aarch64 Linux. The optional
+`datagen` feature (RLST, the reference solvers in `pde/`, `generate_poisson`) needs a system
+libfftw3, and OpenBLAS on Linux (Accelerate on macOS).
 
 ## Checks
 CI (GitHub Actions, `.github/workflows/run-tests.yml`, pushes and pull requests to `main`)
@@ -118,9 +120,9 @@ cargo doc --no-deps
 cargo fmt -- --check
 cargo clippy --no-deps -- -D warnings
 cargo clippy --no-deps --examples -- -D warnings
-# run-tests-chebyshev (installs OpenBLAS, FFTW and libclang first)
-cargo clippy --no-deps --features chebyshev --all-targets -- -D warnings
-cargo test --features chebyshev
+# run-tests-datagen (installs OpenBLAS, FFTW and libclang first)
+cargo clippy --no-deps --features datagen --all-targets -- -D warnings
+cargo test --features datagen
 ```
 CI compiles the examples but never runs them (they need `datasets/` and `runs/`).
 Before finishing any task, also run `cargo clippy --all-targets -- -D warnings`. Keep
@@ -162,6 +164,9 @@ than trusting prose when checking how an API behaves.
 
 ## Commands
 - All tests: `cargo test`
+- Tests with the reference solvers and RLST oracles: `cargo test --features datagen`
+- Generate the Poisson datasets: `cargo run --release --features datagen --example generate_poisson`
+  (writes `datasets/poisson/`)
 - Train: `cargo run --release --example train_burgers [--features metal]`
   (also `train_darcy`)
 - `train_burgers_learner` is a showcase of Burn's `Learner` and needs a real terminal for its

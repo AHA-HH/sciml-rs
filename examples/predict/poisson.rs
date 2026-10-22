@@ -9,7 +9,7 @@
 //! (`loaders::poisson::stage`). The test inputs come
 //! from `load_poisson_uniform`, the raw CGL solutions from `load_poisson_cheb`;
 //! predictions are decoded with the y normalizer and copied to the host as f64. Error 1
-//! needs the `chebyshev` feature and is quoted from Phase 1. Cross-checks error 2 against
+//! needs the `datagen` feature and is quoted from Phase 1. Cross-checks error 2 against
 //! the test split's `.json` sidecar and the mean error 3 against the run's last test_l2,
 //! then writes errors.json into the run directory, with the index of the sample with the max
 //! error 4, the one to plot with `poisson_plot`. Needs the run's stage dataset: see

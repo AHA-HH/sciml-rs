@@ -1290,6 +1290,20 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       sidecar's label check and error 2 to about 1e-15 (`docs/phase4s/README.md`
       Results).
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
+27. **Phase 4s T15 declined; the feature renamed `datagen` (2026-10-22).**
+    - **T15 declined.** Decision 12 stands, unamended: `diff_matrix` / `diff2_matrix` keep
+      wrapping RLST's FFTW-backed `chebychev` transforms, and `unit_coeffs`, `rlst/fftw`,
+      `rlst/fftw_system` and the system libfftw3 stay. Labels do not change, so no dataset
+      is regenerated. T15 has no PR; this decision is recorded in T16's.
+    - **T16 therefore ungates everything in `chebyshev/` except `differentiation.rs`**
+      (and the `unit_coeffs` it calls), which stays behind the feature because it needs
+      FFTW. The RLST cross-check oracles (`points`, `quadrature` and the tests that use
+      them) stay `#[cfg(all(test, feature = "datagen"))]`.
+    - **The feature is renamed `chebyshev` → `datagen`,** after what it enables: RLST with
+      a BLAS/LAPACK provider and FFTW, the reference solvers in `pde/` and the dataset
+      generator. **No alias** `chebyshev = ["datagen"]`: nothing outside the repository
+      uses the name. The CI job becomes `run-tests-datagen`.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
 
 ## References
 

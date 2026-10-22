@@ -61,7 +61,7 @@ path = "examples/predict/poisson_resolution.rs"
 [[example]]
 name = "generate_poisson"
 path = "examples/generate/poisson.rs"
-required-features = ["chebyshev"]
+required-features = ["datagen"]
 
 # Backends are additive: `Device::default()` picks the highest-priority one
 # compiled in (CUDA > Metal > ROCm > Vulkan > wgpu > Flex), and the
@@ -74,6 +74,9 @@ flex = ["burn/flex"] # pure-Rust CPU
 metal = ["burn/metal"]
 cuda = ["burn/cuda"]
 wgpu = ["burn/wgpu"]
+# `datagen`: everything needed to generate and check the Poisson datasets (the reference
+# solvers in `pde/`, the D and D² they use, and `generate_poisson`); renamed from
+# `chebyshev`, no alias (design §12, decision 27).
 # RLST (dense and sparse linear algebra for the Chebyshev reference solver) plus a
 # BLAS/LAPACK provider chosen by target: Accelerate on macOS, system OpenBLAS on Linux.
 # rlst's `fftw` and `fftw_system` back its Chebyshev transforms (design decision 12).
@@ -83,7 +86,7 @@ wgpu = ["burn/wgpu"]
 # `rand_distr`'s StandardNormal) and `serde_json` for its sidecars; all three are pinned
 # exactly so a seed gives the same field on every machine, even in builds that do not use
 # the committed `Cargo.lock` (design §12, decision 13).
-chebyshev = [
+datagen = [
     "dep:rlst",
     "rlst/fftw",
     "rlst/fftw_system",

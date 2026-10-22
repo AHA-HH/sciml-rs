@@ -316,7 +316,7 @@ and Phase 2 T1.
   host; the model sees f32 after normalisation (§8, §10).
 
 ### Verification
-Tests marked † need the `chebyshev` feature.
+Tests marked † need the `datagen` feature (named `chebyshev` before Phase 4s T16).
 - CGL nodes and Clenshaw–Curtis weights (Phase 1 T1):
   `cgl_nodes_ascending_match_rlst_reversed`†, `clenshaw_curtis_exact_on_polynomials`†.
 - Grids and transfers (Phase 2 T1, `chebyshev::transfer`):
