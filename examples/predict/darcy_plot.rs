@@ -9,8 +9,8 @@ use burn::tensor::Device;
 use gnuplot::{AxesCommon, Caption, Figure};
 use sciml_rs::neural_operators::{
     data::loaders::darcy::{DarcyConfig, load_darcy_uniform},
-    models::run::predict_host,
-    runs::{ConfigFile, RunDir},
+    models::predict::predict_host,
+    runs::RunDir,
 };
 
 fn main() {
@@ -28,7 +28,7 @@ fn main() {
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let dataset_cfg: DarcyConfig = run
-        .config(ConfigFile::Data)
+        .data_config()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     // f64 host storage: the plot reads the sample back as f64. The model

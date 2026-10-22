@@ -1,5 +1,5 @@
-//! A missing gnuplot must not abort `RunDir::save_metrics`, which the training
-//! examples call before saving the weights.
+//! A missing gnuplot must not abort `RunDir::save_plot`, which the training examples
+//! call before saving the weights.
 //!
 //! Own test binary (own process) because it clears `PATH`, which is global.
 
@@ -7,7 +7,7 @@ use sciml_rs::neural_operators::{
     data::loaders::{base_dataset::DatasetConfig, burgers::BurgersConfig},
     models::fno::FNOConfig,
     runs::{EpochMetrics, RunDir},
-    training::trainer::TrainingConfig,
+    training::config::TrainingConfig,
 };
 
 #[test]
@@ -36,8 +36,10 @@ fn run_artifacts_survive_missing_gnuplot() {
         ),
     )
     .expect("save the configs");
-    run.save_metrics(&metrics)
-        .expect("a missing gnuplot must only skip the plot");
+    run.append_metrics(&metrics[0])
+        .expect("append the metrics row");
+    // must return without panicking: a missing gnuplot only skips the plot
+    run.save_plot(&metrics);
 
     let dir = run.path();
     let written = [

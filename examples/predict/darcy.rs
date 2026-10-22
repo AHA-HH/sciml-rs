@@ -15,8 +15,8 @@ use sciml_rs::neural_operators::{
         loaders::darcy::{DarcyConfig, load_darcy_uniform},
         transforms::normalizers::FlatDecoder,
     },
-    runs::{ConfigFile, RunDir},
-    training::trainer::evaluate,
+    runs::RunDir,
+    training::step::evaluate,
 };
 
 fn main() {
@@ -36,7 +36,7 @@ fn main() {
 
     // Same test split the run was evaluated on
     let dataset_cfg: DarcyConfig = run
-        .config(ConfigFile::Data)
+        .data_config()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let (_, test_data, _) = load_darcy_uniform::<f32>(

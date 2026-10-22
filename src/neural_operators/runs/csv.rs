@@ -5,7 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
-/// Reads a metrics CSV written by [`write_metrics_csv`] back into
+/// Reads a metrics CSV written by [`append_metrics_row`] back into
 /// `EpochMetrics`.
 ///
 /// # Errors
@@ -40,37 +40,18 @@ pub(super) fn read_metrics_csv(path: impl AsRef<Path>) -> io::Result<Vec<EpochMe
     Ok(metrics)
 }
 
-const HEADER: &str = "epoch,train_mse,train_l2,test_l2,current_lr";
-
-fn write_row(w: &mut impl Write, m: &EpochMetrics) -> io::Result<()> {
-    writeln!(
-        w,
-        "{},{},{},{},{}",
-        m.epoch, m.train_mse, m.train_l2, m.test_l2, m.current_lr
-    )
-}
-
-/// Writes per-epoch metrics to CSV, one row per epoch, with a header row.
-pub(super) fn write_metrics_csv(
-    path: impl AsRef<Path>,
-    metrics: &[EpochMetrics],
-) -> io::Result<()> {
-    let mut file = File::create(path)?;
-    writeln!(file, "{HEADER}")?;
-    for m in metrics {
-        write_row(&mut file, m)?;
-    }
-    Ok(())
-}
-
 /// Appends one row to a metrics CSV, creating it with the header row if it is missing or
-/// empty. Rows appended one by one give the bytes [`write_metrics_csv`] writes at once.
+/// empty. The only writer of `metrics.csv`.
 pub(super) fn append_metrics_row(path: impl AsRef<Path>, m: &EpochMetrics) -> io::Result<()> {
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     if file.metadata()?.len() == 0 {
-        writeln!(file, "{HEADER}")?;
+        writeln!(file, "epoch,train_mse,train_l2,test_l2,current_lr")?;
     }
-    write_row(&mut file, m)
+    writeln!(
+        file,
+        "{},{},{},{},{}",
+        m.epoch, m.train_mse, m.train_l2, m.test_l2, m.current_lr
+    )
 }
 
 #[cfg(test)]
@@ -97,7 +78,10 @@ mod tests {
         ];
 
         let path = std::env::temp_dir().join("sciml_rs_metrics_round_trip.csv");
-        write_metrics_csv(&path, &metrics).unwrap();
+        std::fs::remove_file(&path).ok();
+        for m in &metrics {
+            append_metrics_row(&path, m).unwrap();
+        }
         let read = read_metrics_csv(&path).unwrap();
         std::fs::remove_file(&path).ok();
 

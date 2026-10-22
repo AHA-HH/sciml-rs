@@ -23,7 +23,6 @@ use crate::neural_operators::chebyshev::{
 use crate::neural_operators::runs::EpochMetrics;
 use ndarray::{Array1, Array2, ArrayView2, ArrayView3, Axis};
 use std::fmt;
-use std::io;
 
 /// Per-sample errors from [`poisson_errors`], one entry per sample, in sample order.
 #[derive(Debug, Clone)]
@@ -149,24 +148,18 @@ impl fmt::Display for Error3Check {
     }
 }
 
-/// Compares `mean_error3`, error 3 averaged over the test split, with the last test_l2 in
-/// the run's `metrics` (`RunDir::metrics`). Error 3 is the training loss's relative L²
+/// Compares `mean_error3`, error 3 averaged over the test split, with `last.test_l2`, the
+/// run's final epoch (`RunDir::metrics`). Error 3 is the training loss's relative L²
 /// (CONVENTIONS §11), so on the run's own test split the two agree to f32 round-off.
-///
-/// # Errors
-/// [`io::ErrorKind::InvalidData`] if `metrics` has no epochs.
-pub fn check_error3(metrics: &[EpochMetrics], mean_error3: f64) -> io::Result<Error3Check> {
-    let last = metrics
-        .last()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "metrics.csv has no epochs"))?;
+pub fn check_error3(last: &EpochMetrics, mean_error3: f64) -> Error3Check {
     let test_l2 = f64::from(last.test_l2);
     let rel_diff = (mean_error3 - test_l2).abs() / test_l2.abs();
-    Ok(Error3Check {
+    Error3Check {
         epoch: last.epoch,
         test_l2,
         rel_diff,
         passed: rel_diff <= ERROR3_TOL,
-    })
+    }
 }
 
 /// ‖a − b‖₂ / ‖b‖₂ over all entries with equal weights (`LpLoss::rel` with p = 2).
@@ -380,17 +373,12 @@ mod tests {
     #[test]
     fn error3_check_uses_the_last_epoch() {
         let rows = metrics(&[0.5, 0.25]);
-        let check = check_error3(&rows, 0.25 * (1.0 + 5e-6)).unwrap();
+        let last = rows.last().unwrap();
+        let check = check_error3(last, 0.25 * (1.0 + 5e-6));
         assert_eq!((check.epoch, check.test_l2), (1, 0.25));
         assert!(check.passed, "{check}");
-        let check = check_error3(&rows, 0.25 * (1.0 + 2e-5)).unwrap();
+        let check = check_error3(last, 0.25 * (1.0 + 2e-5));
         assert!(!check.passed, "{check}");
         assert!(check.to_string().ends_with("FAILED"));
-    }
-
-    #[test]
-    fn error3_check_rejects_no_epochs() {
-        let err = check_error3(&[], 0.1).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 }

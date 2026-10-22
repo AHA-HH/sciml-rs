@@ -24,7 +24,7 @@ use sciml_rs::neural_operators::{
     },
     models::fno::FNOConfig,
     runs::RunDir,
-    training::trainer::{TrainingConfig, train_fno},
+    training::{config::TrainingConfig, trainer::train_fno},
 };
 use std::path::Path;
 
@@ -115,7 +115,7 @@ fn main() {
 
     run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
         .expect("could not save configs");
-    run.save_metrics(&metrics).expect("could not save metrics");
+    run.save_plot(&metrics);
     run.save_weights(&model)
         .unwrap_or_else(|e| panic!("could not save model weights: {e}"));
 

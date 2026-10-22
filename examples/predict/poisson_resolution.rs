@@ -24,8 +24,8 @@ use sciml_rs::neural_operators::{
         poisson::{check_error3, poisson_errors},
         stats::ErrorStats,
     },
-    models::run::predict_host,
-    runs::{ConfigFile, RunDir},
+    models::predict::predict_host,
+    runs::RunDir,
     utils::backend::backend_features,
 };
 
@@ -51,7 +51,7 @@ fn main() {
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let trained_cfg = run
-        .config::<PoissonConfig>(ConfigFile::Data)
+        .data_config::<PoissonConfig>()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let k = stage(trained_cfg.n)
         .unwrap_or_else(|e| panic!("the run's stage: {e}"))
@@ -115,8 +115,8 @@ fn main() {
         );
 
         if trained_here {
-            let check = check_error3(&run.metrics().expect("read metrics.csv"), e3.mean)
-                .expect("metrics.csv has epochs");
+            let metrics = run.metrics().expect("read metrics.csv");
+            let check = check_error3(metrics.last().expect("metrics.csv has epochs"), e3.mean);
             println!("      check: {check}");
             cross_check_ok &= check.passed;
         }

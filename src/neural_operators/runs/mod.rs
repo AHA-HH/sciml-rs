@@ -68,27 +68,6 @@ pub struct EpochMetrics {
     pub current_lr: f64,
 }
 
-/// Which of a run's three configs to read with [`RunDir::config`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigFile {
-    /// `model_cfg.json`: the [`FNOConfig`].
-    Model,
-    /// `train_cfg.json`: the `TrainingConfig`.
-    Train,
-    /// `data_cfg.json`: the PDE's dataset config.
-    Data,
-}
-
-impl ConfigFile {
-    fn file_name(self) -> &'static str {
-        match self {
-            ConfigFile::Model => MODEL_CFG,
-            ConfigFile::Train => TRAIN_CFG,
-            ConfigFile::Data => DATA_CFG,
-        }
-    }
-}
-
 /// A training run's directory. See the [module docs](self) for its files.
 #[derive(Debug, Clone)]
 pub struct RunDir {
@@ -158,8 +137,8 @@ impl RunDir {
     }
 
     /// Appends one epoch's row to `metrics.csv`, writing the header first if the file is
-    /// new. Training calls this after every epoch (`train_fno`), so a run that stops early
-    /// keeps the rows of its finished epochs.
+    /// new: the file's only writer. Training calls this after every epoch (`train_fno`), so
+    /// a run that stops early keeps the rows of its finished epochs.
     ///
     /// # Errors
     /// If the file can't be opened or written.
@@ -167,19 +146,13 @@ impl RunDir {
         csv::append_metrics_row(self.path.join(METRICS_CSV), m)
     }
 
-    /// Writes `metrics.csv` in full, then `plots.png` titled with the run's name. At the end
-    /// of training this rewrites the rows [`RunDir::append_metrics`] already wrote, byte for
-    /// byte, and repairs any row an append failed to write. A missing
-    /// gnuplot only skips the plot, with a warning on stderr.
-    ///
-    /// # Errors
-    /// If the CSV can't be written.
-    pub fn save_metrics(&self, metrics: &[EpochMetrics]) -> io::Result<()> {
-        csv::write_metrics_csv(self.path.join(METRICS_CSV), metrics)?;
+    /// Draws `plots.png` (loss curves and learning rate) from `metrics`, titled with the
+    /// run's name: an end-of-run action. A missing gnuplot only skips the plot, with a
+    /// warning on stderr.
+    pub fn save_plot(&self, metrics: &[EpochMetrics]) {
         if let Err(e) = plots::plot_metrics(self.path.join(PLOTS_PNG), metrics, &self.name) {
             eprintln!("warning: skipping {PLOTS_PNG} ({e})");
         }
-        Ok(())
     }
 
     /// Writes `x_normalizer.json` and `y_normalizer.json`.
@@ -211,18 +184,30 @@ impl RunDir {
     /// If `model_cfg.json` can't be read or parsed, or `model_weights.bpk` can't be read
     /// or doesn't fit the architecture.
     pub fn load_fno<const R: usize>(&self, device: &Device) -> Result<FNO<R>, Box<dyn Error>> {
-        let config: FNOConfig = self.config(ConfigFile::Model)?;
-        let mut model = config.init::<R>(device);
+        let mut model = self.model_config()?.init::<R>(device);
         model.load_from(&mut BurnpackStore::from_file(self.path.join(WEIGHTS_STEM)))?;
         Ok(model)
     }
 
-    /// Reads one of the run's configs as `C`.
+    /// The model's architecture, from `model_cfg.json`.
+    ///
+    /// # Errors
+    /// If the file can't be read or parsed.
+    pub fn model_config(&self) -> Result<FNOConfig, Box<dyn Error>> {
+        self.load_config(MODEL_CFG)
+    }
+
+    /// The dataset config, from `data_cfg.json`, as the PDE's config type `C` (for example
+    /// `DarcyConfig`).
     ///
     /// # Errors
     /// If the file can't be read or doesn't parse as `C`.
-    pub fn config<C: Config>(&self, file: ConfigFile) -> Result<C, Box<dyn Error>> {
-        let path = self.path.join(file.file_name());
+    pub fn data_config<C: Config>(&self) -> Result<C, Box<dyn Error>> {
+        self.load_config(DATA_CFG)
+    }
+
+    fn load_config<C: Config>(&self, file: &str) -> Result<C, Box<dyn Error>> {
+        let path = self.path.join(file);
         C::load(&path).map_err(|e| format!("{}: {e}", path.display()).into())
     }
 
@@ -261,8 +246,8 @@ mod tests {
     use super::*;
     use crate::neural_operators::{
         data::loaders::{base_dataset::DatasetConfig, darcy::DarcyConfig},
-        models::run::predict_host,
-        training::trainer::TrainingConfig,
+        models::predict::predict_host,
+        training::config::TrainingConfig,
     };
     use ndarray::{Array4, ArrayD, IxDyn};
 
@@ -336,10 +321,10 @@ mod tests {
         let loaded_out = predict_host(&loaded, x.view().into_dyn(), 2, &device);
         assert_eq!(saved_out, loaded_out);
 
-        let data: DarcyConfig = opened.config(ConfigFile::Data).unwrap();
+        let data: DarcyConfig = opened.data_config().unwrap();
         assert_eq!(data.s(), data_config().s());
-        let train: TrainingConfig = opened.config(ConfigFile::Train).unwrap();
-        assert_eq!(train.epochs, TrainingConfig::new().epochs);
+        assert_eq!(opened.model_config().unwrap().modes, model_config().modes);
+        assert!(opened.path().join("train_cfg.json").exists());
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -352,7 +337,9 @@ mod tests {
             "no normalizer files yet"
         );
 
-        run.save_metrics(&metrics()).unwrap();
+        for m in &metrics() {
+            run.append_metrics(m).unwrap();
+        }
         let read = run.metrics().unwrap();
         assert_eq!(read.len(), 2);
         assert_eq!(read[1].epoch, 1);
@@ -384,7 +371,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let run = RunDir::open(&root).unwrap();
         assert!(run.normalizers().unwrap().is_none());
-        assert!(run.config::<DarcyConfig>(ConfigFile::Data).is_err());
+        assert!(run.data_config::<DarcyConfig>().is_err());
         assert_eq!(run.metrics().unwrap_err().kind(), io::ErrorKind::NotFound);
         assert!(run.load_fno::<4>(&Device::default()).is_err());
         std::fs::remove_dir_all(&root).unwrap();

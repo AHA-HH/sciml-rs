@@ -1,7 +1,7 @@
-//! Generic FNO training loop
+//! Generic FNO training loop: the components, one training epoch, the loop with its
+//! per-epoch observer, and [`train_fno`], the one entry point every PDE trains through.
 
 use burn::{
-    config::Config,
     data::dataloader::DataLoader,
     lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
     module::Module,
@@ -24,194 +24,45 @@ use crate::neural_operators::{
         host_float::HostFloat,
         transforms::normalizers::{FlatDecoder, UnitGaussianNormalizer},
     },
-    losses::data_losses::{LpLoss, Reduction},
     models::fno::{FNO, FNOConfig},
     runs::{EpochMetrics, RunDir},
+    training::{
+        config::TrainingConfig,
+        step::{Postprocess, StepLoss, evaluate, forward_loss, identity},
+    },
 };
 
-/// Training config
-#[derive(Config, Debug)]
-pub struct TrainingConfig {
-    #[config(default = 100)]
-    pub epochs: usize,
-    #[config(default = 20)]
-    pub batch_size: usize,
-    #[config(default = 20)]
-    pub test_batch_size: usize,
-    #[config(default = 1e-3)]
-    pub learning_rate: f64,
-    /// f32 to match `WeightDecayConfig::penalty`, unlike the f64 types above.
-    #[config(default = 1e-4)]
-    pub weight_decay: f32,
-    #[config(default = 1e-7)]
-    pub min_lr: f64,
-    #[config(default = 42)]
-    pub seed: u64,
-}
-
-/// Rank-free postprocess applied after flattening: decode, or pass through.
-pub type Postprocess = dyn Fn(Tensor<2>, Tensor<2>) -> (Tensor<2>, Tensor<2>);
-
-pub fn identity(out: Tensor<2>, target: Tensor<2>) -> (Tensor<2>, Tensor<2>) {
-    (out, target)
-}
-
-/// Collapse model output (rank `IR`, trailing channel axis) and target
-/// (rank `RM1 = R - 1`) to the rank-2 pair `LpLoss` requires.
-///
-/// For `R = 3`: `[b, s, 1]` and `[b, s]` both become `[b, s]`.
-///
-/// `RM1` must be `R - 1`:
-///
-/// ```
-/// use burn::{Tensor, tensor::Device};
-/// use sciml_rs::neural_operators::training::trainer::flatten_pair;
-///
-/// let device = Device::default();
-/// let out = Tensor::<3>::zeros([2, 4, 1], &device);
-/// let target = Tensor::<2>::zeros([2, 4], &device);
-/// let (o, t) = flatten_pair::<3, 2>(out, target);
-/// assert_eq!((o.dims(), t.dims()), ([2, 4], [2, 4]));
-/// ```
-///
-/// Any other pairing is rejected at compile time:
-///
-/// ```compile_fail,E0080
-/// use burn::{Tensor, tensor::Device};
-/// use sciml_rs::neural_operators::training::trainer::flatten_pair;
-///
-/// let device = Device::default();
-/// let out = Tensor::<3>::zeros([2, 4, 1], &device);
-/// let target = Tensor::<3>::zeros([2, 4, 1], &device);
-/// let _ = flatten_pair::<3, 3>(out, target);
-/// ```
-///
-/// # Panics
-///
-/// If the output has more than one channel.
-pub fn flatten_pair<const R: usize, const RM1: usize>(
-    out: Tensor<R>,
-    target: Tensor<RM1>,
-) -> (Tensor<2>, Tensor<2>) {
-    const {
-        assert!(
-            RM1 + 1 == R,
-            "target rank must be output rank minus one (no channel axis)"
-        )
-    };
-    assert_eq!(
-        out.dims()[R - 1],
-        1,
-        "flatten_pair requires out_channels == 1"
-    );
-
-    let dims = target.dims(); // [b, ...spatial]
-    let b = dims[0];
-    let n_points: usize = dims[1..].iter().product();
-    (out.reshape([b, n_points]), target.reshape([b, n_points]))
-}
-
-/// One batch through [`forward_loss`]: the loss and the tensors it was computed from.
-pub(crate) struct StepLoss {
-    /// Relative L2 summed over the batch, `[1]`.
-    pub l2_sum: Tensor<1>,
-    /// Post-processed model output, `[b, n_points]`.
-    pub out: Tensor<2>,
-    /// Post-processed target, `[b, n_points]`.
-    pub target: Tensor<2>,
-}
-
-/// One forward pass and its loss: the step shared by [`train_epoch`], `eval_epoch` ([`evaluate`]) and
-/// the Burgers `Learner` ([`learner`](crate::neural_operators::training::learner)), so
-/// the loss is defined once.
-///
-/// Runs `model` on `batch.inputs` (`[b, ...spatial, data_channels]`), collapses output
-/// and `batch.targets` (`[b, ...spatial]`) with [`flatten_pair`] and applies `post`
-/// before the loss (`LpLoss::new(R - 2, 2, Reduction::Sum)`).
-///
-/// # Panics
-///
-/// If the output has more than one channel ([`flatten_pair`]).
-pub(crate) fn forward_loss<const R: usize, const RM1: usize>(
-    model: &FNO<R>,
-    batch: Batch<R, RM1>,
-    post: &Postprocess,
-) -> StepLoss {
-    let out = model.forward(batch.inputs);
-    let (out, target) = flatten_pair::<R, RM1>(out, batch.targets);
-    let (out, target) = post(out, target);
-    let l2_sum = LpLoss::new(R - 2, 2, Reduction::Sum).rel(out.clone(), target.clone());
-    StepLoss {
-        l2_sum,
-        out,
-        target,
-    }
-}
-
-/// Mean relative L² per sample of `model` over every batch of `loader`: the test loss
-/// that training reports as `test_l2` (`LpLoss::new(R - 2, 2, Sum)`, divided by the
-/// loader's sample count).
-///
-/// - `loader` yields [`Batch`]es with inputs `[B, *spatial, C]` and targets `[B, *spatial]`,
-///   e.g. from `device_loader` on a plain (non-autodiff) device.
-/// - `post` maps `(output, target)` to what the loss compares: [`identity`] in physical
-///   units, or a closure decoding the output with the target normaliser.
-///
-/// # Panics
-/// If `loader` yields no batches.
-pub fn evaluate<const R: usize, const RM1: usize>(
-    model: &FNO<R>,
-    loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
-    post: &Postprocess,
-) -> f32 {
-    eval_epoch(model, loader, post) / loader.num_items() as f32
-}
-
-/// Runs one evaluation pass. Returns the summed relative L2 across all
-/// batches; [`training_loop`] divides by the number of test samples.
-fn eval_epoch<const R: usize, const RM1: usize>(
-    model: &FNO<R>,
-    loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
-    post: &Postprocess,
-) -> f32 {
-    let mut l2_sum_tensor = None;
-
-    for batch in loader.iter() {
-        let batch = batch.expect("dataset error during evaluation");
-
-        let l2 = forward_loss(model, batch, post).l2_sum;
-
-        l2_sum_tensor = Some(match l2_sum_tensor {
-            Some(sum) => sum + l2,
-            None => l2,
-        });
-    }
-
-    l2_sum_tensor
-        .expect("evaluation loader produced no batches")
-        .into_scalar::<f32>()
-}
-
-/// Summed losses for one training epoch. Division by the number of training
-/// samples / `steps_per_epoch` happens in the caller, which owns the
-/// denominators.
-pub struct EpochSums {
-    pub mse_sum: f32,
-    pub l2_sum: f32,
+/// One training epoch's losses, averaged as `EpochMetrics` reports them.
+pub struct EpochMeans {
+    /// MSE averaged over the epoch's batches (each batch's MSE is already a mean).
+    pub train_mse: f32,
+    /// Relative L² averaged over the epoch's samples.
+    pub train_l2: f32,
+    /// Learning rate after the epoch's final step.
     pub last_lr: f64,
 }
 
-/// Runs one training pass. Takes and returns the model - Burn's optimizer
-/// consumes it on each step.
+/// `sum + x`, starting from the first `x`.
+fn accumulate(sum: Option<Tensor<1>>, x: Tensor<1>) -> Option<Tensor<1>> {
+    Some(match sum {
+        Some(sum) => sum + x,
+        None => x,
+    })
+}
+
+/// Runs one training pass and returns its [`EpochMeans`]: the MSE divided by the batch
+/// count, the relative L² by `loader.num_items()`. Takes and returns the model - Burn's
+/// optimizer consumes it on each step.
 pub fn train_epoch<const R: usize, const RM1: usize>(
     mut model: FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
     optim: &mut ModuleOptimizer,
     scheduler: &mut ModuleLrScheduler,
     post: &Postprocess,
-) -> (FNO<R>, EpochSums) {
+) -> (FNO<R>, EpochMeans) {
     let mut mse_sum_tensor = None;
     let mut l2_sum_tensor = None;
+    let mut n_batches = 0_usize;
 
     let mut last_lr = ModuleLearningRate::from(0.0_f64);
 
@@ -234,15 +85,9 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
 
         let l2_metric = l2.clone().inner();
 
-        mse_sum_tensor = Some(match mse_sum_tensor {
-            Some(sum) => sum + mse,
-            None => mse,
-        });
-
-        l2_sum_tensor = Some(match l2_sum_tensor {
-            Some(sum) => sum + l2_metric,
-            None => l2_metric,
-        });
+        mse_sum_tensor = accumulate(mse_sum_tensor, mse);
+        l2_sum_tensor = accumulate(l2_sum_tensor, l2_metric);
+        n_batches += 1;
 
         let grads = GradientsParams::from_grads(l2.backward(), &model);
 
@@ -261,9 +106,9 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
 
     (
         model,
-        EpochSums {
-            mse_sum,
-            l2_sum,
+        EpochMeans {
+            train_mse: mse_sum / n_batches as f32,
+            train_l2: l2_sum / loader.num_items() as f32,
             last_lr: last_lr.base(),
         },
     )
@@ -275,12 +120,6 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
     pub scheduler: ModuleLrScheduler,
     pub train_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
     pub test_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
-    /// Training / test sample counts: the per-sample metric divisors.
-    pub n_train: usize,
-    pub n_test: usize,
-    /// Batches per training epoch; the cosine schedule spans
-    /// `epochs * steps_per_epoch` steps.
-    pub steps_per_epoch: usize,
 }
 
 /// Builds the model, optimizer, schedule and loaders.
@@ -288,8 +127,8 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
 /// Both splits are uploaded to `device` once and stay there for the whole
 /// run (see [`device_loader`]), so they must fit in device memory.
 ///
-/// Sample counts come from the datasets themselves, so the schedule length
-/// and the metric divisors always match the data actually trained on.
+/// The schedule length comes from the training set's size, and the metric divisors from
+/// the loaders ([`train_epoch`], [`evaluate`]), so both match the data actually trained on.
 ///
 /// # Panics
 ///
@@ -353,9 +192,6 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
         scheduler,
         train_loader,
         test_loader,
-        n_train,
-        n_test,
-        steps_per_epoch,
     }
 }
 
@@ -377,8 +213,8 @@ fn epoch_line(m: &EpochMetrics, epoch_time: Duration) -> String {
     format!("{m:?} | total={:.3}s", epoch_time.as_secs_f64())
 }
 
-/// Runs `train_cfg.epochs` epochs of [`train_epoch`] then the evaluation pass behind [`evaluate`], calling
-/// `on_epoch` after each, and returns the trained model and every epoch's metrics.
+/// Runs `train_cfg.epochs` epochs of [`train_epoch`] then [`evaluate`], calling `on_epoch`
+/// after each, and returns the trained model and every epoch's metrics.
 ///
 /// Prints nothing itself: pass [`print_epoch`] (or a closure calling it) for the console
 /// line.
@@ -389,15 +225,13 @@ pub fn training_loop<const R: usize, const RM1: usize>(
     eval_post: &Postprocess,
     on_epoch: &mut EpochObserver<'_, R>,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
-    let (n_train, n_test) = (components.n_train, components.n_test);
-    let steps_per_epoch = components.steps_per_epoch;
     let mut model = components.model;
     let mut metrics = Vec::with_capacity(train_cfg.epochs);
 
     for epoch in 0..train_cfg.epochs {
         let epoch_start = Instant::now();
 
-        let (m, sums) = train_epoch(
+        let (m, means) = train_epoch(
             model,
             &components.train_loader,
             &mut components.optim,
@@ -406,18 +240,16 @@ pub fn training_loop<const R: usize, const RM1: usize>(
         );
         model = m;
 
-        let valid_model = model.valid();
-
-        let test_l2_sum = eval_epoch(&valid_model, &components.test_loader, eval_post);
+        let test_l2 = evaluate(&model.valid(), &components.test_loader, eval_post);
 
         let epoch_time = epoch_start.elapsed();
 
         let record = EpochMetrics {
             epoch,
-            train_mse: sums.mse_sum / steps_per_epoch as f32,
-            train_l2: sums.l2_sum / n_train as f32,
-            test_l2: test_l2_sum / n_test as f32,
-            current_lr: sums.last_lr,
+            train_mse: means.train_mse,
+            train_l2: means.train_l2,
+            test_l2,
+            current_lr: means.last_lr,
         };
 
         on_epoch(&record, epoch_time, &model);
@@ -431,9 +263,9 @@ pub fn training_loop<const R: usize, const RM1: usize>(
 ///
 /// After each epoch it prints the console line ([`print_epoch`]) and appends the epoch's
 /// row to `run`'s `metrics.csv` ([`RunDir::append_metrics`]), so the run directory must
-/// exist before training. A failed append only warns on stderr: training goes on, and the
-/// end-of-run [`RunDir::save_metrics`] rewrites the whole file. Prints the total training
-/// time at the end.
+/// exist before training. A failed append warns on stderr and training goes on; that row
+/// is then missing from the file but not from the returned metrics. Prints the total
+/// training time at the end.
 ///
 /// `R` is the model rank (batch + spatial axes + channel) and `RM1 = R - 1` the target
 /// rank: `<3, 2>` for 1D (Burgers), `<4, 3>` for 2D (Darcy, Poisson). Inputs are
@@ -450,7 +282,8 @@ pub fn training_loop<const R: usize, const RM1: usize>(
 /// From [`build_training_components`]:
 /// - If either dataset is empty.
 /// - If `model_cfg.modes.len() + 2 != R` or `model_cfg.out_channels != 1`
-///   (`FNOConfig::init`; the latter is the requirement of [`flatten_pair`]).
+///   (`FNOConfig::init`; the latter is the requirement of
+///   [`flatten_pair`](crate::neural_operators::training::step::flatten_pair)).
 pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
     train_data: OperatorDataset<T>,
     test_data: OperatorDataset<T>,
@@ -508,7 +341,10 @@ fn train_built<const R: usize, const RM1: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::data::batcher::{HostItems, OperatorBatcher};
+    use crate::neural_operators::data::host_oracle::{HostItems, OperatorBatcher};
+    use crate::neural_operators::training::fixtures::{
+        tiny_dataset, tiny_dataset_2d, tiny_model_cfg,
+    };
     use crate::neural_operators::{
         chebyshev::nodes_closed_form,
         data::loaders::{
@@ -522,80 +358,7 @@ mod tests {
     use std::fs::{self, File};
     use std::path::{Path, PathBuf};
 
-    #[test]
-    fn flatten_pair_collapses_to_rank_two() {
-        let device = Device::default();
-        let out = Tensor::<4>::zeros([2, 5, 6, 1], &device);
-        let target = Tensor::<3>::zeros([2, 5, 6], &device);
-        let (o, t) = flatten_pair::<4, 3>(out, target);
-        assert_eq!(o.dims(), [2, 30]);
-        assert_eq!(t.dims(), [2, 30]);
-    }
-
-    /// `forward_loss` against a hand-written oracle: forward, `flatten_pair`, the hook,
-    /// then `LpLoss::new(R - 2, 2, Sum).rel`, bit for bit. The hook doubles the
-    /// prediction, so a loss taken before the hook, or tensors returned without it, fail.
-    fn assert_forward_loss_matches_oracle<const R: usize, const RM1: usize>(
-        model: &FNO<R>,
-        data: &OperatorDataset<f64>,
-        device: &Device,
-    ) {
-        let batch = device_loader::<R, RM1, _>(data, device, data.len(), None)
-            .iter()
-            .next()
-            .expect("one batch")
-            .expect("dataset error");
-
-        let (o, t) =
-            flatten_pair::<R, RM1>(model.forward(batch.inputs.clone()), batch.targets.clone());
-        let o = o.mul_scalar(2.0);
-        let expected = LpLoss::new(R - 2, 2, Reduction::Sum).rel(o.clone(), t.clone());
-
-        let double = |out: Tensor<2>, target: Tensor<2>| (out.mul_scalar(2.0), target);
-        let step = forward_loss(model, batch, &double);
-
-        assert_eq!(step.l2_sum.dims(), [1]);
-        assert_eq!(
-            step.l2_sum.into_scalar::<f32>().to_bits(),
-            expected.into_scalar::<f32>().to_bits()
-        );
-        assert_eq!(step.out.into_data(), o.into_data());
-        assert_eq!(step.target.into_data(), t.into_data());
-    }
-
-    #[test]
-    fn forward_loss_is_flatten_pair_then_summed_relative_l2() {
-        let device = Device::default();
-
-        let model_1d = tiny_model_cfg().init::<3>(&device);
-        assert_forward_loss_matches_oracle::<3, 2>(&model_1d, &tiny_dataset(3), &device);
-
-        let model_2d = FNOConfig::new(vec![2, 2], 1, 1)
-            .with_hidden_channels(4)
-            .with_n_layers(1)
-            .init::<4>(&device);
-        assert_forward_loss_matches_oracle::<4, 3>(&model_2d, &tiny_dataset_2d(3), &device);
-    }
-
     // --- REVIEW1.md N5: schedule length and divisors come from the data ---
-
-    /// `n` Burgers-shaped samples: inputs `[n, 8, 1]`, targets `[n, 8]`,
-    /// targets nonzero so the relative L2 is well defined.
-    fn tiny_dataset(n: usize) -> OperatorDataset<f64> {
-        let inputs = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 8, 1]), |i| {
-            ((i[0] * 8 + i[1]) as f64 * 0.3 + i[2] as f64).sin()
-        });
-        let targets = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 8]), |i| {
-            2.0 + ((i[0] * 8 + i[1]) as f64 * 0.7).cos()
-        });
-        OperatorDataset::new(inputs, targets)
-    }
-
-    fn tiny_model_cfg() -> FNOConfig {
-        FNOConfig::new(vec![2], 1, 1)
-            .with_hidden_channels(4)
-            .with_n_layers(1)
-    }
 
     #[test]
     fn components_take_sample_counts_from_the_datasets() {
@@ -607,22 +370,10 @@ mod tests {
             tiny_dataset(3),
             &Device::default().autodiff(),
         );
-        assert_eq!((c.n_train, c.n_test), (5, 3));
-        assert_eq!(c.steps_per_epoch, 3); // ceil(5 / 2)
-    }
-
-    // --- Phase 4s T13: evaluate is the per-sample mean of eval_epoch ---
-
-    #[test]
-    fn evaluate_is_mean_of_eval_epoch() {
-        let device = Device::default();
-        let model: FNO<3> = tiny_model_cfg().init::<3>(&device);
-        let n_test = 5;
-        let data = tiny_dataset(n_test);
-        // batches of 2: the last batch holds one sample
-        let loader = device_loader::<3, 2, _>(&data, &device, 2, None);
-        let sum = eval_epoch(&model, &loader, &identity);
-        assert_eq!(evaluate(&model, &loader, &identity), sum / n_test as f32);
+        assert_eq!(
+            (c.train_loader.num_items(), c.test_loader.num_items()),
+            (5, 3)
+        );
     }
 
     #[test]
@@ -667,7 +418,7 @@ mod tests {
             .set_device(Device::default())
             .batch_size(2)
             .build(HostItems(tiny_dataset(n_test)));
-        let expected = eval_epoch(&model.valid(), &loader, &identity) / n_test as f32;
+        let expected = evaluate(&model.valid(), &loader, &identity);
         let test_l2 = metrics.last().unwrap().test_l2;
         assert!(
             (test_l2 - expected).abs() <= 1e-6 * expected.abs(),
@@ -775,17 +526,6 @@ mod tests {
             .collect()
     }
 
-    /// `n` Darcy-shaped samples: inputs `[n, 4, 4, 1]`, targets `[n, 4, 4]`.
-    fn tiny_dataset_2d(n: usize) -> OperatorDataset<f64> {
-        let inputs = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 4, 4, 1]), |i| {
-            ((i[0] * 16 + i[1] * 4 + i[2]) as f64 * 0.3).sin()
-        });
-        let targets = ndarray::ArrayD::from_shape_fn(ndarray::IxDyn(&[n, 4, 4]), |i| {
-            2.0 + ((i[0] * 16 + i[1] * 4 + i[2]) as f64 * 0.7).cos()
-        });
-        OperatorDataset::new(inputs, targets)
-    }
-
     /// `None` against the old `train_burgers` body: `identity` on both sides. Both runs
     /// start from one initial model (the device RNG is shared between parallel tests).
     #[test]
@@ -865,15 +605,6 @@ mod tests {
         );
     }
 
-    #[test]
-    #[should_panic(expected = "out_channels == 1")]
-    fn flatten_pair_rejects_multichannel_output() {
-        let device = Device::default();
-        let out = Tensor::<3>::zeros([2, 5, 2], &device);
-        let target = Tensor::<2>::zeros([2, 5], &device);
-        let _ = flatten_pair::<3, 2>(out, target);
-    }
-
     // --- moved from training/trainers/poisson.rs (Phase 4s T3) ---
 
     const POISSON_N: usize = 9;
@@ -949,18 +680,18 @@ mod tests {
 
     // --- Phase 4s T12: the epoch observer ---
 
-    /// `train_fno`'s per-epoch rows, appended through the observer, against the file
-    /// `save_metrics` writes from the returned metrics: byte for byte.
+    /// `train_fno` writes one `metrics.csv` row per epoch through the observer, and the
+    /// rows read back as exactly the metrics it returns.
     #[test]
-    fn incremental_csv_equals_end_of_run_csv() {
+    fn metrics_csv_holds_every_epoch() {
         let root =
-            std::env::temp_dir().join(format!("sciml_rs_incremental_csv_{}", std::process::id()));
+            std::env::temp_dir().join(format!("sciml_rs_metrics_csv_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let train_cfg = TrainingConfig::new()
             .with_epochs(3)
             .with_batch_size(2)
             .with_test_batch_size(2);
-        let live = RunDir::create(&root.join("live"), "live").unwrap();
+        let run = RunDir::create(&root, "live").unwrap();
         let (_, metrics) = train_fno::<3, 2, _>(
             tiny_dataset(5),
             tiny_dataset(3),
@@ -968,15 +699,12 @@ mod tests {
             &tiny_model_cfg(),
             &train_cfg,
             &Device::default().autodiff(),
-            &live,
+            &run,
         );
-        let incremental = fs::read(live.path().join("metrics.csv")).unwrap();
-        assert_eq!(incremental.iter().filter(|&&b| b == b'\n').count(), 4); // header + 3
-
-        let end = RunDir::create(&root.join("end"), "end").unwrap();
-        end.save_metrics(&metrics).unwrap();
-        let end_of_run = fs::read(end.path().join("metrics.csv")).unwrap();
-        assert_eq!(incremental, end_of_run);
+        let written = run.metrics().unwrap();
+        let epochs = |m: &[EpochMetrics]| m.iter().map(|m| m.epoch).collect::<Vec<_>>();
+        assert_eq!(epochs(&written), [0, 1, 2]);
+        assert_eq!(metric_bits(&written), metric_bits(&metrics));
         let _ = fs::remove_dir_all(&root);
     }
 

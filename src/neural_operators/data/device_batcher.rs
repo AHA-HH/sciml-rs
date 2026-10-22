@@ -160,7 +160,7 @@ pub fn device_loader<const R: usize, const RM1: usize, T: HostFloat>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::data::batcher::{HostItems, OperatorBatcher};
+    use crate::neural_operators::data::host_oracle::{HostItems, OperatorBatcher};
     use ndarray::IxDyn;
 
     /// `n` samples, inputs `[n, 4, 2]`, targets `[n, 4]`; every value encodes

@@ -24,8 +24,8 @@ use ndarray::{ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
     chebyshev::{Transfers, cc_rel_l2_error, nodes_closed_form},
     data::loaders::poisson::{PoissonConfig, load_poisson_cheb_field, load_poisson_uniform, stage},
-    models::run::predict_host,
-    runs::{ConfigFile, RunDir},
+    models::predict::predict_host,
+    runs::RunDir,
 };
 
 /// Figure size in pixels.
@@ -82,7 +82,7 @@ fn main() {
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let dataset_cfg = run
-        .config::<PoissonConfig>(ConfigFile::Data)
+        .data_config::<PoissonConfig>()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let n = dataset_cfg.n;
     let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));

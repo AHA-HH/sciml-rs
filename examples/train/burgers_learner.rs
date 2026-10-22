@@ -29,7 +29,7 @@ use sciml_rs::neural_operators::{
     },
     models::fno::FNOConfig,
     runs::RunDir,
-    training::trainer::{TrainingConfig, build_training_components},
+    training::{config::TrainingConfig, trainer::build_training_components},
 };
 use std::path::Path;
 

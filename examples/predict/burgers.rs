@@ -10,8 +10,8 @@ use sciml_rs::neural_operators::{
         device_batcher::device_loader,
         loaders::burgers::{BurgersConfig, load_burgers_uniform},
     },
-    runs::{ConfigFile, RunDir},
-    training::trainer::{evaluate, identity},
+    runs::RunDir,
+    training::step::{evaluate, identity},
 };
 use std::path::Path;
 
@@ -28,7 +28,7 @@ fn main() {
 
     // Same test split the run was evaluated on
     let dataset_cfg: BurgersConfig = run
-        .config(ConfigFile::Data)
+        .data_config()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");
     assert!(

@@ -21,7 +21,7 @@ use burn::{
 use crate::neural_operators::{
     data::batcher::Batch,
     models::fno::FNO,
-    training::trainer::{StepLoss, forward_loss, identity},
+    training::step::{StepLoss, forward_loss, identity},
 };
 
 impl FNO<3> {
@@ -78,7 +78,7 @@ mod tests {
     use crate::neural_operators::{
         losses::data_losses::{LpLoss, Reduction},
         models::fno::FNOConfig,
-        training::trainer::flatten_pair,
+        training::step::flatten_pair,
     };
     use burn::optim::{
         GradientsParams, SgdConfig, lr_scheduler::module_lr_scheduler::ModuleLearningRate,

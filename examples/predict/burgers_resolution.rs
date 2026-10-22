@@ -28,8 +28,8 @@ use sciml_rs::neural_operators::{
         },
     },
     models::fno::FNOConfig,
-    runs::{ConfigFile, RunDir},
-    training::trainer::{evaluate, identity},
+    runs::RunDir,
+    training::step::{evaluate, identity},
 };
 
 /// Subsample rates swept when none are given: s = 64 to 8192.
@@ -60,10 +60,10 @@ fn main() {
         .load_fno::<3>(&device)
         .unwrap_or_else(|e| panic!("load the model: {e}"));
     let model_cfg: FNOConfig = run
-        .config(ConfigFile::Model)
+        .model_config()
         .unwrap_or_else(|e| panic!("load model config: {e}"));
     let trained_cfg: BurgersConfig = run
-        .config(ConfigFile::Data)
+        .data_config()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let (n_train, n_test) = (trained_cfg.base.n_train, trained_cfg.base.n_test);
 
@@ -91,11 +91,7 @@ fn main() {
     );
     println!("{:>7}  {:>10}  {:>8}", "s", "test_l2", "vs train");
     for rate in rates {
-        let (s, l2) = if rate == trained_rate {
-            (trained_s, baseline)
-        } else {
-            test_l2(rate)
-        };
+        let (s, l2) = test_l2(rate);
         let marker = if rate == trained_rate {
             " <- trained"
         } else {
