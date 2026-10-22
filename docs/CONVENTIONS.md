@@ -224,10 +224,11 @@ the code that implements it in the same pull request.
 
 - `UnitGaussianNormalizer`: μ and σ per spatial point across the sample axis, σ with
   ddof = 1; ε = 1e-5 by default (`with_eps` to change). Needs at least 2 samples.
-- Darcy (`DarcyNormalizers`) normalises x and y pointwise; statistics are fitted on the
-  training split only, in f64 on the host. `x_test` is encoded with the training x
-  statistics; `y_test` stays in physical units, and predictions are decoded with the y
-  normaliser before the test loss (as in Li et al.). Burgers does not normalise.
+- Darcy and Poisson (`loaders::common::Normalizers`) normalise x and y pointwise;
+  statistics are fitted on the training split only, in f64 on the host. `x_test` is
+  encoded with the training x statistics; `y_test` stays in physical units, and
+  predictions are decoded with the y normaliser before the test loss (as in Li et al.).
+  Burgers does not normalise.
 - Subsampling keeps every `rate`-th point along an axis (`transforms::subsample`).
 
 ### Verification

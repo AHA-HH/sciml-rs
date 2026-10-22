@@ -62,6 +62,12 @@ fn main() {
     // The dataset contains fields initial condition `a` and solution at t=1 `u`
     let (train_data, test_data) = load_burgers_uniform::<f32>(&data_path, &dataset_cfg)
         .unwrap_or_else(|e| panic!("could not load Burgers data: {e}"));
+    println!(
+        "burgers: {} train / {} test at s={}",
+        train_data.inputs().shape()[0],
+        test_data.inputs().shape()[0],
+        train_data.inputs().shape()[1]
+    );
 
     // Set the FNO model, the number of modes sets the dimension of the problem
     // `modes` has one entry per spatial dimension, its length fixes the tensor rank

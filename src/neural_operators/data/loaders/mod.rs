@@ -5,5 +5,6 @@
 
 pub mod base_dataset;
 pub mod burgers;
+pub mod common;
 pub mod darcy;
 pub mod poisson;

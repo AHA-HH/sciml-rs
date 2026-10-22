@@ -63,6 +63,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`
   (`generate`, `label_check`, `write_split`), driven by `examples/generate/poisson.rs`
   (`generate_poisson`), which writes `datasets/poisson/`.
+- `data/loaders/common` holds the loader tail shared by Darcy and Poisson: `Normalizers { x, y }`
+  and `normalize_split_pair` (fit, encode, channel axis, cast; CONVENTIONS §10).
 - `data/loaders/poisson` is ungated: `load_poisson_uniform` reads those `.npz` files and
   applies T_cu at load time, giving Darcy-shaped datasets on the uniform grid s = n − 1;
   `load_poisson_cheb` reads one split's raw `u` on the CGL grid, untransferred, and

@@ -94,6 +94,13 @@ fn main() {
     let (train_data, test_data, normalizers) =
         load_poisson_uniform::<f32>(&train_path, &test_path, &dataset_cfg)
             .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
+    println!(
+        "poisson: {} train / {} test, n={} -> s={}",
+        train_data.inputs().shape()[0],
+        test_data.inputs().shape()[0],
+        dataset_cfg.n,
+        train_data.inputs().shape()[1]
+    );
 
     let model_cfg = FNOConfig {
         modes: MODES.to_vec(),
