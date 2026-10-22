@@ -13,11 +13,16 @@
 //! [`check_error3`] cross-checks the mean error 3 against the run's last test_l2. Each
 //! error is summarised over the samples with [`ErrorStats`]. [`evaluate`] applies the
 //! evaluation policy, the worst sample, both cross-checks and the boundary verdict, and
-//! returns the [`PoissonErrorsRecord`] a run's `errors.json` holds.
+//! returns a [`PoissonEvaluation`]: the [`PoissonErrorsRecord`] a run's `errors.json`
+//! holds, with the report `predict_poisson` prints.
 //!
 //! Error 1 (the solver) needs the `datagen` feature and is quoted, not recomputed (design
 //! §12, decision 16). Everything here is ndarray and f64, built without `datagen`
 //! (decision 15). Grids, transfers and norms follow CONVENTIONS §12.
+
+// Burn's `#[derive(Config)]` writes `field: field` in the `new` it generates, in an
+// impl block outside the struct's attributes (burn-derive `config/analyzer_struct.rs`).
+#![allow(clippy::redundant_field_names)]
 
 use super::stats::ErrorStats;
 use crate::neural_operators::chebyshev::{
@@ -27,7 +32,6 @@ use crate::neural_operators::data::loaders::poisson::SidecarRecord;
 use crate::neural_operators::runs::EpochMetrics;
 use crate::neural_operators::utils::backend::backend_features;
 use burn::config::Config;
-use burn::serde::{Deserialize, Serialize};
 use ndarray::{Array1, Array2, ArrayView2, ArrayView3, Axis};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -182,14 +186,44 @@ pub const BOUNDARY_THRESHOLD: f64 = 0.10;
 pub const ERROR1_QUOTE: &str =
     "solver A floor <= 1e-12 from n = 33 (manufactured); A vs C order 1.993-1.999 (Phase 1 T2, T3)";
 
-/// What a run's `errors.json` records: [`evaluate`]'s result. Its [`Display`](fmt::Display)
-/// is the report `predict_poisson` prints.
-///
-/// Serde derives with [`Config`] implemented by hand, not `#[derive(Config)]`, because
-/// that derive implements `Display` as the JSON. The `#[serde(skip)]` fields are not in
-/// `errors.json`; they complete the report and are empty in a loaded record.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(crate = "burn::serde")]
+/// The error 2 cross-check against the test split's sidecar, from [`evaluate`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Error2Check {
+    /// Error 2 as the sidecar records it.
+    pub sidecar: ErrorStats,
+    /// The sidecar's sample count.
+    pub sidecar_count: usize,
+    /// The samples evaluated.
+    pub n_test: usize,
+    /// (mean, max) of |error 2 − sidecar| / |sidecar|; `None` when the comparison was
+    /// skipped because the sidecar covers other samples than those evaluated.
+    pub rel_diff: Option<(f64, f64)>,
+    /// Whether both relative differences are ≤ [`ERROR2_TOL`]; a skipped comparison
+    /// counts as passed.
+    pub passed: bool,
+}
+
+impl fmt::Display for Error2Check {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.rel_diff {
+            Some((mean, max)) => write!(
+                f,
+                "error 2 vs sidecar mean {:.6e} / max {:.6e}: rel diff {mean:.1e} / {max:.1e} (tol {ERROR2_TOL:e}) {}",
+                self.sidecar.mean,
+                self.sidecar.max,
+                if self.passed { "ok" } else { "FAILED" }
+            ),
+            None => write!(
+                f,
+                "error 2 vs sidecar skipped: the sidecar covers {} samples but {} were evaluated",
+                self.sidecar_count, self.n_test
+            ),
+        }
+    }
+}
+
+/// What a run's `errors.json` records, from [`evaluate`].
+#[derive(Config, Debug)]
 pub struct PoissonErrorsRecord {
     /// Test samples evaluated.
     pub n_test: usize,
@@ -227,18 +261,21 @@ pub struct PoissonErrorsRecord {
     pub ablation_warranted: bool,
     /// Whether both cross-checks passed; a skipped error 2 comparison counts as passed.
     pub cross_checks_passed: bool,
-    /// The run directory, for the report's `poisson_plot` command.
-    #[serde(skip)]
-    pub run_dir: PathBuf,
-    /// The sidecar's sample count, for the report when error 2 was not compared.
-    #[serde(skip)]
-    pub sidecar_count: usize,
-    /// The error 3 cross-check, for the report.
-    #[serde(skip)]
-    pub error3_check: Option<Error3Check>,
 }
 
-impl Config for PoissonErrorsRecord {}
+/// [`evaluate`]'s result: the record `errors.json` holds and the two cross-checks behind
+/// it. Its [`Display`](fmt::Display) is the report `predict_poisson` prints.
+#[derive(Debug)]
+pub struct PoissonEvaluation {
+    /// What `errors.json` holds.
+    pub record: PoissonErrorsRecord,
+    /// The error 2 cross-check against the test sidecar.
+    pub error2: Error2Check,
+    /// The error 3 cross-check against the run's last test_l2.
+    pub error3: Error3Check,
+    /// The run directory, for the report's `poisson_plot` command.
+    pub run_dir: PathBuf,
+}
 
 /// Evaluates the per-sample `errors` of a run's test split, as `predict_poisson` reports
 /// them: the five errors, the worst sample, both cross-checks and the boundary verdict.
@@ -264,7 +301,7 @@ pub fn evaluate(
     last: &EpochMetrics,
     device: String,
     run_dir: &Path,
-) -> PoissonErrorsRecord {
+) -> PoissonEvaluation {
     let n_test = errors.total.len();
     let e2 = ErrorStats::of(&errors.transfer);
     let e3 = ErrorStats::of(&errors.model);
@@ -290,14 +327,25 @@ pub fn evaluate(
     };
     // the sidecar covers its whole split; compare only when all of it was evaluated, and
     // count a skipped comparison as passed
-    let error2_compared = sidecar.count == n_test;
-    let e2_ok = !error2_compared || error2_matches(&e2, &e2_sidecar);
+    let e2_rel_diff = (sidecar.count == n_test).then(|| {
+        (
+            rel_diff(e2.mean, e2_sidecar.mean),
+            rel_diff(e2.max, e2_sidecar.max),
+        )
+    });
+    let e2_check = Error2Check {
+        sidecar: e2_sidecar,
+        sidecar_count: sidecar.count,
+        n_test,
+        rel_diff: e2_rel_diff,
+        passed: e2_rel_diff.is_none_or(|(mean, max)| mean <= ERROR2_TOL && max <= ERROR2_TOL),
+    };
 
     // Cross-check 2: mean error 3 against the run's last test_l2
     let e3_check = check_error3(last, e3.mean);
 
     let boundary_to_total = e5_rms.mean / e4.mean;
-    PoissonErrorsRecord {
+    let record = PoissonErrorsRecord {
         n_test,
         n,
         device,
@@ -305,7 +353,7 @@ pub fn evaluate(
         error1: ERROR1_QUOTE.to_string(),
         error2: e2,
         error2_sidecar: e2_sidecar,
-        error2_compared,
+        error2_compared: e2_rel_diff.is_some(),
         error3: e3,
         error3_metrics_csv: e3_check.test_l2,
         error4: e4,
@@ -314,10 +362,13 @@ pub fn evaluate(
         error5_rel_rms: e5_rms,
         boundary_to_total,
         ablation_warranted: boundary_to_total >= BOUNDARY_THRESHOLD,
-        cross_checks_passed: e2_ok && e3_check.passed,
+        cross_checks_passed: e2_check.passed && e3_check.passed,
+    };
+    PoissonEvaluation {
+        record,
+        error2: e2_check,
+        error3: e3_check,
         run_dir: run_dir.to_path_buf(),
-        sidecar_count: sidecar.count,
-        error3_check: Some(e3_check),
     }
 }
 
@@ -325,73 +376,46 @@ fn rel_diff(a: f64, b: f64) -> f64 {
     (a - b).abs() / b.abs()
 }
 
-/// Whether both the mean and the max of error 2 agree with the sidecar's to [`ERROR2_TOL`].
-fn error2_matches(e2: &ErrorStats, sidecar: &ErrorStats) -> bool {
-    rel_diff(e2.mean, sidecar.mean) <= ERROR2_TOL && rel_diff(e2.max, sidecar.max) <= ERROR2_TOL
-}
-
-impl fmt::Display for PoissonErrorsRecord {
+impl fmt::Display for PoissonEvaluation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (n, n_test) = (self.n, self.n_test);
+        let r = &self.record;
+        let (n, n_test) = (r.n, r.n_test);
         writeln!(
             f,
             "errors on the test split (n = {n}, s = {}, {n_test} samples), device {}, backend features {:?}",
             n - 1,
-            self.device,
-            self.backend_features
+            r.device,
+            r.backend_features
         )?;
         writeln!(f, "{:<34} {:>12} {:>12}", "error", "mean", "max")?;
-        writeln!(f, "{:<34} {}", "1 solver (quoted)", self.error1)?;
+        writeln!(f, "{:<34} {}", "1 solver (quoted)", r.error1)?;
         for (name, st) in [
-            ("2 transfer (CC norm)", &self.error2),
-            ("3 model (uniform, equal weights)", &self.error3),
-            ("4 total (CC norm)", &self.error4),
-            ("5 boundary max ratio", &self.error5_max_ratio),
-            ("5 boundary relative RMS", &self.error5_rel_rms),
+            ("2 transfer (CC norm)", &r.error2),
+            ("3 model (uniform, equal weights)", &r.error3),
+            ("4 total (CC norm)", &r.error4),
+            ("5 boundary max ratio", &r.error5_max_ratio),
+            ("5 boundary relative RMS", &r.error5_rel_rms),
         ] {
             writeln!(f, "{name:<34} {:>12.4e} {:>12.4e}", st.mean, st.max)?;
         }
-        let worst = self.error4_worst_sample;
+        let worst = r.error4_worst_sample;
         writeln!(
             f,
             "worst sample (max error 4): {worst}; plot it with: poisson_plot -- {} {worst}",
             self.run_dir.display()
         )?;
 
-        let (e2, e2_sidecar) = (&self.error2, &self.error2_sidecar);
-        if self.error2_compared {
-            writeln!(
-                f,
-                "\ncheck: error 2 vs sidecar mean {:.6e} / max {:.6e}: rel diff {:.1e} / {:.1e} (tol {ERROR2_TOL:e}) {}",
-                e2_sidecar.mean,
-                e2_sidecar.max,
-                rel_diff(e2.mean, e2_sidecar.mean),
-                rel_diff(e2.max, e2_sidecar.max),
-                if error2_matches(e2, e2_sidecar) {
-                    "ok"
-                } else {
-                    "FAILED"
-                }
-            )?;
-        } else {
-            writeln!(
-                f,
-                "\ncheck: error 2 vs sidecar skipped: the sidecar covers {} samples but {n_test} were evaluated",
-                self.sidecar_count
-            )?;
-        }
-        if let Some(check) = &self.error3_check {
-            writeln!(f, "check: {check}")?;
-        }
+        writeln!(f, "\ncheck: {}", self.error2)?;
+        writeln!(f, "check: {}", self.error3)?;
 
-        let warranted = self.ablation_warranted;
+        let warranted = r.ablation_warranted;
         write!(
             f,
             "\nboundary verdict: mean relative boundary RMS / mean error 4 = {:.4e} / {:.4e} = {:.3} \
              ({} the {BOUNDARY_THRESHOLD} threshold): the hard-constraint ablation is {}",
-            self.error5_rel_rms.mean,
-            self.error4.mean,
-            self.boundary_to_total,
+            r.error5_rel_rms.mean,
+            r.error4.mean,
+            r.boundary_to_total,
             if warranted { "at or above" } else { "below" },
             if warranted {
                 "warranted"
@@ -638,7 +662,7 @@ mod tests {
         sidecar
     }
 
-    fn eval(errors: &PoissonErrors, sidecar: &SidecarRecord) -> PoissonErrorsRecord {
+    fn eval(errors: &PoissonErrors, sidecar: &SidecarRecord) -> PoissonEvaluation {
         evaluate(
             errors,
             65,
@@ -652,18 +676,14 @@ mod tests {
     #[test]
     fn evaluate_picks_the_first_worst_sample() {
         let e = synthetic(&[0.1, 0.3, 0.2, 0.3], 1e-5, 0.0);
-        let record = eval(&e, &sidecar(4, 1e-5));
-        assert_eq!(record.error4_worst_sample, 1);
-        assert!(record.cross_checks_passed, "{record}");
-        assert!(
-            record
-                .to_string()
-                .contains("worst sample (max error 4): 1;")
-        );
+        let ev = eval(&e, &sidecar(4, 1e-5));
+        assert_eq!(ev.record.error4_worst_sample, 1);
+        assert!(ev.record.cross_checks_passed, "{ev}");
+        assert!(ev.to_string().contains("worst sample (max error 4): 1;"));
 
         // a NaN is the max, as ErrorStats reports it
         let e = synthetic(&[0.1, 0.3, f64::NAN, 0.2], 1e-5, 0.0);
-        assert_eq!(eval(&e, &sidecar(4, 1e-5)).error4_worst_sample, 2);
+        assert_eq!(eval(&e, &sidecar(4, 1e-5)).record.error4_worst_sample, 2);
     }
 
     #[test]
@@ -671,11 +691,11 @@ mod tests {
         // the ratio is the mean RMS over the mean error 4, here 0.5
         let total = [0.4, 0.6];
         let below = eval(&synthetic(&total, 1e-5, 0.0499), &sidecar(2, 1e-5));
-        assert!(below.boundary_to_total < BOUNDARY_THRESHOLD);
-        assert!(!below.ablation_warranted);
+        assert!(below.record.boundary_to_total < BOUNDARY_THRESHOLD);
+        assert!(!below.record.ablation_warranted);
         assert!(below.to_string().ends_with("ablation is not warranted"));
         let above = eval(&synthetic(&total, 1e-5, 0.0501), &sidecar(2, 1e-5));
-        assert!(above.ablation_warranted);
+        assert!(above.record.ablation_warranted);
         assert!(above.to_string().ends_with("ablation is warranted"));
     }
 
@@ -683,16 +703,19 @@ mod tests {
     fn evaluate_flags_a_cross_check_mismatch() {
         let e = synthetic(&[0.1, 0.2], 1e-5, 0.0);
         let ok = eval(&e, &sidecar(2, 1e-5));
-        assert!(ok.error2_compared && ok.cross_checks_passed, "{ok}");
+        assert!(
+            ok.record.error2_compared && ok.record.cross_checks_passed,
+            "{ok}"
+        );
 
         // error 2 off the sidecar by 1e-9, relative
         let bad = eval(&e, &sidecar(2, 1e-5 * (1.0 + 1e-9)));
-        assert!(!bad.cross_checks_passed);
+        assert!(!bad.error2.passed && !bad.record.cross_checks_passed);
         assert!(bad.to_string().contains("(tol 1e-12) FAILED"), "{bad}");
 
         // the same mismatch is skipped when the sidecar covers other samples
         let skipped = eval(&e, &sidecar(200, 1e-5 * (1.0 + 1e-9)));
-        assert!(!skipped.error2_compared && skipped.cross_checks_passed);
+        assert!(!skipped.record.error2_compared && skipped.record.cross_checks_passed);
         assert!(
             skipped
                 .to_string()
@@ -703,8 +726,8 @@ mod tests {
         let mut e3_off = e.clone();
         e3_off.model = vec![0.3; 2];
         let bad = eval(&e3_off, &sidecar(2, 1e-5));
-        assert!(!bad.cross_checks_passed);
-        assert_eq!(bad.error3_check.map(|c| c.passed), Some(false));
+        assert!(!bad.record.cross_checks_passed);
+        assert!(!bad.error3.passed);
     }
 
     #[test]

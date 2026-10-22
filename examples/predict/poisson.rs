@@ -12,9 +12,9 @@
 //! predictions are decoded with the y normalizer and copied to the host as f64. Error 1
 //! needs the `datagen` feature and is quoted from Phase 1. `metrics::poisson::evaluate`
 //! cross-checks error 2 against the test split's `.json` sidecar and the mean error 3
-//! against the run's last test_l2, and gives the boundary verdict; this prints its record
-//! and writes it as errors.json into the run directory, with the index of the sample with
-//! the max error 4, the one to plot with `poisson_plot`. Exits 1 if a cross-check failed.
+//! against the run's last test_l2, and gives the boundary verdict; this prints its report
+//! and writes its record as errors.json into the run directory, with the index of the
+//! sample with the max error 4, the one to plot with `poisson_plot`. Exits 1 if a cross-check failed.
 //! Needs the run's stage dataset: see datasets/README.md.
 
 use std::path::Path;
@@ -82,7 +82,7 @@ fn main() {
     let sidecar = SidecarRecord::load(datasets.join(format!("{}.json", set.stem("test"))))
         .expect("load the test sidecar");
     let metrics = run.metrics().expect("read metrics.csv");
-    let record = evaluate(
+    let eval = evaluate(
         &errors,
         n,
         &sidecar,
@@ -90,13 +90,13 @@ fn main() {
         format!("{device:?}"),
         dir,
     );
-    println!("\n{record}");
+    println!("\n{eval}");
 
     let out = dir.join("errors.json");
-    record.save(&out).expect("write errors.json");
+    eval.record.save(&out).expect("write errors.json");
     println!("wrote {}", out.display());
 
-    if !record.cross_checks_passed {
+    if !eval.record.cross_checks_passed {
         eprintln!("a cross-check failed; see above");
         std::process::exit(1);
     }
