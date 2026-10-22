@@ -5,10 +5,11 @@
 
 use std::path::Path;
 
-use burn::{prelude::*, tensor::Device};
+use burn::tensor::Device;
 use gnuplot::{AxesCommon, Caption, Figure};
 use sciml_rs::neural_operators::{
     data::loaders::darcy::{DarcyConfig, load_darcy_uniform},
+    models::run::predict_host,
     runs::{ConfigFile, RunDir},
 };
 
@@ -58,17 +59,16 @@ fn main() {
         .collect();
     let truth: Vec<f64> = target.iter().copied().collect();
 
-    // Forward one sample: [s, s, 1] -> [1, s, s, 1] -> [1, s, s, 1].
-    let x_flat: Vec<f64> = input.iter().copied().collect();
-    let x = Tensor::<4>::from_data(TensorData::new(x_flat, vec![1, s, s, 1]), &device);
-    let out = model.forward(x).reshape([s, s]);
+    // Forward one sample: [1, s, s, 1] in, normalized [1, s, s] out (the model sees the
+    // same f32 values as before: the f64 host data rounds once to f32)
+    let x = test_data
+        .inputs()
+        .slice_axis(ndarray::Axis(0), ndarray::Slice::from(0..1))
+        .mapv(|v| v as f32);
+    let pred = predict_host::<4>(&model, x.view(), 1, &device);
 
     // Predictions come out normalized; decode before plotting.
-    let pred_encoded: Vec<f64> = out.into_data().iter::<f64>().collect();
-    let pred = y_norm.decode(
-        ndarray::ArrayD::from_shape_vec(ndarray::IxDyn(&[s, s]), pred_encoded)
-            .expect("prediction shape"),
-    );
+    let pred = y_norm.decode(pred.index_axis_move(ndarray::Axis(0), 0));
     let pred: Vec<f64> = pred.iter().copied().collect();
 
     let mut fig = Figure::new();

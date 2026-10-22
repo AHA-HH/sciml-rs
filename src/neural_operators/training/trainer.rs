@@ -121,7 +121,7 @@ pub(crate) struct StepLoss {
     pub target: Tensor<2>,
 }
 
-/// One forward pass and its loss: the step shared by [`train_epoch`], [`eval_epoch`] and
+/// One forward pass and its loss: the step shared by [`train_epoch`], `eval_epoch` ([`evaluate`]) and
 /// the Burgers `Learner` ([`learner`](crate::neural_operators::training::learner)), so
 /// the loss is defined once.
 ///
@@ -148,9 +148,28 @@ pub(crate) fn forward_loss<const R: usize, const RM1: usize>(
     }
 }
 
+/// Mean relative L² per sample of `model` over every batch of `loader`: the test loss
+/// that training reports as `test_l2` (`LpLoss::new(R - 2, 2, Sum)`, divided by the
+/// loader's sample count).
+///
+/// - `loader` yields [`Batch`]es with inputs `[B, *spatial, C]` and targets `[B, *spatial]`,
+///   e.g. from `device_loader` on a plain (non-autodiff) device.
+/// - `post` maps `(output, target)` to what the loss compares: [`identity`] in physical
+///   units, or a closure decoding the output with the target normaliser.
+///
+/// # Panics
+/// If `loader` yields no batches.
+pub fn evaluate<const R: usize, const RM1: usize>(
+    model: &FNO<R>,
+    loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
+    post: &Postprocess,
+) -> f32 {
+    eval_epoch(model, loader, post) / loader.num_items() as f32
+}
+
 /// Runs one evaluation pass. Returns the summed relative L2 across all
-/// batches; the caller divides by the number of test samples.
-pub fn eval_epoch<const R: usize, const RM1: usize>(
+/// batches; [`training_loop`] divides by the number of test samples.
+fn eval_epoch<const R: usize, const RM1: usize>(
     model: &FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
     post: &Postprocess,
@@ -358,7 +377,7 @@ fn epoch_line(m: &EpochMetrics, epoch_time: Duration) -> String {
     format!("{m:?} | total={:.3}s", epoch_time.as_secs_f64())
 }
 
-/// Runs `train_cfg.epochs` epochs of [`train_epoch`] then [`eval_epoch`], calling
+/// Runs `train_cfg.epochs` epochs of [`train_epoch`] then the evaluation pass behind [`evaluate`], calling
 /// `on_epoch` after each, and returns the trained model and every epoch's metrics.
 ///
 /// Prints nothing itself: pass [`print_epoch`] (or a closure calling it) for the console
@@ -590,6 +609,20 @@ mod tests {
         );
         assert_eq!((c.n_train, c.n_test), (5, 3));
         assert_eq!(c.steps_per_epoch, 3); // ceil(5 / 2)
+    }
+
+    // --- Phase 4s T13: evaluate is the per-sample mean of eval_epoch ---
+
+    #[test]
+    fn evaluate_is_mean_of_eval_epoch() {
+        let device = Device::default();
+        let model: FNO<3> = tiny_model_cfg().init::<3>(&device);
+        let n_test = 5;
+        let data = tiny_dataset(n_test);
+        // batches of 2: the last batch holds one sample
+        let loader = device_loader::<3, 2, _>(&data, &device, 2, None);
+        let sum = eval_epoch(&model, &loader, &identity);
+        assert_eq!(evaluate(&model, &loader, &identity), sum / n_test as f32);
     }
 
     #[test]

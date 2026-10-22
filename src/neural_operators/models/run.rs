@@ -1,51 +1,56 @@
 //! Batched inference with a saved run's model.
 //!
 //! `runs::RunDir::load_fno` rebuilds the model on any device; [`predict_host`] runs it over
-//! a host batch of 2D inputs and returns the outputs on the host as f64, ready for
-//! decoding and the errors.
+//! a host batch of inputs of any rank and returns the outputs on the host as f64, ready
+//! for decoding and the errors.
 
 use burn::tensor::{Device, Tensor, TensorData};
-use ndarray::{Array3, ArrayViewD, Ix4, s};
+use ndarray::{ArrayD, ArrayViewD, Axis, IxDyn, Slice};
 
 use crate::neural_operators::models::fno::FNO;
 
 /// The outputs of `model` on `inputs`, forwarded in batches of `batch_size` in sample
 /// order on `device` and copied back to the host as f64.
 ///
-/// - `inputs`: `[N, s_x, s_y, C]`, channels-last, as the model takes them (normalized);
-///   dynamic rank, as `OperatorDataset::inputs` holds them.
+/// - `inputs`: `[N, *spatial, C]` of rank `R`, channels-last, as the model takes them
+///   (normalized); dynamic rank, as `OperatorDataset::inputs` holds them.
 ///
-/// Returns `[N, s_x, s_y]`: the model's single output channel, still normalized.
+/// Returns `[N, *spatial]` (rank `R - 1`): the model's single output channel, still
+/// normalized. Callers that want a fixed rank convert with `into_dimensionality`.
 ///
 /// # Panics
-/// If `batch_size` is 0, `inputs` is not rank 4, or the model's output is not f32 with
+/// If `batch_size` is 0, `inputs` is not rank `R`, or the model's output is not f32 with
 /// one channel.
-pub fn predict_host(
-    model: &FNO<4>,
+pub fn predict_host<const R: usize>(
+    model: &FNO<R>,
     inputs: ArrayViewD<f32>,
     batch_size: usize,
     device: &Device,
-) -> Array3<f64> {
+) -> ArrayD<f64> {
     assert!(batch_size > 0, "predict_host: batch_size must be > 0");
-    let inputs = inputs
-        .into_dimensionality::<Ix4>()
-        .expect("predict_host: inputs must be [N, s_x, s_y, C]");
-    let (n, s_x, s_y, _) = inputs.dim();
-    let mut pred = Array3::<f64>::zeros((n, s_x, s_y));
+    assert_eq!(
+        inputs.ndim(),
+        R,
+        "predict_host: inputs must be [N, *spatial, C] of rank {R}"
+    );
+    let n = inputs.shape()[0];
+    let spatial = &inputs.shape()[1..R - 1];
+    let mut pred = ArrayD::<f64>::zeros(IxDyn(&[&[n], spatial].concat()));
     for start in (0..n).step_by(batch_size) {
         let end = (start + batch_size).min(n);
-        let batch = inputs.slice(s![start..end, .., .., ..]);
+        let rows = Slice::from(start..end);
+        let batch = inputs.slice_axis(Axis(0), rows);
         let data: Vec<f32> = batch.iter().copied().collect();
-        let x = Tensor::<4>::from_data(TensorData::new(data, batch.shape().to_vec()), device);
+        let x = Tensor::<R>::from_data(TensorData::new(data, batch.shape().to_vec()), device);
         let out = model
             .forward(x)
             .into_data()
             .try_to_vec::<f32>()
             .expect("predict_host: f32 model output");
-        let out = Array3::from_shape_vec((end - start, s_x, s_y), out)
-            .expect("predict_host: output must be [B, s_x, s_y, 1]")
+        let out = ArrayD::from_shape_vec(IxDyn(&[&[end - start], spatial].concat()), out)
+            .expect("predict_host: output must be [B, *spatial, 1]")
             .mapv(f64::from);
-        pred.slice_mut(s![start..end, .., ..]).assign(&out);
+        pred.slice_axis_mut(Axis(0), rows).assign(&out);
     }
     pred
 }
@@ -54,7 +59,7 @@ pub fn predict_host(
 mod tests {
     use super::*;
     use crate::neural_operators::models::fno::FNOConfig;
-    use ndarray::{Array4, Axis};
+    use ndarray::{Array3, Array4, s};
 
     fn config() -> FNOConfig {
         FNOConfig {
@@ -83,7 +88,7 @@ mod tests {
         // 5 samples in batches of 2: the last batch holds one sample
         let batched = predict_host(&model, x.view().into_dyn(), 2, &device);
         let whole = predict_host(&model, x.view().into_dyn(), 5, &device);
-        assert_eq!(batched.dim(), (5, 8, 8));
+        assert_eq!(batched.shape(), [5, 8, 8]);
         let diff = (&batched - &whole)
             .iter()
             .fold(0.0_f64, |m, d| m.max(d.abs()));
@@ -97,11 +102,30 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "inputs must be [N, s_x, s_y, C]")]
+    #[should_panic(expected = "inputs must be [N, *spatial, C] of rank 4")]
     fn rank_three_inputs_panic() {
         let device = Device::default();
         let model: FNO<4> = config().init::<4>(&device);
         let x = Array3::<f32>::zeros((2, 8, 8));
         predict_host(&model, x.view().into_dyn(), 2, &device);
+    }
+
+    /// The same batching on a 1D model (`FNO<3>`): inputs `[N, s, 1]`, outputs `[N, s]`.
+    #[test]
+    fn rank_three_batches_match_one_full_forward() {
+        let device = Device::default();
+        let config = FNOConfig {
+            modes: vec![4],
+            ..config()
+        };
+        let model: FNO<3> = config.init::<3>(&device);
+        let x = Array3::from_shape_fn((5, 16, 1), |(k, i, _)| ((k * 16 + i) as f32 * 0.37).sin());
+        let batched = predict_host(&model, x.view().into_dyn(), 2, &device);
+        let whole = predict_host(&model, x.view().into_dyn(), 5, &device);
+        assert_eq!(batched.shape(), [5, 16]);
+        let diff = (&batched - &whole)
+            .iter()
+            .fold(0.0_f64, |m, d| m.max(d.abs()));
+        assert!(diff < 1e-6, "max |batched - whole| = {diff:e}");
     }
 }

@@ -108,7 +108,7 @@ fn main() {
     // Forward one sample: [1, s, s, 1] in, normalized [s, s] out
     let input = test_data.inputs().slice(s![sample..=sample, .., .., ..]);
     let pred = predict_host(&model, input.into_dyn(), 1, &device).index_axis_move(Axis(0), 0);
-    assert_eq!(pred.dim(), (s, s), "prediction is [s, s]");
+    assert_eq!(pred.shape(), [s, s], "prediction is [s, s]");
     // Decode to physical scale in f64, then transfer to the CGL grid as error 4 does
     let y_norm = run
         .normalizers()

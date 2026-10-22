@@ -165,7 +165,7 @@ than trusting prose when checking how an API behaves.
   default 65; needs that stage in `datasets/poisson/`). On cuda:
   `--no-default-features --features cuda`
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
-  (also `burgers_resolution`, `burgers_superresolution` on Burgers runs;
+  (also `burgers_resolution -- runs/<run_dir> [<rate> ...]` on Burgers runs, s = 8192 / rate;
   `predict_darcy`, `darcy_plot` on Darcy runs)
 - Evaluate a Poisson run (the five errors, the boundary verdict, the worst sample):
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`

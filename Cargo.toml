@@ -44,11 +44,7 @@ path = "examples/predict/poisson.rs"
 
 [[example]]
 name = "burgers_resolution"
-path = "examples/predict/burgers_resolutions.rs"
-
-[[example]]
-name = "burgers_superresolution"
-path = "examples/predict/burgers_superresolution.rs"
+path = "examples/predict/burgers_resolution.rs"
 
 [[example]]
 name = "darcy_plot"

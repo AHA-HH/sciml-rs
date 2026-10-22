@@ -16,7 +16,7 @@ use sciml_rs::neural_operators::{
         transforms::normalizers::FlatDecoder,
     },
     runs::{ConfigFile, RunDir},
-    training::trainer::eval_epoch,
+    training::trainer::evaluate,
 };
 
 fn main() {
@@ -56,12 +56,9 @@ fn main() {
     let decoder = FlatDecoder::new(&normalizers.y, &device);
     let eval_post = move |out: Tensor<2>, target: Tensor<2>| (decoder.decode(out), target);
 
-    let l2 = eval_epoch::<4, 3>(&model, &test_loader, &eval_post);
+    let l2 = evaluate::<4, 3>(&model, &test_loader, &eval_post);
 
-    println!(
-        "loaded model test_l2: {:.10}",
-        l2 / dataset_cfg.base.n_test as f32
-    );
+    println!("loaded model test_l2: {l2:.10}");
     println!(
         "(should match the last test_l2 in {}/metrics.csv)",
         run.path().display()
