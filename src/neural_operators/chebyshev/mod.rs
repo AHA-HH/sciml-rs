@@ -4,7 +4,7 @@
 //! (CONVENTIONS §12). Everything is f64, and the public API takes and returns ndarray
 //! types only.
 //!
-//! - Always built: the closed-form CGL nodes (`nodes_closed_form`), the grid transfers
+//! - Always built: the closed-form CGL nodes (`nodes`), the grid transfers
 //!   between the CGL grid and the model's uniform grid (`uniform_nodes`,
 //!   `cheb_to_uniform`, `uniform_to_cheb`, `apply`, and the production pair `Transfers`
 //!   with its degree `TRANSFER_DEGREE`), and the closed-form Clenshaw–Curtis weights with
@@ -12,35 +12,28 @@
 //!   `cc_rel_l2_error`, `cc_rel_l2_error_weighted`). They depend on ndarray alone, so training and
 //!   evaluation on Chebyshev data need no RLST, BLAS or FFTW (design §12, decisions 13
 //!   and 15).
-//! - Behind the `chebyshev` feature: the nodes, D, D², the Clenshaw–Curtis weights and
-//!   the tensor-product L² norm built from them (`nodes`, `diff_matrix`, `diff2_matrix`,
-//!   `clenshaw_curtis`, `l2_norm`, `rel_l2_error`). They wrap RLST's FFTW-backed
-//!   `chebychev` transforms (design §12, decision 12) and need a system libfftw3. RLST
-//!   works in descending node order; every function here returns ascending order.
+//! - Behind the `chebyshev` feature: D and D² (`diff_matrix`, `diff2_matrix`). They wrap
+//!   RLST's FFTW-backed `chebychev` transforms (design §12, decision 12) and need a system
+//!   libfftw3. RLST works in descending node order; every function here returns ascending
+//!   order.
+//! - Test oracles only (`#[cfg(all(test, feature = "chebyshev"))]`): the RLST nodes
+//!   (`points::nodes`) and Clenshaw–Curtis weights (`quadrature::clenshaw_curtis`), which
+//!   the closed forms above are checked against (design §12, decisions 12 and 26).
 
 mod clencurt;
 #[cfg(feature = "chebyshev")]
 mod differentiation;
-#[cfg(feature = "chebyshev")]
-mod norm;
-#[cfg(feature = "chebyshev")]
+#[cfg(all(test, feature = "chebyshev"))]
 mod points;
-#[cfg(feature = "chebyshev")]
+#[cfg(all(test, feature = "chebyshev"))]
 mod quadrature;
 mod transfer;
 
 pub use clencurt::{cc_norm_sq, cc_rel_l2_error, cc_rel_l2_error_weighted, clencurt};
 #[cfg(feature = "chebyshev")]
 pub use differentiation::{diff_matrix, diff2_matrix};
-#[cfg(feature = "chebyshev")]
-pub use norm::{l2_norm, rel_l2_error};
-#[cfg(feature = "chebyshev")]
-pub use points::nodes;
-#[cfg(feature = "chebyshev")]
-pub use quadrature::clenshaw_curtis;
 pub use transfer::{
-    TRANSFER_DEGREE, Transfers, apply, cheb_to_uniform, nodes_closed_form, uniform_nodes,
-    uniform_to_cheb,
+    TRANSFER_DEGREE, Transfers, apply, cheb_to_uniform, nodes, uniform_nodes, uniform_to_cheb,
 };
 
 #[cfg(feature = "chebyshev")]

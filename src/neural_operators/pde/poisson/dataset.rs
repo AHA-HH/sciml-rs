@@ -14,7 +14,7 @@
 //! [`write_split`] writes the split as one `.npz` and one JSON sidecar. Labels come from
 //! solver A only; solver C never enters this path (design §4.2).
 
-use ndarray::{Array1, Array3, ArrayView1, ArrayView2, Axis};
+use ndarray::{Array1, Array3, ArrayView2, Axis};
 use ndarray_npy::NpzWriter;
 use std::fmt;
 use std::fs::{self, File};
@@ -27,9 +27,7 @@ use super::grf::{
     ALPHA, K_MAX, RNG, TAU, draw_xi, eps_k, evaluate, forcing_coeffs, k_default, solution_coeffs,
 };
 use crate::CONVENTION_VERSION;
-use crate::neural_operators::chebyshev::{
-    TRANSFER_DEGREE, Transfers, clenshaw_curtis, nodes, rel_l2_error,
-};
+use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, cc_rel_l2_error, nodes};
 use crate::neural_operators::data::loaders::poisson::PoissonSet;
 use crate::neural_operators::metrics::stats::ErrorStats;
 
@@ -76,10 +74,9 @@ pub struct Split {
     pub f: Array3<f64>,
     /// The solver-A solutions, `[N, n, n]`, 'ij', zero on the boundary.
     pub u: Array3<f64>,
-    /// The ascending CGL nodes on x, `[n]`.
+    /// The ascending CGL nodes, `[n]`, on both axes; [`write_split`] stores them as both
+    /// `x` and `y`.
     pub x: Array1<f64>,
-    /// The ascending CGL nodes on y, `[n]`; equal to `x`.
-    pub y: Array1<f64>,
     /// The label check ‖u_A − u_series‖ / ‖u_series‖ over the samples.
     pub label_check: ErrorStats,
     /// Whether [`LABEL_CHECK_TOL`] was enforced (n ≥ [`LABEL_CHECK_MIN_N`]).
@@ -119,24 +116,26 @@ impl std::error::Error for LabelCheckError {}
 /// The label check of one sample (design §4.3, §5.1): the relative Clenshaw–Curtis L²
 /// discrepancy ‖u_A − u_series‖ / ‖u_series‖ (CONVENTIONS §12).
 ///
-/// `u_a` and `u_series` are `[n, n]`, 'ij'; `w: [n]` holds the Clenshaw–Curtis weights.
-/// `sample` and `seed` only label the error. Returns the discrepancy; for
-/// n ≥ [`LABEL_CHECK_MIN_N`] a value above [`LABEL_CHECK_TOL`] (or NaN) is an error.
+/// `u_a` and `u_series` are `[n, n]`, 'ij'; n is read from their shape and the weights
+/// are [`clencurt`](crate::neural_operators::chebyshev::clencurt)`(n)`
+/// ([`cc_rel_l2_error`]). `sample` and `seed` only label the error. Returns the discrepancy; for n ≥ [`LABEL_CHECK_MIN_N`] a value above
+/// [`LABEL_CHECK_TOL`] (or NaN) is an error.
 ///
 /// # Errors
 /// [`LabelCheckError`] when the check is enforced and fails.
 ///
 /// # Panics
-/// If `w` has fewer than 2 entries, or the fields are not both `[w.len(), w.len()]`.
+/// If the fields differ in shape or are not square, or either axis has fewer than 2
+/// nodes.
 pub fn label_check(
     u_a: ArrayView2<f64>,
     u_series: ArrayView2<f64>,
-    w: ArrayView1<f64>,
     sample: usize,
     seed: u64,
 ) -> Result<f64, LabelCheckError> {
-    let error = rel_l2_error(u_a, u_series, w, w);
-    let n = w.len();
+    let error = cc_rel_l2_error(u_a, u_series);
+    let n = u_a.nrows();
+    assert_eq!(n, u_a.ncols(), "label_check: fields must be square");
     if n >= LABEL_CHECK_MIN_N && (error.is_nan() || error > LABEL_CHECK_TOL) {
         return Err(LabelCheckError {
             sample,
@@ -150,10 +149,10 @@ pub fn label_check(
 
 /// Generates one split (design §5.1): f, u_A, the label check and error 2.
 ///
-/// Builds one [`CollocationSolver`], one set of Clenshaw–Curtis weights and one pair of
-/// transfers for the split, then for sample i draws the forcing of seed
-/// `base_seed + i` ([`draw_xi`]) at the truncation [`SplitSpec::truncation`], evaluates
-/// it at the CGL nodes, solves, and checks the label against the exact series.
+/// Builds one [`CollocationSolver`] and one pair of transfers for the split, then for
+/// sample i draws the forcing of seed `base_seed + i` ([`draw_xi`]) at the truncation
+/// [`SplitSpec::truncation`], evaluates it at the CGL nodes, solves, and checks the label
+/// against the exact series.
 ///
 /// # Errors
 /// [`LabelCheckError`] for the first sample whose label check fails, when
@@ -168,7 +167,6 @@ pub fn generate(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
     assert!(n >= 3, "generate: n must be >= 3, got {n}");
     let k = spec.truncation();
     let x = nodes(n);
-    let w = clenshaw_curtis(n);
     let solver = CollocationSolver::new(n, n);
     let transfers = Transfers::new(n);
 
@@ -189,15 +187,9 @@ pub fn generate(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
         f_i.assign(&evaluate(c.view(), x.view(), x.view()));
         u_i.assign(&solver.solve_full(f_i.view()));
         let u_series = evaluate(solution_coeffs(c.view()).view(), x.view(), x.view());
-        label.push(label_check(u_i.view(), u_series.view(), w.view(), i, seed)?);
-        // the gated norm: the generator moves onto the ungated pieces in Phase 4s T14
+        label.push(label_check(u_i.view(), u_series.view(), i, seed)?);
         let round_trip = transfers.to_cheb(transfers.to_uniform(u_i.view()).view());
-        err2.push(rel_l2_error(
-            round_trip.view(),
-            u_i.view(),
-            w.view(),
-            w.view(),
-        ));
+        err2.push(cc_rel_l2_error(round_trip.view(), u_i.view()));
     }
 
     Ok(Split {
@@ -205,7 +197,6 @@ pub fn generate(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
         k,
         f,
         u,
-        y: x.clone(),
         x,
         label_check: ErrorStats::of(&label),
         label_check_enforced: n >= LABEL_CHECK_MIN_N,
@@ -228,10 +219,10 @@ pub fn split_stem(split: &Split, name: &str) -> String {
 /// [`split_stem`] (design §5.1). Creates `dir` if needed and overwrites existing files.
 ///
 /// The `.npz` holds `f` and `u` (`[N, n, n]`, f64, 'ij') and the CGL nodes `x` and `y`
-/// (`[n]`), uncompressed. The JSON sidecar records n and s, K and whether it was explicit,
-/// τ, α, K_MAX, the RNG, the base seed and count, ε_K, the label check (max, mean,
-/// enforced, tolerance), error 2 (max, mean, d, s), [`CONVENTION_VERSION`], the crate
-/// version, `git_commit` and the wall time in seconds. `name` is the split's name, e.g.
+/// (`[n]`, both [`Split::x`]), uncompressed. The JSON sidecar records n and s, K and
+/// whether it was explicit, τ, α, K_MAX, the RNG, the base seed and count, ε_K, the label
+/// check (max, mean, enforced, tolerance), error 2 (max, mean, d, s),
+/// [`CONVENTION_VERSION`], the crate version, `git_commit` and the wall time in seconds. `name` is the split's name, e.g.
 /// `"train"` or `"test"`. Returns the two paths.
 ///
 /// # Errors
@@ -251,7 +242,9 @@ pub fn write_split(
     for (field, array) in [("f", &split.f), ("u", &split.u)] {
         npz.add_array(field, array).map_err(io::Error::other)?;
     }
-    for (field, array) in [("x", &split.x), ("y", &split.y)] {
+    // `y` repeats `x`: the file format keeps both axes (design §5.1), and the loader checks
+    // both against the CGL nodes.
+    for (field, array) in [("x", &split.x), ("y", &split.x)] {
         npz.add_array(field, array).map_err(io::Error::other)?;
     }
     npz.finish().map_err(io::Error::other)?;
@@ -313,12 +306,11 @@ mod tests {
     fn collocation_matches_series_on_grf() {
         for n in [33, 65, 129] {
             let solver = CollocationSolver::new(n, n);
-            let w = clenshaw_curtis(n);
             let k = k_default(n);
             let errs: Vec<f64> = (0..5)
                 .map(|seed| {
                     let [ua, us] = a_and_series(&solver, n, k, seed);
-                    rel_l2_error(ua.view(), us.view(), w.view(), w.view())
+                    cc_rel_l2_error(ua.view(), us.view())
                 })
                 .collect();
             let max = errs.iter().copied().fold(0.0_f64, f64::max);
@@ -333,13 +325,12 @@ mod tests {
     fn label_check_aborts() {
         let n = 65;
         let solver = CollocationSolver::new(n, n);
-        let w = clenshaw_curtis(n);
         let [ua, us] = a_and_series(&solver, n, k_default(n), 4);
-        assert!(label_check(ua.view(), us.view(), w.view(), 3, 4).is_ok());
+        assert!(label_check(ua.view(), us.view(), 3, 4).is_ok());
 
         let mut corrupted = ua.clone();
         corrupted[[32, 32]] += 1e-4 * us.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-        let err = label_check(corrupted.view(), us.view(), w.view(), 3, 4)
+        let err = label_check(corrupted.view(), us.view(), 3, 4)
             .expect_err("a corrupted label at n = 65 must fail the check");
         assert_eq!((err.sample, err.seed, err.n), (3, 4, n));
         assert!(err.error > LABEL_CHECK_TOL);
@@ -348,16 +339,19 @@ mod tests {
         // Not enforced below n = 65: the same corruption is recorded, not rejected.
         let n = 33;
         let solver = CollocationSolver::new(n, n);
-        let w = clenshaw_curtis(n);
         let [ua, us] = a_and_series(&solver, n, k_default(n), 4);
         let mut corrupted = ua.clone();
         corrupted[[16, 16]] += 1e-4 * us.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-        let e = label_check(corrupted.view(), us.view(), w.view(), 3, 4).unwrap();
+        let e = label_check(corrupted.view(), us.view(), 3, 4).unwrap();
         assert!(e > LABEL_CHECK_TOL);
     }
 
     #[test]
     fn files_round_trip() {
+        use crate::neural_operators::data::loaders::base_dataset::DatasetConfig;
+        use crate::neural_operators::data::loaders::poisson::{
+            PoissonConfig, load_poisson_cheb, load_poisson_uniform,
+        };
         let spec = SplitSpec {
             n: 17,
             k: None,
@@ -380,7 +374,7 @@ mod tests {
             assert_eq!(read.shape(), &[2, 17, 17], "{field}");
             assert_eq!(read, written.clone().into_dyn(), "{field}");
         }
-        for (field, written) in [("x", &split.x), ("y", &split.y)] {
+        for (field, written) in [("x", &split.x), ("y", &split.x)] {
             let read = reader.read_field(field).unwrap();
             assert_eq!(read.shape(), &[17], "{field}");
             assert_eq!(read, written.clone().into_dyn(), "{field}");
@@ -421,6 +415,28 @@ mod tests {
         assert_eq!(v["crate_version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(v["git_commit"], "abc123");
         assert!(v["wall_time_s"].as_f64().unwrap() > 0.0);
+
+        // The loaders read the written split back: raw on the CGL grid, and on the
+        // uniform grid s = n − 1 beside a written test split.
+        assert_eq!(load_poisson_cheb(&npz_path, 17, 2).unwrap(), split.u);
+        let test_spec = SplitSpec {
+            n: 17,
+            k: None,
+            base_seed: 100,
+            count: 1,
+        };
+        let test_split = generate(&test_spec).unwrap();
+        let (test_path, _) = write_split(&dir, "test", &test_split, "abc123").unwrap();
+        let config = PoissonConfig::new(
+            DatasetConfig {
+                n_train: 2,
+                n_test: 1,
+            },
+            17,
+        );
+        let (train, test, _) = load_poisson_uniform::<f64>(&npz_path, &test_path, &config).unwrap();
+        assert_eq!(train.inputs().shape(), [2, 16, 16, 1]);
+        assert_eq!(test.targets().shape(), [1, 16, 16]);
 
         fs::remove_dir_all(&dir).unwrap();
     }

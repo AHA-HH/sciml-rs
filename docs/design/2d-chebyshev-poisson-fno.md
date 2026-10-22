@@ -1273,6 +1273,23 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       No `CONVENTION_VERSION` bump is expected.
     - Outcome: **proposed** 2026-10-15; accepted when the author approves
       `docs/phase4s/README.md`.
+26. **Phase 4s T14: the datasets are kept (2026-10-22).**
+    - **What changes.** The generator moves to the ungated Chebyshev stack: the
+      closed-form nodes −cos(πj/(n − 1)), computed as a sine, `clencurt` and
+      `cc_rel_l2_error`. The generated `x` / `y` move by at most about 1 ulp against the
+      RLST nodes, within the loader's `NODE_TOL = 1e-14`, so every stored file still loads
+      and every stored `f` / `u` stays valid.
+    - **Options.** Keep the datasets (no data churn; every run and Results number stays
+      reproducible; files written after T14 differ from older ones only in the last bit
+      of the node coordinates), or regenerate them (byte-exact agreement from the same
+      seed, at about 1 GB+ of regeneration and drift questions on every Phase 4 number).
+    - **Kept.** T15 changes the labels at round-off and decides about regeneration
+      anyway, so regenerating here would be wasted work. The acceptance check is that
+      every existing stage loads with `load_poisson_uniform` and `load_poisson_cheb`,
+      and that stage 1 (n = 33), generated into a scratch directory, matches the stored
+      sidecar's label check and error 2 to about 1e-15 (`docs/phase4s/README.md`
+      Results).
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
 
 ## References
 

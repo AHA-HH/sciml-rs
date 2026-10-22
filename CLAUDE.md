@@ -58,11 +58,13 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   `save_plot`, `save_normalizers`, `save_weights`; `open(dir)`, `load_fno`, `model_config`,
   `data_config::<C>`, `normalizers()`, `metrics()`. Run-file names appear nowhere else;
   examples pass `CARGO_MANIFEST_DIR/runs` as the root.
-- `src/neural_operators/chebyshev/`: CGL `nodes`, `diff_matrix`/`diff2_matrix`,
-  `clenshaw_curtis`, `l2_norm`/`rel_l2_error` are behind the `chebyshev` feature (need
-  system libfftw3).
-- `chebyshev/transfer` is ungated (ndarray only): `uniform_nodes`, `cheb_to_uniform` (T_cu),
-  `uniform_to_cheb` (T_uc, Floater–Hormann), `apply`.
+- `src/neural_operators/chebyshev/`: `diff_matrix`/`diff2_matrix` are behind the
+  `chebyshev` feature (need system libfftw3). `points` and `quadrature` (RLST nodes,
+  `clenshaw_curtis`) are `#[cfg(all(test, feature = "chebyshev"))]` oracles for the closed
+  forms.
+- `chebyshev/transfer` is ungated (ndarray only): `nodes` (closed-form CGL nodes),
+  `uniform_nodes`, `cheb_to_uniform` (T_cu), `uniform_to_cheb` (T_uc, Floater–Hormann),
+  `apply`, `Transfers`.
 - `chebyshev/clencurt` is ungated (ndarray only): `clencurt` (closed-form Clenshaw–Curtis
   weights, Trefethen) and `cc_rel_l2_error` (relative CC-L² error on the CGL tensor grid).
 - `src/neural_operators/pde/poisson/` (behind `chebyshev`): `collocation`

@@ -255,7 +255,7 @@ fn transpose(a: &DynArray<f64, 2>) -> DynArray<f64, 2> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::chebyshev::{clenshaw_curtis, rel_l2_error};
+    use crate::neural_operators::chebyshev::cc_rel_l2_error;
     use crate::neural_operators::pde::poisson::manufactured::{
         ANISO, ANISO_T, EXP, Manufactured, POLY, SIN, exp_f, exp_u, rel_max, sample, sin_f, sin_u,
     };
@@ -265,11 +265,7 @@ mod tests {
     fn errors(nx: usize, ny: usize, m: &Manufactured) -> (f64, f64) {
         let u = CollocationSolver::new(nx, ny).solve_full(sample(nx, ny, m.f).view());
         let exact = sample(nx, ny, m.u);
-        let (wx, wy) = (clenshaw_curtis(nx), clenshaw_curtis(ny));
-        (
-            rel_max(&u, &exact),
-            rel_l2_error(u.view(), exact.view(), wx.view(), wy.view()),
-        )
+        (rel_max(&u, &exact), cc_rel_l2_error(u.view(), exact.view()))
     }
 
     /// Option B (design §4.1): −(I ⊗ D_xx + D_yy ⊗ I) vec U = vec F with column-major
