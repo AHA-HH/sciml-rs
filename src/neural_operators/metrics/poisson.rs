@@ -570,7 +570,7 @@ mod tests {
             let data: Vec<f32> = a.iter().map(|&v| v as f32).collect();
             Tensor::<2>::from_data(TensorData::new(data, vec![count, s * s]), &device)
         };
-        let loss = LpLoss::new(2, 2, Reduction::Sum).rel(flat(&pred), flat(&target));
+        let loss = LpLoss::new(2, Reduction::Sum).rel(flat(&pred), flat(&target));
         let lp = f64::from(loss.into_scalar::<f32>()) / count as f64;
         assert!((mean - lp).abs() <= 1e-6, "e3 mean {mean} vs LpLoss {lp}");
     }

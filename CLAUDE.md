@@ -12,12 +12,13 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - Cite conventions in doc comments as `CONVENTIONS §n`.
 - Current phase: Phase 4s (side phase, repository health), planned in
   docs/phase4s/README.md (design §10, decision 25; from the review in
-  docs/code-quality/). Phases 0–4 are done: docs/phase0/README.md to
-  docs/phase4/README.md. After 4s (design §10, decision 24), both optional and
-  independent: Phase 5 (HPC: profiling, checkpointing, multi-GPU) and Phase 6
-  (Chebyshev-native: baseline padding and seeds first, then the θ-map). Phase 5 T2
-  waits for 4s T10/T12, Phase 6 T3 for 4s T16. Each phase gets its README and briefs
-  when it starts; 4s briefs are in docs/phase4s/T*.md.
+  docs/code-quality/). T24 is its last task; the phase closes with the exit checklist
+  and a re-review. Phases 0–4 are done: docs/phase0/README.md to docs/phase4/README.md.
+  Next (design §10, decision 24), both optional and independent: Phase 5 (HPC:
+  profiling, checkpointing, multi-GPU) and Phase 6 (Chebyshev-native: baseline padding
+  and seeds first, then the θ-map). Phase 5 T2 waits for 4s T10/T12, Phase 6 T3 for 4s
+  T16. Each phase gets its README and briefs when it starts; 4s briefs are in
+  docs/phase4s/T*.md.
 - Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
   RLST reference solver, FNO; signed off 2026-10-05, amended 2026-10-08 and 2026-10-09,
   decisions in its §12). CONVENTIONS.md wins on any conflict.
@@ -41,13 +42,15 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - Run `cargo fmt` after every Rust edit, before the other checks or committing. CI
   rejects unformatted code.
 - Document every public item; follow the existing rustdoc style (shape of every tensor
-  argument, and the panics).
+  argument, and the panics). `lib.rs` sets `#![warn(missing_docs)]`, so clippy's
+  `-D warnings` rejects an undocumented public item.
 
 ## Layout
 - `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO; tests in `tests/{reference,padding,grid,checkpoint}.rs`), `models/predict.rs`
   (`predict_host`: batched inference to host f64, any rank), `layers/spectral_convolution.rs`
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
-  npy/npz/.mat, transforms; `host_oracle` is the test-only host batcher), `metrics/` (Poisson
+  npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
+  batcher), `metrics/` (Poisson
   errors, `ErrorStats`), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
   (`backend_features`).
 - `training/`: `config` (`TrainingConfig`), `step` (`flatten_pair`, `forward_loss`,
@@ -102,7 +105,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   GPU feature.
 - Examples are registered in `Cargo.toml`; hyperparameters are literals at the top of
   each file. Training writes `runs/<name>_<unix_secs>/`.
-- `datasets/` (.mat files, see `datasets/README.md`) and `runs/` are git-ignored.
+- `datasets/` (.mat files and `datasets/poisson/`, see `datasets/README.md`) and `runs/` are
+  git-ignored.
 - `Cargo.lock` is committed: CI builds from it, so a yanked dependency (e.g. `zip 6.0.0`)
   cannot break a fresh resolve. `.gitignore` covers `*.csv` and `*.png`.
 

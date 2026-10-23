@@ -35,7 +35,7 @@ impl MatFileReader {
 /// allocation per field. (Iterating the view in logical order instead is ~7x
 /// slower on a 1024x421x421 field.) C order matters because downstream
 /// `into_shape_with_order` (row-major) reshapes fail with `IncompatibleLayout`
-/// on a Fortran-order array (REVIEW.md 2.4).
+/// on a Fortran-order array (PR #3).
 fn to_array<T: Copy + Into<f64>>(size: &[usize], data: &[T]) -> ReaderResult<ArrayD<f64>> {
     let column_major = ArrayView::from_shape(IxDyn(size).f(), data)
         .map_err(|e| ReaderError::ParseError(e.to_string()))?;
@@ -111,7 +111,7 @@ mod tests {
         }
     }
 
-    // --- REVIEW.md 2.4 / 5.5 ---
+    // --- Fortran-order reads (PR #3) ---
 
     use matfile::NumericData as D;
     use ndarray::IxDyn;
@@ -147,7 +147,7 @@ mod tests {
     fn row_major_reshape_works_on_reader_output_but_not_on_fortran_order() {
         // The loaders' `into_shape_with_order` (row-major) reshape: it used to
         // fail on the reader's Fortran-order output whenever no slice or
-        // subsample happened to copy it into C order first (REVIEW.md 2.4).
+        // subsample happened to copy it into C order first (PR #3).
         let data: Vec<f64> = (0..24).map(f64::from).collect();
         let old = ArrayD::from_shape_vec(IxDyn(&[4, 3, 2]), data.clone())
             .unwrap()

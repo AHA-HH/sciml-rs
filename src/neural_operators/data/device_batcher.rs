@@ -212,7 +212,7 @@ mod tests {
         out
     }
 
-    /// REVIEW.md 4.1: same batches, same order, same device as the host
+    /// PR #6: same batches, same order, same device as the host
     /// loader, over several shuffled epochs with a partial last batch.
     #[test]
     fn matches_host_loader_bit_for_bit() {

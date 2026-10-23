@@ -44,7 +44,9 @@ use crate::neural_operators::{
 ///
 /// # Panics
 ///
-/// If the output has more than one channel.
+/// If the output has more than one channel: training supports scalar-output operators
+/// only, although [`FNOConfig::init`](crate::neural_operators::models::fno::FNOConfig::init)
+/// builds any `out_channels`.
 pub fn flatten_pair<const R: usize, const RM1: usize>(
     out: Tensor<R>,
     target: Tensor<RM1>,
@@ -85,7 +87,7 @@ pub(crate) struct StepLoss {
 /// Runs `model` on `batch.inputs` (`[b, ...spatial, data_channels]`), collapses output
 /// and `batch.targets` (`[b, ...spatial]`) with [`flatten_pair`], decodes the output with
 /// `decoder` if given (targets are physical, CONVENTIONS §10), then takes the loss
-/// (`LpLoss::new(R - 2, 2, Reduction::Sum)`).
+/// (`LpLoss::new(2, Reduction::Sum)`).
 ///
 /// # Panics
 ///
@@ -101,7 +103,7 @@ pub(crate) fn forward_loss<const R: usize, const RM1: usize>(
         Some(d) => d.decode(out),
         None => out,
     };
-    let l2_sum = LpLoss::new(R - 2, 2, Reduction::Sum).rel(out.clone(), target.clone());
+    let l2_sum = LpLoss::new(2, Reduction::Sum).rel(out.clone(), target.clone());
     StepLoss {
         l2_sum,
         out,
@@ -110,7 +112,7 @@ pub(crate) fn forward_loss<const R: usize, const RM1: usize>(
 }
 
 /// Mean relative L² per sample of `model` over every batch of `loader`: the test loss
-/// that training reports as `test_l2` (`LpLoss::new(R - 2, 2, Sum)` summed over the
+/// that training reports as `test_l2` (`LpLoss::new(2, Sum)` summed over the
 /// batches, divided by the loader's sample count).
 ///
 /// - `loader` yields [`Batch`]es with inputs `[B, *spatial, C]` and targets `[B, *spatial]`,
@@ -163,7 +165,7 @@ mod tests {
     }
 
     /// `forward_loss` against a hand-written oracle: forward, `flatten_pair`, the decoder,
-    /// then `LpLoss::new(R - 2, 2, Sum).rel`, bit for bit. The decoder scales and shifts
+    /// then `LpLoss::new(2, Sum).rel`, bit for bit. The decoder scales and shifts
     /// the prediction only, so a loss taken before decoding, a decoded target, or tensors
     /// returned without decoding fail.
     fn assert_forward_loss_matches_oracle<const R: usize, const RM1: usize>(
@@ -181,7 +183,7 @@ mod tests {
             flatten_pair::<R, RM1>(model.forward(batch.inputs.clone()), batch.targets.clone());
         let decoder = FlatDecoder::new(&UnitGaussianNormalizer::fit(data.targets()), device);
         let o = decoder.decode(o);
-        let expected = LpLoss::new(R - 2, 2, Reduction::Sum).rel(o.clone(), t.clone());
+        let expected = LpLoss::new(2, Reduction::Sum).rel(o.clone(), t.clone());
 
         let step = forward_loss(model, batch, Some(&decoder));
 

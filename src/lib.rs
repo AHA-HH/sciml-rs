@@ -1,24 +1,44 @@
-//! Scientific machine learning in Rust.
+//! Scientific machine learning in Rust: neural operators on [Burn](https://burn.dev).
 //!
-//! A Neural Operator crate built on [Burn](https://burn.dev).
-//! Tensor rank is a compile-time parameter: `FNO<3>` (1D), `FNO<4>` (2D) and
-//! `FNO<5>` (3D) are distinct types generated from the same code, so shape
-//! invariants are checked by the compiler rather than at runtime.
+//! The Fourier Neural Operator is the model implemented so far. Tensor rank is a
+//! compile-time parameter, so the spatial dimension D is fixed by the type: `FNO<3>` is
+//! 1D and `FNO<4>` is 2D (R = D + 2), and shape invariants are checked by the compiler
+//! rather than at runtime. `docs/CONVENTIONS.md` defines the tensor layouts, grids,
+//! padding, FFT normalisation and initialisation the code implements
+//! ([`CONVENTION_VERSION`]).
 //!
 //! # Layout
 //!
-//! - [`neural_operators::models`] - the FNO
-//! - [`neural_operators::layers`] - spectral convolution
-//! - [`neural_operators::training`] - training loop and metrics
-//! - [`neural_operators::data`] - loaders, batching, transforms
+//! - [`neural_operators::models`]: the FNO and batched inference to the host
+//! - [`neural_operators::layers`]: the spectral convolution
+//! - [`neural_operators::losses`]: the Lp losses
+//! - [`neural_operators::training`]: configs, the loss step, the training loop and the
+//!   Burn `Learner` impls
+//! - [`neural_operators::data`]: readers, loaders, the dataset catalogue, device batching
+//!   and transforms
+//! - [`neural_operators::metrics`]: the Poisson errors and summary statistics
+//! - [`neural_operators::runs`]: the run directory (configs, metrics, plots, weights)
+//! - [`neural_operators::chebyshev`]: Chebyshev nodes, Clenshaw–Curtis weights and the
+//!   grid transfers
+//! - `neural_operators::pde` (feature `datagen`): the Poisson reference solvers, forcings
+//!   and dataset generation
+//! - [`neural_operators::utils`]: the inverse complex FFT and backend features
 //!
 //! # Examples
 //!
-//! Training entry points are in `examples/train/` (`burgers.rs`, `darcy.rs`);
-//! re-evaluation of saved runs is in `examples/predict/`.
+//! Training entry points are in `examples/train/` (Burgers, Darcy, Poisson and the
+//! Burgers `Learner` showcase); evaluation of saved runs, resolution studies and plots
+//! are in `examples/predict/`; `examples/generate/poisson.rs` (`generate_poisson`) writes
+//! the Poisson datasets.
 //!
-//! The optional `datagen` feature enables RLST (BLAS/LAPACK, FFTW), the Poisson reference
-//! solvers in `neural_operators::pde` and the `generate_poisson` dataset generator.
+//! # Features
+//!
+//! One backend feature is required: `flex` (default, pure-Rust CPU), `metal`, `cuda` or
+//! `wgpu`. The optional `datagen` feature enables RLST (BLAS/LAPACK, FFTW), the Poisson
+//! reference solvers in `neural_operators::pde` and the `generate_poisson` dataset
+//! generator.
+
+#![warn(missing_docs)]
 
 // Without a backend Burn's `Device::default()` panics at runtime; fail the
 // build instead with an actionable message.

@@ -14,6 +14,8 @@ use burn::config::Config;
 /// Fields common to every dataset config.
 #[derive(Config, Debug)]
 pub struct DatasetConfig {
+    /// Number of training samples, taken from the start of the file.
     pub n_train: usize,
+    /// Number of test samples.
     pub n_test: usize,
 }
