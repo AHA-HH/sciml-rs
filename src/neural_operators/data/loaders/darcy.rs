@@ -26,9 +26,10 @@ use crate::neural_operators::data::{
         base_dataset::DatasetConfig,
         common::{Normalizers, check_n_train, normalize_split_pair, normalize_test_split},
     },
+    transforms::strided::take_strided,
 };
 use burn::config::Config;
-use ndarray::{ArrayD, s};
+use ndarray::ArrayD;
 use std::path::Path;
 
 /// Darcy-specific config: subsample rate and the resolution it implies.
@@ -194,8 +195,7 @@ fn take_subsampled(field: ArrayD<f64>, n: usize, r: usize) -> ArrayD<f64> {
     if n == field.shape()[0] && r == 1 {
         return field;
     }
-    let step = r as isize;
-    field.slice(s![..n, ..;step, ..;step]).to_owned().into_dyn()
+    take_strided(field.view(), 0..n, r)
 }
 
 #[cfg(test)]
@@ -248,23 +248,23 @@ mod tests {
         assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
     }
 
-    // --- REVIEW.md 4.7: one strided copy == old slice + 2x subsample ---
+    // --- one strided copy == element-wise index arithmetic ---
 
-    fn old_path(field: ArrayD<f64>, n: usize, r: usize) -> ArrayD<f64> {
-        use crate::neural_operators::data::transforms::subsample::subsample;
-        let field = field.slice_axis(ndarray::Axis(0), (0..n).into()).to_owned();
-        subsample(subsample(field, 1, r), 2, r)
+    /// Independent oracle: element-wise index arithmetic, no slicing.
+    fn index_oracle(field: &ArrayD<f64>, n: usize, r: usize) -> ArrayD<f64> {
+        let (s1, s2) = (field.shape()[1].div_ceil(r), field.shape()[2].div_ceil(r));
+        ArrayD::from_shape_fn(IxDyn(&[n, s1, s2]), |i| field[[i[0], i[1] * r, i[2] * r]])
     }
 
     #[test]
-    fn take_subsampled_matches_old_slice_and_subsample() {
+    fn take_subsampled_matches_index_oracle() {
         // Non-square spatial extents and a rate that doesn't divide them.
         let field = ArrayD::from_shape_fn(IxDyn(&[5, 7, 9]), |i| {
             (i[0] * 10_000 + i[1] * 100 + i[2]) as f64
         });
         for (n, r) in [(5, 1), (3, 1), (5, 2), (2, 3), (1, 4)] {
             let new = take_subsampled(field.clone(), n, r);
-            assert_eq!(new, old_path(field.clone(), n, r), "n = {n}, r = {r}");
+            assert_eq!(new, index_oracle(&field, n, r), "n = {n}, r = {r}");
             assert!(new.is_standard_layout(), "n = {n}, r = {r}");
             // the loader's row-major reshape must succeed
             let shape = [new.shape(), &[1]].concat();

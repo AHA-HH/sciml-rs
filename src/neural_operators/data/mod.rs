@@ -12,5 +12,4 @@ pub mod host_float;
 pub(crate) mod host_oracle;
 pub mod io;
 pub mod loaders;
-pub mod split;
 pub mod transforms;

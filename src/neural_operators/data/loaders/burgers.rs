@@ -15,8 +15,7 @@ use crate::neural_operators::data::{
     host_float::HostFloat,
     io::{errors::LoadError, readers::mat::MatFileReader},
     loaders::{base_dataset::DatasetConfig, common::with_channel},
-    split::train_test_split,
-    transforms::subsample::subsample,
+    transforms::strided::take_strided,
 };
 use burn::config::Config;
 use ndarray::ArrayD;
@@ -68,7 +67,7 @@ pub fn load_burgers_uniform<T: HostFloat>(
     burgers_from_fields(a_data, u_data, config)
 }
 
-/// Steps 2-4 of [`load_burgers_uniform`] on fields already read: validate,
+/// The rest of [`load_burgers_uniform`] on fields already read: validate,
 /// subsample, split, add the channel axis and cast. Separate from the reader so the
 /// output can be tested without a `.mat` file.
 fn burgers_from_fields<T: HostFloat>(
@@ -92,25 +91,29 @@ fn burgers_from_fields<T: HostFloat>(
         }
     }
 
-    // 2. Subsample along spatial dimension (dim 1)
-    let a_data = subsample(a_data, 1, config.subsample_rate);
-    let u_data = subsample(u_data, 1, config.subsample_rate);
+    // Subsample the spatial axis and split in one strided copy each (sizes validated
+    // above): train = first n_train samples, test = last n_test.
+    let (n_total, n_train, n_test) = (a_data.shape()[0], config.base.n_train, config.base.n_test);
+    let (train_rows, test_rows) = (0..n_train, n_total - n_test..n_total);
+    let take = |f: &ArrayD<f64>, rows| take_strided(f.view(), rows, config.subsample_rate);
+    let (a_train, a_test) = (
+        take(&a_data, train_rows.clone()),
+        take(&a_data, test_rows.clone()),
+    );
+    let (u_train, u_test) = (take(&u_data, train_rows), take(&u_data, test_rows));
 
-    // spatial size after subsampling
-    let s = a_data.shape()[1];
-    if s != config.s() || u_data.shape()[1] != s {
+    // Spatial size after subsampling; checking the train split suffices, both splits
+    // share it.
+    let s = a_train.shape()[1];
+    if s != config.s() || u_train.shape()[1] != s {
         return Err(LoadError::Invalid(format!(
             "subsampled resolution {s} (a) / {} (u) != config.s() {}",
-            u_data.shape()[1],
+            u_train.shape()[1],
             config.s()
         )));
     }
 
-    // 3. Split into train and test (sizes validated above)
-    let (a_train, a_test) = train_test_split(a_data, config.base.n_train, config.base.n_test);
-    let (u_train, u_test) = train_test_split(u_data, config.base.n_train, config.base.n_test);
-
-    // 4. Wrap in OperatorDataset with one input data channel [n, s] -> [n, s, 1],
+    // Wrap in OperatorDataset with one input data channel [n, s] -> [n, s, 1],
     // casting to the host dtype T
     let train_dataset = OperatorDataset::from_f64(with_channel(a_train), u_train);
     let test_dataset = OperatorDataset::from_f64(with_channel(a_test), u_test);
@@ -159,11 +162,11 @@ mod tests {
 
     #[test]
     fn inputs_hold_the_subsampled_data_channel_only() {
-        let (n, raw, r) = (3, 8192, 1024); // s = 8
+        let (n, raw, r) = (4, 8192, 1024); // s = 8
         let config = BurgersConfig::new(
             DatasetConfig {
                 n_train: 2,
-                n_test: 1,
+                n_test: 1, // n = 4: sample 1 is in neither split
             },
             r,
         );
@@ -176,9 +179,9 @@ mod tests {
         assert_eq!(test.inputs().shape(), [1, s, 1]);
         assert_eq!(train.targets().shape(), [2, s]);
         assert_eq!(test.targets().shape(), [1, s]);
-        // Sample i of the split is raw sample i (train) or 2 + i (test),
+        // Sample i of the split is raw sample i (train) or 3 + i (test),
         // point k is raw point k * r; values pass through exactly.
-        for (ds, first) in [(&train, 0), (&test, 2)] {
+        for (ds, first) in [(&train, 0), (&test, 3)] {
             for ((i, k, c), &v) in ds
                 .inputs()
                 .indexed_iter()
