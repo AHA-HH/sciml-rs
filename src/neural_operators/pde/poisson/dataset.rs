@@ -28,8 +28,9 @@ use super::grf::{
 };
 use crate::CONVENTION_VERSION;
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, cc_rel_l2_error, nodes};
+use crate::neural_operators::data::catalogue::PoissonSet;
 use crate::neural_operators::data::loaders::poisson::{
-    PoissonSet, SidecarError2, SidecarLabelCheck, SidecarRecord,
+    SidecarError2, SidecarLabelCheck, SidecarRecord,
 };
 use crate::neural_operators::metrics::stats::ErrorStats;
 
@@ -56,6 +57,20 @@ pub struct SplitSpec {
 }
 
 impl SplitSpec {
+    /// One split of the catalogued `set`, its K explicit only where it isn't
+    /// [`k_default`]`(n)` (the K = 32 sets 3e and 4e), as `generate_poisson` writes it.
+    ///
+    /// # Panics
+    /// If `set.n < 3`.
+    pub fn of_set(set: PoissonSet, base_seed: u64, count: usize) -> Self {
+        Self {
+            n: set.n,
+            k: (set.k != k_default(set.n)).then_some(set.k),
+            base_seed,
+            count,
+        }
+    }
+
     /// The truncation K in effect: the explicit one, else [`k_default`]`(n)`.
     ///
     /// # Panics
@@ -352,7 +367,7 @@ mod tests {
     fn files_round_trip() {
         use crate::neural_operators::data::loaders::base_dataset::DatasetConfig;
         use crate::neural_operators::data::loaders::poisson::{
-            PoissonConfig, load_poisson_cheb, load_poisson_uniform,
+            PoissonConfig, PoissonField, load_poisson_cheb_field, load_poisson_uniform,
         };
         let spec = SplitSpec {
             n: 17,
@@ -452,7 +467,10 @@ mod tests {
 
         // The loaders read the written split back: raw on the CGL grid, and on the
         // uniform grid s = n − 1 beside a written test split.
-        assert_eq!(load_poisson_cheb(&npz_path, 17, 2).unwrap(), split.u);
+        assert_eq!(
+            load_poisson_cheb_field(&npz_path, PoissonField::U, 17, 2).unwrap(),
+            split.u
+        );
         let test_spec = SplitSpec {
             n: 17,
             k: None,
@@ -477,9 +495,46 @@ mod tests {
 
     #[test]
     fn stages_use_the_default_truncation() {
-        use crate::neural_operators::data::loaders::poisson::STAGES;
+        use crate::neural_operators::data::catalogue::STAGES;
         for set in STAGES {
             assert_eq!(set.k, k_default(set.n), "stage n = {}", set.n);
         }
+    }
+
+    /// The splits `generate_poisson` builds from the catalogue are the ones its
+    /// hard-coded table listed before phase 4s T22: same order, n, explicit K and stems.
+    #[test]
+    fn generator_stems_unchanged() {
+        use crate::neural_operators::data::catalogue::{GENERATED, SPLITS};
+        let before: [(&str, usize, Option<usize>, &str); 12] = [
+            ("train", 33, None, "poisson_n33_K16_train"),
+            ("test", 33, None, "poisson_n33_K16_test"),
+            ("train", 65, None, "poisson_n65_K32_train"),
+            ("test", 65, None, "poisson_n65_K32_test"),
+            ("train", 129, None, "poisson_n129_K64_train"),
+            ("test", 129, None, "poisson_n129_K64_test"),
+            ("train", 257, None, "poisson_n257_K64_train"),
+            ("test", 257, None, "poisson_n257_K64_test"),
+            ("train", 129, Some(32), "poisson_n129_K32_train"),
+            ("test", 129, Some(32), "poisson_n129_K32_test"),
+            ("train", 257, Some(32), "poisson_n257_K32_train"),
+            ("test", 257, Some(32), "poisson_n257_K32_test"),
+        ];
+        let after: Vec<_> = GENERATED
+            .into_iter()
+            .flat_map(|set| SPLITS.map(|name| (name, SplitSpec::of_set(set, 0, 1))))
+            .map(|(name, spec)| {
+                let set = PoissonSet {
+                    n: spec.n,
+                    k: spec.truncation(),
+                };
+                (name, spec.n, spec.k, set.stem(name))
+            })
+            .collect();
+        let before: Vec<_> = before
+            .into_iter()
+            .map(|(name, n, k, stem)| (name, n, k, stem.to_string()))
+            .collect();
+        assert_eq!(after, before);
     }
 }

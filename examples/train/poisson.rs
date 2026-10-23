@@ -8,7 +8,7 @@
 //! An optional first argument overrides `PADDING`, so the padding sweep of
 //! docs/phase3/T2-train-poisson.md needs no edits:
 //! cargo run --release --example train_poisson -- 8
-//! An optional second argument picks the stage by n, one of `loaders::poisson::STAGES`
+//! An optional second argument picks the stage by n, one of `catalogue::STAGES`
 //! (design §5.3):
 //! cargo run --release --example train_poisson -- 4 129
 //!
@@ -20,9 +20,12 @@
 
 use burn::tensor::Device;
 use sciml_rs::neural_operators::{
-    data::loaders::{
-        base_dataset::DatasetConfig,
-        poisson::{PoissonConfig, load_poisson_uniform, stage},
+    data::{
+        catalogue::stage,
+        loaders::{
+            base_dataset::DatasetConfig,
+            poisson::{PoissonConfig, load_poisson_uniform},
+        },
     },
     models::fno::FNOConfig,
     runs::RunDir,

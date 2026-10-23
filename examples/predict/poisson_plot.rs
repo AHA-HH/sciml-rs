@@ -24,8 +24,11 @@ use gnuplot::{AutoOption::Fix, AxesCommon, Color, Figure, PaletteType, VariableP
 use ndarray::{ArrayView2, Axis, s};
 use sciml_rs::neural_operators::{
     chebyshev::{Transfers, cc_rel_l2_error, nodes},
-    data::loaders::poisson::{
-        PoissonConfig, load_poisson_cheb_field, load_poisson_uniform_test, stage,
+    data::{
+        catalogue::stage,
+        loaders::poisson::{
+            PoissonConfig, PoissonField, load_poisson_cheb_field, load_poisson_uniform_test,
+        },
     },
     models::predict::predict_host,
     runs::RunDir,
@@ -103,13 +106,13 @@ fn main() {
         .unwrap_or_else(|| panic!("{}/y_normalizer.json not found", dir.display()));
     let test_data = load_poisson_uniform_test::<f32>(&test_file, &dataset_cfg, &normalizers)
         .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
-    let load_cheb = |field| {
+    let load_cheb = |field: PoissonField| {
         load_poisson_cheb_field(&test_file, field, n, sample + 1)
             .unwrap_or_else(|e| panic!("could not load the CGL field '{field}': {e}"))
             .index_axis_move(Axis(0), sample)
     };
-    let f = load_cheb("f");
-    let u = load_cheb("u");
+    let f = load_cheb(PoissonField::F);
+    let u = load_cheb(PoissonField::U);
 
     // Forward one sample: [1, s, s, 1] in, normalized [s, s] out
     let input = test_data.inputs().slice(s![sample..=sample, .., .., ..]);

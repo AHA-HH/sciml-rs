@@ -17,8 +17,11 @@ use std::path::Path;
 
 use burn::tensor::Device;
 use sciml_rs::neural_operators::{
-    data::loaders::poisson::{
-        PoissonConfig, PoissonSet, load_poisson_cheb, load_poisson_uniform, stage,
+    data::{
+        catalogue::{PoissonSet, stage},
+        loaders::poisson::{
+            PoissonConfig, PoissonField, load_poisson_cheb_field, load_poisson_uniform,
+        },
     },
     metrics::{
         poisson::{check_error3, poisson_errors},
@@ -80,12 +83,13 @@ fn main() {
         let (_, test_data, normalizers) =
             load_poisson_uniform::<f32>(datasets.join(set.npz("train")), &test_file, &cfg)
                 .unwrap_or_else(|e| panic!("could not load {}: {e}", set.stem("test")));
-        let u = load_poisson_cheb(&test_file, n, n_test).unwrap_or_else(|e| {
-            panic!(
-                "could not load the CGL solutions of {}: {e}",
-                set.stem("test")
-            )
-        });
+        let u =
+            load_poisson_cheb_field(&test_file, PoissonField::U, n, n_test).unwrap_or_else(|e| {
+                panic!(
+                    "could not load the CGL solutions of {}: {e}",
+                    set.stem("test")
+                )
+            });
 
         // Decode to physical scale in f64 with the refit y normalizer
         let pred = predict_host(&model, test_data.inputs().view(), BATCH_SIZE, &device);

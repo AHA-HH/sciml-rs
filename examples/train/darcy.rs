@@ -10,6 +10,7 @@
 //! computing the loss.
 
 use burn::tensor::Device;
+use sciml_rs::neural_operators::data::catalogue::DarcyFiles;
 use sciml_rs::neural_operators::{
     data::loaders::{
         base_dataset::DatasetConfig,
@@ -36,8 +37,8 @@ fn main() {
     let dataset_cfg = DarcyConfig::new(data_cfg, 5);
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
-    let train_path = datasets.join("piececonst_r421_N1024_smooth1.mat");
-    let test_path = datasets.join("piececonst_r421_N1024_smooth2.mat");
+    let train_path = datasets.join(DarcyFiles::TRAIN);
+    let test_path = datasets.join(DarcyFiles::TEST);
     for p in [&train_path, &test_path] {
         assert!(
             p.exists(),

@@ -36,8 +36,8 @@ downloaded. They need the `datagen` feature (system libfftw3, and OpenBLAS on Li
 cargo run --release --features datagen --example generate_poisson
 ```
 
-This writes `datasets/poisson/`. Edit `DATASETS` at the top of
-`examples/generate/poisson.rs` to choose the sets; all are on by default: stages 1 to 4
+This writes `datasets/poisson/`: a train and a test split of every set in `GENERATED`
+(`src/neural_operators/data/catalogue.rs`), all on by default: stages 1 to 4
 (n = 33, 65, 129, 257) and the K = 32 evaluation sets 3e and 4e (n = 129, 257), with their
 K = 32 train splits, which the resolution study uses only to refit the normalisers.
 

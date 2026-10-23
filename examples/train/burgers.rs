@@ -17,6 +17,7 @@
 
 // Import the necessary modules for training a Fourier Neural Operator
 use burn::tensor::Device;
+use sciml_rs::neural_operators::data::catalogue::BurgersFiles;
 use sciml_rs::neural_operators::{
     data::loaders::{
         base_dataset::DatasetConfig,
@@ -48,7 +49,9 @@ fn main() {
 
     // Automatically finds the path for the Burgers dataset as long as the file is in
     // the datasets folder at the repository root
-    let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");
+    let data_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("datasets")
+        .join(BurgersFiles::DATA);
     assert!(
         data_path.exists(),
         "Burgers dataset not found at {}\nSee datasets/README.md for the download link.",

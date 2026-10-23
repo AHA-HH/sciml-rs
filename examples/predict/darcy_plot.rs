@@ -7,6 +7,7 @@ use std::path::Path;
 
 use burn::tensor::Device;
 use gnuplot::{AxesCommon, Caption, Figure};
+use sciml_rs::neural_operators::data::catalogue::DarcyFiles;
 use sciml_rs::neural_operators::{
     data::loaders::darcy::{DarcyConfig, load_darcy_test},
     models::predict::predict_host,
@@ -38,12 +39,9 @@ fn main() {
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     // f64 host storage: the plot reads the sample back as f64. The model
     // still sees the same f32 values (see `HostFloat`).
-    let test_data = load_darcy_test::<f64>(
-        datasets.join("piececonst_r421_N1024_smooth2.mat"),
-        &dataset_cfg,
-        &normalizers,
-    )
-    .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
+    let test_data =
+        load_darcy_test::<f64>(datasets.join(DarcyFiles::TEST), &dataset_cfg, &normalizers)
+            .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
     let y_norm = normalizers.y;
 
     // One sample. input is [s, s, 1]: the coefficient field only; the model
