@@ -134,7 +134,7 @@ Its GPU `repro_*` tests are `#[ignore]`d while the Burn bugs remain; `-- --ignor
 them failing.
 
 An exact test filter needs the full module path:
-`cargo test neural_operators::models::fno::tests::<name> -- --exact`. A shorter path runs
+`cargo test neural_operators::models::fno::tests::<group>::<name> -- --exact`. A shorter path runs
 0 tests and still reports `ok`; check the "running N tests" line.
 
 ## Burn
