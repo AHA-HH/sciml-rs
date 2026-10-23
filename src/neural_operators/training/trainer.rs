@@ -187,7 +187,7 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
     .init()
     .expect("valid cosine scheduler config");
 
-    // Each split is uploaded once and batched on the device (PR #6),
+    // Each split is uploaded once and batched on the device (commit `40fcfd4`),
     // with the same order as a DataLoader over the host dataset. The host
     // copies are dropped on return.
     let train_loader = device_loader::<R, RM1, T>(
@@ -370,7 +370,7 @@ mod tests {
     use std::fs::{self, File};
     use std::path::{Path, PathBuf};
 
-    // --- PR #3: schedule length and divisors come from the data ---
+    // --- merge `04ec800`: schedule length and divisors come from the data ---
 
     #[test]
     fn components_take_sample_counts_from_the_datasets() {
@@ -432,12 +432,12 @@ mod tests {
         );
     }
 
-    // --- PR #6: device-resident loaders change nothing numerically ---
+    // --- commit `40fcfd4`: device-resident loaders change nothing numerically ---
 
     /// Full `training_loop` with the device-resident loaders against the same
-    /// components with the pre-4.1 host loaders swapped in: every metric of
-    /// every epoch must be exactly equal (same batches, same order, same
-    /// kernels), as must the trained model's output on flex.
+    /// components with the host loaders from before commit `40fcfd4` swapped in:
+    /// every metric of every epoch must be exactly equal (same batches, same
+    /// order, same kernels), as must the trained model's output on flex.
     ///
     /// On the fused GPU backends the output may differ in the last bits: the
     /// fuser can compile the two runs' identical op sequences into different

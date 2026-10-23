@@ -151,7 +151,7 @@ impl<const R: usize> FNO<R> {
         )
     }
 
-    /// A kernel-size-1 `Conv1d` as a pointwise matmul (PR #5), using
+    /// A kernel-size-1 `Conv1d` as a pointwise matmul (commit `52b8c5f`), using
     /// its own parameters: the `[O, I, 1]` weight read as `[O, I]`.
     fn conv1x1_cf(conv: &Conv1d, x: Tensor<R>) -> Tensor<R> {
         let [o, i, k] = conv.weight.val().dims();

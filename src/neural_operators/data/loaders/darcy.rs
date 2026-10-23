@@ -216,7 +216,7 @@ mod tests {
         )
     }
 
-    // --- PR #3: one training sample gave an all-NaN normalizer ---
+    // --- merge `04ec800`: one training sample gave an all-NaN normalizer ---
 
     #[test]
     fn single_train_sample_is_invalid_not_nan() {

@@ -366,9 +366,9 @@ mod tests {
         }
     }
 
-    // --- PR #3: exact-match gradients and zero targets ---
+    // --- merge `04ec800`: exact-match gradients and zero targets ---
 
-    /// The unguarded norm used before PR #3, kept here as the forward reference.
+    /// The unguarded norm used before merge `04ec800`, kept here as the forward reference.
     fn unguarded_norm(t: Tensor<2>, p: usize) -> Tensor<1> {
         match p {
             1 => t.abs().sum_dim(1).squeeze_dims(&[1]),

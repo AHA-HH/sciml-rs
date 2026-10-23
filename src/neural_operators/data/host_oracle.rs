@@ -156,7 +156,7 @@ mod tests {
         assert!(!inner.targets.is_autodiff());
     }
 
-    /// PR #6: storing the host data as f32 (one cast at load time)
+    /// Commit `40fcfd4`: storing the host data as f32 (one cast at load time)
     /// must give the same device tensors as f64 host data converted per
     /// batch. Values are not exactly representable in f32, so a double
     /// rounding or a truncating cast would change some of them.

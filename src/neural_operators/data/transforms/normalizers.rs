@@ -237,9 +237,9 @@ mod tests {
         }
     }
 
-    // --- PR #7: std + eps precomputed once, results unchanged ---
+    // --- commit `5542bea`: std + eps precomputed once, results unchanged ---
 
-    /// The pre-#7 `decode_flat` body: `std + eps` recomputed per call.
+    /// The pre-`5542bea` `decode_flat` body: `std + eps` recomputed per call.
     fn per_call_decode(x: Tensor<2>, mean: &Tensor<1>, std: &Tensor<1>, eps: f64) -> Tensor<2> {
         x * (std.clone().unsqueeze::<2>() + eps) + mean.clone().unsqueeze::<2>()
     }
@@ -315,7 +315,7 @@ mod tests {
         );
     }
 
-    // --- PR #3: one-sample fits gave NaN std under ddof = 1 ---
+    // --- merge `04ec800`: one-sample fits gave NaN std under ddof = 1 ---
 
     #[test]
     #[should_panic(expected = "at least 2")]
