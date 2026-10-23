@@ -270,10 +270,10 @@ impl<const R: usize> SpectralConv<R> {
         x_im: Tensor<R>, // [B, I, modes..]
         w_re: Tensor<R>,
         w_im: Tensor<R>, // [I, O, modes..]
-        modes: &[usize],
     ) -> (Tensor<R>, Tensor<R>) {
         let (b, i) = (x_re.dims()[0], x_re.dims()[1]);
         let o = w_re.dims()[1];
+        let modes = &w_re.dims()[2..];
         let flat: usize = modes.iter().product();
 
         let x_re = x_re.reshape([b, i, flat]).permute([2, 0, 1]);
@@ -382,7 +382,6 @@ impl<const R: usize> SpectralConv<R> {
                 x_im,
                 self.weights_re[corner].val(),
                 self.weights_im[corner].val(),
-                &self.modes,
             );
 
             let out_ranges: [Range<usize>; R] = with_bc(0..batch, 0..out_ch, &ranges);
@@ -407,15 +406,15 @@ impl<const R: usize> SpectralConv<R> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn with_bc_prepends_and_panics_on_wrong_rank() {
-        assert_eq!(super::with_bc::<usize, 4>(1, 2, &[3, 4]), [1, 2, 3, 4]);
-        let bad = std::panic::catch_unwind(|| super::with_bc::<usize, 4>(1, 2, &[3]));
-        assert!(bad.is_err());
-    }
-
     use super::*;
     use burn::tensor::Distribution;
+
+    #[test]
+    fn with_bc_prepends_and_panics_on_wrong_rank() {
+        assert_eq!(with_bc::<usize, 4>(1, 2, &[3, 4]), [1, 2, 3, 4]);
+        let bad = std::panic::catch_unwind(|| with_bc::<usize, 4>(1, 2, &[3]));
+        assert!(bad.is_err());
+    }
 
     #[test]
     fn corner_ranges_2d_matches_manual_indices() {
@@ -467,8 +466,7 @@ mod tests {
             &device,
         );
 
-        let (out_re, out_im) =
-            SpectralConv::<3>::complex_multiplication(x_re, x_im, w_re, w_im, &[2]);
+        let (out_re, out_im) = SpectralConv::<3>::complex_multiplication(x_re, x_im, w_re, w_im);
 
         let re_vec = out_re.into_data().try_to_vec::<f32>().unwrap();
         let im_vec = out_im.into_data().try_to_vec::<f32>().unwrap();
