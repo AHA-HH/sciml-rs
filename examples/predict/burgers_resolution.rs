@@ -19,6 +19,7 @@
 use std::path::Path;
 
 use burn::tensor::Device;
+use sciml_rs::neural_operators::data::catalogue::BurgersFiles;
 use sciml_rs::neural_operators::{
     data::{
         device_batcher::device_loader,
@@ -67,7 +68,9 @@ fn main() {
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let (n_train, n_test) = (trained_cfg.base.n_train, trained_cfg.base.n_test);
 
-    let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");
+    let data_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("datasets")
+        .join(BurgersFiles::DATA);
     assert!(
         data_path.exists(),
         "Burgers dataset not found at {}\nSee datasets/README.md",

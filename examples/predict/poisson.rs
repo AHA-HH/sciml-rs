@@ -6,9 +6,9 @@
 //!
 //! Loads the model, both normalizers and the dataset config from the run directory
 //! (`RunDir`), as `predict_darcy` does; the config's n picks the stage
-//! (`loaders::poisson::stage`). The test inputs come from `load_poisson_uniform_test`,
+//! (`catalogue::stage`). The test inputs come from `load_poisson_uniform_test`,
 //! encoded with the run's x normalizer (the train split is not read), the raw CGL
-//! solutions from `load_poisson_cheb`;
+//! solutions from `load_poisson_cheb_field`;
 //! predictions are decoded with the y normalizer and copied to the host as f64. Error 1
 //! needs the `datagen` feature and is quoted from Phase 1. `metrics::poisson::evaluate`
 //! cross-checks error 2 against the test split's `.json` sidecar and the mean error 3
@@ -22,8 +22,12 @@ use std::path::Path;
 use burn::{config::Config, tensor::Device};
 use ndarray::Axis;
 use sciml_rs::neural_operators::{
-    data::loaders::poisson::{
-        PoissonConfig, SidecarRecord, load_poisson_cheb, load_poisson_uniform_test, stage,
+    data::{
+        catalogue::stage,
+        loaders::poisson::{
+            PoissonConfig, PoissonField, SidecarRecord, load_poisson_cheb_field,
+            load_poisson_uniform_test,
+        },
     },
     metrics::poisson::{evaluate, poisson_errors},
     models::predict::predict_host,
@@ -67,7 +71,7 @@ fn main() {
         &normalizers,
     )
     .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
-    let u = load_poisson_cheb(datasets.join(set.npz("test")), n, n_test)
+    let u = load_poisson_cheb_field(datasets.join(set.npz("test")), PoissonField::U, n, n_test)
         .unwrap_or_else(|e| panic!("could not load the CGL solutions: {e}"));
 
     // Forward pass in batches, in sample order; outputs are normalized [N, s, s]

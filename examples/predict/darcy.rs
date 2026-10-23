@@ -10,6 +10,7 @@
 use std::path::Path;
 
 use burn::tensor::Device;
+use sciml_rs::neural_operators::data::catalogue::DarcyFiles;
 use sciml_rs::neural_operators::{
     data::{
         device_batcher::device_loader,
@@ -45,12 +46,9 @@ fn main() {
         .unwrap_or_else(|e| panic!("load the normalizers: {e}"))
         .unwrap_or_else(|| panic!("{}/y_normalizer.json not found", run.path().display()));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
-    let test_data = load_darcy_test::<f32>(
-        datasets.join("piececonst_r421_N1024_smooth2.mat"),
-        &dataset_cfg,
-        &normalizers,
-    )
-    .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
+    let test_data =
+        load_darcy_test::<f32>(datasets.join(DarcyFiles::TEST), &dataset_cfg, &normalizers)
+            .unwrap_or_else(|e| panic!("could not load Darcy data: {e}"));
 
     let test_loader = device_loader::<4, 3, _>(&test_data, &device, 20, None);
 

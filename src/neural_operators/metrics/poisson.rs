@@ -486,13 +486,7 @@ mod tests {
 
     /// T_cu applied to every sample of `u: [N, n, n]`, giving `[N, n − 1, n − 1]`.
     fn to_uniform(u: &Array3<f64>) -> Array3<f64> {
-        let (count, n, _) = u.dim();
-        let t = Transfers::new(n);
-        let mut out = Array3::zeros((count, n - 1, n - 1));
-        for (mut dst, src) in out.axis_iter_mut(Axis(0)).zip(u.axis_iter(Axis(0))) {
-            dst.assign(&t.to_uniform(src));
-        }
-        out
+        Transfers::new(u.dim().1).to_uniform_all(u.view())
     }
 
     #[test]

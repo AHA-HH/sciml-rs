@@ -5,6 +5,7 @@
 //! Loads the model and the dataset config from the run directory (`RunDir`).
 
 use burn::tensor::Device;
+use sciml_rs::neural_operators::data::catalogue::BurgersFiles;
 use sciml_rs::neural_operators::{
     data::{
         device_batcher::device_loader,
@@ -30,7 +31,9 @@ fn main() {
     let dataset_cfg: BurgersConfig = run
         .data_config()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
-    let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");
+    let data_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("datasets")
+        .join(BurgersFiles::DATA);
     assert!(
         data_path.exists(),
         "Burgers dataset not found at {}\nSee datasets/README.md for the download link.",

@@ -12,7 +12,7 @@
 //! vary them. Nodes and weights are closed forms, so this module needs only ndarray and is
 //! built without the `datagen` feature (decision 13).
 
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, Axis};
 use std::f64::consts::PI;
 
 use super::check_n;
@@ -228,6 +228,20 @@ impl Transfers {
     /// If `f` is not `[n, n]`.
     pub fn to_uniform(&self, f: ArrayView2<f64>) -> Array2<f64> {
         apply(self.t_cu.view(), self.t_cu.view(), f)
+    }
+
+    /// Every sample of `f: [N, n, n]` on the CGL grid transferred to the uniform grid with
+    /// [`Transfers::to_uniform`]: `[N, s, s]`.
+    ///
+    /// # Panics
+    /// If `f` is not `[N, n, n]`.
+    pub fn to_uniform_all(&self, f: ArrayView3<f64>) -> Array3<f64> {
+        let s = self.s();
+        let mut out = Array3::zeros((f.len_of(Axis(0)), s, s));
+        for (mut dst, src) in out.axis_iter_mut(Axis(0)).zip(f.axis_iter(Axis(0))) {
+            dst.assign(&self.to_uniform(src));
+        }
+        out
     }
 
     /// `g: [s, s]` on the uniform grid, transferred to the CGL grid: T_uc · G · T_ucᵀ,

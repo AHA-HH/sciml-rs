@@ -22,6 +22,7 @@ use burn::{
         metric::{LearningRateMetric, LossMetric},
     },
 };
+use sciml_rs::neural_operators::data::catalogue::BurgersFiles;
 use sciml_rs::neural_operators::{
     data::loaders::{
         base_dataset::DatasetConfig,
@@ -45,7 +46,9 @@ fn main() {
     // s = 2^13 / 32 = 256 grid points
     let dataset_cfg = BurgersConfig::new(data_cfg, 32);
 
-    let data_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/burgers_data_R10.mat");
+    let data_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("datasets")
+        .join(BurgersFiles::DATA);
     assert!(
         data_path.exists(),
         "Burgers dataset not found at {}\nSee datasets/README.md for the download link.",

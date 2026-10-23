@@ -75,12 +75,16 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   (`generate_poisson`), which writes `datasets/poisson/`.
 - `data/loaders/common` holds the loader tail shared by Darcy and Poisson: `Normalizers { x, y }`
   and `normalize_split_pair` (fit, encode, channel axis, cast; CONVENTIONS §10).
-- `data/loaders/poisson` is ungated: `load_poisson_uniform` reads those `.npz` files and
-  applies T_cu at load time, giving Darcy-shaped datasets on the uniform grid s = n − 1;
-  `load_poisson_cheb` reads one split's raw `u` on the CGL grid, untransferred, and
-  `load_poisson_cheb_field` either raw field, `f` or `u`. `PoissonSet { n, k }` names a
-  dataset's split files (`poisson_n{n}_K{K}_{split}`) and `STAGES` / `stage(n)` are the
-  training stages; examples take file names from these, not literals.
+- `data/catalogue` (ungated, loads nothing) names the dataset files: `BurgersFiles`,
+  `DarcyFiles`, and `PoissonSet { n, k }` for a Poisson dataset's split files
+  (`poisson_n{n}_K{K}_{split}`); `STAGES` / `stage(n)` are the training stages and
+  `GENERATED` the sets `generate_poisson` writes. The loaders' callers and the generator
+  take file names from here, not literals.
+- `data/loaders/poisson/` is ungated: `mod.rs` (`PoissonConfig`, `SidecarRecord`),
+  `uniform` (`load_poisson_uniform` reads those `.npz` files and applies T_cu at load time,
+  giving Darcy-shaped datasets on the uniform grid s = n − 1) and `cheb`
+  (`load_poisson_cheb_field` reads one split's raw field, `PoissonField::F` or `U`, on the
+  CGL grid, untransferred).
 - `metrics/poisson` is ungated (ndarray, f64): `poisson_errors` gives design §7's errors 2–5
   on the Chebyshev grid and `check_error3` the cross-check against the run's metrics, driven by
   `examples/predict/poisson.rs` (`predict_poisson`), which writes `errors.json` into the
