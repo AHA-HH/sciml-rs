@@ -15,8 +15,7 @@ use crate::neural_operators::data::{
     host_float::HostFloat,
     io::{errors::LoadError, readers::mat::MatFileReader},
     loaders::{base_dataset::DatasetConfig, common::with_channel},
-    split::train_test_split,
-    transforms::subsample::subsample,
+    transforms::strided::take_strided,
 };
 use burn::config::Config;
 use ndarray::ArrayD;
@@ -92,23 +91,29 @@ fn burgers_from_fields<T: HostFloat>(
         }
     }
 
-    // 2. Subsample along spatial dimension (dim 1)
-    let a_data = subsample(a_data, 1, config.subsample_rate);
-    let u_data = subsample(u_data, 1, config.subsample_rate);
+    // 2. Subsample the spatial axis and split in one strided copy each (sizes validated
+    // above): train = first n_train samples, test = last n_test.
+    let (n_total, n_train, n_test) = (a_data.shape()[0], config.base.n_train, config.base.n_test);
+    let r = config.subsample_rate;
+    let take = |f: &ArrayD<f64>, rows| take_strided(f.view(), rows, r);
+    let (a_train, a_test) = (
+        take(&a_data, 0..n_train),
+        take(&a_data, n_total - n_test..n_total),
+    );
+    let (u_train, u_test) = (
+        take(&u_data, 0..n_train),
+        take(&u_data, n_total - n_test..n_total),
+    );
 
     // spatial size after subsampling
-    let s = a_data.shape()[1];
-    if s != config.s() || u_data.shape()[1] != s {
+    let s = a_train.shape()[1];
+    if s != config.s() || u_train.shape()[1] != s {
         return Err(LoadError::Invalid(format!(
             "subsampled resolution {s} (a) / {} (u) != config.s() {}",
-            u_data.shape()[1],
+            u_train.shape()[1],
             config.s()
         )));
     }
-
-    // 3. Split into train and test (sizes validated above)
-    let (a_train, a_test) = train_test_split(a_data, config.base.n_train, config.base.n_test);
-    let (u_train, u_test) = train_test_split(u_data, config.base.n_train, config.base.n_test);
 
     // 4. Wrap in OperatorDataset with one input data channel [n, s] -> [n, s, 1],
     // casting to the host dtype T
