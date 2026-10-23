@@ -79,6 +79,18 @@ impl SpectralInit {
     }
 }
 
+/// `[a, b, rest..]` as a fixed-size array: the batch/channel prefix followed
+/// by one entry per spatial axis.
+///
+/// # Panics
+/// If `rest.len() != R - 2`.
+fn with_bc<T: Clone, const R: usize>(a: T, b: T, rest: &[T]) -> [T; R] {
+    let mut v = vec![a, b];
+    v.extend_from_slice(rest);
+    v.try_into()
+        .unwrap_or_else(|v: Vec<T>| panic!("with_bc: {} entries for rank {R}", v.len()))
+}
+
 /// Learned spectral convolution over `R - 2` spatial axes.
 #[derive(Module, Debug)]
 pub struct SpectralConv<const R: usize> {
@@ -88,7 +100,6 @@ pub struct SpectralConv<const R: usize> {
     weights_im: Vec<Param<Tensor<R>>>,
     /// Retained frequency count per spatial axis; `len() == R - 2`.
     modes: Vec<usize>,
-    flat_modes: usize,
 }
 
 impl<const R: usize> SpectralConv<R> {
@@ -173,12 +184,9 @@ impl<const R: usize> SpectralConv<R> {
             "modes must have one entry per spatial axis (R - 2)"
         );
         let modes = modes.to_vec();
-        let flat_modes = modes.iter().product();
         let num_corners = 1usize << (modes.len() - 1);
 
-        let mut shape = vec![in_channels, out_channels];
-        shape.extend_from_slice(&modes);
-        let shape: [usize; R] = shape.try_into().unwrap();
+        let shape: [usize; R] = with_bc(in_channels, out_channels, &modes);
 
         // Draw order (per corner: real, then imaginary) is part of the
         // contract: with a fixed seed, `LiUniform` reproduces the weights of
@@ -203,7 +211,6 @@ impl<const R: usize> SpectralConv<R> {
             weights_re,
             weights_im,
             modes,
-            flat_modes,
         }
     }
 
@@ -248,7 +255,11 @@ impl<const R: usize> SpectralConv<R> {
 
     /// Complex channel mixing at every retained frequency.
     ///
-    /// `(a + bi)(c + di) = (ac - bd) + (ad + bc)i`, batched over modes.
+    /// Computes `(a + bi)(c + di) = (ac - bd) + (ad + bc)i`, batched over modes,
+    /// with Gauss's three-matmul form: `ac`, `bd` and `(a + b)(c + d)` give
+    /// `re = ac - bd` and `im = (a + b)(c + d) - ac - bd`. That is 3 matmuls
+    /// instead of the 4 (`ac`, `bd`, `ad`, `bc`) of the direct product, at the
+    /// cost of a few extra additions.
     ///
     /// The mode axes are flattened to a single axis `M` so the contraction is a
     /// plain batched matmul `[M, B, I] @ [M, I, O]`. This keeps every
@@ -260,10 +271,10 @@ impl<const R: usize> SpectralConv<R> {
         w_re: Tensor<R>,
         w_im: Tensor<R>, // [I, O, modes..]
         modes: &[usize],
-        flat: usize,
     ) -> (Tensor<R>, Tensor<R>) {
         let (b, i) = (x_re.dims()[0], x_re.dims()[1]);
         let o = w_re.dims()[1];
+        let flat: usize = modes.iter().product();
 
         let x_re = x_re.reshape([b, i, flat]).permute([2, 0, 1]);
         let x_im = x_im.reshape([b, i, flat]).permute([2, 0, 1]);
@@ -278,9 +289,7 @@ impl<const R: usize> SpectralConv<R> {
         let out_re = ac.clone() - bd.clone();
         let out_im = ab_cd - ac - bd;
 
-        let mut out_shape = vec![b, o];
-        out_shape.extend_from_slice(modes);
-        let out_shape: [usize; R] = out_shape.try_into().unwrap();
+        let out_shape: [usize; R] = with_bc(b, o, modes);
 
         (
             out_re.permute([1, 2, 0]).reshape(out_shape),
@@ -353,9 +362,7 @@ impl<const R: usize> SpectralConv<R> {
         // Post-transform extents - the last axis is now n/2 + 1.
         let spec_dims: Vec<usize> = x_ft_re.dims()[2..].to_vec();
 
-        let mut out_shape = vec![batch, out_ch];
-        out_shape.extend_from_slice(&spec_dims);
-        let out_shape: [usize; R] = out_shape.try_into().unwrap();
+        let out_shape: [usize; R] = with_bc(batch, out_ch, &spec_dims);
 
         // Frequencies outside the retained modes stay zero - this is the
         // low-pass truncation that makes the operator resolution-independent.
@@ -365,9 +372,7 @@ impl<const R: usize> SpectralConv<R> {
         for corner in 0..num_corners {
             let ranges = Self::corner_ranges(corner, &self.modes, &spec_dims);
 
-            let mut in_ranges = vec![0..batch, 0..in_ch];
-            in_ranges.extend(ranges.clone());
-            let in_ranges: [Range<usize>; R] = in_ranges.try_into().unwrap();
+            let in_ranges: [Range<usize>; R] = with_bc(0..batch, 0..in_ch, &ranges);
 
             let x_re = x_ft_re.clone().slice(in_ranges.clone());
             let x_im = x_ft_im.clone().slice(in_ranges);
@@ -378,12 +383,9 @@ impl<const R: usize> SpectralConv<R> {
                 self.weights_re[corner].val(),
                 self.weights_im[corner].val(),
                 &self.modes,
-                self.flat_modes,
             );
 
-            let mut out_ranges = vec![0..batch, 0..out_ch];
-            out_ranges.extend(ranges);
-            let out_ranges: [Range<usize>; R] = out_ranges.try_into().unwrap();
+            let out_ranges: [Range<usize>; R] = with_bc(0..batch, 0..out_ch, &ranges);
 
             out_ft_re = out_ft_re.slice_assign(out_ranges.clone(), o_re);
             out_ft_im = out_ft_im.slice_assign(out_ranges, o_im);
@@ -405,6 +407,13 @@ impl<const R: usize> SpectralConv<R> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn with_bc_prepends_and_panics_on_wrong_rank() {
+        assert_eq!(super::with_bc::<usize, 4>(1, 2, &[3, 4]), [1, 2, 3, 4]);
+        let bad = std::panic::catch_unwind(|| super::with_bc::<usize, 4>(1, 2, &[3]));
+        assert!(bad.is_err());
+    }
+
     use super::*;
     use burn::tensor::Distribution;
 
@@ -459,7 +468,7 @@ mod tests {
         );
 
         let (out_re, out_im) =
-            SpectralConv::<3>::complex_multiplication(x_re, x_im, w_re, w_im, &[2], 2);
+            SpectralConv::<3>::complex_multiplication(x_re, x_im, w_re, w_im, &[2]);
 
         let re_vec = out_re.into_data().try_to_vec::<f32>().unwrap();
         let im_vec = out_im.into_data().try_to_vec::<f32>().unwrap();
