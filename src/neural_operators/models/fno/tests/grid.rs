@@ -105,7 +105,7 @@ fn check_grid_controls<const R: usize>(
     let device = Device::default();
     device.seed(13);
     let model = with_unit_lift_bias(
-        padded_config(modes, data_channels, 6)
+        test_config(modes, data_channels, 6)
             .with_spectral_init(Some(SpectralInit::SymmetricUniform))
             .with_padding(padding)
             .init::<R>(&device),
@@ -179,7 +179,7 @@ fn grid_controls_3d_padded() {
 /// old path with the grid built for that resolution.
 fn check_resolutions<const R: usize>(modes: Vec<usize>, resolutions: &[&[usize]]) {
     let device = Device::default();
-    let model: FNO<R> = padded_config(modes, 1, 6).init::<R>(&device);
+    let model: FNO<R> = test_config(modes, 1, 6).init::<R>(&device);
     for &spatial in resolutions {
         let x = random_input::<R>(spatial, 1, &device);
         let out = model.forward(x.clone());
@@ -210,7 +210,7 @@ fn check_batch_rows_identical<const R: usize>(modes: Vec<usize>, spatial: &[usiz
     let device = Device::default();
     device.seed(13);
     let model = with_unit_lift_bias(
-        padded_config(modes, 1, 6)
+        test_config(modes, 1, 6)
             .with_spectral_init(Some(SpectralInit::SymmetricUniform))
             .init::<R>(&device),
     );
@@ -255,6 +255,6 @@ fn batch_rows_see_identical_grids() {
 #[should_panic(expected = "data_channels = 1 input channels, got 3")]
 fn forward_rejects_grid_augmented_input() {
     let device = Device::default();
-    let model: FNO<4> = padded_config(vec![3, 2], 1, 6).init::<4>(&device);
+    let model: FNO<4> = test_config(vec![3, 2], 1, 6).init::<4>(&device);
     let _ = model.forward(random_input::<4>(&[8, 6], 3, &device));
 }

@@ -87,7 +87,6 @@ fn autodiff_trained_weights_give_identical_inference_on_plain_device() {
     // Mirrors train -> save -> predict: weights from a model built on the
     // autodiff device, loaded into one on the plain device (what the
     // predict examples now use).
-    use burn::store::{BurnpackStore, ModuleSnapshot};
     use burn::tensor::TensorData;
 
     let ad = Device::default().autodiff();
@@ -103,14 +102,7 @@ fn autodiff_trained_weights_give_identical_inference_on_plain_device() {
     };
 
     let trained: FNO<3> = config.init::<3>(&ad);
-    let mut save = BurnpackStore::from_bytes(None);
-    trained.save_into(&mut save).expect("save weights");
-    let bytes = save.get_bytes().expect("serialise weights");
-
-    let mut loaded: FNO<3> = config.init::<3>(&plain);
-    loaded
-        .load_from(&mut BurnpackStore::from_bytes(Some(bytes)))
-        .expect("load weights");
+    let loaded: FNO<3> = copy_weights(&trained, config.init::<3>(&plain));
 
     // [batch, s, data channels], channels-last.
     let shape = vec![2, 16, 1];
@@ -139,7 +131,7 @@ fn autodiff_trained_weights_give_identical_inference_on_plain_device() {
 fn padding_does_not_change_checkpoint() {
     let device = Device::default();
     let cfg =
-        padded_config(vec![3, 2], 1, 6).with_spectral_init(Some(SpectralInit::SymmetricUniform));
+        test_config(vec![3, 2], 1, 6).with_spectral_init(Some(SpectralInit::SymmetricUniform));
     let unpadded = with_unit_lift_bias(cfg.clone().init::<4>(&device));
     let x = random_input::<4>(&[8, 6], 1, &device);
 
@@ -179,9 +171,9 @@ fn padding_does_not_change_checkpoint() {
 #[test]
 fn lift_width_includes_grid_channels() {
     let device = Device::default();
-    let m1: FNO<3> = padded_config(vec![4], 1, 6).init::<3>(&device);
-    let m2: FNO<4> = padded_config(vec![3, 2], 1, 6).init::<4>(&device);
-    let m3: FNO<5> = padded_config(vec![2, 2, 2], 10, 6).init::<5>(&device);
+    let m1: FNO<3> = test_config(vec![4], 1, 6).init::<3>(&device);
+    let m2: FNO<4> = test_config(vec![3, 2], 1, 6).init::<4>(&device);
+    let m3: FNO<5> = test_config(vec![2, 2, 2], 10, 6).init::<5>(&device);
     assert_eq!(m1.fc0.weight.dims(), [2, 6]);
     assert_eq!(m2.fc0.weight.dims(), [3, 6]);
     assert_eq!(m3.fc0.weight.dims(), [13, 6]);
@@ -198,7 +190,7 @@ fn lift_width_includes_grid_channels() {
 #[test]
 fn checkpoint_round_trip_matches_old_forward() {
     let device = Device::default();
-    let cfg = padded_config(vec![3, 2], 1, 6);
+    let cfg = test_config(vec![3, 2], 1, 6);
     let saved = with_unit_lift_bias(cfg.clone().init::<4>(&device));
     let loaded = copy_weights(&saved, cfg.init::<4>(&device));
     assert_eq!(params(&loaded), params(&saved));

@@ -6,7 +6,7 @@ use super::*;
 /// forward on the same weights.
 fn check_padding_off_is_bitwise<const R: usize>(modes: Vec<usize>, spatial: &[usize]) {
     let device = Device::default();
-    let cfg = padded_config(modes, 1, 6);
+    let cfg = test_config(modes, 1, 6);
     let off: FNO<R> = cfg.clone().with_padding(None).init::<R>(&device);
     let zero = copy_weights(&off, cfg.with_padding(Some(0)).init::<R>(&device));
     assert_eq!(zero.padding, 0);
@@ -34,7 +34,7 @@ fn padding_zero_is_bitwise_identical() {
 fn padding_adds_no_parameters() {
     let device = Device::default();
     let names_shapes = |p: Option<usize>| -> Vec<(String, usize)> {
-        let m: FNO<4> = padded_config(vec![3, 2], 1, 6)
+        let m: FNO<4> = test_config(vec![3, 2], 1, 6)
             .with_padding(p)
             .init::<4>(&device);
         params(&m).into_iter().map(|(n, v)| (n, v.len())).collect()
@@ -55,7 +55,7 @@ fn check_padded_forward<const R: usize>(
     // SymmetricUniform (±1/√I) instead of Li's U(0, 1/(I·O)) only to make
     // the spectral path, the one place padding acts, O(1) at width 6.
     let model = with_unit_lift_bias(
-        padded_config(modes.clone(), data_channels, 6)
+        test_config(modes.clone(), data_channels, 6)
             .with_spectral_init(Some(SpectralInit::SymmetricUniform))
             .with_padding(Some(p))
             .init::<R>(&device),
@@ -112,7 +112,7 @@ fn padded_forward_matches_reference_3d() {
 fn symmetric_padding_with_centre_crop_matches_end_padding() {
     let device = Device::default();
     let model = with_unit_lift_bias(
-        padded_config(vec![3, 2], 1, 6)
+        test_config(vec![3, 2], 1, 6)
             .with_spectral_init(Some(SpectralInit::SymmetricUniform))
             .with_padding(Some(3))
             .init::<4>(&device),
@@ -170,7 +170,7 @@ fn pad_crop_helpers_exact() {
 fn padded_gradients_match_reference() {
     let device = Device::default().autodiff();
     let model = with_unit_lift_bias(
-        padded_config(vec![3, 2], 1, 6)
+        test_config(vec![3, 2], 1, 6)
             .with_spectral_init(Some(SpectralInit::SymmetricUniform))
             .with_padding(Some(3))
             .init::<4>(&device),
@@ -178,51 +178,8 @@ fn padded_gradients_match_reference() {
     let x0 = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
     let probe = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
 
-    // The reference differentiates w.r.t. the old grid-augmented input;
-    // only its data-channel slice is comparable to the new input grad.
-    let grads_of = |x0: Tensor<4>, f: &dyn Fn(Tensor<4>) -> Tensor<4>| {
-        let x = x0.detach().require_grad();
-        let grads = (f(x.clone()) * probe.clone()).sum().backward();
-        let g_in = x.grad(&grads).expect("input grad").narrow(3, 0, 1);
-        assert_eq!(g_in.dims(), [2, 8, 6, 1]);
-        let mut out: Vec<(String, Tensor<1>)> = vec![("input".into(), flat(g_in))];
-        for (name, l) in [
-            ("fc0", &model.fc0),
-            ("fc1", &model.fc1),
-            ("fc2", &model.fc2),
-        ] {
-            out.push((
-                format!("{name}.weight"),
-                flat(l.weight.grad(&grads).unwrap()),
-            ));
-            let b = l.bias.as_ref().unwrap();
-            out.push((format!("{name}.bias"), flat(b.grad(&grads).unwrap())));
-        }
-        for (i, w) in model.w.iter().enumerate() {
-            out.push((
-                format!("w[{i}].weight"),
-                flat(w.weight.grad(&grads).unwrap()),
-            ));
-            let b = w.bias.as_ref().unwrap();
-            out.push((format!("w[{i}].bias"), flat(b.grad(&grads).unwrap())));
-        }
-        for (i, layer) in model.conv.iter().enumerate() {
-            for (k, (re, im)) in layer.corner_weights().into_iter().enumerate() {
-                out.push((
-                    format!("conv[{i}].corner[{k}].re"),
-                    flat(re.grad(&grads).expect("spectral re grad")),
-                ));
-                out.push((
-                    format!("conv[{i}].corner[{k}].im"),
-                    flat(im.grad(&grads).expect("spectral im grad")),
-                ));
-            }
-        }
-        out
-    };
-
-    let new = grads_of(x0.clone(), &|x| model.forward(x));
-    let old = grads_of(with_old_grid(x0), &|x| {
+    let new = grads_of(&model, &probe, x0.clone(), &|x| model.forward(x));
+    let old = grads_of(&model, &probe, with_old_grid(x0), &|x| {
         reference_forward_padded(&model, x, Pad::End(3))
     });
     assert_eq!(new.len(), old.len());

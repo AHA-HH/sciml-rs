@@ -44,7 +44,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   argument, and the panics).
 
 ## Layout
-- `src/neural_operators/`: `models/fno.rs` (FNOConfig, FNO), `models/predict.rs`
+- `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO; tests in `tests/{reference,padding,grid,checkpoint}.rs`), `models/predict.rs`
   (`predict_host`: batched inference to host f64, any rank), `layers/spectral_convolution.rs`
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
   npy/npz/.mat, transforms; `host_oracle` is the test-only host batcher), `metrics/` (Poisson
@@ -148,7 +148,7 @@ An exact test filter needs the full module path:
   `BURN_DEVICE` overrides at runtime. `rocm`/`vulkan` are disabled, and `ndarray` is
   unusable (no FFT). Building with no backend feature is a `compile_error!`.
 - Metal: a channels-first `cat` after a permute zeroed grid entries, so `FNO::grid_cl`
-  builds the grid channels-last (regression test in `fno.rs`).
+  builds the grid channels-last (regression test in `models/fno/tests/grid.rs`).
 - `device_loader(&data, &device, batch_size, shuffle)` uploads a split once and batches it
   on `device`: pass the `.autodiff()` device for training, or no gradients flow. The trainer
   evaluates on `device.inner()`; predict examples pass their plain `Device::default()`.

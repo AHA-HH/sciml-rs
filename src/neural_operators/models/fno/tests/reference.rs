@@ -84,10 +84,7 @@ fn check_forward<const R: usize>(
 ) {
     let device = Device::default();
     device.seed(3);
-    let model: FNO<R> = FNOConfig::new(modes.clone(), data_channels, 1)
-        .with_hidden_channels(hidden)
-        .with_n_layers(2)
-        .init::<R>(&device);
+    let model: FNO<R> = test_config(modes, data_channels, hidden).init::<R>(&device);
     let x = random_input::<R>(spatial, data_channels, &device);
 
     let new = model.forward(x.clone());
@@ -103,6 +100,7 @@ fn check_forward<const R: usize>(
 
 #[test]
 fn forward_matches_reference_1d() {
+    pin_permutations();
     check_forward::<3>(vec![4], 1, 6, &[16]);
 }
 
@@ -142,39 +140,8 @@ fn gradients_match_reference() {
     let x0 = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
     let probe = Tensor::<4>::random([2, 8, 6, 1], Distribution::Normal(0.0, 1.0), &device);
 
-    // The reference differentiates w.r.t. the old grid-augmented input;
-    // only its data-channel slice is comparable to the new input grad.
-    let grads_of = |x0: Tensor<4>, f: &dyn Fn(Tensor<4>) -> Tensor<4>| {
-        let x = x0.detach().require_grad();
-        let grads = (f(x.clone()) * probe.clone()).sum().backward();
-        let g_in = x.grad(&grads).expect("input grad").narrow(3, 0, 1);
-        assert_eq!(g_in.dims(), [2, 8, 6, 1]);
-        let mut out: Vec<(String, Tensor<1>)> = vec![("input".into(), flat(g_in))];
-        for (name, l) in [
-            ("fc0", &model.fc0),
-            ("fc1", &model.fc1),
-            ("fc2", &model.fc2),
-        ] {
-            out.push((
-                format!("{name}.weight"),
-                flat(l.weight.grad(&grads).unwrap()),
-            ));
-            let b = l.bias.as_ref().unwrap();
-            out.push((format!("{name}.bias"), flat(b.grad(&grads).unwrap())));
-        }
-        for (i, w) in model.w.iter().enumerate() {
-            out.push((
-                format!("w[{i}].weight"),
-                flat(w.weight.grad(&grads).unwrap()),
-            ));
-            let b = w.bias.as_ref().unwrap();
-            out.push((format!("w[{i}].bias"), flat(b.grad(&grads).unwrap())));
-        }
-        out
-    };
-
-    let new = grads_of(x0.clone(), &|x| model.forward(x));
-    let old = grads_of(with_old_grid(x0), &|x| {
+    let new = grads_of(&model, &probe, x0.clone(), &|x| model.forward(x));
+    let old = grads_of(&model, &probe, with_old_grid(x0), &|x| {
         reference_forward_padded(&model, x, Pad::Off)
     });
     for ((name, g_new), (_, g_old)) in new.into_iter().zip(old) {
@@ -182,4 +149,28 @@ fn gradients_match_reference() {
         println!("grad {name} rel err {err:e}");
         assert!(err <= TOL, "gradient of {name} differs: {err:e}");
     }
+}
+
+/// `to_channels_first` / `to_channels_last` against literal `permute`s (CONVENTIONS §1)
+/// on non-square tensors, rank 4 and 5; called from `forward_matches_reference_1d`.
+fn pin_permutations() {
+    let device = Device::default();
+    let x4 = Tensor::<4>::random([2, 3, 4, 5], Distribution::Default, &device);
+    let x5 = Tensor::<5>::random([2, 3, 4, 5, 6], Distribution::Default, &device);
+    assert_eq!(
+        bits(to_channels_first(x4.clone())),
+        bits(x4.clone().permute([0, 3, 1, 2]))
+    );
+    assert_eq!(
+        bits(to_channels_last(x4.clone())),
+        bits(x4.permute([0, 2, 3, 1]))
+    );
+    assert_eq!(
+        bits(to_channels_first(x5.clone())),
+        bits(x5.clone().permute([0, 4, 1, 2, 3]))
+    );
+    assert_eq!(
+        bits(to_channels_last(x5.clone())),
+        bits(x5.permute([0, 2, 3, 4, 1]))
+    );
 }

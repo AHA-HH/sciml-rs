@@ -162,7 +162,7 @@ fn bits<const R: usize>(t: Tensor<R>) -> Vec<u32> {
         .collect()
 }
 
-fn padded_config(modes: Vec<usize>, data_channels: usize, hidden: usize) -> FNOConfig {
+fn test_config(modes: Vec<usize>, data_channels: usize, hidden: usize) -> FNOConfig {
     FNOConfig::new(modes, data_channels, 1)
         .with_hidden_channels(hidden)
         .with_n_layers(2)
@@ -214,6 +214,8 @@ fn xy_grid(axes: &[Array1<f64>]) -> Vec<ArrayD<f64>> {
     grid
 }
 
+/// Kept as the independent f64 oracle: `with_old_grid` feeds the reference forwards with it.
+///
 /// The grid the loaders used to store, built independently of the model
 /// in f64: uniform over `[0, 1]` per axis, in the model's channel order.
 fn old_grid_f64(spatial: &[usize]) -> Vec<ArrayD<f64>> {
@@ -263,4 +265,54 @@ fn with_old_grid<const R: usize>(x: Tensor<R>) -> Tensor<R> {
 fn with_model_grid<const R: usize>(x: Tensor<R>) -> Tensor<R> {
     let grid = FNO::<R>::grid_cl(x.dims(), x.dtype(), &x.device());
     Tensor::cat(vec![x, grid], R - 1)
+}
+
+/// Input and parameter gradients of `L = Σ f(x0) · probe`, by name; the spectral
+/// weights included.
+// The reference differentiates w.r.t. the old grid-augmented input;
+// only its data-channel slice is comparable to the new input grad.
+fn grads_of(
+    model: &FNO<4>,
+    probe: &Tensor<4>,
+    x0: Tensor<4>,
+    f: &dyn Fn(Tensor<4>) -> Tensor<4>,
+) -> Vec<(String, Tensor<1>)> {
+    let x = x0.detach().require_grad();
+    let grads = (f(x.clone()) * probe.clone()).sum().backward();
+    let g_in = x.grad(&grads).expect("input grad").narrow(3, 0, 1);
+    assert_eq!(g_in.dims(), [2, 8, 6, 1]);
+    let mut out: Vec<(String, Tensor<1>)> = vec![("input".into(), flat(g_in))];
+    for (name, l) in [
+        ("fc0", &model.fc0),
+        ("fc1", &model.fc1),
+        ("fc2", &model.fc2),
+    ] {
+        out.push((
+            format!("{name}.weight"),
+            flat(l.weight.grad(&grads).unwrap()),
+        ));
+        let b = l.bias.as_ref().unwrap();
+        out.push((format!("{name}.bias"), flat(b.grad(&grads).unwrap())));
+    }
+    for (i, w) in model.w.iter().enumerate() {
+        out.push((
+            format!("w[{i}].weight"),
+            flat(w.weight.grad(&grads).unwrap()),
+        ));
+        let b = w.bias.as_ref().unwrap();
+        out.push((format!("w[{i}].bias"), flat(b.grad(&grads).unwrap())));
+    }
+    for (i, layer) in model.conv.iter().enumerate() {
+        for (k, (re, im)) in layer.corner_weights().into_iter().enumerate() {
+            out.push((
+                format!("conv[{i}].corner[{k}].re"),
+                flat(re.grad(&grads).expect("spectral re grad")),
+            ));
+            out.push((
+                format!("conv[{i}].corner[{k}].im"),
+                flat(im.grad(&grads).expect("spectral im grad")),
+            ));
+        }
+    }
+    out
 }
