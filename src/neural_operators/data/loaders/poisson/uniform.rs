@@ -1,8 +1,7 @@
 //! The uniform loader: train/test `OperatorDataset`s on the uniform grid s = n − 1, every
 //! sample transferred with T_cu and then normalized (see the module above).
 
-use super::PoissonConfig;
-use super::cheb::{PoissonField, check_nodes, read_samples};
+use super::{PoissonConfig, PoissonField, check_nodes, read_samples};
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes};
 use crate::neural_operators::data::{
     dataset::OperatorDataset,

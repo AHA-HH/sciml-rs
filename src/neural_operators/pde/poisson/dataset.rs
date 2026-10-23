@@ -505,7 +505,7 @@ mod tests {
     /// hard-coded table listed before phase 4s T22: same order, n, explicit K and stems.
     #[test]
     fn generator_stems_unchanged() {
-        use crate::neural_operators::data::catalogue::GENERATED;
+        use crate::neural_operators::data::catalogue::{GENERATED, SPLITS};
         let before: [(&str, usize, Option<usize>, &str); 12] = [
             ("train", 33, None, "poisson_n33_K16_train"),
             ("test", 33, None, "poisson_n33_K16_test"),
@@ -522,7 +522,7 @@ mod tests {
         ];
         let after: Vec<_> = GENERATED
             .into_iter()
-            .flat_map(|set| ["train", "test"].map(|name| (name, SplitSpec::of_set(set, 0, 1))))
+            .flat_map(|set| SPLITS.map(|name| (name, SplitSpec::of_set(set, 0, 1))))
             .map(|(name, spec)| {
                 let set = PoissonSet {
                     n: spec.n,

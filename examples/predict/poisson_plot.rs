@@ -108,7 +108,7 @@ fn main() {
         .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
     let load_cheb = |field: PoissonField| {
         load_poisson_cheb_field(&test_file, field, n, sample + 1)
-            .unwrap_or_else(|e| panic!("could not load the CGL field '{}': {e}", field.key()))
+            .unwrap_or_else(|e| panic!("could not load the CGL field '{field}': {e}"))
             .index_axis_move(Axis(0), sample)
     };
     let f = load_cheb(PoissonField::F);

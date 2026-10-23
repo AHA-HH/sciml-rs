@@ -8,12 +8,12 @@
 //! solution (enforced at 1e-8 for n ≥ 65) and each split records its transfer error
 //! (error 2). See `datasets/README.md` for the file layout.
 //!
-//! Generates a train and a test split of every set in `catalogue::GENERATED`, in its order;
+//! Generates each of `catalogue::SPLITS` (train, test) of every set in `catalogue::GENERATED`, in its order;
 //! filter that list in `main` to choose what to generate. Stage 4 and the K = 32 sets at
 //! n = 129 and 257 are used only by the resolution study (design §7): their train splits
 //! exist only to refit the pointwise normalisers at the new n.
 
-use sciml_rs::neural_operators::data::catalogue::GENERATED;
+use sciml_rs::neural_operators::data::catalogue::{GENERATED, SPLITS};
 use sciml_rs::neural_operators::pde::poisson::dataset::{SplitSpec, generate, write_split};
 use std::path::Path;
 use std::process::Command;
@@ -34,8 +34,11 @@ fn main() {
     println!("writing to {} (commit {commit})", out.display());
 
     let splits = GENERATED.into_iter().flat_map(|set| {
-        [("train", TRAIN_SEED, N_TRAIN), ("test", TEST_SEED, N_TEST)]
-            .map(|(name, base_seed, count)| (name, SplitSpec::of_set(set, base_seed, count)))
+        // (base seed, count) of each of the SPLITS, train then test
+        SPLITS
+            .into_iter()
+            .zip([(TRAIN_SEED, N_TRAIN), (TEST_SEED, N_TEST)])
+            .map(move |(name, (base_seed, count))| (name, SplitSpec::of_set(set, base_seed, count)))
     });
     for (name, spec) in splits {
         let (n, count) = (spec.n, spec.count);

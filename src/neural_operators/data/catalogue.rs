@@ -54,7 +54,10 @@ pub const STAGES: [PoissonSet; 3] = [
     PoissonSet { n: 257, k: 64 },
 ];
 
-/// Every set `generate_poisson` writes, in its order, each as a train and a test split:
+/// The splits of every Poisson set, in the order `generate_poisson` writes them.
+pub const SPLITS: [&str; 2] = ["train", "test"];
+
+/// Every set `generate_poisson` writes, in its order, each as the [`SPLITS`]:
 /// stage 1 (n = 33, K = 16; tests and debugging), the [`STAGES`], then 3e and 4e, the
 /// K = 32 fields of stage 2 at n = 129 and 257 for the resolution study (design §7).
 pub const GENERATED: [PoissonSet; 6] = [

@@ -1,33 +1,12 @@
 //! The Chebyshev reader: one split's raw fields on the n × n CGL grid, validated and
-//! untransferred (design §7, CONVENTIONS §12). [`load_poisson_cheb_field`] is public; the
-//! uniform loader reads through the same validation (`check_nodes`, `read_samples`).
+//! untransferred (design §7, CONVENTIONS §12), with the validation the uniform loader
+//! shares (`check_nodes`, `read_samples` in the parent module).
 
+use super::{PoissonField, check_nodes, read_samples};
 use crate::neural_operators::chebyshev::nodes;
 use crate::neural_operators::data::io::{errors::LoadError, readers::npz::NpzFileReader};
-use ndarray::{Array1, Array3, Ix3, s};
+use ndarray::{Array3, s};
 use std::path::Path;
-
-/// Tolerance on the stored `x`, `y` nodes against the closed-form CGL nodes.
-const NODE_TOL: f64 = 1e-14;
-
-/// A field of a Poisson split file: the forcing `f` or the solution `u`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PoissonField {
-    /// The forcing f.
-    F,
-    /// The solution u.
-    U,
-}
-
-impl PoissonField {
-    /// The field's `.npz` key (datasets/README.md): `"f"` or `"u"`.
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::F => "f",
-            Self::U => "u",
-        }
-    }
-}
 
 /// Reads the first `count` samples of the raw field `field` of one split on the n × n CGL
 /// grid, untransferred. Returns `[count, n, n]` with `field[i, a, b] = field_i(x_a, y_b)`
@@ -64,67 +43,6 @@ pub fn load_poisson_cheb_field(
     check_nodes(&mut reader, &label, n, &nodes(n))?;
     let values = read_samples(&mut reader, &label, field, n, count)?;
     Ok(values.slice_move(s![..count, .., ..]))
-}
-
-/// Checks that the fields `x` and `y` are `[n]` and within [`NODE_TOL`] of the CGL
-/// `nodes`. `split` only labels the error messages.
-pub(super) fn check_nodes(
-    reader: &mut NpzFileReader,
-    split: &str,
-    n: usize,
-    nodes: &Array1<f64>,
-) -> Result<(), LoadError> {
-    for name in ["x", "y"] {
-        let field = reader.read_field(name)?;
-        if field.shape() != [n] {
-            return Err(LoadError::Invalid(format!(
-                "{split} field '{name}' must be [{n}] (the CGL nodes), got shape {:?}",
-                field.shape()
-            )));
-        }
-        let err = field
-            .iter()
-            .zip(nodes)
-            .map(|(a, b)| (a - b).abs())
-            // unlike f64::max, keeps a NaN deviation so NaN nodes are rejected
-            .fold(0.0, |m, d| if d.is_nan() || d > m { d } else { m });
-        if err.is_nan() || err > NODE_TOL {
-            return Err(LoadError::Invalid(format!(
-                "{split} field '{name}' must hold the {n} ascending CGL nodes, \
-                 max deviation {err:e}"
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// Reads `field`, checks that it is `[samples, n, n]` with at least `count` samples, and
-/// returns it whole. `split` only labels the error messages.
-pub(super) fn read_samples(
-    reader: &mut NpzFileReader,
-    split: &str,
-    field: PoissonField,
-    n: usize,
-    count: usize,
-) -> Result<Array3<f64>, LoadError> {
-    let name = field.key();
-    let field = reader.read_field(name)?;
-    let shape = field.shape().to_vec();
-    let field = match field.into_dimensionality::<Ix3>() {
-        Ok(field) if field.shape()[1..] == [n, n] => field,
-        _ => {
-            return Err(LoadError::Invalid(format!(
-                "{split} field '{name}' must be [samples, {n}, {n}], got shape {shape:?}"
-            )));
-        }
-    };
-    if count > field.shape()[0] {
-        return Err(LoadError::Invalid(format!(
-            "requested {count} {split} samples but '{name}' has {}",
-            field.shape()[0]
-        )));
-    }
-    Ok(field)
 }
 
 #[cfg(test)]
