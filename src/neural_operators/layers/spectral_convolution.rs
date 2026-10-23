@@ -738,7 +738,7 @@ mod tests {
         gradient_flow_check::<5>(vec![2, 2, 2], [1, 1, 4, 4, 4]);
     }
 
-    // --- regression: modes must fit the grid (REVIEW.md 2.2) ---
+    // --- regression: modes must fit the grid (merge `04ec800`) ---
 
     fn modes_fit(modes: &[usize], spatial: &[usize]) -> bool {
         std::panic::catch_unwind(|| SpectralConv::<4>::check_modes_fit(modes, spatial)).is_ok()

@@ -132,7 +132,7 @@ mod tests {
         let batch = tiny_batch(&device);
         let out = model.forward(batch.inputs);
         let (out, target) = flatten_pair::<3, 2>(out, batch.targets);
-        let l2 = LpLoss::new(1, 2, Reduction::Sum).rel(out, target);
+        let l2 = LpLoss::new(2, Reduction::Sum).rel(out, target);
         let manual_grads = GradientsParams::from_grads(l2.backward(), &model);
         let manual_model = SgdConfig::new()
             .init()
@@ -168,7 +168,7 @@ mod tests {
         let batch = tiny_batch(&device);
         let out = model.forward(batch.inputs.clone());
         let (o, t) = flatten_pair::<3, 2>(out, batch.targets.clone());
-        let expected = LpLoss::new(1, 2, Reduction::Sum)
+        let expected = LpLoss::new(2, Reduction::Sum)
             .rel(o, t)
             .into_scalar::<f32>()
             / 3.0;

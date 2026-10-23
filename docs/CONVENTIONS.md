@@ -43,8 +43,8 @@ x ──append grid (§2)──► [B, s.., C+D] ──permute──► fc0 (C+D
 - Pointwise layers (`fc0`, `w`, `fc1`, `fc2`) are applied as one batched matmul along the
   channel axis (`FNO::pointwise`), with the layers' own parameters. `Linear` stores
   `[d_in, d_out]`; `Conv1d` stores `[O, I, 1]`.
-- Defaults: H = 32, n_layers = 4. `out_channels` must be 1 (asserted in
-  `FNOConfig::init`), and `modes.len() + 2 == R`.
+- Defaults: H = 32, n_layers = 4. `out_channels` must be 1 to train (asserted in
+  `flatten_pair`; `FNOConfig::init` builds any width), and `modes.len() + 2 == R`.
 - Configs are Burn `Config`s saved as JSON. Fields added after release are `Option<_>`
   (`spectral_init`, `padding`), so older configs load them as `None`.
 
@@ -249,7 +249,8 @@ h_a = \frac{1}{s_a - 1}
 - Per example, then reduced by `Reduction::{Mean, Sum, None}`.
 - `LpLoss::rel` takes flattened `[B, n_points]`; undefined (inf or NaN) for an all-zero
   target.
-- `LpLoss::abs` takes unflattened `[B, s_1, .., s_D]`; every s_a ≥ 2.
+- `LpLoss::abs(D, x, y)` takes unflattened `[B, s_1, .., s_D]` and checks D against them;
+  every s_a ≥ 2. `rel` needs no D: the quadrature weight cancels in the ratio.
 - At an exact match both return 0 with gradient 0 (the `torch.norm` subgradient).
 
 ### Verification

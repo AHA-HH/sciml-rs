@@ -173,7 +173,7 @@ mod tests {
         OperatorDataset::from_f64(inputs, targets)
     }
 
-    /// Burn's loader over the `OperatorDataset` itself: the pre-4.1 path.
+    /// Burn's loader over the `OperatorDataset` itself: the path before commit `40fcfd4`.
     fn host_loader(
         n: usize,
         device: &Device,
@@ -212,7 +212,7 @@ mod tests {
         out
     }
 
-    /// REVIEW.md 4.1: same batches, same order, same device as the host
+    /// Commit `40fcfd4`: same batches, same order, same device as the host
     /// loader, over several shuffled epochs with a partial last batch.
     #[test]
     fn matches_host_loader_bit_for_bit() {

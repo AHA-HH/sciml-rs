@@ -80,7 +80,7 @@ fn config_without_spectral_init_loads_as_default() {
     assert_eq!(loaded.n_layers, 4);
 }
 
-// --- REVIEW.md 2.7: inference without autodiff ---
+// --- merge `04ec800`: inference without autodiff ---
 
 #[test]
 fn autodiff_trained_weights_give_identical_inference_on_plain_device() {

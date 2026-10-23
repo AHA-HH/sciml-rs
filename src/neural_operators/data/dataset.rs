@@ -14,6 +14,10 @@ pub struct OperatorDataset<T: HostFloat> {
 }
 
 impl<T: HostFloat> OperatorDataset<T> {
+    /// A dataset of `inputs` `[n, spatial.., channels]` and `targets` `[n, spatial..]`.
+    ///
+    /// # Panics
+    /// If `inputs` and `targets` hold different numbers of examples.
     pub fn new(inputs: ArrayD<T>, targets: ArrayD<T>) -> Self {
         assert!(
             inputs.shape()[0] == targets.shape()[0],

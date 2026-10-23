@@ -74,6 +74,19 @@ fn init_rejects_rank_mismatch() {
     let _: FNO<4> = config.init::<4>(&device); // asking for rank 4
 }
 
+/// `init` builds any `out_channels` (phase 4s T24); only training, in `flatten_pair`,
+/// needs 1.
+#[test]
+fn init_builds_multichannel_output() {
+    let device = Device::default();
+    let model: FNO<3> = FNOConfig::new(vec![2], 1, 2)
+        .with_hidden_channels(4)
+        .with_n_layers(1)
+        .init::<3>(&device);
+    let out = model.forward(Tensor::<3>::zeros([1, 8, 1], &device));
+    assert_eq!(out.dims(), [1, 8, 2]);
+}
+
 // --- issue #8: selectable spectral initialisation ---
 
 fn check_forward<const R: usize>(

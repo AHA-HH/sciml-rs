@@ -1,4 +1,5 @@
-//! Generic template for FNO for n dimensions
+//! The Fourier Neural Operator, generic over tensor rank `R = D + 2`: [`FNOConfig`] and
+//! [`FNO`].
 
 // Burn's `#[derive(Config)]` writes `field: field` in the `new` it generates, in an
 // impl block outside the struct's attributes (burn-derive `config/analyzer_struct.rs`).
@@ -17,10 +18,17 @@ use burn::{
 
 use crate::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
 
-// FNO Architecture
+/// Hyperparameters of an [`FNO`], saved with every run
+/// ([`RunDir::save_configs`](crate::neural_operators::runs::RunDir::save_configs)).
+///
+/// The spatial dimension `D` is `modes.len()`; [`FNOConfig::init`] builds an `FNO<R>`
+/// with `R = D + 2`.
 #[derive(Config, Debug)]
 pub struct FNOConfig {
-    pub modes: Vec<usize>, // length D = R - 2
+    /// Fourier modes kept per spatial axis, one entry per axis (length `D = R - 2`;
+    /// CONVENTIONS §5).
+    pub modes: Vec<usize>,
+    /// Width of the hidden activations between the lifting `fc0` and the projection `fc1`.
     #[config(default = 32)]
     pub hidden_channels: usize,
     /// Input data channels `C`, problem specific: 1 (coefficients), 10 (3D
@@ -28,33 +36,25 @@ pub struct FNOConfig {
     /// [`FNO::forward`] appends the `D` coordinate channels itself, so the
     /// lifting `fc0` takes `C + D` channels.
     pub data_channels: usize,
+    /// Output channels of the projection `fc2`. Any width builds; the trainer's
+    /// `flatten_pair` accepts only 1.
     pub out_channels: usize,
+    /// Number of Fourier layers (a spectral convolution plus a pointwise convolution each).
     #[config(default = 4)]
     pub n_layers: usize,
     /// Initialisation of every spectral layer's weights. `None` is the Li et
     /// al. default, [`SpectralInit::LiUniform`]. An `Option` so that saved
     /// configs without this field still load (as `None`).
     pub spectral_init: Option<SpectralInit>,
-    /// Domain padding for non-periodic problems: `p` zero cells appended at
-    /// the **end** of every spatial axis after the lifting `fc0`, and cropped
-    /// off again after the last spectral layer, before the projection `fc1`.
-    /// This is the one-sided `F.pad(x, [0, p, 0, p])` of Li et al.'s
-    /// `fourier_2d.py` (which uses 9 for Darcy), so the FFT's implied
-    /// periodicity wraps through a zero buffer instead of joining opposite
-    /// boundaries directly.
-    ///
-    /// `None` (the default) and `Some(0)` both mean no padding. An `Option`
-    /// so that saved configs without this field still load (as `None`).
-    ///
-    /// - Every spatial axis is padded by the same `p`, also in 3D (Li et al.'s
-    ///   `fourier_3d.py` pads only the last, time, axis).
-    /// - The padded extent `n + p` is used as is, not rounded up to a power
-    ///   of two; any grid size is supported.
-    /// - The spectral layers run on `(n + p)^D` points, and `modes` are
-    ///   checked against the padded extent `n + p`, not `n`.
+    /// Domain padding `p` for non-periodic problems (CONVENTIONS §3). `None` (the
+    /// default) and `Some(0)` both mean no padding. An `Option` so that saved configs
+    /// without this field still load (as `None`).
     pub padding: Option<usize>,
 }
 
+/// A Fourier Neural Operator on rank-`R` channels-last tensors `[B, s_1..s_D, C]`
+/// (CONVENTIONS §1): lifting `fc0`, [`FNOConfig::n_layers`] Fourier layers, projection
+/// `fc1`, `fc2`. Built by [`FNOConfig::init`].
 #[derive(Module, Debug)]
 pub struct FNO<const R: usize> {
     fc0: Linear,
@@ -68,6 +68,11 @@ pub struct FNO<const R: usize> {
 }
 
 impl FNOConfig {
+    /// Builds an `FNO<R>` on `device`, with freshly initialised weights.
+    ///
+    /// # Panics
+    /// If `modes.len() != R - 2`. Modes that do not fit the grid panic later, in
+    /// [`FNO::forward`].
     pub fn init<const R: usize>(&self, device: &Device) -> FNO<R> {
         assert_eq!(
             self.modes.len() + 2,
@@ -75,10 +80,6 @@ impl FNOConfig {
             "FNO<{R}> needs {} modes, config has {}",
             R - 2,
             self.modes.len()
-        );
-        assert_eq!(
-            self.out_channels, 1,
-            "only scalar-output operators are supported (see flatten_pair)"
         );
 
         let coord_channels = self.modes.len(); // D = R - 2, need to derive and input into layer
@@ -150,7 +151,7 @@ impl<const R: usize> FNO<R> {
         )
     }
 
-    /// A kernel-size-1 `Conv1d` as a pointwise matmul (REVIEW.md 4.4), using
+    /// A kernel-size-1 `Conv1d` as a pointwise matmul (commit `52b8c5f`), using
     /// its own parameters: the `[O, I, 1]` weight read as `[O, I]`.
     fn conv1x1_cf(conv: &Conv1d, x: Tensor<R>) -> Tensor<R> {
         let [o, i, k] = conv.weight.val().dims();
@@ -177,20 +178,14 @@ impl<const R: usize> FNO<R> {
         x.slice(ranges)
     }
 
-    /// Uniform coordinate channels for a channels-last `[B, s_1..s_D, C]`
-    /// tensor of shape `dims`: returns `[B, s_1..s_D, D]` in `dtype` on
-    /// `device`, the same value in every batch row.
+    /// The coordinate channels of CONVENTIONS §2 for a channels-last `[B, s_1..s_D, C]`
+    /// tensor of shape `dims`: returns `[B, s_1..s_D, D]` in `dtype` on `device`, the
+    /// same value in every batch row. Each channel is one `arange` along its axis,
+    /// divided by `n - 1` and broadcast over the other axes.
     ///
-    /// Each channel is one `arange` along its axis, divided by `n - 1`
-    /// (`linspace` over the closed `[0, 1]`; a single point is 0), and
-    /// broadcast over the other axes, in the reverse axis order documented on
-    /// [`Self::forward`]. `fc0`'s grid rows are trained against that order,
-    /// so saved checkpoints depend on it.
-    ///
-    /// Channels-last so that `forward` concatenates it with the input before
-    /// its one permute, the data flow of the old host-built grid. (A
-    /// channels-first concatenation after the permute was observed to zero
-    /// some grid entries on the Metal backend.)
+    /// Channels-last so that `forward` concatenates it with the input before its one
+    /// permute: a channels-first concatenation after the permute was observed to zero
+    /// some grid entries on the Metal backend.
     ///
     /// Values match the old loaders' f64 `linspace` rounded to `dtype` to
     /// within 1 ulp at 1.0 (the B2 contract); bit for bit under correctly
@@ -229,34 +224,21 @@ impl<const R: usize> FNO<R> {
 
     /// `[B, spatial.., data_channels]` → `[B, spatial.., out_channels]`.
     ///
-    /// The input carries data channels only: the `D` coordinate channels are
-    /// generated on the input's device, in its dtype, for its own spatial
-    /// shape, and appended after the data before the lifting `fc0`. A change
-    /// of resolution needs no new grid from the caller. Each coordinate is a
-    /// uniform grid over the closed `[0, 1]`, one channel per spatial axis in
-    /// **reverse axis order**:
-    ///
-    /// | D | channels after the data   | convention                          |
-    /// |---|---------------------------|-------------------------------------|
-    /// | 1 | `x(s_1)`                  | Li et al.'s 1D script               |
-    /// | 2 | `x(s_2), y(s_1)`          | Li et al.'s 2D `np.meshgrid` 'xy'   |
-    /// | 3 | `x(s_3), y(s_2), z(s_1)`  | same rule; not Li's `fourier_3d.py` |
-    ///
-    /// where `x(s_a)` varies along spatial axis `a` only. These are the
-    /// channels the Burgers and Darcy loaders used to store, so checkpoints
-    /// trained on those inputs are unaffected.
+    /// The input carries data channels only: the model appends the `D` coordinate
+    /// channels of CONVENTIONS §2 for the input's own resolution before the lifting
+    /// `fc0`, so a change of resolution needs no new grid from the caller.
     ///
     /// Channels-first inside: the input is permuted once while it is only
     /// `C_in` wide, and the output once while it is one channel wide, so the
     /// hidden-width activations are never permuted or copied for layout.
     ///
-    /// With [`FNOConfig::padding`] `p > 0`, the lifted activation is
-    /// zero-padded by `p` at the end of each spatial axis before the spectral
-    /// layers and cropped back before `fc1`; the output shape is unchanged.
+    /// With [`FNOConfig::padding`] `p > 0`, the lifted activation is padded and cropped
+    /// as in CONVENTIONS §3; the output shape is unchanged.
     ///
     /// # Panics
     /// If the input's last axis is not [`FNOConfig::data_channels`] wide, e.g.
-    /// an input that still carries grid channels.
+    /// an input that still carries grid channels, or if [`FNOConfig::modes`] do not fit
+    /// the (padded) grid ([`SpectralConv::forward`]).
     pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
         let dims = x.dims();
         let data_channels = self.fc0.weight.dims()[0] - (R - 2);

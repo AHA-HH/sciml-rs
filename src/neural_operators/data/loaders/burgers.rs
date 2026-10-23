@@ -21,13 +21,20 @@ use burn::config::Config;
 use ndarray::ArrayD;
 use std::path::Path;
 
+/// Burgers-specific config: subsample rate and the resolution it implies.
 #[derive(Config, Debug)]
 pub struct BurgersConfig {
+    /// Sample counts.
     pub base: DatasetConfig,
+    /// Stride `r` along the raw 8192-point grid.
     pub subsample_rate: usize,
 }
 
 impl BurgersConfig {
+    /// Resolution after subsampling, `8192 / r`.
+    ///
+    /// # Panics
+    /// If `subsample_rate == 0`.
     pub fn s(&self) -> usize {
         2usize.pow(13) / self.subsample_rate
     }

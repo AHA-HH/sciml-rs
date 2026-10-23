@@ -16,9 +16,13 @@ const DEFAULT_EPS: f64 = 1e-5;
 /// are flattened; `shape` restores them.
 #[derive(Config, Debug)]
 pub struct NormalizerRecord {
+    /// Per-point means, flattened in row-major order.
     pub mean: Vec<f64>,
+    /// Per-point standard deviations, flattened like `mean`.
     pub std: Vec<f64>,
+    /// Shape of one example, which `mean` and `std` share.
     pub shape: Vec<usize>,
+    /// Guard added to `std` in `encode`/`decode`.
     pub eps: f64,
 }
 
@@ -89,6 +93,7 @@ impl UnitGaussianNormalizer {
         self.eps
     }
 
+    /// The serialisable form of this normalizer.
     pub fn to_record(&self) -> NormalizerRecord {
         NormalizerRecord {
             mean: self.mean.iter().copied().collect(),
@@ -98,6 +103,10 @@ impl UnitGaussianNormalizer {
         }
     }
 
+    /// Rebuilds a normalizer from [`Self::to_record`]'s output.
+    ///
+    /// # Panics
+    /// If `mean` or `std` does not hold `shape`'s number of values.
     pub fn from_record(r: &NormalizerRecord) -> Self {
         let shape = IxDyn(&r.shape);
         Self {
@@ -228,9 +237,9 @@ mod tests {
         }
     }
 
-    // --- REVIEW.md 4.9: std + eps precomputed once, results unchanged ---
+    // --- commit `5542bea`: std + eps precomputed once, results unchanged ---
 
-    /// The pre-4.9 `decode_flat` body: `std + eps` recomputed per call.
+    /// The pre-`5542bea` `decode_flat` body: `std + eps` recomputed per call.
     fn per_call_decode(x: Tensor<2>, mean: &Tensor<1>, std: &Tensor<1>, eps: f64) -> Tensor<2> {
         x * (std.clone().unsqueeze::<2>() + eps) + mean.clone().unsqueeze::<2>()
     }
@@ -306,7 +315,7 @@ mod tests {
         );
     }
 
-    // --- REVIEW1.md N1: one-sample fits gave NaN std under ddof = 1 ---
+    // --- merge `04ec800`: one-sample fits gave NaN std under ddof = 1 ---
 
     #[test]
     #[should_panic(expected = "at least 2")]

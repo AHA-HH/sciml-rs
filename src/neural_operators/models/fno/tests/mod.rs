@@ -64,7 +64,7 @@ fn zero_extend<const R: usize>(x: Tensor<R>, dim: usize, before: usize, after: u
     Tensor::cat(parts, dim)
 }
 
-/// The pre-4.2 style forward (channels-last `Linear`s, `Conv1d` layers)
+/// The forward from before commit `52b8c5f` (channels-last `Linear`s, `Conv1d` layers)
 /// with domain padding done by `cat`/`narrow` according to `pad`.
 fn reference_forward_padded<const R: usize>(m: &FNO<R>, x: Tensor<R>, pad: Pad) -> Tensor<R> {
     let spatial_axes = 1..R - 1; // channels-last: [B, s.., C]

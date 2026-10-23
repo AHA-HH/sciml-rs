@@ -35,7 +35,9 @@ use std::path::Path;
 /// Darcy-specific config: subsample rate and the resolution it implies.
 #[derive(Config, Debug)]
 pub struct DarcyConfig {
+    /// Sample counts.
     pub base: DatasetConfig,
+    /// Stride `r` along each axis of the raw 421 × 421 grid.
     pub subsample_rate: usize,
 }
 
@@ -214,7 +216,7 @@ mod tests {
         )
     }
 
-    // --- REVIEW1.md N1: one training sample gave an all-NaN normalizer ---
+    // --- merge `04ec800`: one training sample gave an all-NaN normalizer ---
 
     #[test]
     fn single_train_sample_is_invalid_not_nan() {

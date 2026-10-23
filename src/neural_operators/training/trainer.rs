@@ -56,6 +56,11 @@ fn accumulate(sum: Option<Tensor<1>>, x: Tensor<1>) -> Option<Tensor<1>> {
 ///
 /// `decoder` (on the loader's autodiff device) decodes the model output before the loss;
 /// targets are in physical units (CONVENTIONS §10). `None` trains in physical units.
+///
+/// # Panics
+///
+/// If the loader yields no batches or a failed one, or if the model has more than one
+/// output channel ([`flatten_pair`](crate::neural_operators::training::step::flatten_pair)).
 pub fn train_epoch<const R: usize, const RM1: usize>(
     mut model: FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
@@ -117,11 +122,17 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
     )
 }
 
+/// Everything [`training_loop`] needs, built by [`build_training_components`].
 pub struct TrainingComponents<const R: usize, const RM1: usize> {
+    /// The freshly initialised model, on the autodiff device.
     pub model: FNO<R>,
+    /// Adam with weight decay.
     pub optim: ModuleOptimizer,
+    /// Cosine annealing over `epochs × steps_per_epoch` steps, stepped once per batch.
     pub scheduler: ModuleLrScheduler,
+    /// Shuffled training batches on the autodiff device.
     pub train_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
+    /// Unshuffled test batches on the inner (non-autodiff) device.
     pub test_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
 }
 
@@ -135,7 +146,7 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
 ///
 /// # Panics
 ///
-/// If either dataset is empty.
+/// If either dataset is empty, or if `model_cfg.modes.len() + 2 != R` (`FNOConfig::init`).
 pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>(
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
@@ -176,7 +187,7 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
     .init()
     .expect("valid cosine scheduler config");
 
-    // Each split is uploaded once and batched on the device (REVIEW.md 4.1),
+    // Each split is uploaded once and batched on the device (commit `40fcfd4`),
     // with the same order as a DataLoader over the host dataset. The host
     // copies are dropped on return.
     let train_loader = device_loader::<R, RM1, T>(
@@ -224,6 +235,10 @@ fn epoch_line(m: &EpochMetrics, epoch_time: Duration) -> String {
 ///
 /// Prints nothing itself: pass [`print_epoch`] (or a closure calling it) for the console
 /// line.
+///
+/// # Panics
+///
+/// As [`train_epoch`] and [`evaluate`].
 pub fn training_loop<const R: usize, const RM1: usize>(
     mut components: TrainingComponents<R, RM1>,
     train_cfg: &TrainingConfig,
@@ -289,11 +304,10 @@ pub fn training_loop<const R: usize, const RM1: usize>(
 ///
 /// # Panics
 ///
-/// From [`build_training_components`]:
-/// - If either dataset is empty.
-/// - If `model_cfg.modes.len() + 2 != R` or `model_cfg.out_channels != 1`
-///   (`FNOConfig::init`; the latter is the requirement of
-///   [`flatten_pair`](crate::neural_operators::training::step::flatten_pair)).
+/// - From [`build_training_components`]: if either dataset is empty, or if
+///   `model_cfg.modes.len() + 2 != R` (`FNOConfig::init`).
+/// - At the first step, if `model_cfg.out_channels != 1`
+///   ([`flatten_pair`](crate::neural_operators::training::step::flatten_pair)).
 pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
     train_data: OperatorDataset<T>,
     test_data: OperatorDataset<T>,
@@ -356,7 +370,7 @@ mod tests {
     use std::fs::{self, File};
     use std::path::{Path, PathBuf};
 
-    // --- REVIEW1.md N5: schedule length and divisors come from the data ---
+    // --- merge `04ec800`: schedule length and divisors come from the data ---
 
     #[test]
     fn components_take_sample_counts_from_the_datasets() {
@@ -418,12 +432,12 @@ mod tests {
         );
     }
 
-    // --- REVIEW.md 4.1: device-resident loaders change nothing numerically ---
+    // --- commit `40fcfd4`: device-resident loaders change nothing numerically ---
 
     /// Full `training_loop` with the device-resident loaders against the same
-    /// components with the pre-4.1 host loaders swapped in: every metric of
-    /// every epoch must be exactly equal (same batches, same order, same
-    /// kernels), as must the trained model's output on flex.
+    /// components with the host loaders from before commit `40fcfd4` swapped in:
+    /// every metric of every epoch must be exactly equal (same batches, same
+    /// order, same kernels), as must the trained model's output on flex.
     ///
     /// On the fused GPU backends the output may differ in the last bits: the
     /// fuser can compile the two runs' identical op sequences into different
@@ -581,7 +595,7 @@ mod tests {
         let (_, new) = train_built(new, Some(&y), &train_cfg, &device, &mut |_, _, _| {});
 
         // The old path: decode both sides in training.
-        let loss = LpLoss::new(2, 2, Reduction::Sum);
+        let loss = LpLoss::new(2, Reduction::Sum);
         let decoder = FlatDecoder::new(&y, &device);
         let mut model = old.model;
         let (mut mse_sum, mut l2_sum, mut n_batches) = (0.0_f32, 0.0_f32, 0);
