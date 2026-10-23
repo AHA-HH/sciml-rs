@@ -11,7 +11,7 @@ use std::ops::Range;
 /// `[rows.len(), ceil(s_1 / step), .., ceil(s_k / step)]`.
 ///
 /// # Panics
-/// If `step == 0` or `rows.end > n`.
+/// If `step == 0`, `rows.start > rows.end` or `rows.end > n`.
 pub fn take_strided<A: Clone, D: Dimension>(
     field: ArrayView<A, D>,
     rows: Range<usize>,
