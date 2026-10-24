@@ -10,15 +10,15 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: Phase 4s (side phase, repository health), planned in
-  docs/phase4s/README.md (design §10, decision 25; from the review in
-  docs/code-quality/). T24 is its last task; the phase closes with the exit checklist
-  and a re-review. Phases 0–4 are done: docs/phase0/README.md to docs/phase4/README.md.
+- Current phase: none. Phases 0–4 are done (docs/phase0/README.md to
+  docs/phase4/README.md), and so is Phase 4s (side phase, repository health,
+  docs/phase4s/README.md; design §10, decision 25), closed 2026-10-24 with re-review
+  grade B (docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md).
   Next (design §10, decision 24), both optional and independent: Phase 5 (HPC:
   profiling, checkpointing, multi-GPU) and Phase 6 (Chebyshev-native: baseline padding
-  and seeds first, then the θ-map). Phase 5 T2 waits for 4s T10/T12, Phase 6 T3 for 4s
-  T16. Each phase gets its README and briefs when it starts; 4s briefs are in
-  docs/phase4s/T*.md.
+  and seeds first, then the θ-map). Their 4s prerequisites (T10/T12 for Phase 5 T2,
+  T16 for Phase 6 T3) are merged. Each phase gets its README and briefs when it
+  starts; 4s briefs are in docs/phase4s/T*.md.
 - Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
   RLST reference solver, FNO; signed off 2026-10-05, amended 2026-10-08 and 2026-10-09,
   decisions in its §12). CONVENTIONS.md wins on any conflict.
