@@ -88,9 +88,10 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   (`poisson_n{n}_K{K}_{split}`); `STAGES` / `stage(n)` are the training stages and
   `GENERATED` the sets `generate_poisson` writes. The loaders' callers and the generator
   take file names from here, not literals.
-- `data/loaders/poisson/` is ungated: `mod.rs` (`PoissonConfig`, `SidecarRecord`),
-  `uniform` (`load_poisson_uniform` reads those `.npz` files and applies T_cu at load time,
-  giving Darcy-shaped datasets on the uniform grid s = n − 1) and `cheb`
+- `data/loaders/poisson/` is ungated: `mod.rs` (`PoissonConfig` with the learning grid `s`,
+  unset meaning n − 1; `SidecarRecord`), `uniform` (`load_poisson_uniform` reads those
+  `.npz` files and applies T_cu at load time, giving Darcy-shaped datasets on the uniform
+  grid of s points, so one dataset serves every s) and `cheb`
   (`load_poisson_cheb_field` reads one split's raw field, `PoissonField::F` or `U`, on the
   CGL grid, untransferred).
 - `metrics/poisson` is ungated (ndarray, f64): `poisson_errors` gives design §7's errors 2–5
@@ -186,9 +187,11 @@ than trusting prose when checking how an API behaves.
   TUI: `train_epoch` is the canonical loop; this is the Burgers-only (`FNO<3>`) Learner
   equivalent. It writes `runs/burgers_fno_learner_<unix_secs>/` (configs and weights, no
   `metrics.csv`), which `predict_burgers` evaluates.
-- Train on Poisson: `cargo run --release --example train_poisson [--features metal] [-- [<padding>] [<n>]]`
+- Train on Poisson: `cargo run --release --example train_poisson [--features metal] [-- [<padding>] [<n>] [<s>]]`
   (the first argument overrides `PADDING`, the second picks the stage, n ∈ {65, 129, 257},
-  default 65; needs that stage in `datasets/poisson/`). On cuda:
+  default 65, the third the learning grid s, default n − 1, with modes min(12, s/2); needs
+  that stage in `datasets/poisson/`; the predict examples evaluate only s = n − 1 runs
+  until Phase 5 T6). On cuda:
   `--no-default-features --features cuda`
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution -- runs/<run_dir> [<rate> ...]` on Burgers runs, s = 8192 / rate;

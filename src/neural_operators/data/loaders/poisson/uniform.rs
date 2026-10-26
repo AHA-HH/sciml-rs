@@ -1,5 +1,6 @@
-//! The uniform loader: train/test `OperatorDataset`s on the uniform grid s = n − 1, every
-//! sample transferred with T_cu and then normalized (see the module above).
+//! The uniform loader: train/test `OperatorDataset`s on the uniform grid of s points
+//! (default n − 1), every sample transferred with T_cu and then normalized (see the module
+//! above).
 
 use super::{PoissonConfig, PoissonField, check_nodes, read_samples};
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes};
@@ -14,7 +15,7 @@ use std::path::Path;
 
 /// Builds the Poisson dataset on the uniform grid: inputs `[N, s, s, 1]` (the normalized
 /// forcing; no grid channels, the model generates them), targets `[N, s, s]`, with
-/// s = `config.s()` = n − 1.
+/// s = `config.s()` (default n − 1).
 ///
 /// Each file must hold `f` and `u` as `[samples, n, n]` on the CGL grid (`f[i, a, b] =
 /// f(x_a, y_b)`) and `x`, `y` as the ascending CGL nodes `[n]`. The first
@@ -27,9 +28,8 @@ use std::path::Path;
 /// # Errors
 /// [`LoadError::Reader`] if a file can't be read or lacks `f`/`u`/`x`/`y`;
 /// [`LoadError::Invalid`] if `n_train < 2` (the normalizers' sample std is undefined for
-/// one sample), `config.n <` [`Transfers::MIN_N`] (T_uc of degree [`TRANSFER_DEGREE`]
-/// needs s = n − 1 > d), `f` or `u` isn't
-/// `[samples, n, n]`, `x` or `y` isn't `[n]` or differs from the CGL nodes by more than
+/// one sample), `config.n <` [`Transfers::MIN_N`] or `config.s() <` [`Transfers::MIN_S`]
+/// (T_uc of degree [`TRANSFER_DEGREE`] needs s − 1 ≥ d), `f` or `u` isn't `[samples, n, n]`, `x` or `y` isn't `[n]` or differs from the CGL nodes by more than
 /// 1e-14, or a file has fewer samples than requested.
 ///
 /// Reading, the transfer and normalization are computed in `f64`, and the normalizers
@@ -41,11 +41,10 @@ pub fn load_poisson_uniform<T: HostFloat>(
     config: &PoissonConfig,
 ) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
     check_n_train(config.base.n_train)?;
-    check_transfer_n(config.n)?;
 
     // The transfers are built once and shared by both splits; each split's reader and
     // Chebyshev fields are freed before the next file is parsed.
-    let transfers = Transfers::new(config.n);
+    let transfers = transfers(config)?;
     let (f_train, u_train) = read_uniform_split(
         train_path.as_ref(),
         "train",
@@ -68,7 +67,8 @@ pub fn load_poisson_uniform<T: HostFloat>(
 ///
 /// # Errors
 /// [`LoadError::Reader`] if the file can't be read or lacks `f`/`u`/`x`/`y`;
-/// [`LoadError::Invalid`] if `config.n <` [`Transfers::MIN_N`], `f` or `u` isn't
+/// [`LoadError::Invalid`] if `config.n <` [`Transfers::MIN_N`], `config.s() <`
+/// [`Transfers::MIN_S`], `f` or `u` isn't
 /// `[samples, n, n]`, `x` or `y` isn't `[n]` or differs from the CGL nodes by more than
 /// 1e-14, the file has fewer than `n_test` samples, or `normalizers.x` was not fitted on
 /// `[s, s]`.
@@ -77,22 +77,29 @@ pub fn load_poisson_uniform_test<T: HostFloat>(
     config: &PoissonConfig,
     normalizers: &Normalizers,
 ) -> Result<OperatorDataset<T>, LoadError> {
-    check_transfer_n(config.n)?;
-    let transfers = Transfers::new(config.n);
+    let transfers = transfers(config)?;
     let (f_test, u_test) =
         read_uniform_split(test_path.as_ref(), "test", config.base.n_test, &transfers)?;
     normalize_test_split(f_test, u_test, normalizers)
 }
 
-/// Checks that T_uc of degree [`TRANSFER_DEGREE`] works at `n`: s = n − 1 > d.
-fn check_transfer_n(n: usize) -> Result<(), LoadError> {
+/// The transfers for `config`'s n and s ([`Transfers::with_s`]), or [`LoadError::Invalid`]
+/// where that would panic: n below [`Transfers::MIN_N`] or s below [`Transfers::MIN_S`].
+fn transfers(config: &PoissonConfig) -> Result<Transfers, LoadError> {
+    let (n, s) = (config.n, config.s());
     if n < Transfers::MIN_N {
         return Err(LoadError::Invalid(format!(
-            "n must be >= {} (T_uc of degree {TRANSFER_DEGREE} needs s = n - 1 > d), got {n}",
+            "n must be >= {} (the smallest supported CGL grid), got {n}",
             Transfers::MIN_N
         )));
     }
-    Ok(())
+    if s < Transfers::MIN_S {
+        return Err(LoadError::Invalid(format!(
+            "s must be >= {} (T_uc of degree {TRANSFER_DEGREE} needs s - 1 >= d), got {s}",
+            Transfers::MIN_S
+        )));
+    }
+    Ok(Transfers::with_s(n, s))
 }
 
 /// Reads one split's `f` and `u`, validated, and transfers the first `count` samples of
@@ -203,6 +210,49 @@ mod tests {
         assert_eq!(*test.inputs(), as_input(norms.x.encode(f_te)));
         assert_eq!(*train.targets(), u_tr);
         assert_eq!(*test.targets(), u_te);
+    }
+
+    // --- phase 5 T3: one dataset loads at any learning grid s ---
+
+    #[test]
+    fn loads_at_any_s_as_the_restriction() {
+        let dir = fresh_dir("any_s");
+        let (train_path, test_path) = write_valid_pair(&dir);
+        let x = nodes(N);
+        let u_train = poly_field(N_TRAIN, 0.0, &x, &x) * -2.0;
+        let u_test = poly_field(N_TEST, 0.5, &x, &x) * -2.0;
+        for s in [5, 12] {
+            let config = cfg(N_TRAIN, N_TEST).with_s(Some(s));
+            let (train, test, _) =
+                load_poisson_uniform::<f64>(&train_path, &test_path, &config).unwrap();
+            assert_eq!(train.inputs().shape(), [N_TRAIN, s, s, 1], "s={s}");
+            assert_eq!(train.targets().shape(), [N_TRAIN, s, s], "s={s}");
+            assert_eq!(test.inputs().shape(), [N_TEST, s, s, 1], "s={s}");
+            assert_eq!(test.targets().shape(), [N_TEST, s, s], "s={s}");
+
+            // the same fields, restricted to this s by T2's transfers
+            let t = Transfers::with_s(N, s);
+            let restrict = |a: &ArrayD<f64>| {
+                let a = a.view().into_dimensionality::<Ix3>().unwrap();
+                t.to_uniform_all(a).into_dyn()
+            };
+            assert_eq!(*train.targets(), restrict(&u_train), "s={s}");
+            assert_eq!(*test.targets(), restrict(&u_test), "s={s}");
+        }
+    }
+
+    #[test]
+    fn s_below_three_is_invalid_not_a_panic() {
+        for s in [0, 1, 2] {
+            expect_invalid(
+                load_poisson_uniform(
+                    "/nope/train.npz",
+                    "/nope/test.npz",
+                    &cfg(2, 1).with_s(Some(s)),
+                ),
+                "s must be >= 3",
+            );
+        }
     }
 
     /// Order-sensitive sum, compared bit for bit.
