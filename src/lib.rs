@@ -70,7 +70,7 @@ pub mod neural_operators;
 ///
 /// Recorded in the sidecar of every generated dataset. It changes only with that file:
 /// a change to CONVENTIONS §1–§6 or §12 bumps both, and a test checks they agree.
-pub const CONVENTION_VERSION: u32 = 1;
+pub const CONVENTION_VERSION: u32 = 2;
 
 #[cfg(test)]
 mod tests {

@@ -104,8 +104,8 @@ D5–D7 belong to Phases 6 and 7.
 | Task | Brief | Delivers | Depends on |
 | --- | --- | --- | --- |
 | T1 | [T1-transfer-floor.md](T1-transfer-floor.md) | Spike: the 257 → 129 reference check; transfer-only error per candidate R and P at s ∈ {16, 32, 64, 128}; filtered-out energy of f; fixes D1 | – |
-| T2 | [T2-restriction.md](T2-restriction.md) | CONVENTIONS §12 amendment (version 2); the chosen R and a generalised `Transfers` in `chebyshev::transfer`, with oracle tests | T1 |
-| T3 | [T3-loader-s.md](T3-loader-s.md) | Learning s and the restriction in `PoissonConfig`; the loaders use them; `train_poisson` takes s; s = n − 1 stays the default and reproduces today | T2 |
+| T2 | [T2-restriction.md](T2-restriction.md) | CONVENTIONS §12 amendment (version 2); `Transfers::with_s` for any learning grid s (R = T_cu, D1), with oracle tests | T1 |
+| T3 | [T3-loader-s.md](T3-loader-s.md) | Learning s in `PoissonConfig`; the loaders use them; `train_poisson` takes s; s = n − 1 stays the default and reproduces today | T2 |
 | T4 | [T4-run-metadata.md](T4-run-metadata.md) | Per-epoch time in `metrics.csv`, `costs.json`, the extended `data_cfg.json`, parameter count, a seed argument | T3 |
 | T5 | [T5-matrix.md](T5-matrix.md) | The training matrix on cuda: main arm (12 runs) and aliasing control (3 runs) | T4 |
 | T6 | [T6-evaluate.md](T6-evaluate.md) | The three errors (and errors 2–5) on every run; error 4 against ‖u‖; comparison table and accuracy/cost plots | T5 |
@@ -120,11 +120,11 @@ lists under "Read first".
 - `spikes/transfer_floor/` (T1): a standalone package, a non-default workspace member like
   `spikes/metal_diag`, never built by CI. It path-depends on `sciml-rs` for the loaders and
   transfers.
-- `chebyshev/transfer.rs` (T2): the nodal-to-coefficient matrix, the chosen restriction
-  beside `cheb_to_uniform`, and `Transfers` for an independent (n, s, R, d). Ungated,
-  ndarray, f64.
-- `data/loaders/poisson/` (T3): `PoissonConfig` gains the learning size and restriction;
-  `uniform.rs` builds `Transfers` from them.
+- `chebyshev/transfer.rs` (T2): `Transfers::with_s` for an independent (n, s), with
+  R = T_cu and d = 2 fixed by CONVENTIONS §12 (D1 chose the unfiltered restriction, so no
+  coefficient matrix or restriction enum is added). Ungated, ndarray, f64.
+- `data/loaders/poisson/` (T3): `PoissonConfig` gains the learning size;
+  `uniform.rs` builds `Transfers` from it.
 - `runs/` (T4): `epoch_time_s` in `metrics.csv` and `costs.json`; `RunDir` stays the only
   owner of the run-file names.
 - `metrics/poisson.rs` (T6): `poisson_errors` takes the run's `Transfers`.
@@ -140,7 +140,7 @@ Filled in as tasks merge. Phase 5 is done when every row has a value.
 | --- | --- | --- |
 | Reference check: stage 4 at the 129 nodes against stage 3, max relative CC-L² | u 7.19e-13, f 0 (bit-identical); passes | T1 |
 | Transfer-only error per R and s (mean / max), P's own error per d, filtered-out energy of f per s; D1 chosen | D1: unfiltered T_cu, d = 2. Transfer-only (= P's own error) at s = 16 / 32 / 64 / 128: 3.03e-3 / 3.47e-4 / 2.45e-5 / 2.53e-6 (mean). Filtered-out energy of f beyond s − 2: 4.2e-2 / 9.0e-3 / 1.2e-3 / 0. Aliasing row skipped (needs `datagen`). Full tables in `spikes/transfer_floor/REPORT.md` | T1 |
-| CONVENTIONS §12 amended, version 2; R and P tests; wall time of the new tests | | T2 |
+| CONVENTIONS §12 amended, version 2; R and P tests; wall time of the new tests | Done: §12 lets s differ from n − 1 (s ≥ 3), R = T_cu, P = T_uc d = 2; 5 new tests in `chebyshev::transfer`, 0.02 s together (debug) | T2 |
 | Loader at s = n − 1 reproduces today's tensors | | T3 |
 | Metadata and `costs.json` written by a short run; old runs still open | | T4 |
 | Matrix cost, timed and stated before the full runs | | T5 |
@@ -155,7 +155,7 @@ Filled in as tasks merge. Phase 5 is done when every row has a value.
 ## Exit checklist
 
 - [ ] T1–T7 merged.
-- [ ] CONVENTIONS §12 amended and `CONVENTION_VERSION = 2`.
+- [x] CONVENTIONS §12 amended and `CONVENTION_VERSION = 2`.
 - [ ] The solver and learning grids are independently configurable.
 - [ ] The same forcing examples are represented at several learning resolutions.
 - [ ] Restriction and prolongation errors are measured separately.

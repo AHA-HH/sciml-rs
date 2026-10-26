@@ -7,10 +7,11 @@
 //! - Uniform → Chebyshev, T_uc ([`uniform_to_cheb`]): Floater–Hormann interpolation of
 //!   degree d on the uniform nodes.
 //!
-//! Production uses d = [`TRANSFER_DEGREE`] = 2 and s = n − 1 (design §12, decisions 5 and
-//! 8), bundled as [`Transfers`]; the functions take both as arguments so the tests can
-//! vary them. Nodes and weights are closed forms, so this module needs only ndarray and is
-//! built without the `datagen` feature (decision 13).
+//! Production uses d = [`TRANSFER_DEGREE`] = 2 and, by default, s = n − 1 (design §12,
+//! decisions 5 and 8), bundled as [`Transfers`]; [`Transfers::with_s`] takes any learning
+//! grid s, with T_cu as the restriction (decision 30, D1). The functions take n, s and d as
+//! arguments so the tests can vary them. Nodes and weights are closed forms, so this
+//! module needs only ndarray and is built without the `datagen` feature (decision 13).
 
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, Axis};
 use std::f64::consts::PI;
@@ -176,11 +177,12 @@ pub fn apply(tx: ArrayView2<f64>, ty: ArrayView2<f64>, f: ArrayView2<f64>) -> Ar
     tx.dot(&f).dot(&ty.t())
 }
 
-/// The production transfer pair for the n × n CGL grid (CONVENTIONS §12): T_cu
-/// ([`cheb_to_uniform`]) and T_uc ([`uniform_to_cheb`]) of degree [`TRANSFER_DEGREE`],
-/// between the CGL nodes and the uniform grid of s = n − 1 points (design §12, decisions
-/// 5 and 8). Both matrices are built once, in [`Transfers::new`], and applied along both
-/// axes of 'ij' fields with [`apply`].
+/// The production transfer pair for the n × n CGL grid (CONVENTIONS §12): the restriction
+/// R = T_cu ([`cheb_to_uniform`]) and the prolongation P = T_uc ([`uniform_to_cheb`]) of
+/// degree [`TRANSFER_DEGREE`], between the CGL nodes and the uniform learning grid of s
+/// points: s = n − 1 from [`Transfers::new`] (design §12, decisions 5 and 8), any s from
+/// [`Transfers::with_s`] (decision 30, D1). Both matrices are built once and applied along
+/// both axes of 'ij' fields with [`apply`].
 #[derive(Clone, Debug)]
 pub struct Transfers {
     /// `[s, n]`
@@ -190,8 +192,13 @@ pub struct Transfers {
 }
 
 impl Transfers {
-    /// The smallest n: T_uc of degree [`TRANSFER_DEGREE`] needs s = n − 1 > d.
+    /// The smallest supported CGL grid: the default s = n − 1 is at least
+    /// [`Transfers::MIN_S`].
     pub const MIN_N: usize = TRANSFER_DEGREE + 2;
+
+    /// The smallest learning grid s: T_uc of degree [`TRANSFER_DEGREE`] needs d ≤ s − 1
+    /// (CONVENTIONS §12).
+    pub const MIN_S: usize = TRANSFER_DEGREE + 1;
 
     /// The transfers for `n` CGL nodes per axis, s = n − 1.
     ///
@@ -204,7 +211,29 @@ impl Transfers {
              s = n - 1 > d), got {n}",
             Self::MIN_N
         );
-        let s = n - 1;
+        Self::with_s(n, n - 1)
+    }
+
+    /// The transfers between `n` CGL nodes and a learning grid of `s` uniform points per
+    /// axis (CONVENTIONS §12): R = T_cu `[s, n]` and P = T_uc `[n, s]` of degree
+    /// [`TRANSFER_DEGREE`]. `with_s(n, n - 1)` equals [`Transfers::new`]`(n)`. Any n ≥ 2
+    /// would give valid matrices; n is held to the same floor as [`Transfers::new`] so both
+    /// constructors support the same grids.
+    ///
+    /// # Panics
+    /// If `n <` [`Transfers::MIN_N`] or `s <` [`Transfers::MIN_S`].
+    pub fn with_s(n: usize, s: usize) -> Self {
+        assert!(
+            n >= Self::MIN_N,
+            "Transfers::with_s: n must be >= {}, got {n}",
+            Self::MIN_N
+        );
+        assert!(
+            s >= Self::MIN_S,
+            "Transfers::with_s: s must be >= {} (T_uc of degree {TRANSFER_DEGREE} needs \
+             s - 1 >= d), got {s}",
+            Self::MIN_S
+        );
         Self {
             t_cu: cheb_to_uniform(n, s),
             t_uc: uniform_to_cheb(s, n, TRANSFER_DEGREE),
@@ -216,7 +245,7 @@ impl Transfers {
         self.t_cu.ncols()
     }
 
-    /// Uniform grid points per axis, n − 1.
+    /// Uniform (learning) grid points per axis: n − 1 from [`Transfers::new`].
     pub fn s(&self) -> usize {
         self.t_cu.nrows()
     }
@@ -352,10 +381,13 @@ mod tests {
         }
     }
 
-    #[test]
-    fn transfers_preserve_ij_layout() {
-        let (nx, ny) = (9, 17);
-        let (sx, sy) = (nx - 1, ny - 1);
+    fn max_abs(a: &Array2<f64>) -> f64 {
+        a.iter().fold(0.0_f64, |e, v| e.max(v.abs()))
+    }
+
+    /// 'ij' layout of both transfers on an nx × ny CGL grid and an sx × sy uniform grid,
+    /// checked on a linear field neither axis can confuse with the other.
+    fn check_ij_layout(nx: usize, ny: usize, sx: usize, sy: usize) {
         let (cx, cy) = (nodes(nx), nodes(ny));
         let (ux, uy) = (uniform_nodes(sx), uniform_nodes(sy));
         let f = |x: f64, y: f64| x + 10.0 * y;
@@ -366,21 +398,22 @@ mod tests {
             sample(&cx, &cy, f).view(),
         );
         assert_eq!(on_uniform.dim(), (sx, sy));
-        let err = (&on_uniform - &sample(&ux, &uy, f))
-            .iter()
-            .fold(0.0_f64, |e, v| e.max(v.abs()));
+        let err = max_abs(&(&on_uniform - &sample(&ux, &uy, f)));
         assert!(err <= 1e-12, "cheb -> uniform: {err:e}");
 
         let on_cheb = apply(
-            uniform_to_cheb(sx, nx, 2).view(),
-            uniform_to_cheb(sy, ny, 2).view(),
+            uniform_to_cheb(sx, nx, TRANSFER_DEGREE).view(),
+            uniform_to_cheb(sy, ny, TRANSFER_DEGREE).view(),
             sample(&ux, &uy, f).view(),
         );
         assert_eq!(on_cheb.dim(), (nx, ny));
-        let err = (&on_cheb - &sample(&cx, &cy, f))
-            .iter()
-            .fold(0.0_f64, |e, v| e.max(v.abs()));
+        let err = max_abs(&(&on_cheb - &sample(&cx, &cy, f)));
         assert!(err <= 1e-12, "uniform -> cheb: {err:e}");
+    }
+
+    #[test]
+    fn transfers_preserve_ij_layout() {
+        check_ij_layout(9, 17, 8, 16);
     }
 
     #[test]
@@ -447,6 +480,53 @@ mod tests {
     #[should_panic(expected = "Transfers::new: n must be >= 4")]
     fn transfers_panic_below_min_n() {
         Transfers::new(3);
+    }
+
+    // A sine mode well inside what s resolves: R samples the n-point interpolant, exact
+    // to round-off on it (CONVENTIONS §12).
+    #[test]
+    fn restriction_exact_on_resolved_mode() {
+        let n = 129;
+        let mode = |x: f64, y: f64| (3.0 * PI * (x + 1.0) / 2.0).sin() * (PI * (y + 1.0)).sin();
+        let c = nodes(n);
+        for s in [16, 32, 64] {
+            let t = Transfers::with_s(n, s);
+            assert_eq!((t.n(), t.s()), (n, s));
+            let u = uniform_nodes(s);
+            let got = t.to_uniform(sample(&c, &c, mode).view());
+            let err = max_abs(&(&got - &sample(&u, &u, mode)));
+            assert!(err <= 1e-12, "s={s}: {err:e}");
+        }
+    }
+
+    #[test]
+    fn restriction_rows_sum_to_one() {
+        for (n, s) in [(129, 16), (129, 32), (129, 64), (257, 128), (33, 3)] {
+            let t = Transfers::with_s(n, s);
+            let err = t
+                .t_cu
+                .rows()
+                .into_iter()
+                .fold(0.0_f64, |e, r| e.max((r.sum() - 1.0).abs()));
+            assert!(err <= 1e-12, "n={n} s={s}: {err:e}");
+        }
+    }
+
+    #[test]
+    fn transfers_preserve_ij_layout_at_any_s() {
+        check_ij_layout(17, 33, 5, 12);
+    }
+
+    #[test]
+    #[should_panic(expected = "Transfers::with_s: s must be >= 3")]
+    fn transfers_with_s_panic_below_min_s() {
+        Transfers::with_s(129, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Transfers::with_s: n must be >= 4")]
+    fn transfers_with_s_panic_below_min_n() {
+        Transfers::with_s(3, 32);
     }
 
     #[test]
