@@ -18,7 +18,7 @@ floor, so model error and lost information are separated.
    `Transfers::new(n)`; the `s + 1 == n` assert becomes a check against the transfers'
    (n, s). With them, error 2 is the transfer-only error P R u_f − u_f, error 3 the
    coarse error on G_l against R u_f, error 4 the fine-grid error, error 5 on û_f. No new
-   error functions. `errors.json` keeps its keys; the run's s and restriction are added.
+   error functions. `errors.json` keeps its keys; the run's s is added.
 2. **`predict_poisson`** evaluates every T5 run on flex: the five errors, the
    cross-checks, the boundary verdict, and the warm inference time on the test split
    into `costs.json` (T4).

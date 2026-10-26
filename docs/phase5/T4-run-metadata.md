@@ -29,7 +29,7 @@ T6 comparison reads files, not terminal logs.
      may be filled from `nvidia-smi` by hand and the PR says so;
    - backend features (`backend_features`), device name, git commit;
    - trainable parameter count (`num_params`).
-3. **`data_cfg.json`** carries n, K, s, the restriction and its parameters, P's d, and the
+3. **`data_cfg.json`** carries n, K, s, P's d, and the
    train and test file names with their sidecar git commits. Prefer fields on
    `PoissonConfig` (T3) over a second file.
 4. **`train_poisson -- [<padding>] [<n>] [<s>] [<seed>]`:** the seed sets

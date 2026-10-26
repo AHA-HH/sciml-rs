@@ -1,6 +1,6 @@
 # Conventions
 
-`CONVENTION_VERSION = 1`.
+`CONVENTION_VERSION = 2`.
 
 This file is the single source of truth for tensor layouts, coordinate grids, padding,
 Fourier transforms, mode truncation and weight initialisation in `sciml-rs`, and records
@@ -206,7 +206,7 @@ a published PyTorch/NumPy value), with its tolerance stated relative to that ref
 
 ## 9. Versioning
 
-`CONVENTION_VERSION = 1`. Any change to §1–§6 bumps it: those sections fix parameter
+`CONVENTION_VERSION = 2`. Any change to §1–§6 bumps it: those sections fix parameter
 names and shapes, the grid-channel order, the spectral layout and the initialisation draw
 order, which saved checkpoints depend on. A design document that needs a new convention
 proposes it as a diff to this file, and the change lands here before any code that
@@ -214,6 +214,10 @@ relies on it. §12 fixes how dataset files and grid transfers are laid out; a ch
 bumps `CONVENTION_VERSION`. §7 and §8 change only with the tests they describe. §10 and
 §11 do not bump the version; a change to them is noted in the pull request and changes
 the code that implements it in the same pull request.
+
+History: version 2 (Phase 5 T2) lets §12's uniform size s differ from n − 1 and names the
+restriction R. Every version 1 dataset file is still valid at version 2: its s = n − 1
+grid and T_cu are unchanged, and the loaders do not check a sidecar's version.
 
 ## 10. Data normalisation
 
@@ -264,9 +268,9 @@ h_a = \frac{1}{s_a - 1}
 Chebyshev datasets (design `docs/design/2d-chebyshev-poisson-fno.md`) are stored on a
 Chebyshev grid and reach the unchanged model (§1–§6) on a uniform grid. This section fixes
 both grids, the transfers between them and the norms on the Chebyshev grid. The degree d
-and the uniform size rule were measured in Phase 0 T3 (`spikes/transfers/REPORT.md`).
-§12 was written before the code that implements it (§9); its tests landed in Phase 1 T1
-and Phase 2 T1.
+and the uniform size rule were measured in Phase 0 T3 (`spikes/transfers/REPORT.md`), the
+restriction in Phase 5 T1 (`spikes/transfer_floor/REPORT.md`). §12 was written before the
+code that implements it (§9); its tests landed in Phase 1 T1, Phase 2 T1 and Phase 5 T2.
 
 - Domain Ω = [−1, 1]². The model's coordinates ξ ∈ [0, 1] (§2) map to it by x = 2ξ − 1.
 - Chebyshev–Gauss–Lobatto nodes, n per axis (n = 2^k + 1), in **ascending** order, both
@@ -280,8 +284,10 @@ and Phase 2 T1.
   compare.
 - Fields are stored 'ij': `F[i, j] = f(x_i, y_j)`, the first spatial axis is x and the
   second is y, as in §2 (x_a varies along axis a). The same holds on the uniform grid.
-- Uniform grid: s = n − 1 points per axis, both endpoints included, so it is §2's grid
-  mapped to Ω (n = 33, 65, 129, 257 gives s = 32, 64, 128, 256):
+- Uniform grid (the learning grid): s points per axis, both endpoints included, so it is
+  §2's grid mapped to Ω. s is chosen per dataset load, independently of n, with
+  s ≥ d + 1 = 3 (T_uc of degree d needs d ≤ s − 1). The default is s = n − 1 (n = 33, 65,
+  129, 257 gives s = 32, 64, 128, 256):
 
   ```math
   \tilde x_j = -1 + \frac{2j}{s - 1}, \qquad j = 0, \dots, s - 1
@@ -297,6 +303,12 @@ and Phase 2 T1.
 
 - Chebyshev → uniform, T_cu: polynomial interpolation on the CGL nodes, second-kind
   weights, w_j = (−1)^j δ_j with δ_0 = δ_{n−1} = 1/2 and δ_j = 1 otherwise.
+- Restriction R, CGL grid → learning grid: R = T_cu at the chosen s, with no filter,
+  applied to f and u alike. It samples the degree-(n − 1) interpolant at the uniform
+  nodes, so content above what s resolves aliases onto the learning grid. Phase 5 T1 chose
+  it over filtered and cell-average restrictions: the transfer-only error P R u − u is
+  dominated by P, and a filter lowers it by less than 10% at s = 32 and 64 (design §12,
+  decision 30, D1).
 - Uniform → Chebyshev, T_uc: Floater–Hormann interpolation of degree **d = 2** on the
   uniform nodes (N = s − 1), with weights
 
@@ -306,7 +318,8 @@ and Phase 2 T1.
   J_k = \{\, i : \max(0, k - d) \le i \le \min(k, N - d) \,\}
   ```
 
-  d is chosen on the solution u, the field T_uc acts on (design §12, decision 8).
+  d is chosen on the solution u, the field T_uc acts on (design §12, decision 8). It is the
+  prolongation P at every s (decision 30, D1).
 - Norms on the Chebyshev grid use tensor-product Clenshaw–Curtis weights w_i, exact for
   polynomials of degree ≤ n − 1:
 
@@ -328,3 +341,8 @@ Tests marked † need the `datagen` feature (named `chebyshev` before Phase 4s T
   `cheb_bary_weights_match_closed_form`†, `cheb_to_uniform_matches_rlst_barycentric`†,
   `fh_reproduces_polynomials_to_degree_d`, `coincident_target_gives_unit_row`,
   `transfers_preserve_ij_layout`.
+- Learning grid s ≠ n − 1 (Phase 5 T2, `chebyshev::transfer`):
+  `restriction_exact_on_resolved_mode`, `restriction_rows_sum_to_one`,
+  `transfers_preserve_ij_layout_at_any_s`, `transfers_with_s_panic_below_min_s`,
+  `transfers_with_s_panic_below_min_n`; `transfers_round_trip_matches_manual_recipe`
+  keeps `Transfers::new` bit for bit.

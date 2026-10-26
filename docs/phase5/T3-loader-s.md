@@ -1,7 +1,8 @@
 # T3: a resolution-aware Poisson loader
 
-Phase 5, task 3. Branch `phase5/T3-loader-s`. Depends on T2 (`Transfers` for any s and the
-restriction enum).
+Phase 5, task 3. Branch `phase5/T3-loader-s`. Depends on T2 (`Transfers::with_s` for any s).
+D1 chose R = T_cu (CONVENTIONS §12, version 2), so the restriction is fixed by convention:
+T2 added no restriction enum, and no config stores one (amended in T2, 2026-10-26).
 
 ## Read first
 - `src/neural_operators/data/loaders/poisson/mod.rs` (`PoissonConfig`, `s()`) and
@@ -17,17 +18,17 @@ Load one fine-grid dataset at any learning size s, so the same forcings and the 
 set appear at every s with no regeneration.
 
 ## Deliverables
-1. **`PoissonConfig`** gains the learning size `s` and the restriction, both with
-   `#[config(default = …)]` so every existing `data_cfg.json` still loads and means
-   s = n − 1 with unfiltered T_cu. `s()` returns the configured s (the default when
-   unset). Document the fields with CONVENTIONS §12 citations.
+1. **`PoissonConfig`** gains the learning size `s`, with `#[config(default = …)]` so
+   every existing `data_cfg.json` still loads and means s = n − 1. `s()` returns the
+   configured s (the default when unset). Document the field with a CONVENTIONS §12
+   citation.
 2. **`load_poisson_uniform` and `load_poisson_uniform_test`** build `Transfers` from the
    config instead of `Transfers::new(config.n)`. Normalisers are fitted on the restricted
    train split at that s.
 3. **`train_poisson -- [<padding>] [<n>] [<s>]`:** s defaults to n − 1; modes follow D2,
    m = min(12, s/2) per axis, computed from s (no constant edit per run). The run name
    carries s when it differs from n − 1 (e.g. `poisson_fno_n129_s32_p0`).
-4. The predict examples read s and the restriction from the run's `data_cfg.json`. They
+4. The predict examples read s from the run's `data_cfg.json`. They
    still evaluate only s = n − 1 runs correctly until T6; at s ≠ n − 1 they fail with a
    clear message rather than a panic deep in `poisson_errors`.
 5. `CLAUDE.md`: the `train_poisson` command line and the Layout line for
@@ -35,7 +36,7 @@ set appear at every s with no regeneration.
 
 ## Tests
 - `poisson_output_is_pinned` and every existing loader test unchanged.
-- An old-format `data_cfg.json` (no s, no restriction) deserialises to s = n − 1, T_cu.
+- An old-format `data_cfg.json` (no s) deserialises to s = n − 1.
 - Shapes at s ≠ n − 1: inputs `[N, s, s, 1]`, targets `[N, s, s]`.
 - One synthetic sample loaded at two s values equals the T2 restriction of the same
   field (consistency across s).
