@@ -8,7 +8,7 @@ Phase 5, task 1 (`docs/phase5/T1-transfer-floor.md`). Run on 2026-10-26.
   f64, flex build of `sciml-rs` (no GPU, no `datagen`). Base commit `f8476d3`.
 - Datasets: the main checkout's `datasets/poisson/`, stage 3 (`poisson_n129_K64_test`)
   and stage 4 (`poisson_n257_K64_test`), 200 test samples each. Nothing regenerated.
-- Command, from the repository root (wall time 8.4 s for the run itself, 1 min 15 s
+- Command, from the repository root (wall time 8.3 s for the run itself, 1 min 15 s
   including the first release build):
   ```sh
   cargo run --release -p transfer-floor-spike -- <main checkout>/datasets/poisson > out.md
@@ -109,17 +109,17 @@ Asserts passed: σ ≡ 1 reproduces T_cu, and every R has unit row sums (1e-12).
 
 Skipped: the exact sine series needs `pde::poisson::grf`, behind `datagen`.
 
-## Cost of R at n = 129: build (ms) / apply per sample (µs)
+## Cost of R at n = 129: build / apply per sample (µs)
 
 | R | s = 16 | s = 32 | s = 64 | s = 128 |
 | --- | --- | --- | --- | --- |
-| unfiltered T_cu | 0.00 / 23 | 0.01 / 37 | 0.02 / 77 | 0.04 / 189 |
-| cell average | 0.12 / 21 | 0.22 / 37 | 0.40 / 77 | 0.75 / 188 |
-| filtered sharp, J = s − 2 | 0.05 / 20 | 0.08 / 36 | 0.15 / 77 | 0.29 / 189 |
-| filtered sharp, J = ⌊(s − 2)π/2⌋ | 0.04 / 20 | 0.08 / 36 | 0.14 / 75 | 0.29 / 188 |
-| filtered exp, J = s − 2 | 0.04 / 20 | 0.08 / 35 | 0.14 / 77 | 0.28 / 185 |
-| filtered exp, J = ⌊(s − 2)π/2⌋ | 0.04 / 20 | 0.08 / 34 | 0.14 / 75 | 0.29 / 186 |
-| filtered exp, J = n − 1 | 0.04 / 20 | 0.07 / 34 | 0.14 / 74 | 0.28 / 186 |
+| unfiltered T_cu | 5.5 / 22 | 9.6 / 37 | 18.4 / 76 | 36.8 / 187 |
+| cell average | 128.9 / 21 | 229.6 / 38 | 407.9 / 76 | 762.9 / 192 |
+| filtered sharp, J = s − 2 | 56.2 / 21 | 78.9 / 37 | 155.4 / 76 | 269.0 / 187 |
+| filtered sharp, J = ⌊(s − 2)π/2⌋ | 45.2 / 22 | 83.8 / 36 | 149.3 / 76 | 278.7 / 186 |
+| filtered exp, J = s − 2 | 47.7 / 21 | 79.7 / 36 | 152.7 / 77 | 273.3 / 186 |
+| filtered exp, J = ⌊(s − 2)π/2⌋ | 47.9 / 21 | 83.5 / 37 | 157.8 / 75 | 271.5 / 186 |
+| filtered exp, J = n − 1 | 46.1 / 21 | 78.4 / 36 | 151.0 / 75 | 278.1 / 185 |
 
 ## Dataset generation time (sidecar `wall_time_s`)
 
@@ -150,8 +150,10 @@ Skipped: the exact sine series needs `pde::poisson::grf`, behind `datagen`.
 - **Filtering removes real content of u.** The sharp J = s − 2 filter discards modes that
   u still carries (the filtered-out energy of f is 9.0e-3 at s = 32), so it roughly doubles
   the error. The exponential taper also damps the modes below J, which costs about 1e-5
-  even at J = n − 1. The sharp J = ⌊(s − 2)π/2⌋ filter keeps almost all of u, so it is the
-  only filtered R that beats unfiltered, by 9% at s = 32 (d = 2) and by 0.4% at s = 64.
+  even at J = n − 1. The sharp J = ⌊(s − 2)π/2⌋ filter keeps almost all of u, and it is
+  the lowest R at s = 32 and 64: 9% below unfiltered at s = 32 (d = 2) and 0.4% below at
+  s = 64. The exponential J = n − 1 filter is 1.4% below unfiltered at s = 32, but above
+  it at s = 64.
 - **Cell average is the worst R** at every s ≥ 32: 8.5e-3 at s = 32. It smooths u by
   O(h²), which is far above the interpolation error of P.
 - **Aliasing visible in f** is not measured. The exact sine series needs `grf`, which
@@ -160,7 +162,9 @@ Skipped: the exact sine series needs `pde::poisson::grf`, behind `datagen`.
   energy on average (2% at worst), and unfiltered T_cu folds it back onto the learning
   grid.
 - **Cost** does not separate the candidates. Every R takes under 1 ms to build and
-  20–190 µs per sample to apply, against 0.2 s to generate the stage 3 test split.
+  20–190 µs per sample to apply, against 0.2 s to generate the stage 3 test split. The
+  build time of the filtered and cell-average R includes the Chebyshev matrices they are
+  built from (C, with E or A), which unfiltered T_cu does not need.
 
 ## Decisions
 
