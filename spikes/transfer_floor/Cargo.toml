@@ -1,0 +1,14 @@
+[package]
+name = "transfer-floor-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Phase 5 T1: transfer-only error floor and the choice of restriction R (spike, not part of sciml-rs)"
+
+# A non-default member of the root workspace: it shares the root's Cargo.lock, target
+# directory and Burn pin, and root `cargo test` / CI never build it.
+
+[dependencies]
+sciml-rs = { path = "../..", default-features = false, features = ["flex"] }
+burn.workspace = true
+ndarray = "0.17"

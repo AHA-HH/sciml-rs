@@ -99,10 +99,10 @@ datagen = [
 ]
 
 # The crate is the only default member, so root `cargo test` / `clippy` / `doc` build only
-# it. `spikes/metal_diag` shares this lock, target directory and Burn pin; the other spikes
-# are standalone (their own `[workspace]`).
+# it. `spikes/metal_diag` and `spikes/transfer_floor` share this lock, target directory and
+# Burn pin; the other spikes are standalone (their own `[workspace]`).
 [workspace]
-members = [".", "spikes/metal_diag"]
+members = [".", "spikes/metal_diag", "spikes/transfer_floor"]
 default-members = ["."]
 
 [workspace.dependencies]

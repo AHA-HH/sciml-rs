@@ -1495,6 +1495,17 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
         loaders do not check a sidecar's version.
       - The Phase 7 baseline is the smallest s whose mean fine-grid error over seeds is
         within 10% of the s = 128 main-arm mean, fixed before any T5 run.
+    - **Amendment, D1 (Phase 5 T1, 2026-10-26).** R = unfiltered T_cu
+      (`cheb_to_uniform(n, s)`), P = Floater–Hormann d = 2, by the T1 rule
+      (`spikes/transfer_floor/REPORT.md`). The reference check passed: stage 4 at the
+      even 257 nodes matches stage 3 to 7.2e-13 in u. P dominates the transfer-only
+      error. At d = 2 the sharp ⌊(s − 2)π/2⌋ filter is lowest (3.15e-4 at s = 32,
+      2.45e-5 at s = 64), and unfiltered T_cu is within 10% at both (3.47e-4, 2.45e-5), so
+      the simpler R is chosen. The cell average (8.5e-3 at s = 32) is worst, and neither
+      the s − 2 filter nor any exponential filter is lowest at s = 32 or 64. d = 2 is best or within 1% at s ≤ 32. Consequences: T2
+      ports no filter; the T5 aliasing control equals the main arm and is not run. Caveat:
+      the aliasing row (which needs `datagen`) was skipped by the author's choice, so the
+      effect of the unfiltered R on f is not measured.
 
 ## 13. Research programme after Phase 4s
 

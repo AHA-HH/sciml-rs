@@ -138,8 +138,8 @@ Filled in as tasks merge. Phase 5 is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| Reference check: stage 4 at the 129 nodes against stage 3, max relative CC-L² | | T1 |
-| Transfer-only error per R and s (mean / max), P's own error per d, filtered-out energy of f per s; D1 chosen | | T1 |
+| Reference check: stage 4 at the 129 nodes against stage 3, max relative CC-L² | u 7.19e-13, f 0 (bit-identical); passes | T1 |
+| Transfer-only error per R and s (mean / max), P's own error per d, filtered-out energy of f per s; D1 chosen | D1: unfiltered T_cu, d = 2. Transfer-only (= P's own error) at s = 16 / 32 / 64 / 128: 3.03e-3 / 3.47e-4 / 2.45e-5 / 2.53e-6 (mean). Filtered-out energy of f beyond s − 2: 4.2e-2 / 9.0e-3 / 1.2e-3 / 0. Aliasing row skipped (needs `datagen`). Full tables in `spikes/transfer_floor/REPORT.md` | T1 |
 | CONVENTIONS §12 amended, version 2; R and P tests; wall time of the new tests | | T2 |
 | Loader at s = n − 1 reproduces today's tensors | | T3 |
 | Metadata and `costs.json` written by a short run; old runs still open | | T4 |
@@ -149,7 +149,7 @@ Filled in as tasks merge. Phase 5 is done when every row has a value.
 | Aliasing control (s = 32, unfiltered T_cu) against the main arm at s = 32 | | T5, T6 |
 | Padding control (`poisson_fno_n129_p4_1792037830`) against the main arm at s = 128 | | T6 |
 | Error 4 against ‖u‖ over the test set | | T6 |
-| Dataset generation time (solver cost, reported separately) | | T1 (sidecars) |
+| Dataset generation time (solver cost, reported separately) | n = 129: 1.1 s train, 0.2 s test; n = 257: 5.2 s train, 1.1 s test | T1 (sidecars) |
 | Phase 7 baseline and its justification | | T7 |
 
 ## Exit checklist
