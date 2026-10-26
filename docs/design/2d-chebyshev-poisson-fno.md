@@ -11,7 +11,7 @@ Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), 
 (decision 22) and the resolution study (decision 23), and 2026-10-15 for the Phase 4
 close-out and the Phase 5/6 split (decision 24), and 2026-10-15 for the Phase 4s side
 phase (decision 25), and 2026-10-26 for the research programme after Phase 4s, Phases
-5–9 (decision 30, Section 13). The decisions are recorded in Section 12.
+5–9 (decision 30, Section 13), amended the same day for Phase 5 planning. The decisions are recorded in Section 12.
 This document is the specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -820,8 +820,8 @@ Rows are proposals; the phase README and briefs refine them.
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
-| T1 | The 129² reference checked against 257² (restricted to the 129 nodes); the transfer-only error ‖P R u_f − u_f‖ for each candidate R and each s ∈ {16, 32, 64, 128} | – |
-| T2 | Restriction R_{f→c} (filtered, chosen from T1) and prolongation P_{c→f} as reusable library functions, with oracle tests | T1 |
+| T1 | Spike: the 129² reference checked against 257² (restricted to the 129 nodes); the transfer-only error ‖P R u_f − u_f‖ for each candidate R and each s ∈ {16, 32, 64, 128} | – |
+| T2 | The CONVENTIONS §12 amendment (version 2), then restriction R_{f→c} (chosen from T1) and prolongation P_{c→f} as reusable library functions, with oracle tests | T1 |
 | T3 | A resolution-aware Poisson loader: learning size s independent of n | T2 |
 | T4 | Run metadata and cost logging (solver n, learning s, transfer method, padding, modes, seeds, wall-clock times, parameter count) | T3 |
 | T5 | The Phase 5 training matrix (§13.8) | T4 |
@@ -1478,7 +1478,23 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       in that phase's PR with a `CONVENTION_VERSION` bump.
     - **Open choices.** D1–D8 (§13.15) are decided when the Phase 5, 6 or 7 plan or brief
       that needs them is approved, and each is recorded here as an amendment.
-    - Outcome: **proposed** 2026-10-26; accepted when the author approves this amendment.
+    - Outcome: **accepted** by the author (AHA-HH), 2026-10-26.
+    - **Amendment, Phase 5 planning (2026-10-26).** Plan: `docs/phase5/README.md`, with
+      briefs T1–T7. Chosen by the author:
+      - D2: m = min(12, s/2) per axis (8, 12, 12, 12 at s = 16, 32, 64, 128). **No
+        mode-control arm**, so bandwidth and grid size stay confounded at s = 16 (§13.14).
+      - D3: p = 0. No CONVENTIONS §3 change; the p = 4 129² run is the padding control.
+      - D4: 3 seeds (42, 43, 44); 5 where the spread between seeds is comparable to the
+        differences compared (T6).
+      - D8: as recommended (129 CGL and each learning grid; 257 only in T1).
+      - The training matrix runs on the cuda A100 VM; evaluation on flex.
+      - T1 is a spike (`spikes/transfer_floor/`), as Phase 0 T3 chose d. D1 is recorded
+        here when T1 merges.
+      - CONVENTIONS §12 fixes s = n − 1 and only T_cu and T_uc, so T2 opens with a §12
+        amendment and `CONVENTION_VERSION = 2` (§9). Existing datasets stay valid: the
+        loaders do not check a sidecar's version.
+      - The Phase 7 baseline is the smallest s whose mean fine-grid error over seeds is
+        within 10% of the s = 128 main-arm mean, fixed before any T5 run.
 
 ## 13. Research programme after Phase 4s
 
@@ -1812,7 +1828,7 @@ Hyperparameters are the Darcy set of §7 unless noted. Each matrix's cost is mea
 | Arm | s | Padding | Modes | R | Seeds | Purpose |
 | --- | --- | --- | --- | --- | --- | --- |
 | Main | 16, 32, 64, 128 | p = 0 (D3) | D2 rule | D1 choice | ≥ 3 (D4) | accuracy/cost against s |
-| Mode control | 16, 32, 64, 128 | p = 0 | the other D2 rule | D1 choice | ≥ 3 | separates bandwidth from grid size |
+| Mode control | dropped (D2, 2026-10-26) | – | – | – | – | – |
 | Aliasing control | 32 | p = 0 | D2 rule | unfiltered T_cu | ≥ 3 | shows what the filter buys |
 | Padding control | 128 | p = 4 | [12, 12] | T_cu (s = n − 1) | the existing one-seed run; more only if D3 asks | links to Phase 4 |
 | Transfer-only | 16, 32, 64, 128 | – | – | each candidate | – | no training; T1 |
@@ -1928,6 +1944,8 @@ Stated before the experiments and tested by them. None is a result.
   so earlier single-seed numbers are context, not baselines.
 - The choice of R defines what "coarse forcing" means; a different filter can move s*.
 - Uniform learning grids only: the FNO's FFT needs them (CONVENTIONS §4).
+- No mode-control arm (D2): m = min(12, s/2) changes only at s = 16 (m = 8), so the s = 16
+  result mixes a smaller bandwidth with a coarser grid.
 - Costs are measured on the hardware at hand (metal locally, one A100 on cuda) and are
   comparable only within one backend and device.
 
@@ -1939,13 +1957,13 @@ plan or brief that needs each is approved. Each is recorded under decision 30 wh
 | # | Decision | Recommendation |
 | --- | --- | --- |
 | D1 | Restriction R (and whether P stays FH d = 2) | Filtered Chebyshev restriction, chosen by measured transfer-only error in Phase 5 T1 against cell average and unfiltered T_cu; P stays T_uc d = 2 unless T1 shows it dominates at small s |
-| D2 | Mode rule across s | Main matrix m = min(12, s/2) per axis (fixed physical bandwidth where the grid allows); control arm m = s/4 (fixed relative bandwidth: 4, 8, 16, 32) |
-| D3 | Baseline padding | p = 0 (no CONVENTIONS change); a fixed physical fraction only as a separate, version-bumping proposal |
-| D4 | Seeds per configuration | 3 for Phase 5 and as initialisation seeds in Phase 7; 5 if the spread between seeds is comparable to the differences being compared |
+| D2 | Mode rule across s | Main matrix m = min(12, s/2) per axis (fixed physical bandwidth where the grid allows); control arm m = s/4 (fixed relative bandwidth: 4, 8, 16, 32). **Decided 2026-10-26:** min(12, s/2), no control arm |
+| D3 | Baseline padding | p = 0 (no CONVENTIONS change); a fixed physical fraction only as a separate, version-bumping proposal. **Decided 2026-10-26:** p = 0 |
+| D4 | Seeds per configuration | 3 for Phase 5 and as initialisation seeds in Phase 7; 5 if the spread between seeds is comparable to the differences being compared. **Decided 2026-10-26:** as recommended |
 | D5 | Phase 6 inner product | Clenshaw–Curtis-weighted on the CGL grid (the L² of §3.4, matching the closed-form spectra); equal weights on the uniform learning grids |
 | D6 | Phase 7 training budget | A fixed number of optimisation steps (equal updates for every N), reporting epochs too; fixed epochs as a secondary arm if affordable |
 | D7 | Phase 7 acceptance threshold | Test relative L² ≤ 2e-2 on the fine grid (§11's pipeline threshold), met in the mean over seeds, with the spread reported; fixed before any Phase 7 run |
-| D8 | Evaluation grids G_e | 129 CGL (fine) and each G_l (coarse); 257 only in the T1 reference check |
+| D8 | Evaluation grids G_e | 129 CGL (fine) and each G_l (coarse); 257 only in the T1 reference check. **Decided 2026-10-26:** as recommended |
 
 ### 13.16 Completion
 
