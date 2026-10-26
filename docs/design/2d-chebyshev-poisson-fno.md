@@ -10,7 +10,8 @@ Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), 
 (decision 21), and 2026-10-15 for `poisson_plot` on every stage and the worst sample
 (decision 22) and the resolution study (decision 23), and 2026-10-15 for the Phase 4
 close-out and the Phase 5/6 split (decision 24), and 2026-10-15 for the Phase 4s side
-phase (decision 25). The decisions are recorded in Section 12.
+phase (decision 25), and 2026-10-26 for the research programme after Phase 4s, Phases
+5–9 (decision 30, Section 13). The decisions are recorded in Section 12.
 This document is the specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -503,6 +504,15 @@ operators, is viable, and then to scale it to HPC-sized problems. Phases 0–4 a
 narrower question of this design. Phase 5 serves the scaling half of the aim; Phase 6
 returns to the Chebyshev question (decision 24).
 
+**Revised roadmap (decision 30, 2026-10-26).** The Phase 5 and Phase 6 proposals of
+decision 24, below, are superseded and kept as history. After Phase 4s the work follows
+one research question in three scientific phases: Phase 5 (grid-decoupled operator
+learning), Phase 6 (information content of the samples) and Phase 7 (training-set size
+and sample efficiency). Then come an optional Phase 8 (the θ-map) and Phase 9 (HPC,
+including multi-GPU training), which is kept apart from the scientific results. Section
+13 specifies them. The short Phase 5–9 entries at the end of this section give the task
+rows.
+
 **Task numbering.** From Phase 1 on, task numbers are execution order: T<k> depends only
 on tasks with a lower number in the same phase, or on earlier phases. Tasks that can run
 in parallel get consecutive numbers and say so in "Depends on". Phase 0 is the one
@@ -541,15 +551,22 @@ flowchart LR
     P4ST8 --> P4ST19
     P4ST19 --> P4SE["T20–T24 decomposition, docs"]
   end
-  subgraph P5["Phase 5 (optional): HPC"]
-    P5T1["T1 profiling, 129²"] --> P5T3["T3 multi-GPU training"]
-    P5T2["T2 checkpoint / resume"]
-    P5F["flex training run (supplementary)"]
-    P5S["plot shading (supplementary)"]
-    P5E["example smoke runs in CI (supplementary)"]
+  subgraph P5["Phase 5: grid-decoupled learning (decision 30)"]
+    P5T1["T1 reference check, transfer-only error"] --> P5T2["T2 restriction, prolongation"] --> P5T3["T3 resolution-aware loader"] --> P5T4["T4 run metadata, costs"] --> P5T5["T5 training matrix"] --> P5T6["T6 evaluation, comparison"] --> P5T7["T7 baseline for Phase 7"]
   end
-  subgraph P6["Phase 6 (optional): Chebyshev-native"]
-    P6T1["T1 baseline padding"] --> P6T2["T2 seeds, error 4 vs ‖u‖"] --> P6T3["T3 θ-map"] --> P6T4["T4 comparison"]
+  subgraph P6["Phase 6: information content (SVD/POD)"]
+    P6T1["T1 snapshot SVD, f and u"] --> P6T2["T2 rank vs learning grid"]
+  end
+  subgraph P7["Phase 7: sample efficiency"]
+    P7T1["T1 nested subsets"] --> P7T2["T2 training matrix"] --> P7T3["T3 error and cost vs N"]
+  end
+  subgraph P8["Phase 8 (optional): θ-map"]
+    P8T1["T1 θ-map model"] --> P8T2["T2 comparison with the Phase 5 baseline"]
+  end
+  subgraph P9["Phase 9: HPC (systems track)"]
+    P9T1["T1 profiling"] --> P9T3["T3 multi-GPU training"]
+    P9T2["T2 checkpoint / resume"]
+    P9F["flex run, plot shading, CI smoke (supplementary)"]
   end
   P0T1 --> P1T1
   P1T1 --> P2T1
@@ -557,13 +574,19 @@ flowchart LR
   P2T3 --> P3T2
   P3T3 --> P4T1
   P4T4 -.-> P4ST1
-  P4T4 -.-> P5T1
-  P4T4 -.-> P6T1
-  P4ST12 --> P5T2
-  P4ST16 --> P6T3
-  P4T1 -.-> P5S
-  P4T2 -.-> P5F
+  P4SE --> P5T1
+  P5T2 -.-> P6T2
+  P5T7 --> P7T1
+  P5T7 --> P8T1
+  P4ST16 --> P8T1
+  P4ST12 --> P9T2
+  P4SE -.-> P9T1
 ```
+
+The Phase 5 and Phase 6 subgraphs of decision 24 (old Phase 5 HPC, old Phase 6
+Chebyshev-native) are replaced in this chart by decision 30. Their text stays below as
+history. Phase 6 may start beside Phase 5; only its T2 needs Phase 5's grids and
+restriction (dashed edge).
 
 ### Phase 0: conventions and feasibility
 
@@ -703,7 +726,9 @@ flowchart LR
   decision is recorded, the example reruns reproduce their numbers, and the re-review
   grade is recorded.
 
-### Phase 5: HPC (optional)
+### Phase 5: HPC (optional) — superseded by decision 30
+
+Kept as history. Its tasks and supplementary tasks are now Phase 9 (below, and §13.11).
 
 - **Goal:** make training at production sizes fast and robust: know where the time goes,
   survive interruption, and use more than one GPU for a single run. This serves the
@@ -749,7 +774,10 @@ the matching predict example on the run it writes, and a CI job that runs it on 
 fits with T2, since a quick end-to-end run also tests checkpoint and resume. The task
 chooses between a synthetic in-memory dataset and a small committed fixture.
 
-### Phase 6: Chebyshev-native comparison (optional, non-blocking)
+### Phase 6: Chebyshev-native comparison (optional, non-blocking) — superseded by decision 30
+
+Kept as history. T1 (baseline padding) and T2 (seeds, error 4 against ‖u‖) are now part
+of the new Phase 5. T3 (θ-map) and T4 (comparison) are now Phase 8 (§13.10).
 
 θ-map comparison (option 2), with its own convention diff. It starts only after Phase 4,
 does not depend on Phase 5, and does not block completion. The question is whether a
@@ -777,6 +805,72 @@ Rows are proposals; the phase plan refines them.
 Module names are proposals. New code lives under `src/neural_operators/chebyshev/` and
 `src/neural_operators/pde/poisson/` (feature-gated where it uses RLST), and
 `src/neural_operators/data/loaders/poisson.rs`.
+
+### Phase 5: grid-decoupled operator learning (decision 30)
+
+- **Goal:** find how coarse the forcing representation and the FNO's learning grid can be
+  while a fine-grid solve supplies the reference, with transfer error and model error
+  measured separately (§13.3). This fixes the spatial baseline for Phases 6 and 7.
+- **Needs:** Phase 4s done (it is); the stage 3 and 4 datasets (n = 129 and 257, K = 64).
+  Plan: `docs/phase5/README.md`.
+- **Absorbs:** old Phase 6 T1 (the baseline's padding) and T2 (several seeds, error 4
+  against ‖u‖).
+
+Rows are proposals; the phase README and briefs refine them.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | The 129² reference checked against 257² (restricted to the 129 nodes); the transfer-only error ‖P R u_f − u_f‖ for each candidate R and each s ∈ {16, 32, 64, 128} | – |
+| T2 | Restriction R_{f→c} (filtered, chosen from T1) and prolongation P_{c→f} as reusable library functions, with oracle tests | T1 |
+| T3 | A resolution-aware Poisson loader: learning size s independent of n | T2 |
+| T4 | Run metadata and cost logging (solver n, learning s, transfer method, padding, modes, seeds, wall-clock times, parameter count) | T3 |
+| T5 | The Phase 5 training matrix (§13.8) | T4 |
+| T6 | Evaluation on the learning grid and after prolongation; comparison tables and accuracy/cost plots | T5 |
+| T7 | The baseline choice for Phase 7, justified from T6 | T6 |
+
+- **Exit:** the acceptance criteria of §13.3.
+
+### Phase 6: information content of the samples (decision 30)
+
+- **Goal:** find whether the forcings and solutions occupy a low-dimensional subspace
+  (§13.4). This is dataset analysis, not network performance.
+- **Needs:** the stage 3 train split. It may start beside Phase 5; T2 needs Phase 5 T2's
+  restriction and grids.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | Centred snapshot SVD/POD of f and of u on the train split; singular values, energy, reconstruction error against rank | – |
+| T2 | The same at the Phase 5 learning grids; how rank relates to learning resolution; optional Fourier spectra | T1, Phase 5 T2 |
+
+- **Exit:** the acceptance criteria of §13.4.
+
+### Phase 7: training-set size and sample efficiency (decision 30)
+
+- **Goal:** find how many forcing–solution pairs the FNO needs to reach the acceptance
+  threshold, at the Phase 5 baseline (§13.5).
+- **Needs:** Phase 5 T7 (learning s, transfer method, padding, modes, training baseline)
+  and the threshold fixed before any run (§13.15, D7).
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | Nested training subsets and their seeds; the threshold recorded | Phase 5 T7 |
+| T2 | The Phase 7 training matrix (§13.8) | T1 |
+| T3 | Error and cost against N; the smallest N under the threshold | T2 |
+
+- **Exit:** the acceptance criteria of §13.5.
+
+### Phase 8 (optional): θ-map
+
+Old Phase 6 T3–T4, unchanged in substance (option 2 of §6, its own convention diff). It
+is compared against the Phase 5 baseline, not a p = 4 one (decision 24). It needs Phase 5
+T7 and Phase 4s T16 (merged). §13.10.
+
+### Phase 9: HPC (systems track)
+
+Old Phase 5: profiling, checkpoint and resume, data-parallel multi-GPU training, and its
+supplementary tasks (the flex run, decision 21; plot shading, decision 19; example smoke
+runs in CI). It can run at any time. No speedup it delivers enters a conclusion of
+Phases 5–7. §13.11.
 
 ## 11. Tests
 
@@ -807,6 +901,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
 | 5 | Uniform grid sizes | Keep 32/64/128/256 as stated, and have Phase 0 T3 also measure s = n (33/65/…); switch if it is clearly better (§5.3) |
 | 6 | RLST and BLAS | rlst 0.9 behind the optional feature `chebyshev`, `default-features = false`; Accelerate on macOS, OpenBLAS on Linux; no FFTW, burn, MPI or SuiteSparse (FFTW: superseded by decision 12) |
 | 7 | FFTW later | Only as an optional, non-default backend, after supervisor approval, confirmed licensing and a measured benefit (taken up by decision 12) |
+| 8 | Research programme after Phase 4s (added 2026-10-26) | Phases 5–7 as in §13, with Phase 8 (θ-map, optional) and Phase 9 (HPC) beside them; open choices D1–D8 in §13.15 (decision 30) |
 
 Further choices made in this design. They were not asked individually and stand unless
 overruled later:
@@ -1354,6 +1449,510 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       have neither normaliser, so no predict example could evaluate them before T18
       either (the T18 PR, stacked on PR #55).
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
+30. **The research programme after Phase 4s: Phases 5–9 (2026-10-26).**
+    - **What changes.** Decision 24's split (Phase 5 HPC, Phase 6 Chebyshev-native) is
+      replaced by one research question in three scientific phases, specified in §13:
+      - Phase 5, grid-decoupled operator learning;
+      - Phase 6, the information content of the samples (SVD/POD);
+      - Phase 7, training-set size and sample efficiency.
+
+      An optional Phase 8 holds the θ-map, and Phase 9 holds the HPC work.
+    - **Renumbering.** Old Phase 5 (profiling, checkpoint and resume, multi-GPU, and the
+      flex run, plot shading and CI smoke tasks) becomes Phase 9. Old Phase 6 T1 (the
+      baseline's padding) and T2 (several seeds, error 4 against ‖u‖) move into the new
+      Phase 5, which needs both before any comparison. Old Phase 6 T3–T4 (θ-map and
+      comparison) become Phase 8. Where decisions 19, 21 and 24 and the Phase 4 and 4s
+      documents say "Phase 5" for HPC work, read Phase 9. Where decisions 24 and 25 say
+      "Phase 6" for the padding baseline or the seeds, read Phase 5; for the θ-map, read
+      Phase 8. The 4s prerequisites carry over: T10/T12 before Phase 9 T2, and T16 before
+      Phase 8.
+    - **Why.** The three questions build on one another: how coarse the learning grid can
+      be, how much structure the samples carry, and how many samples are needed. Phase 5
+      fixes the spatial baseline the other two use. Multi-GPU speedups say nothing about
+      any of them, so they are kept in a separate systems phase and kept out of every
+      scientific conclusion.
+    - **Unchanged.** Decisions 1–29, the Phase 0–4 and 4s results, CONVENTIONS, the
+      model, solver A, the transfers, the datasets and `PADDING = 4` in code. The
+      superseded Phase 5 and Phase 6 text in §10 stays as history. No convention changes
+      here; any that a phase needs (padding by a fixed fraction, for example) is proposed
+      in that phase's PR with a `CONVENTION_VERSION` bump.
+    - **Open choices.** D1–D8 (§13.15) are decided when the Phase 5, 6 or 7 plan or brief
+      that needs them is approved, and each is recorded here as an amendment.
+    - Outcome: **proposed** 2026-10-26; accepted when the author approves this amendment.
+
+## 13. Research programme after Phase 4s
+
+Added by decision 30 (2026-10-26). This section specifies Phases 5–9. Every number quoted
+here is a measurement already recorded in §12 or in `docs/phase4/README.md`. Everything
+else is a hypothesis or a future experiment, and is labelled as one.
+
+### 13.1 Question
+
+The overarching question:
+
+> How little spatial information and how few training examples does the FNO need to
+> learn the forcing-to-solution map accurately when the reference Poisson solution is
+> computed on a much finer grid?
+
+| Phase | Question |
+| --- | --- |
+| 5. Grid-decoupled operator learning | How coarse can the forcing representation and the FNO learning grid be while a fine-grid Poisson solve provides the reference solution? |
+| 6. Information content of the samples | Are the random forcing fields and their solutions mostly variations of a small number of spatial patterns? |
+| 7. Training-set size and sample efficiency | How many distinct forcing–solution pairs does the FNO need to reach an acceptable test error? |
+
+Phase 5 establishes the spatial discretisation baseline used by Phases 6 and 7: the
+learning resolution, the transfer method, the padding policy, the FNO architecture and
+the training settings. Multi-GPU training is a separate systems phase (Phase 9, §13.11)
+and is not part of this question.
+
+### 13.2 Dependencies
+
+```text
+Phase 5: Grid decoupling ───────► Phase 7: Sample efficiency
+              │
+              ├───────────────► Phase 6: SVD/information content
+              │
+              └───────────────► Phase 8 (optional): θ-map
+
+Phase 9: HPC (systems track) — independent; no scientific conclusion depends on it
+```
+
+- **Phase 6** may start beside Phase 5, since the SVD of the fine-grid snapshots needs no
+  model. Its reconstruction at the learning grids (Phase 6 T2) and its interpretation use
+  Phase 5's grids and restriction.
+- **Phase 7** follows Phase 5: it needs a fixed learning resolution, transfer method,
+  padding policy, FNO architecture and training baseline.
+- **Phase 8** follows Phase 5, whose baseline it is compared against (decision 24's gate).
+- **Phase 9** can run at any time.
+
+### 13.3 Phase 5: grid-decoupled operator learning
+
+**Today the experiment is grid-coupled.** Every grid is tied to the solver's n:
+
+```text
+129 × 129 Chebyshev Poisson solve
+              ↓   T_cu (s = n − 1, decision 5)
+128 × 128 uniform FNO grid
+```
+
+`PoissonConfig::s()` returns n − 1, and the sidecar records the same s. The resolution
+study of Phase 4 changed both grids together, so it could not separate the solver
+resolution from the learning resolution.
+
+**Three independent grids.**
+- G_s, the solver/reference grid: the CGL nodes on which solver A computes u_f.
+- G_l, the learning grid: the uniform s × s grid the FNO sees (CONVENTIONS §2).
+- G_e, the evaluation grid: where an error is measured. The coarse error is measured on
+  G_l; the fine-grid and transfer-only errors on G_s, with Clenshaw–Curtis weights (§3.4).
+
+**Notation.**
+- f_f, u_f: the forcing and the reference solution on the fine grid G_s.
+- R_{f→c}: restriction from G_s to a coarse learning grid G_l.
+- P_{c→f}: prolongation (interpolation) from G_l back to G_s.
+- f_c = R_{f→c} f_f, u_c = R_{f→c} u_f.
+- û_c = FNO(f_c), the prediction on G_l.
+- û_f = P_{c→f} û_c, the prediction on the fine grid.
+
+```text
+fine forcing f_f ── fine Poisson solver ──► fine reference u_f
+       │                                      │
+       └──── restriction R_f→c ──► f_c       └──── restriction R_f→c ──► u_c
+
+                              f_c ── FNO ──► û_c
+                                               │
+                                  prolongation P_c→f
+                                               │
+                                      û_f = P û_c
+```
+
+**Restriction.** R must not alias. The forcings are sine series with K = 64 modes per
+axis at n = 129 (§3.3). A sine mode sin(kπ(x + 1)/2) sampled on s uniform points with
+both endpoints is resolved only for k ≤ s − 2; above that it aliases onto a lower mode.
+So for K = 64:
+- s = 128 resolves every mode;
+- s = 64 aliases the top two (k = 63, 64);
+- s = 32 aliases every k ≥ 31;
+- s = 16 aliases every k ≥ 15.
+
+Today's T_cu is point evaluation of the Chebyshev interpolant, so on its own it aliases
+at s = 16, 32 and, marginally, 64. The candidates for R:
+1. **Filtered Chebyshev restriction (recommended).** Truncate (or smoothly taper) the
+   Chebyshev expansion of the fine field to the modes the coarse grid resolves, then
+   evaluate with T_cu. It is a dense per-axis matrix like T_cu, built once per (n, s) in
+   f64 and applied as Tx F Tyᵀ (`chebyshev::transfer::apply`).
+2. **Cell average.** The mean over each coarse cell, by Clenshaw–Curtis quadrature of the
+   fine interpolant. A box filter: simple, but it attenuates the resolved modes too.
+3. **L² projection** onto a coarse space (for example piecewise-linear on G_l). The
+   optimal choice in L², but it needs a Gram solve per axis.
+
+Plain point subsampling and unfiltered T_cu are ruled out below s = 128, except as a
+control arm that shows the aliasing (§13.8). The same R is applied to f and u. For u,
+whose sine coefficients are damped by 1/μ_kl, aliasing is far weaker, but one R keeps
+u_c the restriction of the same field the model's input came from. The choice is D1,
+made by measured transfer-only error (T1), as Phase 0 chose d.
+
+**Prolongation.** P_{c→f} = T_uc, the existing Floater–Hormann interpolant of degree
+d = 2 from the s uniform nodes to the CGL nodes (CONVENTIONS §12). At s = n − 1 it gives
+error 2 (at most 9.50e-6 on the stage 3 test split). At s = 16 its own error may be
+significant. The transfer-only error measures it, and D1 may raise d or pick a
+different P if the measurement asks for it.
+
+**Initial experiment.**
+- Fixed solver resolution: 129 × 129 CGL nodes, the stage 3 dataset (K = 64; 1000 train,
+  200 test).
+- Learning resolutions: s ∈ {16, 32, 64, 128} uniform.
+- The same underlying forcings and the same held-out test set at every s: one dataset,
+  restricted at load time, never regenerated per s.
+- The same FNO architecture and optimisation settings initially (width 32, 4 layers,
+  Darcy hyperparameters, §7), except where the grid forbids it. The mode count cannot
+  stay [12, 12] at s = 16: `SpectralConv` requires m ≤ s/2 on the non-last axes
+  (CONVENTIONS §5), so modes [12, 12] panic there. The rule is D2.
+- At least three training seeds for every final comparison (D4).
+
+**Errors.** All relative L², mean and max over the test set.
+
+1. **Coarse (learning-grid) error:** ‖û_c − u_c‖ / ‖u_c‖ on G_l, with equal weights
+   (`LpLoss::rel`). It generalises error 3 (§7).
+2. **Fine-grid prediction error:** ‖P_{c→f} û_c − u_f‖ / ‖u_f‖ on G_s, with
+   Clenshaw–Curtis weights. It generalises error 4.
+3. **Transfer-only error:** ‖P_{c→f} R_{f→c} u_f − u_f‖ / ‖u_f‖ on G_s, with
+   Clenshaw–Curtis weights. It generalises error 2, and it involves no model.
+
+The transfer-only error is the floor of the fine-grid error. A perfect model, û_c = u_c,
+still has fine-grid error P R u_f − u_f. So at each s, the fine-grid error minus that
+floor is what the network adds. Without the floor, a coarse grid's loss of information
+would be booked as model error. Errors 1 (solver) and 5 (boundary) of §7 are still
+reported; error 5 is taken on û_f.
+
+**Reference verification.** u_f at 129² is treated as ground truth only because it is
+already verified:
+- solver A against manufactured solutions (§4.3);
+- A against C at order 2 (Phase 1);
+- every stage 3 sample against the exact sine-series solution, label check at most
+  9.17e-13 train and 8.97e-13 test (Phase 4 T3).
+
+Phase 5 T1 adds one cheap check: the stage 4 (n = 257, K = 64) solutions of the same
+seeds, restricted to the 129 nodes, against the stage 3 solutions. Both are evaluations of
+the same truncated series, so the difference should sit at the label-check level. Any
+larger difference stops the phase.
+
+**Measurements.**
+
+| Measurement | Notes |
+| --- | --- |
+| Coarse, fine-grid and transfer-only relative L² | the three errors above, mean and max |
+| Dataset-generation time | from the sidecar's `wall_time_s`; reported as solver cost, apart from everything below |
+| Transfer time | building and applying R at load time |
+| FNO training wall-clock and time per epoch | per-epoch time is printed today but not stored in `metrics.csv`; T4 stores it |
+| Inference time | on the full test split, warm, per backend |
+| Peak GPU memory | from the backend's tooling (for example `nvidia-smi` on cuda); recorded as unavailable where a backend cannot report it, never estimated |
+| Host-to-device transfer volume | `device_loader` uploads each split once, so N × s² × (in + out channels) × 4 bytes, plus the grid channels built on-device; computed and logged |
+| Trainable parameter count | from the model config |
+
+Solver-generation cost is reported separately from FNO training and inference cost.
+Generation is a one-off per dataset; training is paid per run.
+
+**Acceptance criteria.**
+- The solver and learning grids are independently configurable.
+- The same forcing examples are represented at several learning resolutions.
+- Restriction and prolongation errors are measured separately.
+- Coarse-grid and fine-grid FNO errors are both reported.
+- The accuracy/cost trade-offs are reproducible across seeds.
+- The baseline resolution for Phase 7 is justified.
+
+### 13.4 Phase 6: information content of the samples
+
+**Method.**
+- Snapshot matrices, built separately for the forcings F = [f_1 … f_N] and the
+  solutions U = [u_1 … u_N], one column per sample.
+- **Training split only** for fitting the basis. The test split is used only to measure
+  the reconstruction error of held-out samples in the fitted basis.
+- **Centred:** the training mean is subtracted before the decomposition.
+- The SVD of the centred matrix gives the POD modes and singular values σ_i. The inner
+  product is D5: Clenshaw–Curtis-weighted on the CGL grid (the matrix scaled by √w_i w_j)
+  or equal weights.
+
+**Reports.**
+- Singular-value decay.
+- Cumulative explained energy Σ_{i ≤ r} σ_i² / Σ σ_i².
+- Relative reconstruction error against rank r, on train and on test.
+- The rank needed for 90%, 99% and 99.9% of the energy.
+- The forcing ranks compared with the solution ranks.
+- Reconstruction quality at the Phase 5 learning resolutions (the snapshots restricted
+  by R).
+- Optionally, radially averaged Fourier power spectra for comparison.
+
+**What is known in advance.** The forcing distribution is defined by its Karhunen–Loève
+expansion (§3.3), so its population POD modes under the L² inner product are the sine
+modes, with variances λ_kl / S_K. Since u = (−Δ)⁻¹ f, the solution's are the same modes,
+with variances λ_kl / (S_K μ_kl²). Phase 6 can therefore compare the empirical spectrum
+with a closed form, which checks the analysis itself. Two further points follow:
+- The solution operator is linear, so the centred U is the solution operator applied to
+  the centred F, and rank(U) ≤ rank(F).
+- With K² = 4096 random coefficients and N = 1000 training samples, the centred F has
+  full rank N − 1 almost surely. Its "rank" is therefore meaningful only as an energy
+  rank, and it is limited by N.
+
+**What it does not show.** This phase tests whether the dataset occupies a
+low-dimensional subspace. A low energy rank does not show that the FNO can learn the
+operator with that many Fourier modes. POD modes are data-adapted and global, while the
+FNO's modes are fixed Fourier modes on the padded grid. Nor does it show that the FNO can
+learn from that many training samples. The results are labelled as dataset-structure
+analysis, not network performance.
+
+**Acceptance criteria.**
+- The SVD results use training data only.
+- Forcings and solutions are analysed separately.
+- Rank/error curves are generated.
+- The relationship between dataset rank and learning-grid resolution is discussed.
+- The results are labelled as dataset-structure analysis, not neural-network
+  performance.
+
+### 13.5 Phase 7: training-set size and sample efficiency
+
+**Method.**
+- **Nested subsets** of the stage 3 training split, N ∈ {25, 50, 100, 250, 500, 1000}:
+  each smaller subset is a prefix of a seeded permutation, so it is contained in every
+  larger one.
+- **A fixed test set:** the same 200 stage 3 test samples for every run.
+- **Seeds:** several subset-selection seeds (permutations) and several model
+  initialisation seeds, where feasible (§13.8).
+- **Spatial baseline fixed from Phase 5:** learning s, R and P, padding, modes,
+  architecture and hyperparameters.
+- **Normalisers** are fitted on each subset alone (CONVENTIONS §10), since fitting them
+  on all 1000 samples would leak the unused samples into small-N runs.
+- **Training budget:** D6. Fixed epochs give small N far fewer optimisation steps; a fixed
+  step budget gives every N the same number of updates. Whichever is chosen, the number
+  of optimisation steps is reported.
+- **The acceptable-error threshold is fixed before any run** (D7).
+
+**Reports.**
+- Test relative L² on the learning grid.
+- Fine-grid error after prolongation.
+- Training time.
+- Number of optimisation steps.
+- Error variance across subset and initialisation seeds.
+- The smallest N that meets the threshold for every seed, or in mean ± spread (as D7
+  says).
+- Cost per additional reduction in error: the extra training time (and samples) per unit
+  fall in the error between successive N.
+
+There are no results yet. The phase distinguishes hypotheses (§13.13), existing
+measurements (only N = 1000, one seed, at s = n − 1) and future experiments.
+
+**Acceptance criteria.**
+- The learning resolution and transfer method are fixed from Phase 5.
+- Every training subset uses the same held-out test set.
+- Results are repeated across seeds.
+- Error and cost are plotted against training-set size.
+- The minimum practically useful dataset size is identified.
+
+### 13.6 Confounders and controls
+
+| Confounder | Why it matters here | Control |
+| --- | --- | --- |
+| Fixed integer padding is a different fraction of the domain at each s | Decision 23: at p = 4 the 65² model's mean error 3 grew 7.1× from 65 to 257, at p = 0 1.4×; growth rose steadily with p | Baseline p = 0, or padding by a fixed physical fraction (D3). The fraction option is a CONVENTIONS §3 change and a version bump, proposed in its own PR only |
+| Nonzero padding can trigger Bluestein FFTs and dominate runtime | 65² on cuda: 1.7 s/epoch at p = 0 against 32.8 at p = 4 (decision 24); 129² at p = 4 took about 112 s/epoch | p = 0 keeps power-of-two lengths at s ∈ {16, …, 128}; any padded run states its FFT lengths, and timings are compared only at equal padding |
+| Fixed Fourier mode counts are different relative bandwidths at different s | m ≤ s/2 is required, so m = 12 does not fit at s = 16; it is 75% of the band at s = 32 but 19% at s = 128. A fixed m keeps a fixed physical bandwidth (FFT index q ≈ k/2 for sine mode k, so m = 12 covers about k ≤ 24 at any s) | D2: one rule for the main matrix, plus a control arm with the other rule |
+| Coarsening discards high-frequency forcing information that no model can recover | §3.3: the K = 64 forcings carry energy up to k = 64; s = 16 resolves k ≤ 14 | The transfer-only error is reported beside every fine-grid error; the filtered-out energy of f at each s is reported |
+| SVD rank ≠ the FNO's number of Fourier modes | POD modes are data-adapted and global; FNO modes are fixed Fourier modes on the (padded) grid | Phase 6 reports both, and draws no conclusion about m from rank alone |
+| A low-rank dataset ≠ low sample complexity | Rank describes the inputs; sample complexity depends on the operator, the model and the optimiser | Phase 7 measures sample efficiency directly |
+| Solver discretisation error vs FNO error | — | The reference is verified to about 1e-12 (§13.3), far below any expected model error |
+| Interpolation error vs network error | — | The transfer-only error is the floor; the network's share is reported as the fine-grid error against that floor |
+
+For the initial Phase 5 baseline, `padding = 0` (or padding by a fixed physical
+fraction, D3) is recommended. The current `padding = 4` is not the only resolution-study
+baseline. Phase 4 showed it both transfers poorly to finer grids (decision 23) and costs
+about 20× more per epoch (decision 24). A p = 4 arm at s = 128 stays as a control: the
+existing one-seed run, `runs/poisson_fno_n129_p4_1792037830`.
+
+### 13.7 Implementation mapping
+
+**What the FNO already does.** Reused unchanged:
+- it builds its coordinate channels on-device for any uniform s (`FNO::grid_cl`,
+  CONVENTIONS §2);
+- it accepts any uniform spatial resolution within m ≤ s/2;
+- it takes channels-last tensors at the model boundary (CONVENTIONS §1).
+
+So the first grid-decoupling experiments need no model change.
+
+**What is missing:** a transfer and loading layer that makes several learning-grid
+representations from one fine-grid forcing/reference dataset. Today
+`load_poisson_uniform` derives s from n, and T_cu has no filter.
+
+**Order of work.** Module names are proposals; the Phase 5 briefs fix them.
+
+1. Keep the fine solver and the reference datasets unchanged (no regeneration; the
+   stage 3 and 4 files as they are).
+2. Add reusable restriction and prolongation utilities: a filtered R next to
+   `cheb_to_uniform` in `chebyshev/transfer` (ungated, ndarray), with P = `uniform_to_cheb`
+   and both applied through `apply`.
+3. Add a resolution-aware Poisson loader: a learning size s in `PoissonConfig`
+   independent of n, and the restriction method recorded (`data/loaders/poisson/`).
+   The s = n − 1 default and today's behaviour stay.
+4. Train the current FNO at several learning resolutions: a learning-size argument in
+   `examples/train/poisson.rs` (§13.8 matrix), with modes by D2.
+5. Evaluate both on the learning grid and after prolongation: the three errors of §13.3
+   in `metrics/poisson`, driven by `predict_poisson` / `poisson_resolution`.
+6. Store solver resolution, learning resolution, transfer method, padding, Fourier
+   modes, seeds and cost metrics in run metadata (`runs`, §13.9).
+7. Produce comparison tables and accuracy/cost plots.
+
+Do not redesign the FNO architecture until the baseline grid-decoupling experiment is
+done. Every change touching CONVENTIONS is proposed in its PR description with a
+`CONVENTION_VERSION` bump, never made silently.
+
+### 13.8 Experiment matrices
+
+Hyperparameters are the Darcy set of §7 unless noted. Each matrix's cost is measured
+(the first epochs timed) and stated before its full runs start.
+
+**Phase 5** (stage 3, n = 129, K = 64; 1000 train, 200 test):
+
+| Arm | s | Padding | Modes | R | Seeds | Purpose |
+| --- | --- | --- | --- | --- | --- | --- |
+| Main | 16, 32, 64, 128 | p = 0 (D3) | D2 rule | D1 choice | ≥ 3 (D4) | accuracy/cost against s |
+| Mode control | 16, 32, 64, 128 | p = 0 | the other D2 rule | D1 choice | ≥ 3 | separates bandwidth from grid size |
+| Aliasing control | 32 | p = 0 | D2 rule | unfiltered T_cu | ≥ 3 | shows what the filter buys |
+| Padding control | 128 | p = 4 | [12, 12] | T_cu (s = n − 1) | the existing one-seed run; more only if D3 asks | links to Phase 4 |
+| Transfer-only | 16, 32, 64, 128 | – | – | each candidate | – | no training; T1 |
+
+**Phase 6** (no training):
+
+| Field | Grid | Inner product | Split |
+| --- | --- | --- | --- |
+| f, u | 129 CGL | D5 | fit on train; reconstruct train and test |
+| f, u | s ∈ {16, 32, 64, 128} after R | equal weights | as above |
+
+**Phase 7** (at Phase 5's chosen s, R, padding and modes):
+
+| N | Subset seeds | Init seeds | Runs |
+| --- | --- | --- | --- |
+| 25, 50, 100, 250, 500, 1000 | 3 | 3 where feasible (at least 1) | up to 54 |
+
+### 13.9 Metadata and output files
+
+Every Phase 5–7 run directory keeps today's files (`model_cfg.json`, `train_cfg.json`,
+`data_cfg.json`, `metrics.csv`, `plots.png`, the normalisers, the weights and, from
+predict, `errors.json`) and adds or extends the following. Names are proposals for the
+Phase 5 T4 brief; `RunDir` stays the only owner of the run-file names.
+
+| Item | Fields |
+| --- | --- |
+| `data_cfg.json` (extended) | solver n, K, dataset file names and their sidecar git commits; learning s; restriction method and its parameters; prolongation method and d; N and the subset seed (Phase 7), with a hash of the selected indices |
+| `train_cfg.json` (as today, plus) | initialisation seed; total optimisation steps |
+| `model_cfg.json` (as today) | modes, width, layers, padding; the trainable parameter count added, or computed by predict |
+| `metrics.csv` (one column added) | wall-clock seconds per epoch |
+| `costs.json` (new) | dataset generation time (from the sidecars), load and transfer time, total training time, inference time on the test split, peak GPU memory or "unavailable", host-to-device bytes, backend and device name, git commit |
+| `errors.json` (extended) | coarse, fine-grid and transfer-only errors (mean, max), beside errors 2–5 as today |
+
+Phase-level outputs: a comparison table per phase (CSV, committed with its phase README's
+Results), and plots of error and cost against s (Phase 5) and against N (Phase 7) and of
+the rank/energy curves (Phase 6). `runs/` and `datasets/` stay git-ignored. Runs cited in
+Results live in the main checkout's `runs/` (as in Phase 4).
+
+### 13.10 Phase 8 (optional): the θ-map
+
+Old Phase 6 T3–T4, unchanged in substance: option 2 of §6 with its own convention diff,
+compared at 65², 129² and across resolutions on the same seeds and test sets. Its baseline
+is the Phase 5 baseline (decision 24's gate: fixed padding, several seeds). It does not
+block the completion of Phases 5–7.
+
+### 13.11 Phase 9: HPC (systems track)
+
+Separate from Phases 5–7 and runnable at any time:
+- data-parallel model replicas, one per GPU;
+- device-local data shards (each device's `device_loader` holding its part of the
+  split);
+- gradient synchronisation through Burn's distributed support (or `GradientsAccumulator`
+  across devices, as old Phase 5 T3 proposed);
+- NCCL communication on cuda;
+- checkpoint and resume (old Phase 5 T2; needs Phase 4s T10/T12, merged);
+- profiling (old Phase 5 T1);
+- one- against two-A100 scaling benchmarks;
+- the supplementary tasks carried over: the flex run (decision 21), plot shading
+  (decision 19) and example smoke runs in CI.
+
+A multi-GPU run must reproduce its single-GPU result on the same seeds, within stated
+round-off, before it is used. **No multi-GPU speedup enters any conclusion about grid
+resolution, dataset information content or sample efficiency.** Phases 5–7 compare costs
+on one device of one kind.
+
+### 13.12 Literature terminology
+
+Terms for the literature review. References marked "(to verify)" are to be checked
+before they are cited in a write-up.
+
+| Term | Meaning here | Key references |
+| --- | --- | --- |
+| Discretisation-invariant neural operators | Models whose parameters define a map between function spaces, so the same weights apply at any discretisation | Kovachki et al. 2023; Li et al. 2021 |
+| Resolution-invariant operator learning | The error stays flat when the evaluation resolution differs from the training resolution; Phase 4 found it does not hold with fixed-point padding (decision 23) | Li et al. 2021; Bartolucci et al. 2023 |
+| Mesh-independent operator learning | Training and evaluation on unrelated meshes, including non-uniform ones | Li et al. 2023 (Geo-FNO); Kovachki et al. 2023 |
+| Super-resolution neural operators | Evaluating at a finer grid than training ("zero-shot super-resolution") | Li et al. 2021; Bartolucci et al. 2023 on aliasing |
+| Coarse-to-fine operator learning | Learning on a coarse grid with a fine-grid reference, then prolonging: Phase 5's setting | Bartolucci et al. 2023; Lanthaler et al. 2024, FNO discretisation error (to verify) |
+| Multilevel neural operators | Architectures or training schedules that use several grid levels, multigrid-style | Kossaifi et al. 2023, multi-grid tensorised FNO (to verify); He et al. 2023, MgNO (to verify) |
+| Restriction and prolongation operators | Fine-to-coarse and coarse-to-fine transfers, as in multigrid | Briggs, Henson & McCormick 2000; Trottenberg, Oosterlee & Schüller 2001 |
+| POD and reduced-order modelling | Snapshot SVD for a low-dimensional basis; PCA-based operator networks | Holmes, Lumley & Berkooz 1996; Bhattacharya et al. 2021 (PCA-Net) |
+| Neural-operator sample complexity | How the error falls with the number of training pairs; rates are known for linear operators, which Poisson's is | de Hoop et al. 2023; Kovachki, Lanthaler & Mishra 2021; Lanthaler & Stuart 2023, curse of dimensionality (to verify) |
+
+DeepONet (Lu et al. 2021) is the main non-Fourier comparison in this literature. It is
+out of scope here (§6, option 4).
+
+### 13.13 Hypotheses
+
+Stated before the experiments and tested by them. None is a result.
+
+- **H5 (Phase 5).** At p = 0, the fine-grid error after prolongation stays close to its
+  s = 128 value as s decreases, down to a coarsest s*. Below s*, the transfer-only error
+  (the K = 64 forcing content the grid cannot hold, plus the prolongation error) becomes
+  the larger part of the fine-grid error. Above s*, the model error dominates.
+  Time per epoch falls roughly with s² at p = 0. s* is unknown and is what the phase
+  measures.
+- **H6 (Phase 6).** The solution snapshots need far fewer POD modes than the forcing
+  snapshots for the same energy fraction, because the solution operator damps mode
+  (k, l) by 1/μ_kl, and the empirical spectra follow the closed forms of §13.4. The
+  solution's energy rank is small enough to be resolved at learning grids at which the
+  forcing's is not.
+- **H7 (Phase 7).** The test error falls with N and flattens, with the spread across seeds
+  largest at small N. Whether the threshold is met below N = 1000, and where, is unknown.
+
+### 13.14 Known limitations
+
+- One PDE (Poisson, homogeneous Dirichlet), one forcing family (sine-KL GRF, τ = 3,
+  α = 2) and one linear operator; the conclusions may not carry over to nonlinear or
+  non-smooth problems.
+- One fine grid (n = 129) for the main study; 257 enters only as a reference check unless
+  D8 says otherwise.
+- One model family (FNO); DeepONet and the θ-map (Phase 8) are outside Phases 5–7.
+- Every Phase 4 result comes from one seed (42). Phase 5 is the first multi-seed study,
+  so earlier single-seed numbers are context, not baselines.
+- The choice of R defines what "coarse forcing" means; a different filter can move s*.
+- Uniform learning grids only: the FNO's FFT needs them (CONVENTIONS §4).
+- Costs are measured on the hardware at hand (metal locally, one A100 on cuda) and are
+  comparable only within one backend and device.
+
+### 13.15 Open decisions
+
+To be decided by the author, the sole approver (no supervisor sign-off), when the
+plan or brief that needs each is approved. Each is recorded under decision 30 when made.
+
+| # | Decision | Recommendation |
+| --- | --- | --- |
+| D1 | Restriction R (and whether P stays FH d = 2) | Filtered Chebyshev restriction, chosen by measured transfer-only error in Phase 5 T1 against cell average and unfiltered T_cu; P stays T_uc d = 2 unless T1 shows it dominates at small s |
+| D2 | Mode rule across s | Main matrix m = min(12, s/2) per axis (fixed physical bandwidth where the grid allows); control arm m = s/4 (fixed relative bandwidth: 4, 8, 16, 32) |
+| D3 | Baseline padding | p = 0 (no CONVENTIONS change); a fixed physical fraction only as a separate, version-bumping proposal |
+| D4 | Seeds per configuration | 3 for Phase 5 and as initialisation seeds in Phase 7; 5 if the spread between seeds is comparable to the differences being compared |
+| D5 | Phase 6 inner product | Clenshaw–Curtis-weighted on the CGL grid (the L² of §3.4, matching the closed-form spectra); equal weights on the uniform learning grids |
+| D6 | Phase 7 training budget | A fixed number of optimisation steps (equal updates for every N), reporting epochs too; fixed epochs as a secondary arm if affordable |
+| D7 | Phase 7 acceptance threshold | Test relative L² ≤ 2e-2 on the fine grid (§11's pipeline threshold), met in the mean over seeds, with the spread reported; fixed before any Phase 7 run |
+| D8 | Evaluation grids G_e | 129 CGL (fine) and each G_l (coarse); 257 only in the T1 reference check |
+
+### 13.16 Completion
+
+The research programme is not complete until Phases 5, 6 and 7 have each measured their
+errors, costs and controls and met their reproducibility requirements (§13.3–§13.5).
+Phases 8 and 9 do not block completion. No phase's conclusion is drawn from another
+phase's measurements beyond the baseline that Phase 5 hands on.
 
 ## References
 
@@ -1371,3 +1970,29 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
 - J.-P. Berrut, L. N. Trefethen, SIAM Rev. 46(3), 2004, doi:10.1137/S0036144502417715.
 - M. S. Floater, K. Hormann, Numer. Math. 107, 2007, doi:10.1007/s00211-007-0093-y.
 - rlst 0.9.0, codeberg.org/linalg-rs/rlst.
+
+Added for §13 (decision 30):
+- N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart,
+  A. Anandkumar, "Neural Operator: Learning Maps Between Function Spaces", JMLR 24 (2023),
+  arXiv:2108.08481.
+- F. Bartolucci, E. de Bézenac, B. Raonić, R. Molinaro, S. Mishra, R. Alaifari,
+  "Representation Equivalent Neural Operators: a Framework for Alias-free Operator
+  Learning", NeurIPS 2023, arXiv:2305.19913.
+- N. Kovachki, S. Lanthaler, S. Mishra, "On universal approximation and error bounds for
+  Fourier neural operators", JMLR 22 (2021), arXiv:2107.07562.
+- M. V. de Hoop, N. B. Kovachki, N. H. Nelsen, A. M. Stuart, "Convergence rates for
+  learning linear operators from noisy data", SIAM/ASA J. Uncertain. Quantif. 11 (2023),
+  arXiv:2108.12515.
+- K. Bhattacharya, B. Hosseini, N. B. Kovachki, A. M. Stuart, "Model reduction and neural
+  networks for parametric PDEs", SMAI J. Comput. Math. 7 (2021), arXiv:2005.03180.
+- L. Lu, P. Jin, G. Pang, Z. Zhang, G. E. Karniadakis, "Learning nonlinear operators via
+  DeepONet", Nat. Mach. Intell. 3 (2021), arXiv:1910.03193.
+- P. Holmes, J. L. Lumley, G. Berkooz, *Turbulence, Coherent Structures, Dynamical
+  Systems and Symmetry*, Cambridge University Press, 1996.
+- W. L. Briggs, V. E. Henson, S. F. McCormick, *A Multigrid Tutorial*, 2nd ed., SIAM,
+  2000.
+- U. Trottenberg, C. W. Oosterlee, A. Schüller, *Multigrid*, Academic Press, 2001.
+- To verify before citing: S. Lanthaler, A. M. Stuart, "The curse of dimensionality in
+  operator learning" (2023); S. Lanthaler et al., on the discretisation error of Fourier
+  neural operators (2024); J. Kossaifi et al., multi-grid tensorised FNO (2023); J. He et
+  al., MgNO (2023).
