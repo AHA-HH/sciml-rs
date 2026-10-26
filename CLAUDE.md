@@ -14,10 +14,12 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   docs/phase4/README.md), and so is Phase 4s (side phase, repository health,
   docs/phase4s/README.md; design §10, decision 25), closed 2026-10-24 with re-review
   grade B (docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md).
-  Next (design §10, decision 24), both optional and independent: Phase 5 (HPC:
-  profiling, checkpointing, multi-GPU) and Phase 6 (Chebyshev-native: baseline padding
-  and seeds first, then the θ-map). Their 4s prerequisites (T10/T12 for Phase 5 T2,
-  T16 for Phase 6 T3) are merged. Each phase gets its README and briefs when it
+  Next (design §13, decision 30, which supersedes decision 24's Phase 5/6 split):
+  Phase 5, grid-decoupled operator learning (docs/phase5/README.md, planned, no briefs
+  yet), then Phase 7, sample efficiency. Phase 6 (SVD/POD information content) may run
+  beside Phase 5. Phase 8 (θ-map) is optional; Phase 9 (HPC: profiling, checkpointing,
+  multi-GPU) is a separate systems track. Their 4s prerequisites (T10/T12 for Phase 9
+  T2, T16 for Phase 8) are merged. Each phase gets its README and briefs when it
   starts; 4s briefs are in docs/phase4s/T*.md.
 - Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
   RLST reference solver, FNO; signed off 2026-10-05, amended 2026-10-08 and 2026-10-09,
@@ -25,6 +27,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - Roadmap: design §10 (every phase's goal, ordered tasks, dependencies and exit).
 
 ## Working agreement
+- The author (AHA-HH) is the sole approver of designs, phase plans, briefs and decisions.
+  Never ask for or wait on supervisor approval; record approvals as the author's.
 - Approval for one action is not approval for the next one of its kind. A request to
   commit, push, delete, publish or open a PR covers the message it appears in and
   nothing after it; ask again, even when the next action looks like an obvious
