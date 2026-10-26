@@ -90,6 +90,13 @@ fn main() {
     let dataset_cfg = run
         .data_config::<PoissonConfig>()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
+    assert!(
+        dataset_cfg.s() == dataset_cfg.n - 1,
+        "this run trained at s = {} on n = {}; poisson_plot evaluates only s = n - 1 runs until \
+         phase 5 T6",
+        dataset_cfg.s(),
+        dataset_cfg.n
+    );
     let n = dataset_cfg.n;
     let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
     let test_file = datasets.join(set.npz("test"));

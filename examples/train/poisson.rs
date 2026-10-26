@@ -1,7 +1,7 @@
-//! FNO on 2D Poisson on the Chebyshev grid (n nodes per axis, s = n − 1 on the model
-//! grid); stage 2 (n = 65) by default
+//! FNO on 2D Poisson on the Chebyshev grid (n nodes per axis, s on the model grid, by
+//! default s = n − 1); stage 2 (n = 65) by default
 //!
-//! Run with: cargo run --release --example train_poisson [-- [<padding>] [<n>]]
+//! Run with: cargo run --release --example train_poisson [-- [<padding>] [<n>] [<s>]]
 //! (CPU by default; add `--features metal` or `--features cuda` for a GPU -
 //! see "Backends" in the README).
 //!
@@ -11,6 +11,9 @@
 //! An optional second argument picks the stage by n, one of `catalogue::STAGES`
 //! (design §5.3):
 //! cargo run --release --example train_poisson -- 4 129
+//! An optional third argument sets the learning grid s (CONVENTIONS §12), from the same
+//! dataset files; the modes follow it (design §12, decision 30, D2):
+//! cargo run --release --example train_poisson -- 0 129 32
 //!
 //! Structurally identical to `examples/train/darcy.rs`, with the Darcy model and
 //! training hyperparameters (design §7). The loader transfers every sample from the
@@ -39,7 +42,8 @@ const N_TRAIN: usize = 1000;
 /// The whole test split of each stage.
 const N_TEST: usize = 200;
 
-const MODES: [usize; 2] = [12, 12];
+/// Fourier modes per axis at large s; m = min(MAX_MODES, s/2) (design §12, decision 30, D2).
+const MAX_MODES: usize = 12;
 const WIDTH: usize = 32;
 const N_LAYERS: usize = 4;
 const EPOCHS: usize = 500;
@@ -67,17 +71,26 @@ fn main() {
     };
     let set = stage(n).unwrap_or_else(|e| panic!("{e}"));
     let k = set.k;
+    let s = match std::env::args().nth(3) {
+        Some(arg) => arg
+            .parse::<usize>()
+            .unwrap_or_else(|e| panic!("s argument must be an integer, got {arg:?}: {e}")),
+        None => n - 1,
+    };
+    let modes = MAX_MODES.min(s / 2);
 
     let device = Device::default().autodiff();
-    println!("device: {device:?}, padding: {padding}, n: {n}, K: {k}");
+    println!("device: {device:?}, padding: {padding}, n: {n}, s: {s}, modes: {modes}, K: {k}");
 
+    // s = n − 1 stays unset, so those runs save the same data_cfg.json as before
     let dataset_cfg = PoissonConfig::new(
         DatasetConfig {
             n_train: N_TRAIN,
             n_test: N_TEST,
         },
         n,
-    );
+    )
+    .with_s((s != n - 1).then_some(s));
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
     let train_path = datasets.join(set.npz("train"));
@@ -102,7 +115,7 @@ fn main() {
     );
 
     let model_cfg = FNOConfig {
-        modes: MODES.to_vec(),
+        modes: vec![modes; 2],
         hidden_channels: WIDTH,
         data_channels: 1,
         out_channels: 1,
@@ -121,11 +134,11 @@ fn main() {
         .with_weight_decay(WEIGHT_DECAY)
         .with_min_lr(MIN_LR);
 
-    // Stage 2 keeps its run name; other stages carry n in it
-    let name = if n == DEFAULT_N {
-        format!("poisson_fno_p{padding}")
-    } else {
-        format!("poisson_fno_n{n}_p{padding}")
+    // Stage 2 at s = n − 1 keeps its run name; other stages carry n, other s carry n and s
+    let name = match (n, dataset_cfg.s) {
+        (DEFAULT_N, None) => format!("poisson_fno_p{padding}"),
+        (_, None) => format!("poisson_fno_n{n}_p{padding}"),
+        (_, Some(s)) => format!("poisson_fno_n{n}_s{s}_p{padding}"),
     };
     // Writes configs, metrics, normalizers and weights to runs/<name>_<timestamp>/.
     // Created before training: train_fno appends each epoch's row of metrics.csv to it

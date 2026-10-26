@@ -6,13 +6,15 @@
 //! `load_poisson_uniform` (in `uniform`) builds train/test `OperatorDataset`s from the
 //! `.npz` files that `generate_poisson` writes (`datasets/README.md`): forcing `f` and
 //! solution `u` on the n × n CGL grid. It reads and validates them, transfers every sample
-//! to the uniform grid of size s = n − 1 and then normalizes, as Darcy does. Inputs carry
+//! to the uniform grid of size s (`PoissonConfig::s`, default n − 1) and then normalizes,
+//! as Darcy does. The same files load at any s, so every learning grid sees the same
+//! forcings and the same test set. Inputs carry
 //! the forcing only; the model appends the 2D grid coordinates itself (see `FNO::forward`).
 //! `load_poisson_uniform_test` builds the test split alone, encoded with a run's saved
 //! normalizers, so predict neither reads nor transfers the train split.
 //!
-//! Transfer: T_cu (`chebyshev::Transfers::to_uniform`, CONVENTIONS §12) is applied along both
-//! axes at load time, in f64, before normalization; transferred fields are never written
+//! Transfer: T_cu (`chebyshev::Transfers::to_uniform`, CONVENTIONS §12), the restriction R
+//! at every s, is applied along both axes at load time, in f64, before normalization; transferred fields are never written
 //! to disk. T_cu is polynomial interpolation on the CGL nodes, exact to round-off
 //! (≤ 1e-15) on the analytic test fields, and for n ≥ 65 within 2e-8 on GRF solutions u
 //! and 3.4e-6 on GRF forcings f (Phase 0 T3, `spikes/transfers/REPORT.md` table 1). The
@@ -46,20 +48,26 @@ use burn::serde::{Deserialize, Serialize};
 use ndarray::{Array1, Array3, Ix3};
 use std::fmt;
 
-/// Poisson-specific config: the Chebyshev size `n` of the stored fields.
+/// Poisson-specific config: the Chebyshev size `n` of the stored fields and the learning
+/// grid size `s`.
 #[derive(Config, Debug)]
 pub struct PoissonConfig {
     /// Shared train/test sample counts.
     pub base: DatasetConfig,
     /// Number of CGL nodes per axis in the dataset files.
     pub n: usize,
+    /// Uniform (learning) grid points per axis (CONVENTIONS §12). `None` (the default)
+    /// means s = n − 1; an `Option` so that saved configs without this field still load,
+    /// as s = n − 1.
+    pub s: Option<usize>,
 }
 
 impl PoissonConfig {
-    /// Uniform (model) grid size s = n − 1 (design §12, decision 5). Saturates at 0 for
-    /// n = 0; `load_poisson_uniform` rejects n < 4.
+    /// Uniform (model) grid size: the configured s, else n − 1 (CONVENTIONS §12; design
+    /// §12, decision 5). The default saturates at 0 for n = 0; `load_poisson_uniform`
+    /// rejects n < 4 and s < 3.
     pub fn s(&self) -> usize {
-        self.n.saturating_sub(1)
+        self.s.unwrap_or(self.n.saturating_sub(1))
     }
 }
 
@@ -317,6 +325,19 @@ mod tests {
     /// A sidecar `generate_poisson` wrote, copied from `datasets/poisson/`.
     const SIDECAR_FIXTURE: &str =
         include_str!("../../../../../tests/fixtures/poisson_n65_K32_test.json");
+
+    #[test]
+    fn config_without_s_means_n_minus_1() {
+        // a data_cfg.json as runs before phase 5 T3 saved it
+        let old = r#"{"base": {"n_train": 1000, "n_test": 200}, "n": 65}"#;
+        let config = PoissonConfig::load_binary(old.as_bytes()).unwrap();
+        assert_eq!((config.n, config.s, config.s()), (65, None, 64));
+
+        let config = config.with_s(Some(32));
+        let saved = burn::config::config_to_json(&config);
+        let back = PoissonConfig::load_binary(saved.as_bytes()).unwrap();
+        assert_eq!((back.n, back.s, back.s()), (65, Some(32), 32));
+    }
 
     #[test]
     fn sidecar_fixture_parses_and_round_trips() {

@@ -56,6 +56,13 @@ fn main() {
     let trained_cfg = run
         .data_config::<PoissonConfig>()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
+    assert!(
+        trained_cfg.s() == trained_cfg.n - 1,
+        "this run trained at s = {} on n = {}; poisson_resolution evaluates only s = n - 1 runs until \
+         phase 5 T6",
+        trained_cfg.s(),
+        trained_cfg.n
+    );
     let k = stage(trained_cfg.n)
         .unwrap_or_else(|e| panic!("the run's stage: {e}"))
         .k;

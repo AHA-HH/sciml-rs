@@ -141,7 +141,7 @@ Filled in as tasks merge. Phase 5 is done when every row has a value.
 | Reference check: stage 4 at the 129 nodes against stage 3, max relative CC-L² | u 7.19e-13, f 0 (bit-identical); passes | T1 |
 | Transfer-only error per R and s (mean / max), P's own error per d, filtered-out energy of f per s; D1 chosen | D1: unfiltered T_cu, d = 2. Transfer-only (= P's own error) at s = 16 / 32 / 64 / 128: 3.03e-3 / 3.47e-4 / 2.45e-5 / 2.53e-6 (mean). Filtered-out energy of f beyond s − 2: 4.2e-2 / 9.0e-3 / 1.2e-3 / 0. Aliasing row skipped (needs `datagen`). Full tables in `spikes/transfer_floor/REPORT.md` | T1 |
 | CONVENTIONS §12 amended, version 2; R and P tests; wall time of the new tests | Done: §12 lets s differ from n − 1 (s ≥ 3), R = T_cu, P = T_uc d = 2; 5 new tests in `chebyshev::transfer`, 0.02 s together (debug) | T2 |
-| Loader at s = n − 1 reproduces today's tensors | | T3 |
+| Loader at s = n − 1 reproduces today's tensors | Yes, by construction: with no s the loader builds `Transfers::with_s(n, n − 1)`, which is `Transfers::new(n)`; `poisson_output_is_pinned` unchanged and passing (not compared on the real stage 2 files). A short stage 3 run at s = 32 (p = 0, modes 12) starts on flex: 11.3 s/epoch, test L² 0.286 / 0.199 / 0.108 after epochs 0–2 (stopped; not a result) | T3 |
 | Metadata and `costs.json` written by a short run; old runs still open | | T4 |
 | Matrix cost, timed and stated before the full runs | | T5 |
 | Main arm: coarse / fine-grid / transfer-only error per s, mean ± spread over seeds | | T5, T6 |
@@ -156,8 +156,8 @@ Filled in as tasks merge. Phase 5 is done when every row has a value.
 
 - [ ] T1–T7 merged.
 - [x] CONVENTIONS §12 amended and `CONVENTION_VERSION = 2`.
-- [ ] The solver and learning grids are independently configurable.
-- [ ] The same forcing examples are represented at several learning resolutions.
+- [x] The solver and learning grids are independently configurable.
+- [x] The same forcing examples are represented at several learning resolutions.
 - [ ] Restriction and prolongation errors are measured separately.
 - [ ] Coarse-grid and fine-grid FNO errors are both reported.
 - [ ] Accuracy/cost trade-offs are reproducible across seeds.
