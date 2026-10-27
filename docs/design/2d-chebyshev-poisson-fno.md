@@ -1506,6 +1506,21 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       ports no filter; the T5 aliasing control equals the main arm and is not run. Caveat:
       the aliasing row (which needs `datagen`) was skipped by the author's choice, so the
       effect of the unfiltered R on f is not measured.
+    - **Amendment, Phase 6 planning (2026-10-27).** Plan: `docs/phase6/README.md`, with
+      briefs T1–T2. Phase 6 runs beside Phase 5. Chosen by the author:
+      - D5: CC-weighted inner product on the 129 CGL grid (rows of the centred snapshot
+        matrix scaled by √(w_i w_j)); equal weights on the uniform learning grids, scaled
+        by the cell area (2/(s − 1))².
+      - The POD is RLST's thin SVD of the snapshot matrix, not the N × N Gram matrix
+        (u's singular values span about 1.5e5), so the phase's code is behind `datagen`
+        (`metrics/pod` and the example `poisson_pod`); no new dependency.
+      - Stage 3 only; the basis fitted on the 1000 train samples, the test split only
+        projected.
+      - The closed-form spectrum (§13.4) checks the analysis: eigenvalues compared in
+        groups of equal k² + l², since degenerate modes mix. At K = 64 the population
+        ranks for 90 / 99 / 99.9% energy are 38 / 418 / 2175 for f and 2 / 6 / 17 for u,
+        so f's 99.9% rank exceeds the N − 1 = 999 directions of the sample and is
+        reported as limited by N.
 
 ## 13. Research programme after Phase 4s
 
@@ -1971,7 +1986,7 @@ plan or brief that needs each is approved. Each is recorded under decision 30 wh
 | D2 | Mode rule across s | Main matrix m = min(12, s/2) per axis (fixed physical bandwidth where the grid allows); control arm m = s/4 (fixed relative bandwidth: 4, 8, 16, 32). **Decided 2026-10-26:** min(12, s/2), no control arm |
 | D3 | Baseline padding | p = 0 (no CONVENTIONS change); a fixed physical fraction only as a separate, version-bumping proposal. **Decided 2026-10-26:** p = 0 |
 | D4 | Seeds per configuration | 3 for Phase 5 and as initialisation seeds in Phase 7; 5 if the spread between seeds is comparable to the differences being compared. **Decided 2026-10-26:** as recommended |
-| D5 | Phase 6 inner product | Clenshaw–Curtis-weighted on the CGL grid (the L² of §3.4, matching the closed-form spectra); equal weights on the uniform learning grids |
+| D5 | Phase 6 inner product | Clenshaw–Curtis-weighted on the CGL grid (the L² of §3.4, matching the closed-form spectra); equal weights on the uniform learning grids. **Decided 2026-10-27:** as recommended, the uniform-grid weights scaled by the cell area (2/(s − 1))² |
 | D6 | Phase 7 training budget | A fixed number of optimisation steps (equal updates for every N), reporting epochs too; fixed epochs as a secondary arm if affordable |
 | D7 | Phase 7 acceptance threshold | Test relative L² ≤ 2e-2 on the fine grid (§11's pipeline threshold), met in the mean over seeds, with the spread reported; fixed before any Phase 7 run |
 | D8 | Evaluation grids G_e | 129 CGL (fine) and each G_l (coarse); 257 only in the T1 reference check. **Decided 2026-10-26:** as recommended |
