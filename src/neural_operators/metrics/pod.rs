@@ -1,6 +1,6 @@
 //! Proper orthogonal decomposition (POD) of 2D snapshots in a weighted L² inner product
 //! (design §13.4, Phase 6): the thin SVD of the centred, weighted snapshot matrix. Behind
-//! `datagen`, as the SVD is RLST's (LAPACK `gesdd`). f64 throughout.
+//! `datagen`, as the SVD is LAPACK's `gesvd` through RLST. f64 throughout.
 //!
 //! The inner product of two fields on an a × b tensor grid is
 //! ⟨u, v⟩ = Σ_{i,j} wx_i wy_j u[i, j] v[i, j]; with Clenshaw–Curtis weights on the CGL
@@ -9,10 +9,14 @@
 //! that inner product, and σ_i² / (N − 1) estimate the covariance eigenvalues. The SVD is
 //! taken of the snapshot matrix itself, not of the N × N Gram matrix, which would square
 //! its dynamic range (docs/phase6/README.md).
+//!
+//! `gesvd`, not RLST's `svd` (`gesdd`): on the stage 3 solutions restricted to s = 16 and
+//! 32, macOS Accelerate's `dgesdd` returned singular values with Σ σ_i² up to 44 times the
+//! matrix's squared Frobenius norm, and `info = 0`, when asked for vectors (Phase 6 T2).
+//! [`Pod::fit`] checks that identity on every fit.
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ArrayView3, Axis, s};
-use rlst::dense::linalg::lapack::singular_value_decomposition::SvdMode;
-use rlst::{DynArray, SingularValueDecomposition};
+use rlst::dense::linalg::lapack::interface::gesvd::{Gesvd, JobU, JobVt};
 
 /// The POD of N snapshots on an a × b grid: the snapshot mean, every singular value of the
 /// centred weighted snapshot matrix, and its leading left singular vectors (the modes, in
@@ -41,7 +45,8 @@ impl Pod {
     ///
     /// # Panics
     /// If N < 2, `wx` has not a entries or `wy` not b, a weight is negative or not finite,
-    /// `keep` exceeds min(a·b, N), or LAPACK's SVD fails.
+    /// `keep` exceeds min(a·b, N), LAPACK's SVD fails, or Σ σ_i² differs from the squared
+    /// Frobenius norm of the matrix by more than 1e-10 relative (a wrong decomposition).
     pub fn fit(
         snapshots: ArrayView3<f64>,
         wx: ArrayView1<f64>,
@@ -66,16 +71,42 @@ impl Pod {
         let mean = snapshots.mean_axis(Axis(0)).expect("N >= 2");
         let sqrt_w = Array2::from_shape_fn((a, b), |(i, j)| (wx[i] * wy[j]).sqrt());
 
-        let mut m = DynArray::<f64, 2>::from_shape([a * b, n]);
+        // column-major [a·b, N], as LAPACK takes it
+        let rows = a * b;
+        let mut m = vec![0.0; rows * n];
+        let mut frobenius_sq = 0.0;
         weighted_centred(snapshots, mean.view(), sqrt_w.view(), |p, k, v| {
-            m[[p, k]] = v
+            m[p + k * rows] = v;
+            frobenius_sq += v * v;
         });
-        let (sv, u, _) = m.svd(SvdMode::Compact).expect("Pod::fit: SVD failed");
+        let k = rows.min(n);
+        let mut sv = vec![0.0; k];
+        let mut u = vec![0.0; rows * k];
+        f64::gesvd(
+            JobU::S,
+            JobVt::N,
+            rows,
+            n,
+            &mut m,
+            rows,
+            &mut sv,
+            Some(&mut u),
+            rows,
+            None,
+            1,
+        )
+        .expect("Pod::fit: SVD failed");
+        let energy: f64 = sv.iter().map(|s| s * s).sum();
+        assert!(
+            (energy - frobenius_sq).abs() <= 1e-10 * frobenius_sq,
+            "Pod::fit: Σ σ² = {energy:e} but the squared Frobenius norm is {frobenius_sq:e}: \
+             LAPACK returned a wrong decomposition"
+        );
         Self {
             mean,
             sqrt_w,
-            singular_values: Array1::from_shape_fn(sv.shape()[0], |i| sv[[i]]),
-            modes: Array2::from_shape_fn((a * b, keep), |(p, q)| u[[p, q]]),
+            singular_values: Array1::from(sv),
+            modes: Array2::from_shape_fn((rows, keep), |(p, q)| u[p + q * rows]),
             n_samples: n,
         }
     }
@@ -208,7 +239,7 @@ fn weighted_centred(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::chebyshev::{cc_norm_sq, clencurt, nodes};
+    use crate::neural_operators::chebyshev::{Transfers, cc_norm_sq, clencurt, nodes};
     use ndarray::Array3;
     use std::f64::consts::PI;
 
@@ -318,6 +349,41 @@ mod tests {
             "{} vs {var}",
             eig.sum()
         );
+    }
+
+    #[test]
+    fn restriction_keeps_resolvable_sine_modes() {
+        // the sine-mode set of `cc_weights_give_the_l2_eigenvalues`, on 33 CGL nodes and
+        // after R to s = 16: with equal weights 2/(s − 1) the sine modes with k < s − 1 are
+        // discretely orthonormal (DST-I), so rank and energies survive up to the error of
+        // interpolating them from the CGL grid
+        let (n, s) = (33, 16);
+        let x = nodes(n);
+        let phi = |k: f64, l: f64, i: usize, j: usize| {
+            (k * PI * (x[i] + 1.0) / 2.0).sin() * (l * PI * (x[j] + 1.0) / 2.0).sin()
+        };
+        let c = [
+            [1.0, 0.5],
+            [-0.3, 1.2],
+            [0.8, -1.1],
+            [-1.5, -0.6],
+            [0.2, 0.9],
+        ];
+        let snapshots = Array3::from_shape_fn((c.len(), n, n), |(k, i, j)| {
+            c[k][0] * phi(1.0, 2.0, i, j) + c[k][1] * phi(3.0, 1.0, i, j)
+        });
+        let cgl = Pod::fit(snapshots.view(), clencurt(n).view(), clencurt(n).view(), 2);
+        let restricted = Transfers::with_s(n, s).to_uniform_all(snapshots.view());
+        let w = Array1::from_elem(s, 2.0 / (s - 1) as f64);
+        let grid = Pod::fit(restricted.view(), w.view(), w.view(), 2);
+        assert_eq!((cgl.energy_rank(0.999), grid.energy_rank(0.999)), (2, 2));
+        let (e_cgl, e_grid) = (cgl.eigenvalues(), grid.eigenvalues());
+        for i in 0..2 {
+            assert!(
+                (e_grid[i] - e_cgl[i]).abs() <= 1e-10 * e_cgl[0],
+                "{e_cgl} vs {e_grid}"
+            );
+        }
     }
 
     #[test]
