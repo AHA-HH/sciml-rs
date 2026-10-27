@@ -1,12 +1,16 @@
 //! The errors of design §7 for a Poisson FNO, measured on the Chebyshev grid.
 //!
-//! Given decoded uniform-grid predictions and the raw CGL solutions u of the same samples,
-//! [`poisson_errors`] computes per sample:
-//! - error 2 (transfer): the round trip ‖T_uc(T_cu u) − u‖ / ‖u‖ in the Clenshaw–Curtis
-//!   norm, the sidecar's `error2` recomputed;
-//! - error 3 (model): the relative L² error of the prediction against T_cu u on the uniform
-//!   grid, with equal weights, as `LpLoss::rel` computes it during training (CONVENTIONS §11);
-//! - error 4 (total): ‖T_uc(prediction) − u‖ / ‖u‖ in the Clenshaw–Curtis norm;
+//! Given decoded predictions on the run's uniform learning grid of s points, the raw CGL
+//! solutions u of the same samples and the run's [`Transfers`] (R = T_cu, P = T_uc, any s;
+//! CONVENTIONS §12), [`poisson_errors`] computes per sample (design §13.3 names in
+//! brackets):
+//! - error 2 (transfer; the transfer-only floor): the round trip ‖P R u − u‖ / ‖u‖ in the
+//!   Clenshaw–Curtis norm; at s = n − 1 the sidecar's `error2` recomputed;
+//! - error 3 (model; the coarse error): the relative L² error of the prediction against R u
+//!   on the learning grid, with equal weights, as `LpLoss::rel` computes it during training
+//!   (CONVENTIONS §11);
+//! - error 4 (total; the fine-grid error): ‖P(prediction) − u‖ / ‖u‖ in the
+//!   Clenshaw–Curtis norm;
 //! - error 5 (boundary): with û = T_uc(prediction), the max ratio max_∂Ω |û| / max_Ω |u|
 //!   and the relative boundary RMS √(∮ û² ds / 8) / √(∫∫ u² dA / 4).
 //!
@@ -38,12 +42,15 @@ use std::path::{Path, PathBuf};
 /// Per-sample errors from [`poisson_errors`], one entry per sample, in sample order.
 #[derive(Debug, Clone)]
 pub struct PoissonErrors {
-    /// Error 2: ‖T_uc(T_cu u) − u‖ / ‖u‖, Clenshaw–Curtis norm.
+    /// Error 2: ‖P R u − u‖ / ‖u‖, Clenshaw–Curtis norm.
     pub transfer: Vec<f64>,
-    /// Error 3: ‖prediction − T_cu u‖ / ‖T_cu u‖, equal weights on the uniform grid.
+    /// Error 3: ‖prediction − R u‖ / ‖R u‖, equal weights on the learning grid.
     pub model: Vec<f64>,
-    /// Error 4: ‖T_uc(prediction) − u‖ / ‖u‖, Clenshaw–Curtis norm.
+    /// Error 4: ‖P(prediction) − u‖ / ‖u‖, Clenshaw–Curtis norm.
     pub total: Vec<f64>,
+    /// ‖u‖ in the Clenshaw–Curtis norm, the denominator of errors 2 and 4 (design §12,
+    /// decision 22: does a high error 4 come from a small ‖u‖?).
+    pub u_norm: Vec<f64>,
     /// Error 5, max ratio: max over ∂Ω of |û| / max over Ω of |u|, on the CGL nodes.
     pub boundary_max_ratio: Vec<f64>,
     /// Error 5, relative boundary RMS: √(∮ û² ds / 8) / √(∫∫ u² dA / 4).
@@ -52,12 +59,13 @@ pub struct PoissonErrors {
 
 /// The errors 2–5 of design §7 for each sample (see the module docs).
 ///
-/// - `pred`: decoded predictions on the uniform grid, `[N, s, s]`, physical scale, stored
-///   'ij' (CONVENTIONS §12).
+/// - `pred`: decoded predictions on the uniform learning grid, `[N, s, s]`, physical scale,
+///   stored 'ij' (CONVENTIONS §12).
 /// - `u`: the raw solutions on the CGL grid, `[N, n, n]`, the reference.
+/// - `transfers`: the run's R and P between those grids (`Transfers::with_s(n, s)`;
+///   `Transfers::new(n)` for s = n − 1).
 ///
-/// s = n − 1, and T_uc has degree [`TRANSFER_DEGREE`]. T_cu and T_uc are built once per
-/// call, as [`Transfers`]. The Clenshaw–Curtis norms use [`clencurt`]`(n)` weights: over Ω
+/// The Clenshaw–Curtis norms use [`clencurt`]`(n)` weights: over Ω
 /// as a tensor product, and along each of the four edges of ∂Ω, so each corner node
 /// carries the end weights of both its edges; the boundary maximum visits it twice, which
 /// does not change the maximum. A sample with u ≡ 0 gives NaN or infinity, as
@@ -65,11 +73,12 @@ pub struct PoissonErrors {
 ///
 /// # Panics
 /// If `pred` and `u` hold different numbers of samples, either is not square in its
-/// spatial axes, s ≠ n − 1, or n < [`Transfers::MIN_N`] (T_uc of degree
-/// [`TRANSFER_DEGREE`] needs s > d).
-///
-/// [`TRANSFER_DEGREE`]: crate::neural_operators::chebyshev::TRANSFER_DEGREE
-pub fn poisson_errors(pred: ArrayView3<f64>, u: ArrayView3<f64>) -> PoissonErrors {
+/// spatial axes, or their grids are not the transfers' s and n.
+pub fn poisson_errors(
+    pred: ArrayView3<f64>,
+    u: ArrayView3<f64>,
+    transfers: &Transfers,
+) -> PoissonErrors {
     let (np, s, s2) = pred.dim();
     let (nu, n, n2) = u.dim();
     assert_eq!(
@@ -89,19 +98,18 @@ pub fn poisson_errors(pred: ArrayView3<f64>, u: ArrayView3<f64>) -> PoissonError
         u.dim()
     );
     assert_eq!(
-        s + 1,
-        n,
-        "poisson_errors: the uniform grid must have s = n - 1 = {} points, got {s}",
-        n - 1
+        (s, n),
+        (transfers.s(), transfers.n()),
+        "poisson_errors: pred and u must be on the transfers' grids (s, n)"
     );
 
-    let transfers = Transfers::new(n);
     let w = clencurt(n);
 
     let mut errors = PoissonErrors {
         transfer: Vec::with_capacity(nu),
         model: Vec::with_capacity(nu),
         total: Vec::with_capacity(nu),
+        u_norm: Vec::with_capacity(nu),
         boundary_max_ratio: Vec::with_capacity(nu),
         boundary_rel_rms: Vec::with_capacity(nu),
     };
@@ -123,6 +131,9 @@ pub fn poisson_errors(pred: ArrayView3<f64>, u: ArrayView3<f64>) -> PoissonError
             w.view(),
             w.view(),
         ));
+        errors
+            .u_norm
+            .push(cc_norm_sq(ui, w.view(), w.view()).sqrt());
         let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
         errors.boundary_max_ratio.push(ratio);
         errors.boundary_rel_rms.push(rms);
@@ -194,8 +205,13 @@ pub struct Error2Check {
     pub sidecar_count: usize,
     /// The samples evaluated.
     pub n_test: usize,
+    /// The learning grid of the sidecar's error 2 (n − 1).
+    pub sidecar_s: usize,
+    /// The run's learning grid.
+    pub s: usize,
     /// (mean, max) of |error 2 − sidecar| / |sidecar|; `None` when the comparison was
-    /// skipped because the sidecar covers other samples than those evaluated.
+    /// skipped because the sidecar's error 2 is at another s, or covers other samples than
+    /// those evaluated.
     pub rel_diff: Option<(f64, f64)>,
     /// Whether both relative differences are ≤ [`ERROR2_TOL`]; a skipped comparison
     /// counts as passed.
@@ -212,6 +228,11 @@ impl fmt::Display for Error2Check {
                 self.sidecar.max,
                 if self.passed { "ok" } else { "FAILED" }
             ),
+            None if self.sidecar_s != self.s => write!(
+                f,
+                "error 2 vs sidecar skipped: the sidecar's error 2 is at s = {}, this run's at s = {}",
+                self.sidecar_s, self.s
+            ),
             None => write!(
                 f,
                 "error 2 vs sidecar skipped: the sidecar covers {} samples but {} were evaluated",
@@ -221,13 +242,18 @@ impl fmt::Display for Error2Check {
     }
 }
 
+/// The file in a run directory that holds its [`PoissonErrorsRecord`].
+pub const ERRORS_JSON: &str = "errors.json";
+
 /// What a run's `errors.json` records, from [`evaluate`].
 #[derive(Config, Debug)]
 pub struct PoissonErrorsRecord {
     /// Test samples evaluated.
     pub n_test: usize,
-    /// CGL nodes per axis; the model grid is n − 1.
+    /// CGL nodes per axis.
     pub n: usize,
+    /// The run's learning grid, uniform points per axis (n − 1 before Phase 5).
+    pub s: usize,
     /// The device the forward pass ran on, as Burn prints it.
     pub device: String,
     /// The backend features this build enabled. Metal runs through wgpu, so `device`
@@ -239,8 +265,8 @@ pub struct PoissonErrorsRecord {
     pub error2: ErrorStats,
     /// Error 2 as the test sidecar records it.
     pub error2_sidecar: ErrorStats,
-    /// Whether error 2 was compared with the sidecar: only when `n_test` equals the
-    /// sidecar's sample count, since the sidecar covers its whole split.
+    /// Whether error 2 was compared with the sidecar: only when `s` is the sidecar's
+    /// (n − 1) and `n_test` equals its sample count, since it covers its whole split.
     pub error2_compared: bool,
     /// Error 3 (model).
     pub error3: ErrorStats,
@@ -250,6 +276,13 @@ pub struct PoissonErrorsRecord {
     pub error4: ErrorStats,
     /// The test sample with the max error 4, an index into the test split.
     pub error4_worst_sample: usize,
+    /// Error 4 per test sample, in sample order (design §12, decision 22).
+    pub error4_per_sample: Vec<f64>,
+    /// ‖u‖ per test sample, Clenshaw–Curtis norm, in sample order.
+    pub u_norm_per_sample: Vec<f64>,
+    /// Pearson correlation of ln(error 4) with ln ‖u‖ over the test samples: near −1 if a
+    /// high error 4 comes from a small ‖u‖ (decision 22).
+    pub error4_u_norm_log_correlation: f64,
     /// Error 5, max over ∂Ω of |û| / max over Ω of |u|.
     pub error5_max_ratio: ErrorStats,
     /// Error 5, relative boundary RMS.
@@ -279,9 +312,10 @@ pub struct PoissonEvaluation {
 /// Evaluates the per-sample `errors` of a run's test split, as `predict_poisson` reports
 /// them: the five errors, the worst sample, both cross-checks and the boundary verdict.
 ///
-/// - `n`: the CGL nodes per axis of the evaluated split.
+/// - `transfers`: the run's transfers, as `errors` was computed with; they give n and s.
 /// - `sidecar`: the test split's sidecar. Error 2 is compared with it, to
-///   [`ERROR2_TOL`], only when it covers exactly the evaluated samples.
+///   [`ERROR2_TOL`], only when its error 2 is at the run's s (s = n − 1) and it covers
+///   exactly the evaluated samples.
 /// - `last`: the run's last epoch; the mean error 3 is checked with [`check_error3`].
 /// - `device`: the device the forward pass ran on, as Burn prints it.
 /// - `backend_features`: the backend features the binary was built with
@@ -293,17 +327,18 @@ pub struct PoissonEvaluation {
 /// / mean error 4 ≥ [`BOUNDARY_THRESHOLD`].
 ///
 /// # Panics
-/// If the sidecar's n, s or transfer degree differ from `n`, n − 1 and
+/// If the sidecar's n or transfer degree differ from the transfers' n and
 /// [`TRANSFER_DEGREE`], or `errors` holds no samples.
 pub fn evaluate(
     errors: &PoissonErrors,
-    n: usize,
+    transfers: &Transfers,
     sidecar: &SidecarRecord,
     last: &EpochMetrics,
     device: String,
     backend_features: Vec<String>,
     run_dir: &Path,
 ) -> PoissonEvaluation {
+    let (n, s) = (transfers.n(), transfers.s());
     let n_test = errors.total.len();
     let e2 = ErrorStats::of(&errors.transfer);
     let e3 = ErrorStats::of(&errors.model);
@@ -319,17 +354,17 @@ pub fn evaluate(
 
     // Cross-check 1: error 2 against the sidecar the generator wrote
     assert_eq!(
-        (sidecar.n, sidecar.error2.s, sidecar.error2.d),
-        (n, n - 1, TRANSFER_DEGREE),
-        "sidecar n, s, d differ from this evaluation"
+        (sidecar.n, sidecar.error2.d),
+        (n, TRANSFER_DEGREE),
+        "sidecar n, d differ from this evaluation"
     );
     let e2_sidecar = ErrorStats {
         mean: sidecar.error2.mean,
         max: sidecar.error2.max,
     };
-    // the sidecar covers its whole split; compare only when all of it was evaluated, and
-    // count a skipped comparison as passed
-    let e2_rel_diff = (sidecar.count == n_test).then(|| {
+    // the sidecar's error 2 is at s = n - 1 over its whole split; compare only when this
+    // evaluation matches both, and count a skipped comparison as passed
+    let e2_rel_diff = (sidecar.error2.s == s && sidecar.count == n_test).then(|| {
         (
             rel_diff(e2.mean, e2_sidecar.mean),
             rel_diff(e2.max, e2_sidecar.max),
@@ -339,6 +374,8 @@ pub fn evaluate(
         sidecar: e2_sidecar,
         sidecar_count: sidecar.count,
         n_test,
+        sidecar_s: sidecar.error2.s,
+        s,
         rel_diff: e2_rel_diff,
         passed: e2_rel_diff.is_none_or(|(mean, max)| mean <= ERROR2_TOL && max <= ERROR2_TOL),
     };
@@ -350,6 +387,7 @@ pub fn evaluate(
     let record = PoissonErrorsRecord {
         n_test,
         n,
+        s,
         device,
         backend_features,
         error1: ERROR1_QUOTE.to_string(),
@@ -360,6 +398,9 @@ pub fn evaluate(
         error3_metrics_csv: e3_check.test_l2,
         error4: e4,
         error4_worst_sample: worst,
+        error4_per_sample: errors.total.clone(),
+        u_norm_per_sample: errors.u_norm.clone(),
+        error4_u_norm_log_correlation: log_correlation(&errors.total, &errors.u_norm),
         error5_max_ratio: e5_ratio,
         error5_rel_rms: e5_rms,
         boundary_to_total,
@@ -378,16 +419,29 @@ fn rel_diff(a: f64, b: f64) -> f64 {
     (a - b).abs() / b.abs()
 }
 
+/// Pearson correlation of ln a with ln b; NaN for fewer than two samples or a constant
+/// series.
+fn log_correlation(a: &[f64], b: &[f64]) -> f64 {
+    let (x, y): (Vec<f64>, Vec<f64>) = a.iter().zip(b).map(|(a, b)| (a.ln(), b.ln())).unzip();
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let (mx, my) = (mean(&x), mean(&y));
+    let (mut sxy, mut sxx, mut syy) = (0.0, 0.0, 0.0);
+    for (x, y) in x.iter().zip(&y) {
+        sxy += (x - mx) * (y - my);
+        sxx += (x - mx) * (x - mx);
+        syy += (y - my) * (y - my);
+    }
+    sxy / (sxx * syy).sqrt()
+}
+
 impl fmt::Display for PoissonEvaluation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let r = &self.record;
-        let (n, n_test) = (r.n, r.n_test);
+        let (n, s, n_test) = (r.n, r.s, r.n_test);
         writeln!(
             f,
-            "errors on the test split (n = {n}, s = {}, {n_test} samples), device {}, backend features {:?}",
-            n - 1,
-            r.device,
-            r.backend_features
+            "errors on the test split (n = {n}, s = {s}, {n_test} samples), device {}, backend features {:?}",
+            r.device, r.backend_features
         )?;
         writeln!(f, "{:<34} {:>12} {:>12}", "error", "mean", "max")?;
         writeln!(f, "{:<34} {}", "1 solver (quoted)", r.error1)?;
@@ -405,6 +459,11 @@ impl fmt::Display for PoissonEvaluation {
             f,
             "worst sample (max error 4): {worst}; plot it with: poisson_plot -- {} {worst}",
             self.run_dir.display()
+        )?;
+        writeln!(
+            f,
+            "correlation of ln(error 4) with ln ||u|| over the test split: {:.3}",
+            r.error4_u_norm_log_correlation
         )?;
 
         writeln!(f, "\ncheck: {}", self.error2)?;
@@ -489,14 +548,23 @@ mod tests {
         Transfers::new(u.dim().1).to_uniform_all(u.view())
     }
 
+    // the floor identity of design §13.3 at s = n - 1 and at coarser learning grids: a
+    // prediction equal to R u has error 3 = 0 and error 4 = error 2
     #[test]
     fn exact_prediction_has_only_transfer_error() {
         let n = 17;
         let u = vanishing_u(3, n);
-        let pred = to_uniform(&u);
-        let e = poisson_errors(pred.view(), u.view());
+        for s in [n - 1, 8, 5] {
+            let transfers = Transfers::with_s(n, s);
+            let pred = transfers.to_uniform_all(u.view());
+            let e = poisson_errors(pred.view(), u.view(), &transfers);
+            assert_exact_prediction(&e, s);
+        }
+    }
+
+    fn assert_exact_prediction(e: &PoissonErrors, s: usize) {
         for k in 0..3 {
-            assert!(e.model[k] <= 1e-14, "e3[{k}] = {:e}", e.model[k]);
+            assert!(e.model[k] <= 1e-14, "s = {s}: e3[{k}] = {:e}", e.model[k]);
             assert!(
                 (e.total[k] - e.transfer[k]).abs() <= 1e-14,
                 "e4 {:e} vs e2 {:e}",
@@ -504,8 +572,8 @@ mod tests {
                 e.transfer[k]
             );
             assert!(
-                e.transfer[k] > 0.0 && e.transfer[k] < 1e-2,
-                "e2 = {:e}",
+                e.transfer[k] > 0.0 && e.transfer[k] < 1e-1,
+                "s = {s}: e2 = {:e}",
                 e.transfer[k]
             );
             assert!(
@@ -533,7 +601,7 @@ mod tests {
             (1.0 + k as f64) * (1.0 - x[i] * x[i]) * (1.0 - x[j] * x[j])
         });
         let pred = to_uniform(&u) + c;
-        let e = poisson_errors(pred.view(), u.view());
+        let e = poisson_errors(pred.view(), u.view(), &Transfers::new(n));
         for k in 0..2 {
             let scale = 1.0 + k as f64;
             // û = c on ∂Ω: T_uc reproduces constants and both grids share the endpoints.
@@ -562,7 +630,7 @@ mod tests {
         let pred = Array3::from_shape_fn((count, s, s), |(k, i, j)| {
             target[[k, i, j]] + 0.05 * noise(k, i, j)
         });
-        let e = poisson_errors(pred.view(), u.view());
+        let e = poisson_errors(pred.view(), u.view(), &Transfers::new(n));
         let mean = e.model.iter().sum::<f64>() / count as f64;
 
         let device: Device = Default::default();
@@ -580,15 +648,41 @@ mod tests {
     fn sample_count_mismatch_panics() {
         let u = vanishing_u(3, 9);
         let pred = Array3::<f64>::zeros((2, 8, 8));
-        poisson_errors(pred.view(), u.view());
+        poisson_errors(pred.view(), u.view(), &Transfers::new(9));
     }
 
     #[test]
-    #[should_panic(expected = "s = n - 1 = 8 points, got 9")]
+    #[should_panic(expected = "must be on the transfers' grids (s, n)")]
     fn wrong_uniform_size_panics() {
         let u = vanishing_u(1, 9);
         let pred = Array3::<f64>::zeros((1, 9, 9));
-        poisson_errors(pred.view(), u.view());
+        poisson_errors(pred.view(), u.view(), &Transfers::new(9));
+    }
+
+    #[test]
+    #[should_panic(expected = "must be on the transfers' grids (s, n)")]
+    fn wrong_cgl_size_panics() {
+        let u = vanishing_u(1, 9);
+        let pred = Array3::<f64>::zeros((1, 4, 4));
+        poisson_errors(pred.view(), u.view(), &Transfers::with_s(17, 4));
+    }
+
+    #[test]
+    fn u_norm_is_the_cc_norm() {
+        // u = (1 - x²)(1 - y²): ∫∫ u² dA = (16/15)², exact in Clenshaw–Curtis
+        let n = 9;
+        let x = nodes(n);
+        let u = Array3::from_shape_fn((1, n, n), |(_, i, j)| {
+            (1.0 - x[i] * x[i]) * (1.0 - x[j] * x[j])
+        });
+        let transfers = Transfers::with_s(n, 4);
+        let pred = transfers.to_uniform_all(u.view());
+        let e = poisson_errors(pred.view(), u.view(), &transfers);
+        assert!(
+            (e.u_norm[0] - 16.0 / 15.0).abs() <= 1e-14,
+            "{}",
+            e.u_norm[0]
+        );
     }
 
     #[test]
@@ -596,7 +690,7 @@ mod tests {
     fn non_square_pred_panics() {
         let u = vanishing_u(1, 9);
         let pred = Array3::<f64>::zeros((1, 8, 7));
-        poisson_errors(pred.view(), u.view());
+        poisson_errors(pred.view(), u.view(), &Transfers::new(9));
     }
 
     #[test]
@@ -604,7 +698,7 @@ mod tests {
     fn non_square_u_panics() {
         let u = Array3::<f64>::zeros((1, 9, 8));
         let pred = Array3::<f64>::zeros((1, 8, 8));
-        poisson_errors(pred.view(), u.view());
+        poisson_errors(pred.view(), u.view(), &Transfers::new(9));
     }
 
     #[test]
@@ -612,7 +706,7 @@ mod tests {
     fn too_small_n_panics() {
         let u = Array3::<f64>::zeros((1, 3, 3));
         let pred = Array3::<f64>::zeros((1, 2, 2));
-        poisson_errors(pred.view(), u.view());
+        poisson_errors(pred.view(), u.view(), &Transfers::new(3));
     }
 
     /// One metrics row per epoch with the given `test_l2`.
@@ -639,6 +733,7 @@ mod tests {
             transfer: vec![transfer; k],
             model: vec![0.25; k],
             total: total.to_vec(),
+            u_norm: vec![1.0; k],
             boundary_max_ratio: vec![0.0; k],
             boundary_rel_rms: vec![rms; k],
         }
@@ -660,9 +755,13 @@ mod tests {
     }
 
     fn eval(errors: &PoissonErrors, sidecar: &SidecarRecord) -> PoissonEvaluation {
+        eval_at(errors, sidecar, 64)
+    }
+
+    fn eval_at(errors: &PoissonErrors, sidecar: &SidecarRecord, s: usize) -> PoissonEvaluation {
         evaluate(
             errors,
-            65,
+            &Transfers::with_s(65, s),
             sidecar,
             &last_epoch(),
             "Cpu".into(),
@@ -729,12 +828,44 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "sidecar n, s, d differ")]
+    fn evaluate_skips_the_sidecar_at_another_s() {
+        // error 2 at s = 16 is not the sidecar's (s = 64), so it is not compared
+        let e = synthetic(&[0.1, 0.2], 3e-3, 0.0);
+        let ev = eval_at(&e, &sidecar(2, 1e-5), 16);
+        assert_eq!(ev.record.s, 16);
+        assert!(!ev.record.error2_compared && ev.record.cross_checks_passed);
+        assert!(
+            ev.to_string()
+                .contains("the sidecar's error 2 is at s = 64, this run's at s = 16"),
+            "{ev}"
+        );
+        assert!(ev.to_string().contains("(n = 65, s = 16, 2 samples)"));
+    }
+
+    #[test]
+    fn log_correlation_of_error_with_norm() {
+        // error 4 = c / ||u||: ln e = ln c - ln ||u||, correlation -1
+        let norm = [0.5, 1.0, 2.0, 4.0];
+        let err: Vec<f64> = norm.iter().map(|v| 0.01 / v).collect();
+        assert!((log_correlation(&err, &norm) + 1.0).abs() <= 1e-12);
+        assert!((log_correlation(&norm, &norm) - 1.0).abs() <= 1e-12);
+        assert!(log_correlation(&[0.1], &[1.0]).is_nan());
+
+        let mut e = synthetic(&[0.1, 0.05, 0.025], 1e-5, 0.0);
+        e.u_norm = vec![1.0, 2.0, 4.0];
+        let ev = eval(&e, &sidecar(3, 1e-5));
+        assert!((ev.record.error4_u_norm_log_correlation + 1.0).abs() <= 1e-12);
+        assert_eq!(ev.record.u_norm_per_sample, [1.0, 2.0, 4.0]);
+        assert_eq!(ev.record.error4_per_sample, [0.1, 0.05, 0.025]);
+    }
+
+    #[test]
+    #[should_panic(expected = "sidecar n, d differ")]
     fn evaluate_rejects_another_grid() {
         let e = synthetic(&[0.1], 1e-5, 0.0);
         evaluate(
             &e,
-            33,
+            &Transfers::new(33),
             &sidecar(1, 1e-5),
             &last_epoch(),
             "Cpu".into(),

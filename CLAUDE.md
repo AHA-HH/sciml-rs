@@ -66,7 +66,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
   read), `save_plot`, `save_normalizers`, `save_weights`, `save_costs` (`costs.json`,
   Poisson runs since Phase 5 T4); `open(dir)`, `load_fno`, `model_config`,
-  `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`. Run-file names appear
+  `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`. Run-file names appear
   nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `src/neural_operators/chebyshev/` builds without features, except `diff_matrix`/
   `diff2_matrix`, behind the `datagen` feature (need system libfftw3; design §12, decision
@@ -98,9 +98,11 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   (`load_poisson_cheb_field` reads one split's raw field, `PoissonField::F` or `U`, on the
   CGL grid, untransferred).
 - `metrics/poisson` is ungated (ndarray, f64): `poisson_errors` gives design §7's errors 2–5
-  on the Chebyshev grid and `check_error3` the cross-check against the run's metrics, driven by
-  `examples/predict/poisson.rs` (`predict_poisson`), which writes `errors.json` into the
-  run directory.
+  on the Chebyshev grid with the run's `Transfers` (any s since Phase 5 T6: error 2 is the
+  transfer-only floor, 3 the coarse error, 4 the fine-grid error) and `check_error3` the
+  cross-check against the run's metrics, driven by `examples/predict/poisson.rs`
+  (`predict_poisson`), which writes `errors.json` (`ERRORS_JSON`) into the run directory;
+  `poisson_matrix` tabulates evaluated runs.
 - `training/trainer` (`train_fno`, one trainer for every PDE: `Some(y)` decodes with the
   target normaliser, `None` trains in physical units), driven on those datasets by
   `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
@@ -193,14 +195,17 @@ than trusting prose when checking how an API behaves.
 - Train on Poisson: `cargo run --release --example train_poisson [--features metal] [-- [<padding>] [<n>] [<s>] [<seed>]]`
   (the first argument overrides `PADDING`, the second picks the stage, n ∈ {65, 129, 257},
   default 65, the third the learning grid s, default n − 1, with modes min(12, s/2), the
-  fourth the seed, default 42; needs that stage in `datasets/poisson/`; the predict
-  examples evaluate only s = n − 1 runs until Phase 5 T6). On cuda:
+  fourth the seed, default 42; needs that stage in `datasets/poisson/`; `predict_poisson`
+  evaluates any s, `poisson_resolution` and `poisson_plot` only s = n − 1). On cuda:
   `--no-default-features --features cuda`
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution -- runs/<run_dir> [<rate> ...]` on Burgers runs, s = 8192 / rate;
   `predict_darcy`, `darcy_plot` on Darcy runs)
 - Evaluate a Poisson run (the five errors, the boundary verdict, the worst sample):
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`
+- Phase 5 comparison table and plots from evaluated Poisson runs (mean and min–max over
+  seeds per (padding, s); plots `<stem>_*.png` beside the table, skipped without gnuplot):
+  `cargo run --release --example poisson_matrix -- docs/phase5/results.md runs/<run_dir> ...`
 - Resolution study (errors 3 and 4 of a Poisson run on finer grids at the run's K, weights
   unchanged, normalisers refit on that n's `_train` split):
   `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> <n> [<n> ...]`
