@@ -17,8 +17,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   docs/phase4s/README.md; design §10, decision 25), closed 2026-10-24 with re-review
   grade B (docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md).
   Next (design §13, decision 30, which supersedes decision 24's Phase 5/6 split):
-  Phase 7, sample efficiency. Phase 6 (SVD/POD information content) may run
-  beside Phase 5. Phase 8 (θ-map) is optional; Phase 9 (HPC: profiling, checkpointing,
+  Phase 7, sample efficiency. Phase 6 (SVD/POD information content, planned
+  2026-10-27: docs/phase6/README.md, briefs docs/phase6/T1–T2) runs beside Phase 5. Phase 8 (θ-map) is optional; Phase 9 (HPC: profiling, checkpointing,
   multi-GPU) is a separate systems track. Their 4s prerequisites (T10/T12 for Phase 9
   T2, T16 for Phase 8) are merged. Each phase gets its README and briefs when it
   starts; 4s briefs are in docs/phase4s/T*.md.
