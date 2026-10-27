@@ -5,7 +5,6 @@
 #![allow(clippy::redundant_field_names)]
 
 use burn::config::Config;
-use std::process::Command;
 
 /// A run's costs, written by the training example and completed by predict
 /// ([`RunDir::save_costs`](super::RunDir::save_costs),
@@ -30,29 +29,19 @@ pub struct RunCosts {
     pub host_to_device_bytes_train: usize,
     /// Bytes the test split uploads to the device, as for the train split.
     pub host_to_device_bytes_test: usize,
-    /// Peak GPU memory, or `"unavailable"`: measured, never estimated. Nothing measures
-    /// it yet; on cuda it may be filled in by hand from `nvidia-smi`.
+    /// Peak GPU memory as `"<N> MiB"`, the peak `nvidia-smi` reported for the whole
+    /// device while the run trained (e.g. `"12345 MiB"`), or `"unavailable"`: measured,
+    /// never estimated. Nothing in the crate measures it; on cuda it is filled in from
+    /// `nvidia-smi` sampled beside the run.
     pub peak_gpu_memory: String,
     /// The backend features compiled in
     /// ([`backend_features`](crate::neural_operators::utils::backend::backend_features)).
     pub backend_features: Vec<String>,
     /// The training device's debug name.
     pub device: String,
-    /// The commit the run was trained at ([`git_commit`]).
+    /// The commit the run was trained at
+    /// ([`git_commit`](crate::neural_operators::utils::backend::git_commit)).
     pub git_commit: String,
     /// Trainable parameters of the model (Burn's `Module::num_params`).
     pub num_params: usize,
-}
-
-/// `git rev-parse HEAD` in this crate's checkout, or `"unknown"` if git is unavailable or
-/// this is not a checkout.
-pub fn git_commit() -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map_or_else(|| "unknown".to_string(), |s| s.trim().to_string())
 }
