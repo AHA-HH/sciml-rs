@@ -57,11 +57,11 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
-  (`backend_features`).
+  (`backend_features`, `git_commit`).
 - `training/`: `config` (`TrainingConfig`), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
   `training_loop` with its `EpochObserver`, `train_fno`), `learner` (Burn `Learner` impls).
-- `runs` (`RunDir`, `EpochMetrics`, `RunCosts`, `git_commit`) owns the run directory:
+- `runs` (`RunDir`, `EpochMetrics`, `RunCosts`) owns the run directory:
   `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
   read), `save_plot`, `save_normalizers`, `save_weights`, `save_costs` (`costs.json`,

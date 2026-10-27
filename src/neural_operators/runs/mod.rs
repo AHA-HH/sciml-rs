@@ -22,7 +22,7 @@ mod costs;
 mod csv;
 mod plots;
 
-pub use costs::{RunCosts, git_commit};
+pub use costs::RunCosts;
 
 use std::error::Error;
 use std::io;
