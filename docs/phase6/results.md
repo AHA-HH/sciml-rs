@@ -1,6 +1,6 @@
 # Phase 6 results
 
-Dataset-structure analysis, not network performance (design §13.4): no model is trained or evaluated. Written by `poisson_pod` at commit `67a3a70ed9691d0108a6a7d351bb2b548afaf9d1`; every number below comes from it.
+Dataset-structure analysis, not network performance (design §13.4): no model is trained or evaluated. Written by `poisson_pod` at commit `f79bc046d4d0673c6ee84ac071a5b27bd9767ae6`; every number below comes from it.
 
 ## T1: POD on the 129 CGL grid
 
@@ -10,10 +10,10 @@ Stage 3: n = 129, K = 64; the basis fitted on the 1000 train samples, the 200 te
 
 The expected scatter of the trace is one standard deviation of the sample variance of a Gaussian field with the population spectrum, √(2 Σ λ_i² / (N − 1)) / Σ λ_i.
 
-| Field | SVD wall time (s) | Trace, empirical | Trace, population | Ratio | Expected scatter |
+| Field | Fit wall time (s) | Trace, empirical | Trace, population | Ratio | Expected scatter |
 | --- | --- | --- | --- | --- | --- |
-| f | 1.72 | 3.9642e0 | 4.0000e0 | 0.9911 | 1.4e-2 |
-| u | 1.56 | 4.8474e-2 | 4.9979e-2 | 0.9699 | 3.8e-2 |
+| f | 2.49 | 3.9642e0 | 4.0000e0 | 0.9911 | 1.4e-2 |
+| u | 2.22 | 4.8474e-2 | 4.9979e-2 | 0.9699 | 3.8e-2 |
 
 ### Energy ranks
 
