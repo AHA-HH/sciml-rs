@@ -13,9 +13,10 @@
 //! `gesvd`, not RLST's `svd` (`gesdd`): on the stage 3 solutions restricted to s = 16 and
 //! 32, macOS Accelerate's `dgesdd` returned singular values with Σ σ_i² up to 44 times the
 //! matrix's squared Frobenius norm, and `info = 0`, when asked for vectors (Phase 6 T2).
-//! [`Pod::fit`] checks that identity on every fit.
+//! [`Pod::fit`] checks that identity on every fit, and that the kept modes hold exactly
+//! the energy their singular values claim, so a wrong U is caught too.
 
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ArrayView3, Axis, s};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ArrayView3, Axis, ShapeBuilder, s};
 use rlst::dense::linalg::lapack::interface::gesvd::{Gesvd, JobU, JobVt};
 
 /// The POD of N snapshots on an a × b grid: the snapshot mean, every singular value of the
@@ -45,8 +46,10 @@ impl Pod {
     ///
     /// # Panics
     /// If N < 2, `wx` has not a entries or `wy` not b, a weight is negative or not finite,
-    /// `keep` exceeds min(a·b, N), LAPACK's SVD fails, or Σ σ_i² differs from the squared
-    /// Frobenius norm of the matrix by more than 1e-10 relative (a wrong decomposition).
+    /// `keep` exceeds min(a·b, N), LAPACK's SVD fails, or the decomposition is wrong: Σ σ_i²
+    /// differs from the squared Frobenius norm of the matrix, or the energy of its
+    /// projection on the kept modes from Σ_{i ≤ keep} σ_i², by more than 1e-10 of that
+    /// norm.
     pub fn fit(
         snapshots: ArrayView3<f64>,
         wx: ArrayView1<f64>,
@@ -71,23 +74,19 @@ impl Pod {
         let mean = snapshots.mean_axis(Axis(0)).expect("N >= 2");
         let sqrt_w = Array2::from_shape_fn((a, b), |(i, j)| (wx[i] * wy[j]).sqrt());
 
-        // column-major [a·b, N], as LAPACK takes it
-        let rows = a * b;
-        let mut m = vec![0.0; rows * n];
-        let mut frobenius_sq = 0.0;
-        weighted_centred(snapshots, mean.view(), sqrt_w.view(), |p, k, v| {
-            m[p + k * rows] = v;
-            frobenius_sq += v * v;
-        });
-        let k = rows.min(n);
+        let m = weighted_centred(snapshots, mean.view(), sqrt_w.view());
+        let (rows, k) = (a * b, n.min(a * b));
         let mut sv = vec![0.0; k];
         let mut u = vec![0.0; rows * k];
+        // gesvd overwrites its input, and the checks below need m. JobVt::N: the right
+        // singular vectors (N × N) are never used.
+        let mut work = m.clone();
         f64::gesvd(
             JobU::S,
             JobVt::N,
             rows,
             n,
-            &mut m,
+            work.as_slice_memory_order_mut().expect("column-major"),
             rows,
             &mut sv,
             Some(&mut u),
@@ -96,17 +95,16 @@ impl Pod {
             1,
         )
         .expect("Pod::fit: SVD failed");
-        let energy: f64 = sv.iter().map(|s| s * s).sum();
-        assert!(
-            (energy - frobenius_sq).abs() <= 1e-10 * frobenius_sq,
-            "Pod::fit: Σ σ² = {energy:e} but the squared Frobenius norm is {frobenius_sq:e}: \
-             LAPACK returned a wrong decomposition"
-        );
+        let modes = Array2::from_shape_vec((rows, k).f(), u)
+            .expect("gesvd's U is [a·b, min(a·b, N)]")
+            .slice_move(s![.., ..keep]);
+
+        check_decomposition(&m, &sv, modes.view());
         Self {
             mean,
             sqrt_w,
             singular_values: Array1::from(sv),
-            modes: Array2::from_shape_fn((rows, keep), |(p, q)| u[p + q * rows]),
+            modes,
             n_samples: n,
         }
     }
@@ -149,7 +147,7 @@ impl Pod {
         samples: ArrayView3<f64>,
         ranks: &[usize],
     ) -> Vec<Array1<f64>> {
-        let (m, a, b) = samples.dim();
+        let (_, a, b) = samples.dim();
         assert_eq!(
             (a, b),
             self.mean.dim(),
@@ -161,10 +159,7 @@ impl Pod {
             "Pod::reconstruction_errors: rank {r_max} exceeds the {} kept modes",
             self.modes.ncols()
         );
-        let mut v = Array2::zeros((a * b, m));
-        weighted_centred(samples, self.mean.view(), self.sqrt_w.view(), |p, k, x| {
-            v[[p, k]] = x
-        });
+        let v = weighted_centred(samples, self.mean.view(), self.sqrt_w.view());
         let norm = |c: ArrayView1<f64>| c.dot(&c).sqrt();
         let v_norm: Vec<f64> = v.columns().into_iter().map(norm).collect();
         let coeffs = self.modes.slice(s![.., ..r_max]).t().dot(&v);
@@ -218,22 +213,47 @@ pub fn cumulative_energy(energies: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// Calls `put(p, k, √w[i, j] · (samples[k, i, j] − mean[i, j]))` for each sample k and
-/// grid point p = i·b + j (row-major), with `samples: [M, a, b]`, `mean` and `sqrt_w`
-/// `[a, b]`: column k of the weighted, centred `[a·b, M]` snapshot matrix, written into
-/// whichever store the caller holds.
+/// Panics unless `sv` and `modes` (`[rows, keep]`, the leading left singular vectors) are
+/// a decomposition of `m: [rows, N]`: Σ σ_i² equals ‖m‖²_F, and the energy of m's
+/// projection on the modes equals Σ_{i ≤ keep} σ_i², both within 1e-10 ‖m‖²_F. LAPACK
+/// can return a wrong decomposition with `info = 0` (module docs).
+fn check_decomposition(m: &Array2<f64>, sv: &[f64], modes: ArrayView2<f64>) {
+    let sum_sq = |s: &[f64]| s.iter().map(|s| s * s).sum::<f64>();
+    let frobenius_sq: f64 = m.iter().map(|v| v * v).sum();
+    let energy = sum_sq(sv);
+    assert!(
+        (energy - frobenius_sq).abs() <= 1e-10 * frobenius_sq,
+        "Pod::fit: Σ σ² = {energy:e} but the squared Frobenius norm is {frobenius_sq:e}: \
+         LAPACK returned a wrong decomposition"
+    );
+    let kept = sum_sq(&sv[..modes.ncols()]);
+    let projected: f64 = modes.t().dot(m).iter().map(|c| c * c).sum();
+    assert!(
+        (projected - kept).abs() <= 1e-10 * frobenius_sq,
+        "Pod::fit: the kept modes hold {projected:e} of the energy, their singular values \
+         {kept:e}: LAPACK returned wrong singular vectors"
+    );
+}
+
+/// The weighted, centred snapshot matrix `[a·b, M]` of `samples: [M, a, b]`, column-major
+/// as LAPACK takes it: column k is √w ⊙ (samples[k] − mean) flattened row-major (grid
+/// point (i, j) in row i·b + j), with `mean` and `sqrt_w` `[a, b]`.
 fn weighted_centred(
     samples: ArrayView3<f64>,
     mean: ArrayView2<f64>,
     sqrt_w: ArrayView2<f64>,
-    mut put: impl FnMut(usize, usize, f64),
-) {
-    let b = mean.ncols();
-    for (k, x) in samples.outer_iter().enumerate() {
-        for ((i, j), x) in x.indexed_iter() {
-            put(i * b + j, k, sqrt_w[[i, j]] * (x - mean[[i, j]]));
-        }
+) -> Array2<f64> {
+    let (m, a, b) = samples.dim();
+    let mut v = Array2::zeros((a * b, m).f());
+    for (mut column, x) in v.columns_mut().into_iter().zip(samples.outer_iter()) {
+        let centred = &sqrt_w * &(&x - &mean);
+        column.assign(
+            &centred
+                .into_shape_with_order(a * b)
+                .expect("standard layout"),
+        );
     }
+    v
 }
 
 #[cfg(test)]
@@ -384,6 +404,38 @@ mod tests {
                 "{e_cgl} vs {e_grid}"
             );
         }
+    }
+
+    /// The weighted centred matrix of the rank-3 family and its exact decomposition.
+    fn rank3_decomposition() -> (Array2<f64>, Vec<f64>, Array2<f64>) {
+        let snapshots = rank3_family(12, 0);
+        let pod = fit_rank3(3);
+        let m = weighted_centred(snapshots.view(), pod.mean.view(), pod.sqrt_w.view());
+        (m, pod.singular_values.to_vec(), pod.modes)
+    }
+
+    #[test]
+    fn check_decomposition_accepts_the_fit() {
+        let (m, sv, modes) = rank3_decomposition();
+        check_decomposition(&m, &sv, modes.view());
+    }
+
+    #[test]
+    #[should_panic(expected = "LAPACK returned a wrong decomposition")]
+    fn check_decomposition_catches_wrong_singular_values() {
+        let (m, mut sv, modes) = rank3_decomposition();
+        sv[1] *= 3.0;
+        check_decomposition(&m, &sv, modes.view());
+    }
+
+    #[test]
+    #[should_panic(expected = "LAPACK returned wrong singular vectors")]
+    fn check_decomposition_catches_wrong_modes() {
+        let (m, sv, mut modes) = rank3_decomposition();
+        // swap in a unit vector that misses most of mode 2's energy
+        modes.column_mut(1).fill(0.0);
+        modes[[0, 1]] = 1.0;
+        check_decomposition(&m, &sv, modes.view());
     }
 
     #[test]
