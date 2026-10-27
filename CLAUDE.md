@@ -17,8 +17,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   docs/phase4s/README.md; design §10, decision 25), closed 2026-10-24 with re-review
   grade B (docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md).
   Next (design §13, decision 30, which supersedes decision 24's Phase 5/6 split):
-  Phase 7, sample efficiency. Phase 6 (SVD/POD information content, planned
-  2026-10-27: docs/phase6/README.md, briefs docs/phase6/T1–T2) runs beside Phase 5. Phase 8 (θ-map) is optional; Phase 9 (HPC: profiling, checkpointing,
+  Phase 7, sample efficiency. Phase 6 (SVD/POD information content, beside Phase 5) is done
+  2026-10-27: docs/phase6/README.md, results docs/phase6/results.md. Phase 8 (θ-map) is optional; Phase 9 (HPC: profiling, checkpointing,
   multi-GPU) is a separate systems track. Their 4s prerequisites (T10/T12 for Phase 9
   T2, T16 for Phase 8) are merged. Each phase gets its README and briefs when it
   starts; 4s briefs are in docs/phase4s/T*.md.
@@ -56,7 +56,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
-  errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
+  errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
+  since Accelerate's `gesdd` returned wrong singular values), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
   (`backend_features`, `git_commit`).
 - `training/`: `config` (`TrainingConfig`), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
@@ -204,7 +205,8 @@ than trusting prose when checking how an API behaves.
 - Resolution study (errors 3 and 4 of a Poisson run on finer grids at the run's K, weights
   unchanged, normalisers refit on that n's `_train` split):
   `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> <n> [<n> ...]`
-- POD of the stage 3 f and u (Phase 6; tables to `<out.md>`, plots beside it):
+- POD of the stage 3 f and u, on the CGL grid and the learning grids (Phase 6; tables to
+  `<out.md>`, plots beside it):
   `cargo run --release --features datagen --example poisson_pod -- docs/phase6/results.md`
 - Plot one Poisson test sample (f, u, û, û − u on the CGL nodes, on the run's stage; writes
   `prediction_<sample>.png`):

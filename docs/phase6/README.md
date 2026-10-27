@@ -1,6 +1,6 @@
 # Phase 6: information content of the samples
 
-As of 2026-10-27; T1 done, T2 to do (decision 30, amended 2026-10-27 with the Phase 6
+As of 2026-10-27; done, T1 and T2 (decision 30, amended 2026-10-27 with the Phase 6
 planning decisions). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 6,
 §13.4). `docs/CONVENTIONS.md` wins on any conflict. Runs beside Phase 5 (design §10).
 
@@ -67,7 +67,11 @@ modes, or from that many samples. No model is trained or evaluated in this phase
   f64; the N × N Gram matrix (method of snapshots) squares it, so it is not used.
 - **No ungated SVD exists.** The crate's dense linear algebra is RLST behind `datagen`.
   RLST 0.9 has `SingularValueDecomposition::svd(SvdMode::Compact)` and `singular_values`
-  (LAPACK `gesdd`), and `SymmEig::eigh`. ndarray has none.
+  (LAPACK `gesdd`), and `SymmEig::eigh`. ndarray has none. *Found in T2:* macOS
+  Accelerate's `dgesdd` returned wrong singular values (Σ σ² up to 44 times ‖M‖²_F) with
+  `info = 0` when computing vectors, on u restricted to s = 16 and 32; `Pod` therefore
+  calls LAPACK `gesvd` through RLST's `Gesvd` and checks Σ σ² = ‖M‖²_F on every fit. T1's
+  CGL fits agree between the two to 1e-15, so its results stand.
 - **Scale.** The weighted snapshot matrix of one field is 16641 × 1000 f64, 133 MB.
   `load_poisson_cheb_field` reads it as `[1000, 129, 129]`.
 
@@ -123,9 +127,9 @@ Filled in as tasks merge. Phase 6 is done when every row has a value.
 | Ranks for 90 / 99 / 99.9% energy, f and u, 129 CGL (train) | f 36 / 284 / 743 (population 38 / 418 / 2175; the 99.9% rank is limited by N − 1 = 999, and the 99% rank is low because the sample's energy counts only 999 directions); u 2 / 6 / 17 (population 2 / 6 / 17) | T1 |
 | Reconstruction error against rank, train and test, f and u | Mean, train / test: f 0.546 / 0.547 at r = 10, 0.203 / 0.225 at r = 100, 0.063 / 0.122 at r = 500, 6e-15 / 0.099 at r = 999; u 8.7e-2 / 9.0e-2, 4.4e-3 / 4.8e-3, 3.1e-4 / 6.4e-4, 5e-15 / 3.5e-4 | T1 |
 | Forcing ranks against solution ranks | u needs 2 modes for 90% where f needs 36, and 17 for 99.9% where f's exceeds N; see below | T1 |
-| Ranks and reconstruction error at s = 16, 32, 64, 128 (after R) | | T2 |
-| How rank relates to learning resolution, with the Phase 5 transfer-only floor | | T2 |
-| Fourier spectra (optional) | | T2 |
+| Ranks and reconstruction error at s = 16, 32, 64, 128 (after R) | 90 / 99 / 99.9% ranks, f: 34 / 143 / 188, 36 / 266 / 595, 36 / 284 / 741, 36 / 284 / 743 (CGL 36 / 284 / 743); u: 2 / 6 / 17 on every grid. At most min((s − 2)², 999) directions: 196 / 900 / 999 / 999. Leading 10 eigenvalues within 0.5% of the CGL fit (f, s = 16), equal to 4 digits for u everywhere; trace ratio f 0.9957 / 0.9996 / 1.0000 / 1.0000, u 1.0000. Mean test error at r = 100: f 0.193 / 0.223 / 0.225 / 0.225, u 4.6e-3 / 4.8e-3 / 4.8e-3 / 4.8e-3 | T2, `results.md` |
+| How rank relates to learning resolution, with the Phase 5 transfer-only floor | u keeps its structure from s = 16 up; f's 90% rank is unchanged, its 99% and 99.9% ranks fall below s = 64, capped by the grid's interior points. The Phase 5 floor at small s is P's error, not structure R removes from u; see below | T2 |
+| Fourier spectra (optional) | Skipped: ndarray has no FFT, and Burn's `rfft` would add a backend path to a host-only example | T2 |
 
 **Forcings against solutions (T1).** u = (−Δ)⁻¹ f scales mode (k, l) by μ_kl⁻¹ and its
 variance by μ_kl⁻², so u's spectrum is f's damped by a factor that grows with k² + l²:
@@ -138,14 +142,31 @@ at r = 999, of the order of the 0.36% of its population energy beyond the top 99
 (√0.0036 = 0.06) plus the error in the estimated trailing modes. None of this is a
 statement about the FNO (§13.4).
 
+**Rank against learning resolution (T2).** R costs u nothing measurable. On every learning
+grid u's ranks are 2 / 6 / 17, its leading ten eigenvalues and its trace equal the CGL
+fit's to 4 digits, and its held-out error at r = 100 is 4.6e-3 at s = 16 against 4.8e-3
+on the CGL grid: everything that carries u's energy is a low sine mode, which 16 points
+resolve. So the Phase 5 transfer-only floor at s = 16 (3.03e-3) does not come from
+structure R removes from u; Phase 5 T1 found it is P's own error. f is where resolution
+shows. Its 90% rank is 34–36 on every grid, but its 99% and 99.9% ranks fall from
+284 / 743 (s ≥ 64) to 266 / 595 at s = 32 and 143 / 188 at s = 16. f and u vanish on ∂Ω
+and R keeps the boundary nodes, so the restricted fields live on the (s − 2)² interior
+points, 900 at s = 32 and 196 at s = 16; at s = 16 196 modes reconstruct both splits to
+2e-15. The energy is folded rather than lost: f's trace at s = 16 is 0.9957 of the CGL
+one, although Phase 5 T1 measured 4.2% of f's energy above the s − 2 band, consistent
+with an unfiltered R aliasing that band onto the coarse grid. s = 64 and 128 keep f's
+structure as the CGL grid holds it. What this cannot show: whether the FNO, whose modes
+are fixed Fourier modes truncated at min(12, s/2), uses any of this. A grid that holds
+the data's structure is necessary for a model, not sufficient (§13.4).
+
 ## Exit checklist
 
-- [ ] T1–T2 merged.
-- [ ] The SVD results use training data only (the test split only projected).
-- [ ] Forcings and solutions analysed separately.
-- [ ] Rank/error curves generated.
-- [ ] The relationship between dataset rank and learning-grid resolution discussed.
-- [ ] The results labelled as dataset-structure analysis, not network performance.
-- [ ] D5 recorded in design §12 under decision 30.
-- [ ] Every row of Results filled in.
-- [ ] Any result that contradicts the design recorded in design §12, dated.
+- [ ] T1–T2 merged (T1 #76; T2 on merge).
+- [x] The SVD results use training data only (the test split only projected).
+- [x] Forcings and solutions analysed separately.
+- [x] Rank/error curves generated.
+- [x] The relationship between dataset rank and learning-grid resolution discussed.
+- [x] The results labelled as dataset-structure analysis, not network performance.
+- [x] D5 recorded in design §12 under decision 30.
+- [x] Every row of Results filled in.
+- [x] Any result that contradicts the design recorded in design §12, dated.

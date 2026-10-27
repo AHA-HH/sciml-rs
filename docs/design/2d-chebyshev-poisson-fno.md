@@ -1531,6 +1531,14 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
         ranks for 90 / 99 / 99.9% energy are 38 / 418 / 2175 for f and 2 / 6 / 17 for u,
         so f's 99.9% rank exceeds the N − 1 = 999 directions of the sample and is
         reported as limited by N.
+    - **Amendment, Phase 6 close-out (2026-10-27).** The POD uses LAPACK `gesvd` through
+      RLST, not RLST's `svd` (`gesdd`): on the stage 3 solutions restricted to s = 16 and
+      32, macOS Accelerate's `dgesdd` returned singular values with Σ σ² up to 44 times the
+      matrix's squared Frobenius norm, and `info = 0`. `Pod::fit` now checks that identity
+      on every fit. T1's CGL results agree between the two to 1e-15. No result contradicts
+      §13.4: u's ranks (2 / 6 / 17) are unchanged on every learning grid, and f's 99% and
+      99.9% ranks fall below s = 64, capped by the (s − 2)² interior points
+      (docs/phase6/README.md, Results). Recorded by the author (AHA-HH), 2026-10-27.
 
 ## 13. Research programme after Phase 4s
 

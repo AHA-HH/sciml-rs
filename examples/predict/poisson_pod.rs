@@ -1,7 +1,8 @@
-//! The POD of the stage 3 forcings f and solutions u on the 129 CGL grid (Phase 6 T1,
-//! design §13.4): singular values, energy ranks, reconstruction error against rank on the
-//! train and test splits, and the check against the closed-form spectrum of design §3.3.
-//! Dataset-structure analysis: no model is trained or evaluated.
+//! The POD of the stage 3 forcings f and solutions u on the 129 CGL grid (Phase 6 T1) and
+//! on the Phase 5 learning grids s ∈ {16, 32, 64, 128} after R (T2), design §13.4:
+//! singular values, energy ranks, reconstruction error against rank on the train and test
+//! splits, the check against the closed-form spectrum of design §3.3, and the ranks against
+//! the learning grid. Dataset-structure analysis: no model is trained or evaluated.
 //!
 //! Run with: cargo run --release --features datagen --example poisson_pod -- <out.md>
 //!
@@ -10,9 +11,12 @@
 //! both axes (D5, docs/phase6/README.md); the test split is only projected. The
 //! population covariance has eigenvalues λ_kl / S_K for f and λ_kl / (S_K μ_kl²) for u
 //! (k, l ≤ K), both decreasing in k² + l²; degenerate modes mix in the sample, so they are
-//! compared summed over each group of equal k² + l², and through the trace. Writes the
-//! tables as Markdown to `<out.md>` and, if gnuplot is installed, the plots
-//! `<stem>_{singular_values,energy,reconstruction}.png` beside it.
+//! compared summed over each group of equal k² + l², and through the trace. On each
+//! learning grid both splits are restricted with `Transfers::with_s(129, s)` (R = T_cu,
+//! Phase 5 D1) and the train split fitted with equal weights scaled by the cell area
+//! (2/(s − 1))² (D5). Writes the tables as Markdown to `<out.md>` and, if gnuplot is
+//! installed, the plots `<stem>_{singular_values,energy,reconstruction,rank_vs_s}.png`
+//! beside it.
 //! Needs the stage 3 dataset: see datasets/README.md.
 
 use std::fmt::{self, Write as _};
@@ -20,10 +24,10 @@ use std::path::Path;
 use std::time::Instant;
 
 use burn::config::Config;
-use gnuplot::{AxesCommon, Caption, Color, DashType, Figure, LineStyle, LineWidth};
-use ndarray::Array1;
+use gnuplot::{AxesCommon, Caption, Color, DashType, Figure, LineStyle, LineWidth, PointSymbol};
+use ndarray::{Array1, ArrayView1, ArrayView3};
 use sciml_rs::neural_operators::{
-    chebyshev::clencurt,
+    chebyshev::{Transfers, clencurt},
     data::{
         catalogue::stage,
         loaders::poisson::{PoissonField, SidecarRecord, load_poisson_cheb_field},
@@ -46,18 +50,32 @@ const FRACTIONS: [f64; 3] = [0.9, 0.99, 0.999];
 const LEADING: usize = 20;
 /// Leading groups of equal k² + l² in the closed-form check.
 const GROUPS: usize = 10;
+/// The Phase 5 learning grids s (design §13.3).
+const LEARNING_GRIDS: [usize; 4] = [16, 32, 64, 128];
+/// Rows of the learning grids' leading-eigenvalue table.
+const LEADING_GRID: usize = 10;
 
-/// One field's fit and its comparison data.
-struct FieldReport {
-    name: &'static str,
+/// One POD fit on one grid and its reconstruction errors.
+struct Fit {
     pod: Pod,
     /// Its eigenvalues, σ_i² / (N − 1).
     eigenvalues: Array1<f64>,
     fit_s: f64,
-    /// Per entry of `RANKS`.
+    /// The entries of `RANKS` the grid supports (r ≤ min(points, N)).
+    ranks: Vec<usize>,
+    /// Per entry of `ranks`.
     train: Vec<ErrorStats>,
-    /// Per entry of `RANKS`.
+    /// Per entry of `ranks`.
     test: Vec<ErrorStats>,
+}
+
+/// One field's fits and its comparison data.
+struct FieldReport {
+    name: &'static str,
+    /// On the CGL grid with CC weights (T1).
+    cgl: Fit,
+    /// On each learning grid of `LEARNING_GRIDS`, after R, with area weights (T2).
+    grids: Vec<Fit>,
     /// Population eigenvalues, descending, in the order of the shared spectrum.
     population: Vec<f64>,
 }
@@ -87,7 +105,6 @@ fn main() {
     assert_eq!(train_meta.alpha, ALPHA, "the dataset's α is not grf::ALPHA");
     let spectrum = covariance_spectrum(train_meta.k);
     let w = clencurt(N);
-    let keep = RANKS[RANKS.len() - 1];
 
     let reports: Vec<FieldReport> = [(PoissonField::F, "f"), (PoissonField::U, "u")]
         .into_iter()
@@ -98,15 +115,23 @@ fn main() {
             };
             let train = load("train", train_meta.count);
             let test = load("test", test_meta.count);
-            let start = Instant::now();
-            let pod = Pod::fit(train.view(), w.view(), w.view(), keep);
-            let fit_s = start.elapsed().as_secs_f64();
-            println!("{name}: fit {} snapshots in {fit_s:.1} s", train_meta.count);
-            let stats = |samples: &ndarray::Array3<f64>| -> Vec<ErrorStats> {
-                let errors = pod.reconstruction_errors(samples.view(), &RANKS);
-                errors.iter().map(|e| ErrorStats::of(&e.to_vec())).collect()
-            };
-            let (train, test) = (stats(&train), stats(&test));
+            let cgl = fit(train.view(), test.view(), w.view(), w.view());
+            println!("{name}: CGL fit in {:.1} s", cgl.fit_s);
+            let grids = LEARNING_GRIDS
+                .iter()
+                .map(|&s| {
+                    let r = Transfers::with_s(N, s);
+                    // equal weights scaled by the cell area (2/(s − 1))², D5
+                    let w = Array1::from_elem(s, 2.0 / (s - 1) as f64);
+                    let (train, test) = (
+                        r.to_uniform_all(train.view()),
+                        r.to_uniform_all(test.view()),
+                    );
+                    let grid = fit(train.view(), test.view(), w.view(), w.view());
+                    println!("{name}: s = {s} fit in {:.1} s", grid.fit_s);
+                    grid
+                })
+                .collect();
             let population = spectrum
                 .iter()
                 .map(|m| match field {
@@ -116,11 +141,8 @@ fn main() {
                 .collect();
             FieldReport {
                 name,
-                eigenvalues: pod.eigenvalues(),
-                pod,
-                fit_s,
-                train,
-                test,
+                cgl,
+                grids,
                 population,
             }
         })
@@ -139,6 +161,34 @@ fn main() {
     plots(out, &ctx);
 }
 
+/// The POD of `train: [N, a, b]` with weights `wx: [a]`, `wy: [b]`, and the
+/// reconstruction errors of both splits at every rank of `RANKS` the grid supports.
+fn fit(
+    train: ArrayView3<f64>,
+    test: ArrayView3<f64>,
+    wx: ArrayView1<f64>,
+    wy: ArrayView1<f64>,
+) -> Fit {
+    let (n, a, b) = train.dim();
+    let ranks: Vec<usize> = RANKS.into_iter().filter(|&r| r <= n.min(a * b)).collect();
+    let start = Instant::now();
+    let pod = Pod::fit(train, wx, wy, ranks[ranks.len() - 1]);
+    let fit_s = start.elapsed().as_secs_f64();
+    let stats = |samples: ArrayView3<f64>| -> Vec<ErrorStats> {
+        let errors = pod.reconstruction_errors(samples, &ranks);
+        errors.iter().map(|e| ErrorStats::of(&e.to_vec())).collect()
+    };
+    let (train, test) = (stats(train), stats(test));
+    Fit {
+        eigenvalues: pod.eigenvalues(),
+        pod,
+        fit_s,
+        ranks,
+        train,
+        test,
+    }
+}
+
 /// The whole results file: the header, then one section per table.
 fn markdown(ctx: &Context) -> Result<String, fmt::Error> {
     let mut md = String::new();
@@ -148,6 +198,9 @@ fn markdown(ctx: &Context) -> Result<String, fmt::Error> {
     leading(&mut md, ctx)?;
     groups(&mut md, ctx)?;
     reconstruction(&mut md, ctx)?;
+    grid_ranks(&mut md, ctx)?;
+    grid_leading(&mut md, ctx)?;
+    grid_reconstruction(&mut md, ctx)?;
     Ok(md)
 }
 
@@ -187,7 +240,7 @@ fn traces(w: &mut String, ctx: &Context) -> fmt::Result {
     )?;
     writeln!(w, "| --- | --- | --- | --- | --- | --- |")?;
     for r in ctx.reports {
-        let emp = r.eigenvalues.sum();
+        let emp = r.cgl.eigenvalues.sum();
         let pop: f64 = r.population.iter().sum();
         let scatter =
             (2.0 * r.population.iter().map(|l| l * l).sum::<f64>() / (nf - 1.0)).sqrt() / pop;
@@ -195,7 +248,7 @@ fn traces(w: &mut String, ctx: &Context) -> fmt::Result {
             w,
             "| {} | {:.2} | {emp:.4e} | {pop:.4e} | {:.4} | {scatter:.1e} |",
             r.name,
-            r.fit_s,
+            r.cgl.fit_s,
             emp / pop
         )?;
     }
@@ -231,7 +284,7 @@ fn ranks(w: &mut String, ctx: &Context) -> fmt::Result {
             .zip(pop)
             .map(|(&f, p)| {
                 let limited = if p > directions { " †" } else { "" };
-                format!("{}{limited}", r.pod.energy_rank(f))
+                format!("{}{limited}", r.cgl.pod.energy_rank(f))
             })
             .collect();
         let pop: Vec<String> = pop.iter().map(usize::to_string).collect();
@@ -262,7 +315,7 @@ fn leading(w: &mut String, ctx: &Context) -> fmt::Result {
         let cells: Vec<String> = ctx
             .reports
             .iter()
-            .map(|r| format!("{:.4e} | {:.4e}", r.eigenvalues[i], r.population[i]))
+            .map(|r| format!("{:.4e} | {:.4e}", r.cgl.eigenvalues[i], r.population[i]))
             .collect();
         writeln!(w, "| {} | {} |", i + 1, cells.join(" | "))?;
     }
@@ -292,7 +345,7 @@ fn groups(w: &mut String, ctx: &Context) -> fmt::Result {
             .reports
             .iter()
             .map(|r| {
-                let emp = r.eigenvalues.slice(ndarray::s![range.clone()]).sum();
+                let emp = r.cgl.eigenvalues.slice(ndarray::s![range.clone()]).sum();
                 let pop: f64 = r.population[range.clone()].iter().sum();
                 let ratio = emp / pop;
                 let flag = if (ratio - 1.0).abs() > 3.0 * scatter {
@@ -322,10 +375,102 @@ fn reconstruction(w: &mut String, ctx: &Context) -> fmt::Result {
         let cells: Vec<String> = ctx
             .reports
             .iter()
-            .flat_map(|r| [r.train[i], r.test[i]])
+            .flat_map(|r| [r.cgl.train[i], r.cgl.test[i]])
             .map(|s| format!("{:.3e} [{:.3e}]", s.mean, s.max))
             .collect();
         writeln!(w, "| {rank} | {} |", cells.join(" | "))?;
+    }
+    Ok(())
+}
+
+fn grid_ranks(w: &mut String, ctx: &Context) -> fmt::Result {
+    writeln!(w, "\n## T2: POD on the learning grids\n")?;
+    writeln!(
+        w,
+        "R = T_cu (`Transfers::with_s({N}, s)`, Phase 5 D1) restricts both splits to the \
+         s × s uniform learning grid. The POD of the restricted train split uses equal \
+         weights scaled by the cell area (2/(s − 1))² (D5), so its eigenvalues approximate \
+         L² ones and compare with the CGL fit; the test split is only projected. f and u \
+         vanish on ∂Ω and R keeps the boundary nodes, so only the (s − 2)² interior points \
+         carry data: the centred snapshot matrix has at most min((s − 2)², N − 1) \
+         directions.\n"
+    )?;
+    writeln!(w, "### Energy ranks against the learning grid\n")?;
+    writeln!(
+        w,
+        "| Grid | Directions | f, 90% | f, 99% | f, 99.9% | u, 90% | u, 99% | u, 99.9% |"
+    )?;
+    writeln!(w, "| --- | --- | --- | --- | --- | --- | --- | --- |")?;
+    let row =
+        |w: &mut String, points: usize, label: String, pick: &dyn Fn(&FieldReport) -> &Fit| {
+            let directions = (points - 2).pow(2).min(ctx.n_train - 1);
+            let cells: Vec<String> = ctx
+                .reports
+                .iter()
+                .flat_map(|r| FRACTIONS.map(|f| pick(r).pod.energy_rank(f).to_string()))
+                .collect();
+            writeln!(w, "| {label} | {directions} | {} |", cells.join(" | "))
+        };
+    for (g, s) in LEARNING_GRIDS.iter().enumerate() {
+        row(w, *s, format!("s = {s}"), &|r| &r.grids[g])?;
+    }
+    row(w, N, format!("{N} CGL (T1)"), &|r| &r.cgl)
+}
+
+fn grid_leading(w: &mut String, ctx: &Context) -> fmt::Result {
+    writeln!(w, "\n### Leading eigenvalues against the CGL fit\n")?;
+    writeln!(
+        w,
+        "λ_i on the learning grid over λ_i on the {N} CGL grid (T1), and the same for the \
+         trace.\n"
+    )?;
+    let header: Vec<String> = ctx
+        .reports
+        .iter()
+        .flat_map(|r| LEARNING_GRIDS.map(|s| format!("{}, s = {s}", r.name)))
+        .collect();
+    writeln!(w, "| i | {} |", header.join(" | "))?;
+    writeln!(w, "| --- |{}", " --- |".repeat(header.len()))?;
+    let ratios = |w: &mut String, label: String, value: &dyn Fn(&Fit) -> f64| {
+        let cells: Vec<String> = ctx
+            .reports
+            .iter()
+            .flat_map(|r| {
+                r.grids
+                    .iter()
+                    .map(|g| format!("{:.4}", value(g) / value(&r.cgl)))
+            })
+            .collect();
+        writeln!(w, "| {label} | {} |", cells.join(" | "))
+    };
+    for i in 0..LEADING_GRID {
+        ratios(w, (i + 1).to_string(), &|f| f.eigenvalues[i])?;
+    }
+    ratios(w, "trace".into(), &|f| f.eigenvalues.sum())
+}
+
+fn grid_reconstruction(w: &mut String, ctx: &Context) -> fmt::Result {
+    writeln!(
+        w,
+        "\n### Reconstruction error against rank on the learning grids\n"
+    )?;
+    writeln!(
+        w,
+        "As in T1, in the area-weighted norm of the learning grid; mean [max] over the \
+         split.\n"
+    )?;
+    writeln!(w, "| s | r | f, train | f, test | u, train | u, test |")?;
+    writeln!(w, "| --- | --- | --- | --- | --- | --- |")?;
+    for (g, s) in LEARNING_GRIDS.iter().enumerate() {
+        for (i, rank) in ctx.reports[0].grids[g].ranks.iter().enumerate() {
+            let cells: Vec<String> = ctx
+                .reports
+                .iter()
+                .flat_map(|r| [r.grids[g].train[i], r.grids[g].test[i]])
+                .map(|s| format!("{:.3e} [{:.3e}]", s.mean, s.max))
+                .collect();
+            writeln!(w, "| {s} | {rank} | {} |", cells.join(" | "))?;
+        }
     }
     Ok(())
 }
@@ -352,7 +497,14 @@ fn plots(out: &Path, ctx: &Context) {
     for (r, c) in reports.iter().zip(colors) {
         let kept = RANKS[RANKS.len() - 1];
         let i: Vec<usize> = (1..=kept).collect();
-        let emp: Vec<f64> = r.pod.singular_values().iter().take(kept).copied().collect();
+        let emp: Vec<f64> = r
+            .cgl
+            .pod
+            .singular_values()
+            .iter()
+            .take(kept)
+            .copied()
+            .collect();
         let pop: Vec<f64> = r.population[..kept]
             .iter()
             .map(|l| ((n_train as f64 - 1.0) * l).sqrt())
@@ -387,7 +539,7 @@ fn plots(out: &Path, ctx: &Context) {
         .set_y_label("energy fraction", &[])
         .set_x_log(Some(10.0));
     for (r, c) in reports.iter().zip(colors) {
-        let cum = cumulative_energy(&r.eigenvalues.to_vec());
+        let cum = cumulative_energy(&r.cgl.eigenvalues.to_vec());
         let i: Vec<usize> = (1..=cum.len()).collect();
         ax.lines(
             &i,
@@ -410,8 +562,8 @@ fn plots(out: &Path, ctx: &Context) {
         .set_x_log(Some(10.0))
         .set_y_log(Some(10.0));
     for (r, c) in reports.iter().zip(colors) {
-        let train: Vec<f64> = r.train.iter().map(|s| s.mean).collect();
-        let test: Vec<f64> = r.test.iter().map(|s| s.mean).collect();
+        let train: Vec<f64> = r.cgl.train.iter().map(|s| s.mean).collect();
+        let test: Vec<f64> = r.cgl.test.iter().map(|s| s.mean).collect();
         let name = r.name;
         ax.lines_points(
             RANKS,
@@ -432,4 +584,43 @@ fn plots(out: &Path, ctx: &Context) {
         );
     }
     save(&mut fig, path("reconstruction"));
+
+    let mut fig = Figure::new();
+    let ax = fig
+        .axes2d()
+        .set_title(
+            "Energy rank against the learning grid (CGL 129 dotted)",
+            &[],
+        )
+        .set_x_label("learning grid s", &[])
+        .set_y_label("energy rank", &[])
+        .set_x_log(Some(2.0))
+        .set_y_log(Some(10.0));
+    let span = [LEARNING_GRIDS[0], LEARNING_GRIDS[LEARNING_GRIDS.len() - 1]];
+    for (r, c) in reports.iter().zip(colors) {
+        for (f, symbol) in FRACTIONS.iter().zip(['O', 'S', 'T']) {
+            let ranks: Vec<usize> = r.grids.iter().map(|g| g.pod.energy_rank(*f)).collect();
+            let cgl = r.cgl.pod.energy_rank(*f);
+            let label = format!("{}, {}%", r.name, f * 100.0);
+            ax.lines_points(
+                LEARNING_GRIDS,
+                &ranks,
+                &[
+                    Caption(&label),
+                    Color(gnuplot::RGBString(c)),
+                    PointSymbol(symbol),
+                ],
+            )
+            .lines(
+                span,
+                [cgl, cgl],
+                &[
+                    Caption(""),
+                    Color(gnuplot::RGBString(c)),
+                    LineStyle(DashType::Dot),
+                ],
+            );
+        }
+    }
+    save(&mut fig, path("rank_vs_s"));
 }
