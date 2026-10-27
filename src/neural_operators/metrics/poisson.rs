@@ -626,6 +626,7 @@ mod tests {
                 train_l2: 0.0,
                 test_l2,
                 current_lr: 1e-3,
+                epoch_time_s: None,
             })
             .collect()
     }

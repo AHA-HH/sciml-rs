@@ -14,10 +14,13 @@
 //! cross-checks error 2 against the test split's `.json` sidecar and the mean error 3
 //! against the run's last test_l2, and gives the boundary verdict; this prints its report
 //! and writes its record as errors.json into the run directory, with the index of the
-//! sample with the max error 4, the one to plot with `poisson_plot`. Exits 1 if a cross-check failed.
+//! sample with the max error 4, the one to plot with `poisson_plot`. The prediction runs
+//! twice and the second, warm pass is timed; a run with `costs.json` (since Phase 5 T4)
+//! gets that time as its `inference_time_s`. Exits 1 if a cross-check failed.
 //! Needs the run's stage dataset: see datasets/README.md.
 
 use std::path::Path;
+use std::time::Instant;
 
 use burn::{config::Config, tensor::Device};
 use ndarray::Axis;
@@ -81,8 +84,13 @@ fn main() {
     let u = load_poisson_cheb_field(datasets.join(set.npz("test")), PoissonField::U, n, n_test)
         .unwrap_or_else(|e| panic!("could not load the CGL solutions: {e}"));
 
-    // Forward pass in batches, in sample order; outputs are normalized [N, s, s]
+    // Forward pass in batches, in sample order; outputs are normalized [N, s, s]. The
+    // first pass warms the backend up; the second is timed
+    predict_host(&model, test_data.inputs().view(), BATCH_SIZE, &device);
+    let start = Instant::now();
     let pred = predict_host(&model, test_data.inputs().view(), BATCH_SIZE, &device);
+    let inference_time_s = start.elapsed().as_secs_f64();
+    println!("inference on {n_test} test samples (warm): {inference_time_s:.3} s");
     // Decode to physical scale in f64; the test targets were never encoded
     let pred = normalizers.y.decode(pred.into_dyn());
     let pred = pred
@@ -91,8 +99,8 @@ fn main() {
     assert_eq!(pred.len_of(Axis(0)), n_test);
 
     let errors = poisson_errors(pred.view(), u.view());
-    let sidecar = SidecarRecord::load(datasets.join(format!("{}.json", set.stem("test"))))
-        .expect("load the test sidecar");
+    let sidecar =
+        SidecarRecord::load(datasets.join(set.json("test"))).expect("load the test sidecar");
     let metrics = run.metrics().expect("read metrics.csv");
     let eval = evaluate(
         &errors,
@@ -108,6 +116,18 @@ fn main() {
     let out = dir.join("errors.json");
     eval.record.save(&out).expect("write errors.json");
     println!("wrote {}", out.display());
+
+    match run.costs() {
+        Ok(Some(mut costs)) => {
+            costs.inference_time_s = Some(inference_time_s);
+            run.save_costs(&costs).expect("write costs.json");
+            println!("recorded the inference time in costs.json");
+        }
+        Ok(None) => {
+            println!("no costs.json (a run before phase 5 T4): inference time not recorded")
+        }
+        Err(e) => panic!("read costs.json: {e}"),
+    }
 
     if !eval.record.cross_checks_passed {
         eprintln!("a cross-check failed; see above");

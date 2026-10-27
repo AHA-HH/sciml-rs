@@ -45,6 +45,11 @@ impl PoissonSet {
     pub fn npz(&self, split: &str) -> String {
         format!("{}.npz", self.stem(split))
     }
+
+    /// The `.json` sidecar of one split: `{stem}.json`.
+    pub fn json(&self, split: &str) -> String {
+        format!("{}.json", self.stem(split))
+    }
 }
 
 /// The stages a model trains on (design §5.3): K = K(n) at n = 65, 129 and 257.
@@ -103,6 +108,7 @@ mod tests {
         let set = PoissonSet { n: 129, k: 32 };
         assert_eq!(set.stem("test"), "poisson_n129_K32_test");
         assert_eq!(set.npz("train"), "poisson_n129_K32_train.npz");
+        assert_eq!(set.json("train"), "poisson_n129_K32_train.json");
     }
 
     #[test]

@@ -15,8 +15,8 @@
 
 use sciml_rs::neural_operators::data::catalogue::{GENERATED, SPLITS};
 use sciml_rs::neural_operators::pde::poisson::dataset::{SplitSpec, generate, write_split};
+use sciml_rs::neural_operators::runs::git_commit;
 use std::path::Path;
-use std::process::Command;
 
 /// Base seed of every training split: sample i uses seed TRAIN_SEED + i.
 const TRAIN_SEED: u64 = 0;
@@ -62,16 +62,4 @@ fn main() {
             split.wall_time.as_secs_f64(),
         );
     }
-}
-
-/// `git rev-parse HEAD`, or "unknown" if git is unavailable or this is not a checkout.
-fn git_commit() -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map_or_else(|| "unknown".to_string(), |s| s.trim().to_string())
 }

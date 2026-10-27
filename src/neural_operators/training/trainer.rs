@@ -276,6 +276,7 @@ pub fn training_loop<const R: usize, const RM1: usize>(
             train_l2: means.train_l2,
             test_l2,
             current_lr: means.last_lr,
+            epoch_time_s: Some(epoch_time.as_secs_f64()),
         };
 
         on_epoch(&record, epoch_time, &model);
@@ -762,6 +763,7 @@ mod tests {
             train_l2: 0.25,
             test_l2: 0.125,
             current_lr: 1e-3,
+            epoch_time_s: Some(1.234567),
         };
         let t = Duration::from_micros(1_234_567);
         assert_eq!(
@@ -771,7 +773,7 @@ mod tests {
         assert_eq!(
             epoch_line(&m, t),
             "EpochMetrics { epoch: 4, train_mse: 0.5, train_l2: 0.25, test_l2: 0.125, \
-             current_lr: 0.001 } | total=1.235s"
+             current_lr: 0.001, epoch_time_s: Some(1.234567) } | total=1.235s"
         );
     }
 }

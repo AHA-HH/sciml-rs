@@ -60,6 +60,33 @@ pub struct PoissonConfig {
     /// means s = n − 1; an `Option` so that saved configs without this field still load,
     /// as s = n − 1.
     pub s: Option<usize>,
+    /// Where the dataset came from, recorded by `train_poisson` since Phase 5 T4; `None`
+    /// in older configs. The loaders do not read it.
+    pub source: Option<DatasetSource>,
+}
+
+/// Where a run's dataset came from (design §13.9): K, the prolongation degree d and both
+/// split files with the commits that generated them.
+#[derive(Config, Debug)]
+pub struct DatasetSource {
+    /// The GRF truncation K of the dataset files (design §5.3).
+    pub k: usize,
+    /// Degree d of the prolongation P = T_uc (CONVENTIONS §12).
+    pub d: usize,
+    /// The train split.
+    pub train: SplitSource,
+    /// The test split.
+    pub test: SplitSource,
+}
+
+/// One split of a run's dataset: its file name and the generating commit from its sidecar
+/// ([`SidecarRecord::git_commit`]).
+#[derive(Config, Debug)]
+pub struct SplitSource {
+    /// The `.npz` file name, as `PoissonSet::npz` gives it.
+    pub file: String,
+    /// The sidecar's `git_commit`.
+    pub git_commit: String,
 }
 
 impl PoissonConfig {
@@ -333,10 +360,26 @@ mod tests {
         let config = PoissonConfig::load_binary(old.as_bytes()).unwrap();
         assert_eq!((config.n, config.s, config.s()), (65, None, 64));
 
-        let config = config.with_s(Some(32));
+        assert!(config.source.is_none());
+
+        let split = |file: &str| SplitSource::new(file.to_string(), "abc123".to_string());
+        let source = DatasetSource::new(
+            32,
+            2,
+            split("poisson_n65_K32_train.npz"),
+            split("poisson_n65_K32_test.npz"),
+        );
+        let config = config.with_s(Some(32)).with_source(Some(source));
         let saved = burn::config::config_to_json(&config);
         let back = PoissonConfig::load_binary(saved.as_bytes()).unwrap();
         assert_eq!((back.n, back.s, back.s()), (65, Some(32), 32));
+        let source = back.source.expect("source saved");
+        assert_eq!((source.k, source.d), (32, 2));
+        let test = source.test;
+        assert_eq!(
+            (test.file.as_str(), test.git_commit.as_str()),
+            ("poisson_n65_K32_test.npz", "abc123")
+        );
     }
 
     #[test]
