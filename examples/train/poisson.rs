@@ -44,9 +44,9 @@ use sciml_rs::neural_operators::{
         },
     },
     models::fno::FNOConfig,
-    runs::{RunCosts, RunDir, git_commit},
+    runs::{RunCosts, RunDir},
     training::{config::TrainingConfig, trainer::train_fno},
-    utils::backend::backend_features,
+    utils::backend::{backend_features, git_commit},
 };
 use std::fmt::Display;
 use std::path::Path;
@@ -200,6 +200,8 @@ fn main() {
     // y_normalizer is fitted on y_train during loading. train_fno uses it
     // to decode both prediction and target during training, but only the
     // prediction during evaluation - y_test was never encoded
+    // The recorded training_time_s: it includes building the model, optimiser and loaders,
+    // so it is slightly above the "total training time" train_fno prints from its own clock
     let train_start = Instant::now();
     let (model, metrics) = train_fno::<4, 3, _>(
         train_data,
