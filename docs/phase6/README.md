@@ -1,6 +1,6 @@
 # Phase 6: information content of the samples
 
-As of 2026-10-27; planned, not started (decision 30, amended 2026-10-27 with the Phase 6
+As of 2026-10-27; T1 done, T2 to do (decision 30, amended 2026-10-27 with the Phase 6
 planning decisions). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 6,
 §13.4). `docs/CONVENTIONS.md` wins on any conflict. Runs beside Phase 5 (design §10).
 
@@ -119,13 +119,24 @@ Filled in as tasks merge. Phase 6 is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| Closed-form check: leading eigenvalue groups and trace against λ_kl / S_K (f) and λ_kl / (S_K μ_kl²) (u) | | T1 |
-| Ranks for 90 / 99 / 99.9% energy, f and u, 129 CGL (train) | | T1 |
-| Reconstruction error against rank, train and test, f and u | | T1 |
-| Forcing ranks against solution ranks | | T1 |
+| Closed-form check: leading eigenvalue groups and trace against λ_kl / S_K (f) and λ_kl / (S_K μ_kl²) (u) | Trace ratio f 0.991 (scatter 0.014), u 0.970 (0.038). Leading 10 groups of equal k² + l²: ratios 0.960–1.071 (f) and 0.934–1.055 (u), all within 2 scatters. Trailing empirical eigenvalues fall below the closed form beyond i ≈ 400 (f) and 200 (u), the bias expected near N | T1, `results.md` |
+| Ranks for 90 / 99 / 99.9% energy, f and u, 129 CGL (train) | f 36 / 284 / 743 (population 38 / 418 / 2175; the 99.9% rank is limited by N − 1 = 999, and the 99% rank is low because the sample's energy counts only 999 directions); u 2 / 6 / 17 (population 2 / 6 / 17) | T1 |
+| Reconstruction error against rank, train and test, f and u | Mean, train / test: f 0.546 / 0.547 at r = 10, 0.203 / 0.225 at r = 100, 0.063 / 0.122 at r = 500, 6e-15 / 0.099 at r = 999; u 8.7e-2 / 9.0e-2, 4.4e-3 / 4.8e-3, 3.1e-4 / 6.4e-4, 5e-15 / 3.5e-4 | T1 |
+| Forcing ranks against solution ranks | u needs 2 modes for 90% where f needs 36, and 17 for 99.9% where f's exceeds N; see below | T1 |
 | Ranks and reconstruction error at s = 16, 32, 64, 128 (after R) | | T2 |
 | How rank relates to learning resolution, with the Phase 5 transfer-only floor | | T2 |
 | Fourier spectra (optional) | | T2 |
+
+**Forcings against solutions (T1).** u = (−Δ)⁻¹ f scales mode (k, l) by μ_kl⁻¹ and its
+variance by μ_kl⁻², so u's spectrum is f's damped by a factor that grows with k² + l²:
+relative to (1, 1) it is (2 / (k² + l²))², already 5.9e-3 at k² + l² = 26. The solutions
+therefore sit in a far smaller subspace than the forcings: 2 modes hold 90% of u's energy
+against 36 for f, and 17 hold 99.9% where f's population needs 2175, more than the
+sample's 999 directions. The leading modes also generalise for u: at r = 100 the held-out
+error is 4.8e-3 against 4.4e-3 on the fitting samples. f's held-out error is still 0.099
+at r = 999, of the order of the 0.36% of its population energy beyond the top 999 modes
+(√0.0036 = 0.06) plus the error in the estimated trailing modes. None of this is a
+statement about the FNO (§13.4).
 
 ## Exit checklist
 
