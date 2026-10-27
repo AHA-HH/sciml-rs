@@ -56,7 +56,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
-  errors, `ErrorStats`), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
+  errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
   (`backend_features`, `git_commit`).
 - `training/`: `config` (`TrainingConfig`), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
@@ -204,6 +204,8 @@ than trusting prose when checking how an API behaves.
 - Resolution study (errors 3 and 4 of a Poisson run on finer grids at the run's K, weights
   unchanged, normalisers refit on that n's `_train` split):
   `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> <n> [<n> ...]`
+- POD of the stage 3 f and u (Phase 6; tables to `<out.md>`, plots beside it):
+  `cargo run --release --features datagen --example poisson_pod -- docs/phase6/results.md`
 - Plot one Poisson test sample (f, u, û, û − u on the CGL nodes, on the run's stage; writes
   `prediction_<sample>.png`):
   `cargo run --release --example poisson_plot [--features metal] -- runs/<run_dir> [<sample>]`
