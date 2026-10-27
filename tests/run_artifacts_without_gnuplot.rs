@@ -21,6 +21,7 @@ fn run_artifacts_survive_missing_gnuplot() {
         train_l2: 0.3,
         test_l2: 0.4,
         current_lr: 1e-3,
+        epoch_time_s: Some(1.0),
     }];
     let root = std::env::temp_dir().join(format!("sciml_rs_no_gnuplot_{}", std::process::id()));
     let run = RunDir::create(&root, "test_no_gnuplot").expect("create the run directory");

@@ -5,19 +5,24 @@
 //! - `model_cfg.json`, `train_cfg.json`, `data_cfg.json`: the three configs;
 //! - `metrics.csv` (one row per epoch) and `plots.png` (only if gnuplot is installed);
 //! - `x_normalizer.json`, `y_normalizer.json`: Darcy and Poisson runs only;
-//! - `model_weights.bpk`: the model.
+//! - `model_weights.bpk`: the model;
+//! - `costs.json` ([`RunCosts`]): Poisson runs since Phase 5 T4.
 //!
 //! [`RunDir`] writes these and reads them back. File names live only here. Runs written
 //! since Phase 3 open, including Learner runs from before Phase 4s T2, which lack
 //! `data_cfg.json` and `metrics.csv`: [`RunDir::open`] requires only the directory, and
-//! each reader fails when its own file is missing.
+//! each reader fails when its own file is missing (or returns `None`, for the normalizers
+//! and the costs).
 //!
 //! Errors: writers return [`io::Result`]; readers that parse a file (configs,
 //! normalizers, weights) return `Box<dyn Error>`, since Burn's config, record and store
 //! errors have no common type.
 
+mod costs;
 mod csv;
 mod plots;
+
+pub use costs::{RunCosts, git_commit};
 
 use std::error::Error;
 use std::io;
@@ -45,6 +50,7 @@ const METRICS_CSV: &str = "metrics.csv";
 const PLOTS_PNG: &str = "plots.png";
 const X_NORMALIZER: &str = "x_normalizer.json";
 const Y_NORMALIZER: &str = "y_normalizer.json";
+const COSTS: &str = "costs.json";
 /// Burn's `BurnpackStore` appends `.bpk` to an extensionless path on save and load
 /// alike, so both use this stem and the file is `model_weights.bpk`.
 const WEIGHTS_STEM: &str = "model_weights";
@@ -66,6 +72,9 @@ pub struct EpochMetrics {
     pub test_l2: f32,
     /// Learning rate after the epoch's final step.
     pub current_lr: f64,
+    /// Wall-clock seconds of the epoch, training and evaluation; `None` in `metrics.csv`
+    /// files written before Phase 5 T4, which have no such column.
+    pub epoch_time_s: Option<f64>,
 }
 
 /// A training run's directory. See the [module docs](self) for its files.
@@ -231,6 +240,26 @@ impl RunDir {
         }))
     }
 
+    /// Writes `costs.json`, replacing it if present.
+    ///
+    /// # Errors
+    /// If the file can't be written.
+    pub fn save_costs(&self, costs: &RunCosts) -> io::Result<()> {
+        costs.save(self.path.join(COSTS))
+    }
+
+    /// The run's costs, or `None` for a run without `costs.json` (any run before Phase 5
+    /// T4).
+    ///
+    /// # Errors
+    /// If `costs.json` exists but can't be read or parsed.
+    pub fn costs(&self) -> Result<Option<RunCosts>, Box<dyn Error>> {
+        if !self.path.join(COSTS).exists() {
+            return Ok(None);
+        }
+        self.load_config(COSTS).map(Some)
+    }
+
     /// Reads `metrics.csv`, one [`EpochMetrics`] per row.
     ///
     /// # Errors
@@ -289,6 +318,7 @@ mod tests {
                 train_l2: 0.3,
                 test_l2: 0.4,
                 current_lr: 1e-3,
+                epoch_time_s: Some(2.5),
             },
             EpochMetrics {
                 epoch: 1,
@@ -296,6 +326,7 @@ mod tests {
                 train_l2: 0.15,
                 test_l2: 0.2,
                 current_lr: 5e-4,
+                epoch_time_s: Some(2.25),
             },
         ]
     }
@@ -345,6 +376,7 @@ mod tests {
         assert_eq!(read[1].epoch, 1);
         assert_eq!(read[0].train_mse, 0.5);
         assert_eq!(read[1].current_lr, 5e-4);
+        assert_eq!(read[1].epoch_time_s, Some(2.25));
 
         let field = |seed: f64| {
             ArrayD::from_shape_fn(IxDyn(&[3, 2, 2]), |i| {
@@ -375,12 +407,52 @@ mod tests {
     }
 
     #[test]
+    fn costs_round_trip() {
+        let root = fresh_root("costs");
+        let run = RunDir::create(&root, "test_fno").unwrap();
+        assert!(run.costs().unwrap().is_none(), "no costs.json yet");
+
+        let mut costs = RunCosts {
+            dataset_train_wall_time_s: Some(1.1),
+            dataset_test_wall_time_s: Some(0.2),
+            load_time_s: 3.5,
+            training_time_s: 120.25,
+            inference_time_s: None,
+            host_to_device_bytes_train: 1000 * 64 * 64 * 2 * 4,
+            host_to_device_bytes_test: 200 * 64 * 64 * 2 * 4,
+            peak_gpu_memory: "unavailable".to_string(),
+            backend_features: vec!["flex".to_string()],
+            device: "Flex(Cpu)".to_string(),
+            git_commit: "abc123".to_string(),
+            num_params: 1_188_353,
+        };
+        run.save_costs(&costs).unwrap();
+        // predict completes the file written by training
+        let mut read = run.costs().unwrap().expect("costs were saved");
+        assert_eq!(read.inference_time_s, None);
+        read.inference_time_s = Some(0.75);
+        run.save_costs(&read).unwrap();
+        costs.inference_time_s = Some(0.75);
+        let read = run.costs().unwrap().expect("costs were saved");
+        assert_eq!(
+            burn::config::config_to_json(&read),
+            burn::config::config_to_json(&costs)
+        );
+
+        std::fs::write(run.path().join(COSTS), "{").unwrap();
+        let msg = run.costs().expect_err("a broken costs.json").to_string();
+        assert!(msg.contains("costs.json"), "{msg}");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn open_needs_only_the_directory() {
         // a pre-T2 Learner run: no data_cfg.json, no metrics.csv, no normalizers
         let root = fresh_root("open_partial");
         std::fs::create_dir_all(&root).unwrap();
         let run = RunDir::open(&root).unwrap();
         assert!(run.normalizers().unwrap().is_none());
+        assert!(run.costs().unwrap().is_none());
         assert!(run.data_config::<DarcyConfig>().is_err());
         assert_eq!(run.metrics().unwrap_err().kind(), io::ErrorKind::NotFound);
         assert!(run.load_fno::<4>(&Device::default()).is_err());

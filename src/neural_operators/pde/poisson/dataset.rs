@@ -225,11 +225,15 @@ pub fn generate(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
 /// The file stem of a split, `poisson_n{n}_K{K}_{name}`: [`PoissonSet::stem`] of its n
 /// and K in effect.
 pub fn split_stem(split: &Split, name: &str) -> String {
+    split_set(split).stem(name)
+}
+
+/// The catalogue set a split belongs to: its n and the K in effect.
+fn split_set(split: &Split) -> PoissonSet {
     PoissonSet {
         n: split.spec.n,
         k: split.k,
     }
-    .stem(name)
 }
 
 /// Writes a split to `dir` as `{stem}.npz` and `{stem}.json`, with the stem from
@@ -251,9 +255,9 @@ pub fn write_split(
     git_commit: &str,
 ) -> io::Result<(PathBuf, PathBuf)> {
     fs::create_dir_all(dir)?;
-    let stem = split_stem(split, name);
-    let npz_path = dir.join(format!("{stem}.npz"));
-    let json_path = dir.join(format!("{stem}.json"));
+    let set = split_set(split);
+    let npz_path = dir.join(set.npz(name));
+    let json_path = dir.join(set.json(name));
 
     let mut npz = NpzWriter::new(File::create(&npz_path)?);
     for (field, array) in [("f", &split.f), ("u", &split.u)] {

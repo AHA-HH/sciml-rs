@@ -61,11 +61,13 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - `training/`: `config` (`TrainingConfig`), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
   `training_loop` with its `EpochObserver`, `train_fno`), `learner` (Burn `Learner` impls).
-- `runs` (`RunDir`, `EpochMetrics`) owns the run directory: `create(root, name)`,
-  `save_configs`, `append_metrics` (the only `metrics.csv` writer, one row per epoch),
-  `save_plot`, `save_normalizers`, `save_weights`; `open(dir)`, `load_fno`, `model_config`,
-  `data_config::<C>`, `normalizers()`, `metrics()`. Run-file names appear nowhere else;
-  examples pass `CARGO_MANIFEST_DIR/runs` as the root.
+- `runs` (`RunDir`, `EpochMetrics`, `RunCosts`, `git_commit`) owns the run directory:
+  `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
+  one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
+  read), `save_plot`, `save_normalizers`, `save_weights`, `save_costs` (`costs.json`,
+  Poisson runs since Phase 5 T4); `open(dir)`, `load_fno`, `model_config`,
+  `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`. Run-file names appear
+  nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `src/neural_operators/chebyshev/` builds without features, except `diff_matrix`/
   `diff2_matrix`, behind the `datagen` feature (need system libfftw3; design §12, decision
   27). `points` and `quadrature` (RLST nodes, `clenshaw_curtis`) are
@@ -89,7 +91,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   `GENERATED` the sets `generate_poisson` writes. The loaders' callers and the generator
   take file names from here, not literals.
 - `data/loaders/poisson/` is ungated: `mod.rs` (`PoissonConfig` with the learning grid `s`,
-  unset meaning n − 1; `SidecarRecord`), `uniform` (`load_poisson_uniform` reads those
+  unset meaning n − 1, and since Phase 5 T4 K, d and the split files with their sidecar
+  commits; `SidecarRecord`), `uniform` (`load_poisson_uniform` reads those
   `.npz` files and applies T_cu at load time, giving Darcy-shaped datasets on the uniform
   grid of s points, so one dataset serves every s) and `cheb`
   (`load_poisson_cheb_field` reads one split's raw field, `PoissonField::F` or `U`, on the
@@ -187,11 +190,11 @@ than trusting prose when checking how an API behaves.
   TUI: `train_epoch` is the canonical loop; this is the Burgers-only (`FNO<3>`) Learner
   equivalent. It writes `runs/burgers_fno_learner_<unix_secs>/` (configs and weights, no
   `metrics.csv`), which `predict_burgers` evaluates.
-- Train on Poisson: `cargo run --release --example train_poisson [--features metal] [-- [<padding>] [<n>] [<s>]]`
+- Train on Poisson: `cargo run --release --example train_poisson [--features metal] [-- [<padding>] [<n>] [<s>] [<seed>]]`
   (the first argument overrides `PADDING`, the second picks the stage, n ∈ {65, 129, 257},
-  default 65, the third the learning grid s, default n − 1, with modes min(12, s/2); needs
-  that stage in `datasets/poisson/`; the predict examples evaluate only s = n − 1 runs
-  until Phase 5 T6). On cuda:
+  default 65, the third the learning grid s, default n − 1, with modes min(12, s/2), the
+  fourth the seed, default 42; needs that stage in `datasets/poisson/`; the predict
+  examples evaluate only s = n − 1 runs until Phase 5 T6). On cuda:
   `--no-default-features --features cuda`
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution -- runs/<run_dir> [<rate> ...]` on Burgers runs, s = 8192 / rate;
