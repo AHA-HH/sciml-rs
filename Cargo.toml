@@ -63,6 +63,11 @@ name = "poisson_matrix"
 path = "examples/predict/poisson_matrix.rs"
 
 [[example]]
+name = "poisson_pod"
+path = "examples/predict/poisson_pod.rs"
+required-features = ["datagen"]
+
+[[example]]
 name = "generate_poisson"
 path = "examples/generate/poisson.rs"
 required-features = ["datagen"]

@@ -74,6 +74,43 @@ pub fn eps_k(k: usize) -> f64 {
     1.0 - s_k(k) / S_INF
 }
 
+/// One sine mode φ_kl of the covariance spectrum of [`covariance_spectrum`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpectrumMode {
+    /// k² + l²: λ_kl and μ_kl depend on (k, l) only through it, so modes with equal q
+    /// share their eigenvalues.
+    pub q: usize,
+    /// λ_kl / S_K, the eigenvalue of f_K's covariance on φ_kl.
+    pub f: f64,
+    /// λ_kl / (S_K μ_kl²), the eigenvalue of u's covariance on φ_kl, since u's sine
+    /// coefficients are f's over μ_kl ([`solution_coeffs`]).
+    pub u: f64,
+}
+
+/// The covariance spectrum of f_K and of the solution u at truncation `k`: the k² modes
+/// (k, l ≤ `k`), sorted by ascending q = k² + l² (ties in (k, l) order). Every φ_kl has
+/// unit L²(Ω) norm (mean square ¼ on [−1, 1]²), so these are the eigenvalues of the
+/// covariance operators in L²(Ω) (design §3.3, §13.4). λ_kl falls and μ_kl rises with q,
+/// so both fields' values are descending in this order; Σ f = 4 = |Ω| × f_K's unit
+/// expected mean square.
+pub fn covariance_spectrum(k: usize) -> Vec<SpectrumMode> {
+    let s = s_k(k);
+    let mut modes: Vec<SpectrumMode> = (1..=k)
+        .flat_map(|i| (1..=k).map(move |j| (i, j)))
+        .map(|(i, j)| {
+            let f = lambda(i, j) / s;
+            SpectrumMode {
+                q: i * i + j * j,
+                f,
+                u: f / mu(i, j).powi(2),
+            }
+        })
+        .collect();
+    // stable: equal q keep (k, l) order
+    modes.sort_by_key(|m| m.q);
+    modes
+}
+
 /// The default truncation K(n) = min((n − 1)/2, [`K_MAX`]) for an n-point CGL grid
 /// (design §3.3): 16 at n = 33, 32 at 65, 64 at 129 and 257.
 ///
@@ -206,6 +243,28 @@ mod tests {
         let scale = c32.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
         let err = max_abs_diff(c32.view(), leading.view());
         assert!(err <= 1e-14 * scale, "{err:e} against scale {scale:e}");
+    }
+
+    #[test]
+    fn covariance_spectrum_matches_the_phase6_facts() {
+        use crate::neural_operators::metrics::pod::energy_rank_of;
+        let spectrum = covariance_spectrum(K_MAX);
+        assert_eq!(spectrum.len(), K_MAX * K_MAX);
+        assert!(spectrum.windows(2).all(|p| p[0].q <= p[1].q));
+        assert!(
+            spectrum
+                .windows(2)
+                .all(|p| p[0].f >= p[1].f && p[0].u >= p[1].u)
+        );
+        let f: Vec<f64> = spectrum.iter().map(|m| m.f).collect();
+        let u: Vec<f64> = spectrum.iter().map(|m| m.u).collect();
+        assert!((f.iter().sum::<f64>() - 4.0).abs() <= 1e-12);
+        // docs/phase6/README.md: trace 4.998e-2, leading values 1.035 and 4.25e-2
+        assert!((u.iter().sum::<f64>() - 4.998e-2).abs() <= 5e-6);
+        assert!((f[0] - 1.035).abs() <= 5e-4 && (u[0] - 4.25e-2).abs() <= 5e-5);
+        let ranks = |v: &[f64]| [0.9, 0.99, 0.999].map(|x| energy_rank_of(v, x));
+        assert_eq!(ranks(&f), [38, 418, 2175]);
+        assert_eq!(ranks(&u), [2, 6, 17]);
     }
 
     #[test]

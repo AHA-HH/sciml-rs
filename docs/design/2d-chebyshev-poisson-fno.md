@@ -562,6 +562,7 @@ flowchart LR
   end
   subgraph P8["Phase 8 (optional): θ-map"]
     P8T1["T1 θ-map model"] --> P8T2["T2 comparison with the Phase 5 baseline"]
+    P8W["W&B export (optional task)"]
   end
   subgraph P9["Phase 9: HPC (systems track)"]
     P9T1["T1 profiling"] --> P9T3["T3 multi-GPU training"]
@@ -579,6 +580,7 @@ flowchart LR
   P5T7 --> P7T1
   P5T7 --> P8T1
   P4ST16 --> P8T1
+  P5T4 -.-> P8W
   P4ST12 --> P9T2
   P4SE -.-> P9T1
 ```
@@ -863,7 +865,9 @@ Rows are proposals; the phase README and briefs refine them.
 
 Old Phase 6 T3–T4, unchanged in substance (option 2 of §6, its own convention diff). It
 is compared against the Phase 5 baseline, not a p = 4 one (decision 24). It needs Phase 5
-T7 and Phase 4s T16 (merged). §13.10.
+T7 and Phase 4s T16 (merged). It also holds one optional task independent of the θ-map:
+exporting run directories to Weights & Biases, which needs only Phase 5 T4's run files
+and can run at any time after it (decision 30, amendment of 2026-10-27). §13.10.
 
 ### Phase 9: HPC (systems track)
 
@@ -1506,6 +1510,35 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       ports no filter; the T5 aliasing control equals the main arm and is not run. Caveat:
       the aliasing row (which needs `datagen`) was skipped by the author's choice, so the
       effect of the unfiltered R on f is not measured.
+    - **Amendment, W&B export (2026-10-27).** An optional task in Phase 8: export run
+      directories to Weights & Biases after training (§13.10), in Rust over W&B's HTTP
+      API behind an optional cargo feature `wandb`, not a Python script. It is
+      independent of the θ-map, needs only Phase 5 T4's run files, and can run at any
+      time after Phase 5 T4. The run directories remain the record of every result.
+      Added by the author (AHA-HH), 2026-10-27.
+    - **Amendment, Phase 6 planning (2026-10-27).** Plan: `docs/phase6/README.md`, with
+      briefs T1–T2. Phase 6 runs beside Phase 5. Chosen by the author:
+      - D5: CC-weighted inner product on the 129 CGL grid (rows of the centred snapshot
+        matrix scaled by √(w_i w_j)); equal weights on the uniform learning grids, scaled
+        by the cell area (2/(s − 1))².
+      - The POD is RLST's thin SVD of the snapshot matrix, not the N × N Gram matrix
+        (u's singular values span about 1.5e5), so the phase's code is behind `datagen`
+        (`metrics/pod` and the example `poisson_pod`); no new dependency.
+      - Stage 3 only; the basis fitted on the 1000 train samples, the test split only
+        projected.
+      - The closed-form spectrum (§13.4) checks the analysis: eigenvalues compared in
+        groups of equal k² + l², since degenerate modes mix. At K = 64 the population
+        ranks for 90 / 99 / 99.9% energy are 38 / 418 / 2175 for f and 2 / 6 / 17 for u,
+        so f's 99.9% rank exceeds the N − 1 = 999 directions of the sample and is
+        reported as limited by N.
+    - **Amendment, Phase 6 close-out (2026-10-27).** The POD uses LAPACK `gesvd` through
+      RLST, not RLST's `svd` (`gesdd`): on the stage 3 solutions restricted to s = 16 and
+      32, macOS Accelerate's `dgesdd` returned singular values with Σ σ² up to 44 times the
+      matrix's squared Frobenius norm, and `info = 0`. `Pod::fit` now checks that identity
+      on every fit. T1's CGL results agree between the two to 1e-15. No result contradicts
+      §13.4: u's ranks (2 / 6 / 17) are unchanged on every learning grid, and f's 99% and
+      99.9% ranks fall below s = 64, capped by the (s − 2)² interior points
+      (docs/phase6/README.md, Results). Recorded by the author (AHA-HH), 2026-10-27.
 
 ## 13. Research programme after Phase 4s
 
@@ -1885,6 +1918,35 @@ compared at 65², 129² and across resolutions on the same seeds and test sets. 
 is the Phase 5 baseline (decision 24's gate: fixed padding, several seeds). It does not
 block the completion of Phases 5–7.
 
+**Optional task: Weights & Biases export** (decision 30, amendment of 2026-10-27), in
+Rust, like the rest of the chain. W&B ships no Rust SDK (its client is Python; the one
+`wandb` crate is an unofficial 2024 alpha), so the exporter speaks W&B's HTTP API
+itself: the GraphQL endpoint to create the run with its config and summary, the run's
+file stream for the per-epoch history, and file uploads for the images. That protocol is
+what the open-source W&B client uses but is not a documented public interface, so the
+task's brief pins it against that client's source and the GraphQL schema first, and an
+upstream change can break the exporter without breaking anything else. It is a library
+module behind a new optional cargo feature `wandb` (an HTTP client with TLS), so the
+default build, CI's default jobs and the licence are unchanged, and an example
+(`wandb_export -- <project> runs/<run_dir> ...`) drives it. Training is unchanged: it
+reads finished run directories (§13.9) and uploads:
+- the three configs as the W&B run config (n, s, K, seed, padding, modes), grouped by
+  (padding, s) so the seeds of a cell sit together;
+- `metrics.csv` as one step per epoch (train and test relative L², learning rate,
+  `epoch_time_s`);
+- `errors.json` and `costs.json` as summary values, and the per-sample error 4 and ‖u‖
+  as a table;
+- `plots.png` and `prediction_*.png` as images.
+
+It is run from the author's machine, not the GPU VM, so the VM needs no network access
+or W&B key. The key comes from `WANDB_API_KEY`, the project from the command line, and
+no account name or key is committed. Its tests need no network: they check the requests
+it would send against a run-directory fixture, and one manual upload to a scratch
+project is the acceptance. Live logging during training is a possible later extension
+(an `EpochObserver` that streams each epoch, Phase 4s T12) and out of scope here. The
+run directories stay the record: W&B is a view of them, and no Results row cites W&B
+alone.
+
 ### 13.11 Phase 9: HPC (systems track)
 
 Separate from Phases 5–7 and runnable at any time:
@@ -1971,7 +2033,7 @@ plan or brief that needs each is approved. Each is recorded under decision 30 wh
 | D2 | Mode rule across s | Main matrix m = min(12, s/2) per axis (fixed physical bandwidth where the grid allows); control arm m = s/4 (fixed relative bandwidth: 4, 8, 16, 32). **Decided 2026-10-26:** min(12, s/2), no control arm |
 | D3 | Baseline padding | p = 0 (no CONVENTIONS change); a fixed physical fraction only as a separate, version-bumping proposal. **Decided 2026-10-26:** p = 0 |
 | D4 | Seeds per configuration | 3 for Phase 5 and as initialisation seeds in Phase 7; 5 if the spread between seeds is comparable to the differences being compared. **Decided 2026-10-26:** as recommended |
-| D5 | Phase 6 inner product | Clenshaw–Curtis-weighted on the CGL grid (the L² of §3.4, matching the closed-form spectra); equal weights on the uniform learning grids |
+| D5 | Phase 6 inner product | Clenshaw–Curtis-weighted on the CGL grid (the L² of §3.4, matching the closed-form spectra); equal weights on the uniform learning grids. **Decided 2026-10-27:** as recommended, the uniform-grid weights scaled by the cell area (2/(s − 1))² |
 | D6 | Phase 7 training budget | A fixed number of optimisation steps (equal updates for every N), reporting epochs too; fixed epochs as a secondary arm if affordable |
 | D7 | Phase 7 acceptance threshold | Test relative L² ≤ 2e-2 on the fine grid (§11's pipeline threshold), met in the mean over seeds, with the spread reported; fixed before any Phase 7 run |
 | D8 | Evaluation grids G_e | 129 CGL (fine) and each G_l (coarse); 257 only in the T1 reference check. **Decided 2026-10-26:** as recommended |

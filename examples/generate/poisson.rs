@@ -15,7 +15,7 @@
 
 use sciml_rs::neural_operators::data::catalogue::{GENERATED, SPLITS};
 use sciml_rs::neural_operators::pde::poisson::dataset::{SplitSpec, generate, write_split};
-use sciml_rs::neural_operators::runs::git_commit;
+use sciml_rs::neural_operators::utils::backend::git_commit;
 use std::path::Path;
 
 /// Base seed of every training split: sample i uses seed TRAIN_SEED + i.
