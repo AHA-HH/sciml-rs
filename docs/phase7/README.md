@@ -122,7 +122,7 @@ Filled in as tasks merge. Phase 7 is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| Subsets nested and reproducible; normalisers fitted on the subset; old runs still open | | T1 |
+| Subsets nested and reproducible; normalisers fitted on the subset; old runs still open | Done. Unit tests: nesting 25 ⊂ … ⊂ 1000 for seeds 0–2; the seed-0, N = 25 indices and their hash `65104831155be79e` pinned; a loaded subset equals a plain load of a file holding only those samples (tensors and normalisers), and differs from the fit on the whole split; old `data_cfg.json` (no subset) and `costs.json` (no `optimisation_steps`) still load; a wrong hash is rejected before any file is read. Without a subset the loader is unchanged (`poisson_output_is_pinned`, synthetic fields; not compared on the real stage 2 files). Smoke run on flex (not a result): stage 3, s = 64, N = 25, subset seed 0, seed 42, 500 epochs, 2.4 s/epoch, 1185 s; `data_cfg.json` records seed 0, population 1000 and hash `65104831155be79e`, `costs.json` 1000 optimisation steps. `predict_poisson` evaluates it unchanged: error 4 2.64e-1 mean (final train L² 1.26e-2), error 2 2.45e-5 as in Phase 5, error 3 within 1.1e-7 of the last test L². `poisson_resolution` rejects subset runs | T1 |
 | Matrix cost, timed and stated before the full runs | | T2 |
 | Coarse and fine-grid error per N, mean [min–max] over seeds; spread by subset seed and by initialisation seed | | T2, T3 |
 | Training time and optimisation steps per N | | T2, T3 |

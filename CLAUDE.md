@@ -67,7 +67,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
   read), `save_plot`, `save_normalizers`, `save_weights`, `save_costs` (`costs.json`,
-  Poisson runs since Phase 5 T4); `open(dir)`, `load_fno`, `model_config`,
+  Poisson runs since Phase 5 T4, `optimisation_steps` since Phase 7 T1); `open(dir)`, `load_fno`, `model_config`,
   `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`. Run-file names appear
   nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `src/neural_operators/chebyshev/` builds without features, except `diff_matrix`/
@@ -94,7 +94,10 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   take file names from here, not literals.
 - `data/loaders/poisson/` is ungated: `mod.rs` (`PoissonConfig` with the learning grid `s`,
   unset meaning n − 1, and since Phase 5 T4 K, d and the split files with their sidecar
-  commits; `SidecarRecord`), `uniform` (`load_poisson_uniform` reads those
+  commits, and since Phase 7 T1 an optional `subset`; `SidecarRecord`), `subset`
+  (`SubsetConfig`, `subset_indices`: nested seeded train subsets by ChaCha8, sorted, with
+  an FNV-1a `indices_hash` the loader checks; `rand_chacha` is a default dependency for
+  it), `uniform` (`load_poisson_uniform` reads those
   `.npz` files and applies T_cu at load time, giving Darcy-shaped datasets on the uniform
   grid of s points, so one dataset serves every s) and `cheb`
   (`load_poisson_cheb_field` reads one split's raw field, `PoissonField::F` or `U`, on the
@@ -194,10 +197,11 @@ than trusting prose when checking how an API behaves.
   TUI: `train_epoch` is the canonical loop; this is the Burgers-only (`FNO<3>`) Learner
   equivalent. It writes `runs/burgers_fno_learner_<unix_secs>/` (configs and weights, no
   `metrics.csv`), which `predict_burgers` evaluates.
-- Train on Poisson: `cargo run --release --example train_poisson [--features metal] [-- [<padding>] [<n>] [<s>] [<seed>]]`
+- Train on Poisson: `cargo run --release --example train_poisson [--features metal] [-- [<padding>] [<n>] [<s>] [<seed>] [<N> <subset_seed>]]`
   (the first argument overrides `PADDING`, the second picks the stage, n ∈ {65, 129, 257},
   default 65, the third the learning grid s, default n − 1, with modes min(12, s/2), the
-  fourth the seed, default 42; needs that stage in `datasets/poisson/`; `predict_poisson`
+  fourth the seed, default 42, the fifth and sixth together a training subset of N samples
+  and its seed (Phase 7), default the whole split; needs that stage in `datasets/poisson/`; `predict_poisson`
   evaluates any s, `poisson_resolution` and `poisson_plot` only s = n − 1). On cuda:
   `--no-default-features --features cuda`
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`

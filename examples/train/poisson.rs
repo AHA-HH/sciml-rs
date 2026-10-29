@@ -1,7 +1,7 @@
 //! FNO on 2D Poisson on the Chebyshev grid (n nodes per axis, s on the model grid, by
 //! default s = n − 1); stage 2 (n = 65) by default
 //!
-//! Run with: cargo run --release --example train_poisson [-- [<padding>] [<n>] [<s>] [<seed>]]
+//! Run with: cargo run --release --example train_poisson [-- [<padding>] [<n>] [<s>] [<seed>] [<N> <subset_seed>]]
 //! (CPU by default; add `--features metal` or `--features cuda` for a GPU -
 //! see "Backends" in the README).
 //!
@@ -17,12 +17,17 @@
 //! An optional fourth argument sets `TrainingConfig::seed` (default 42; weight
 //! initialisation and the shuffle), named in the run when not 42:
 //! cargo run --release --example train_poisson -- 0 129 32 7
+//! Optional fifth and sixth arguments train on N samples of the train split, the seeded
+//! nested subset `subset_seed` (`SubsetConfig`, design §13.5; Phase 7), with the
+//! normalizers fitted on those N; both are given together, and the run name carries them:
+//! cargo run --release --example train_poisson -- 0 129 64 42 25 0
 //!
 //! Besides the configs, metrics, normalizers and weights, the run records `costs.json`
 //! (`RunCosts`, design §13.9): the dataset's generation time from its sidecars, the load,
-//! transfer and training times, host-to-device bytes, the parameter count, backend,
-//! device and commit. `data_cfg.json` records n, K, s, d and both split files with their
-//! generating commits.
+//! transfer and training times, host-to-device bytes, the parameter count, the
+//! optimisation steps, backend, device and commit. `data_cfg.json` records n, K, s, d,
+//! both split files with their generating commits and, with N, the subset's seed,
+//! population and index hash.
 //!
 //! Structurally identical to `examples/train/darcy.rs`, with the Darcy model and
 //! training hyperparameters (design §7). The loader transfers every sample from the
@@ -39,7 +44,8 @@ use sciml_rs::neural_operators::{
         loaders::{
             base_dataset::DatasetConfig,
             poisson::{
-                DatasetSource, PoissonConfig, SidecarRecord, SplitSource, load_poisson_uniform,
+                DatasetSource, PoissonConfig, SidecarRecord, SplitSource, SubsetConfig,
+                load_poisson_uniform,
             },
         },
     },
@@ -97,12 +103,21 @@ fn main() {
     let s = arg(3, "s", n - 1);
     let default_seed = TrainingConfig::new().seed;
     let seed = arg(4, "seed", default_seed);
+    let n_train = arg(5, "N", N_TRAIN);
+    // the subset seed is required with N: a default would hide which subset a run used
+    let subset_seed: Option<u64> = std::env::args().nth(5).map(|_| {
+        assert!(
+            std::env::args().nth(6).is_some(),
+            "N needs a subset_seed argument after it"
+        );
+        arg(6, "subset_seed", 0)
+    });
     let modes = MAX_MODES.min(s / 2);
 
     let device = Device::default().autodiff();
     println!(
         "device: {device:?}, padding: {padding}, n: {n}, s: {s}, modes: {modes}, K: {k}, \
-         seed: {seed}"
+         seed: {seed}, N: {n_train}, subset seed: {subset_seed:?}"
     );
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
@@ -125,9 +140,17 @@ fn main() {
         SplitSource::new(set.npz(split), sidecar.git_commit.clone())
     };
 
+    let subset = subset_seed.map(|seed| {
+        assert!(
+            n_train <= train_sidecar.count,
+            "N = {n_train} exceeds the {} train samples",
+            train_sidecar.count
+        );
+        SubsetConfig::draw(seed, train_sidecar.count, n_train)
+    });
     let dataset_cfg = PoissonConfig::new(
         DatasetConfig {
-            n_train: N_TRAIN,
+            n_train,
             n_test: N_TEST,
         },
         n,
@@ -138,7 +161,8 @@ fn main() {
         TRANSFER_DEGREE,
         split("train", &train_sidecar),
         split("test", &test_sidecar),
-    )));
+    )))
+    .with_subset(subset);
 
     let load_start = Instant::now();
     let (train_data, test_data, normalizers) =
@@ -180,18 +204,22 @@ fn main() {
         .with_seed(seed);
 
     // Stage 2 at s = n − 1 keeps its run name; other stages carry n, other s carry n and s,
-    // and a seed other than the default is appended
+    // then a subset its N and seed, and a seed other than the default is appended
     let grid = match (n, s == n - 1) {
         (DEFAULT_N, true) => String::new(),
         (_, true) => format!("_n{n}"),
         (_, false) => format!("_n{n}_s{s}"),
+    };
+    let subset_tag = match subset_seed {
+        Some(sub) => format!("_N{n_train}_sub{sub}"),
+        None => String::new(),
     };
     let seed_tag = if seed == default_seed {
         String::new()
     } else {
         format!("_seed{seed}")
     };
-    let name = format!("poisson_fno{grid}_p{padding}{seed_tag}");
+    let name = format!("poisson_fno{grid}_p{padding}{subset_tag}{seed_tag}");
     // Writes configs, metrics, normalizers and weights to runs/<name>_<timestamp>/.
     // Created before training: train_fno appends each epoch's row of metrics.csv to it
     let run = RunDir::create(&Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"), &name)
@@ -228,6 +256,7 @@ fn main() {
         device: format!("{device:?}"),
         git_commit: git_commit(),
         num_params: model.num_params(),
+        optimisation_steps: Some(train_cfg.epochs * n_train.div_ceil(train_cfg.batch_size)),
     };
 
     run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)

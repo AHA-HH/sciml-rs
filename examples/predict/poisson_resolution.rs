@@ -11,6 +11,8 @@
 //! split: the same training fields (seeds and K) on the finer grid (design §12, decision
 //! 18). The weights are never refit. At the run's own n the refit normalizers are the
 //! saved ones, and the mean error 3 is cross-checked against the run's last test_l2.
+//! Runs trained on a seeded subset (`PoissonConfig::subset`, Phase 7) are rejected: the
+//! refit would not use their subset.
 //! Needs the datasets: see datasets/README.md.
 
 use std::path::Path;
@@ -63,6 +65,13 @@ fn main() {
          phase 5 T6",
         trained_cfg.s(),
         trained_cfg.n
+    );
+    // the refit below would use the first n_train samples, not the run's subset
+    assert!(
+        trained_cfg.subset.is_none(),
+        "this run trained on a seeded subset of {} samples; poisson_resolution refits the \
+         normalizers on a train split and does not evaluate subset runs",
+        trained_cfg.base.n_train
     );
     let k = stage(trained_cfg.n)
         .unwrap_or_else(|e| panic!("the run's stage: {e}"))
