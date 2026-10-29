@@ -1565,6 +1565,22 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
         1.68–1.69 s from s = 16 to 64 and 2.45 s at s = 128, so below s = 128 a fixed
         per-epoch cost dominates. Costs hold for this device only (§13.14).
       - Recorded by the author (AHA-HH), 2026-10-29.
+    - **Amendment, Phase 7 planning (2026-10-29).** Plan: `docs/phase7/README.md`, with
+      briefs T1–T3. Chosen by the author, before any Phase 7 run:
+      - D6: fixed epochs, 500 for every N, as in Phase 5, each run reporting its
+        optimisation steps (500 × ⌈N / 20⌉). This departs from the recommendation (a
+        fixed step budget); small N therefore also trains for fewer steps (§13.14).
+        Deferred as later research: a fixed step budget of 25,000 steps, which would also
+        need evaluation every fixed number of steps instead of every epoch.
+      - D7: as recommended, fine-grid test relative L² ≤ 2e-2, met in the mean over all
+        seeds of an N, with the spread reported.
+      - Seeds: subset seeds 0, 1, 2 × initialisation seeds 42, 43, 44 at
+        N ∈ {25, 50, 100, 250, 500}, 45 runs. N = 1000 is the Phase 5 s = 64 runs with
+        seeds 42, 43, 44, since every permutation selects all 1000 samples.
+      - Subsets: the first N of a ChaCha8 permutation of the train indices, sorted;
+        `rand_chacha` leaves the `datagen` feature (no new dependency). Evaluation stays
+        per epoch.
+      - Recorded by the author (AHA-HH), 2026-10-29.
 
 ## 13. Research programme after Phase 4s
 
@@ -2047,6 +2063,9 @@ Stated before the experiments and tested by them. None is a result.
   result mixes a smaller bandwidth with a coarser grid.
 - Costs are measured on the hardware at hand (metal locally, one A100 on cuda) and are
   comparable only within one backend and device.
+- Phase 7 trains every N for 500 epochs (D6), so small N gets fewer optimisation steps
+  (1,000 at N = 25 against 25,000 at N = 1000): its error mixes too little data with too
+  little training. A fixed step budget is deferred.
 
 ### 13.15 Open decisions
 
@@ -2060,8 +2079,8 @@ plan or brief that needs each is approved. Each is recorded under decision 30 wh
 | D3 | Baseline padding | p = 0 (no CONVENTIONS change); a fixed physical fraction only as a separate, version-bumping proposal. **Decided 2026-10-26:** p = 0 |
 | D4 | Seeds per configuration | 3 for Phase 5 and as initialisation seeds in Phase 7; 5 if the spread between seeds is comparable to the differences being compared. **Decided 2026-10-26:** as recommended |
 | D5 | Phase 6 inner product | Clenshaw–Curtis-weighted on the CGL grid (the L² of §3.4, matching the closed-form spectra); equal weights on the uniform learning grids. **Decided 2026-10-27:** as recommended, the uniform-grid weights scaled by the cell area (2/(s − 1))² |
-| D6 | Phase 7 training budget | A fixed number of optimisation steps (equal updates for every N), reporting epochs too; fixed epochs as a secondary arm if affordable |
-| D7 | Phase 7 acceptance threshold | Test relative L² ≤ 2e-2 on the fine grid (§11's pipeline threshold), met in the mean over seeds, with the spread reported; fixed before any Phase 7 run |
+| D6 | Phase 7 training budget | A fixed number of optimisation steps (equal updates for every N), reporting epochs too; fixed epochs as a secondary arm if affordable. **Decided 2026-10-29:** fixed epochs (500), steps reported; a fixed step budget deferred to later research |
+| D7 | Phase 7 acceptance threshold | Test relative L² ≤ 2e-2 on the fine grid (§11's pipeline threshold), met in the mean over seeds, with the spread reported; fixed before any Phase 7 run. **Decided 2026-10-29:** as recommended |
 | D8 | Evaluation grids G_e | 129 CGL (fine) and each G_l (coarse); 257 only in the T1 reference check. **Decided 2026-10-26:** as recommended |
 
 ### 13.16 Completion
