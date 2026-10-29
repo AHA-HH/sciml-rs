@@ -59,6 +59,10 @@ name = "poisson_resolution"
 path = "examples/predict/poisson_resolution.rs"
 
 [[example]]
+name = "poisson_matrix"
+path = "examples/predict/poisson_matrix.rs"
+
+[[example]]
 name = "poisson_pod"
 path = "examples/predict/poisson_pod.rs"
 required-features = ["datagen"]

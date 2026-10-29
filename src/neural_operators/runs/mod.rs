@@ -41,6 +41,7 @@ use crate::neural_operators::{
         transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
     },
     models::fno::{FNO, FNOConfig},
+    training::config::TrainingConfig,
 };
 
 const MODEL_CFG: &str = "model_cfg.json";
@@ -206,6 +207,14 @@ impl RunDir {
         self.load_config(MODEL_CFG)
     }
 
+    /// The training config, from `train_cfg.json`.
+    ///
+    /// # Errors
+    /// If the file can't be read or parsed.
+    pub fn training_config(&self) -> Result<TrainingConfig, Box<dyn Error>> {
+        self.load_config(TRAIN_CFG)
+    }
+
     /// The dataset config, from `data_cfg.json`, as the PDE's config type `C` (for example
     /// `DarcyConfig`).
     ///
@@ -276,7 +285,6 @@ mod tests {
     use crate::neural_operators::{
         data::loaders::{base_dataset::DatasetConfig, darcy::DarcyConfig},
         models::predict::predict_host,
-        training::config::TrainingConfig,
     };
     use ndarray::{Array4, ArrayD, IxDyn};
 
@@ -355,7 +363,10 @@ mod tests {
         let data: DarcyConfig = opened.data_config().unwrap();
         assert_eq!(data.s(), data_config().s());
         assert_eq!(opened.model_config().unwrap().modes, model_config().modes);
-        assert!(opened.path().join("train_cfg.json").exists());
+        assert_eq!(
+            opened.training_config().unwrap().seed,
+            TrainingConfig::new().seed
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 

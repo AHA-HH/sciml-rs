@@ -17,6 +17,7 @@ use std::path::Path;
 
 use burn::tensor::Device;
 use sciml_rs::neural_operators::{
+    chebyshev::Transfers,
     data::{
         catalogue::{PoissonSet, stage},
         loaders::poisson::{
@@ -106,7 +107,7 @@ fn main() {
             .into_dimensionality::<ndarray::Ix3>()
             .expect("decoded predictions are [N, s, s]");
 
-        let errors = poisson_errors(pred.view(), u.view());
+        let errors = poisson_errors(pred.view(), u.view(), &Transfers::new(n));
         let e2 = ErrorStats::of(&errors.transfer);
         let e3 = ErrorStats::of(&errors.model);
         let e4 = ErrorStats::of(&errors.total);

@@ -1,5 +1,7 @@
 //! Evaluates a saved Poisson run on its stage's test split: the five errors of design §7,
-//! on the Chebyshev grid, and the boundary verdict (design §12, decision 16).
+//! on the Chebyshev grid, and the boundary verdict (design §12, decision 16), at the
+//! run's learning grid s: error 2 is then the transfer-only floor, error 3 the coarse error
+//! and error 4 the fine-grid error (design §13.3).
 //!
 //! Run with: cargo run --release --example predict_poisson -- runs/poisson_fno_p<p>_<timestamp>
 //! (add `--features metal` for the GPU).
@@ -11,8 +13,9 @@
 //! solutions from `load_poisson_cheb_field`;
 //! predictions are decoded with the y normalizer and copied to the host as f64. Error 1
 //! needs the `datagen` feature and is quoted from Phase 1. `metrics::poisson::evaluate`
-//! cross-checks error 2 against the test split's `.json` sidecar and the mean error 3
-//! against the run's last test_l2, and gives the boundary verdict; this prints its report
+//! cross-checks error 2 against the test split's `.json` sidecar (only at s = n − 1, the
+//! sidecar's s) and the mean error 3 against the run's last test_l2, gives the boundary
+//! verdict and the correlation of error 4 with ‖u‖ (decision 22); this prints its report
 //! and writes its record as errors.json into the run directory, with the index of the
 //! sample with the max error 4, the one to plot with `poisson_plot`. The prediction runs
 //! twice and the second, warm pass is timed; a run with `costs.json` (since Phase 5 T4)
@@ -25,6 +28,7 @@ use std::time::Instant;
 use burn::{config::Config, tensor::Device};
 use ndarray::Axis;
 use sciml_rs::neural_operators::{
+    chebyshev::Transfers,
     data::{
         catalogue::stage,
         loaders::poisson::{
@@ -32,7 +36,7 @@ use sciml_rs::neural_operators::{
             load_poisson_uniform_test,
         },
     },
-    metrics::poisson::{evaluate, poisson_errors},
+    metrics::poisson::{ERRORS_JSON, evaluate, poisson_errors},
     models::predict::predict_host,
     runs::RunDir,
     utils::backend::backend_features,
@@ -58,13 +62,6 @@ fn main() {
     let dataset_cfg = run
         .data_config::<PoissonConfig>()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
-    assert!(
-        dataset_cfg.s() == dataset_cfg.n - 1,
-        "this run trained at s = {} on n = {}; predict_poisson evaluates only s = n - 1 runs until \
-         phase 5 T6",
-        dataset_cfg.s(),
-        dataset_cfg.n
-    );
     let n = dataset_cfg.n;
     let set = stage(n).unwrap_or_else(|e| panic!("the run's stage: {e}"));
     let n_test = dataset_cfg.base.n_test;
@@ -98,13 +95,14 @@ fn main() {
         .expect("decoded predictions are [N, s, s]");
     assert_eq!(pred.len_of(Axis(0)), n_test);
 
-    let errors = poisson_errors(pred.view(), u.view());
+    let transfers = Transfers::with_s(n, dataset_cfg.s());
+    let errors = poisson_errors(pred.view(), u.view(), &transfers);
     let sidecar =
         SidecarRecord::load(datasets.join(set.json("test"))).expect("load the test sidecar");
     let metrics = run.metrics().expect("read metrics.csv");
     let eval = evaluate(
         &errors,
-        n,
+        &transfers,
         &sidecar,
         metrics.last().expect("metrics.csv has epochs"),
         format!("{device:?}"),
@@ -113,7 +111,7 @@ fn main() {
     );
     println!("\n{eval}");
 
-    let out = dir.join("errors.json");
+    let out = dir.join(ERRORS_JSON);
     eval.record.save(&out).expect("write errors.json");
     println!("wrote {}", out.display());
 
