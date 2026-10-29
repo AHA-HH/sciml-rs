@@ -44,4 +44,7 @@ pub struct RunCosts {
     pub git_commit: String,
     /// Trainable parameters of the model (Burn's `Module::num_params`).
     pub num_params: usize,
+    /// Optimisation steps taken, epochs × ⌈N / batch size⌉ (design §13.9); `None` in
+    /// files written before Phase 7 T1.
+    pub optimisation_steps: Option<usize>,
 }

@@ -10,6 +10,9 @@
 //! as Darcy does. The same files load at any s, so every learning grid sees the same
 //! forcings and the same test set. Inputs carry
 //! the forcing only; the model appends the 2D grid coordinates itself (see `FNO::forward`).
+//! With a [`SubsetConfig`] (in `subset`; Phase 7), the train split is the seeded nested
+//! subset of `base.n_train` samples instead of the first ones, and the normalizers are
+//! fitted on it alone.
 //! `load_poisson_uniform_test` builds the test split alone, encoded with a run's saved
 //! normalizers, so predict neither reads nor transfers the train split.
 //!
@@ -36,9 +39,11 @@
 #![allow(clippy::redundant_field_names)]
 
 mod cheb;
+mod subset;
 mod uniform;
 
 pub use cheb::load_poisson_cheb_field;
+pub use subset::{SubsetConfig, indices_hash, subset_indices};
 pub use uniform::{load_poisson_uniform, load_poisson_uniform_test};
 
 use crate::neural_operators::data::io::{errors::LoadError, readers::npz::NpzFileReader};
@@ -63,6 +68,9 @@ pub struct PoissonConfig {
     /// Where the dataset came from, recorded by `train_poisson` since Phase 5 T4; `None`
     /// in older configs. The loaders do not read it.
     pub source: Option<DatasetSource>,
+    /// The seeded train subset of `base.n_train` samples (design §13.5; Phase 7 T1).
+    /// `None`, and every config saved before it, means the first `base.n_train` samples.
+    pub subset: Option<SubsetConfig>,
 }
 
 /// Where a run's dataset came from (design §13.9): K, the prolongation degree d and both
@@ -361,6 +369,7 @@ mod tests {
         assert_eq!((config.n, config.s, config.s()), (65, None, 64));
 
         assert!(config.source.is_none());
+        assert!(config.subset.is_none());
 
         let split = |file: &str| SplitSource::new(file.to_string(), "abc123".to_string());
         let source = DatasetSource::new(
@@ -369,10 +378,16 @@ mod tests {
             split("poisson_n65_K32_train.npz"),
             split("poisson_n65_K32_test.npz"),
         );
-        let config = config.with_s(Some(32)).with_source(Some(source));
+        let config = config
+            .with_s(Some(32))
+            .with_source(Some(source))
+            .with_subset(Some(SubsetConfig::draw(1, 1000, 25)));
         let saved = burn::config::config_to_json(&config);
         let back = PoissonConfig::load_binary(saved.as_bytes()).unwrap();
         assert_eq!((back.n, back.s, back.s()), (65, Some(32), 32));
+        let subset = back.subset.as_ref().expect("subset saved");
+        assert_eq!((subset.seed, subset.population), (1, 1000));
+        assert_eq!(subset.hash, indices_hash(&subset_indices(1000, 25, 1)));
         let source = back.source.expect("source saved");
         assert_eq!((source.k, source.d), (32, 2));
         let test = source.test;

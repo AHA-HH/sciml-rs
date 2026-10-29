@@ -436,6 +436,7 @@ mod tests {
             device: "Flex(Cpu)".to_string(),
             git_commit: "abc123".to_string(),
             num_params: 1_188_353,
+            optimisation_steps: Some(500 * 50),
         };
         run.save_costs(&costs).unwrap();
         // predict completes the file written by training
@@ -449,6 +450,16 @@ mod tests {
             burn::config::config_to_json(&read),
             burn::config::config_to_json(&costs)
         );
+
+        // a costs.json as Phase 5 runs wrote it, before optimisation_steps
+        let phase5 = r#"{"dataset_train_wall_time_s": 1.1, "dataset_test_wall_time_s": 0.2,
+            "load_time_s": 3.5, "training_time_s": 120.25, "inference_time_s": null,
+            "host_to_device_bytes_train": 8, "host_to_device_bytes_test": 4,
+            "peak_gpu_memory": "unavailable", "backend_features": ["cuda"],
+            "device": "Cuda(0)", "git_commit": "abc123", "num_params": 2368001}"#;
+        std::fs::write(run.path().join(COSTS), phase5).unwrap();
+        let read = run.costs().unwrap().expect("costs were saved");
+        assert_eq!(read.optimisation_steps, None);
 
         std::fs::write(run.path().join(COSTS), "{").unwrap();
         let msg = run.costs().expect_err("a broken costs.json").to_string();

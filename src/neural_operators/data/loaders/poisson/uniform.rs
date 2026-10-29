@@ -10,7 +10,7 @@ use crate::neural_operators::data::{
     io::{errors::LoadError, readers::npz::NpzFileReader},
     loaders::common::{Normalizers, check_n_train, normalize_split_pair, normalize_test_split},
 };
-use ndarray::{ArrayD, s};
+use ndarray::{Array3, ArrayD, Axis, s};
 use std::path::Path;
 
 /// Builds the Poisson dataset on the uniform grid: inputs `[N, s, s, 1]` (the normalized
@@ -19,7 +19,11 @@ use std::path::Path;
 ///
 /// Each file must hold `f` and `u` as `[samples, n, n]` on the CGL grid (`f[i, a, b] =
 /// f(x_a, y_b)`) and `x`, `y` as the ascending CGL nodes `[n]`. The first
-/// `config.base.n_train` / `config.base.n_test` samples are used.
+/// `config.base.n_test` test samples are used. The train samples are the first
+/// `config.base.n_train`, or with `config.subset` the seeded nested subset of that many
+/// out of its first `population` samples
+/// ([`subset_indices`](super::subset_indices)), in file order; the
+/// normalizers are then fitted on the subset alone (CONVENTIONS §10).
 ///
 /// Returns `(train_dataset, test_dataset, normalizers)`. `normalizers.y` is what the
 /// caller needs to decode predictions back to physical scale; `normalizers.x` is only
@@ -28,7 +32,8 @@ use std::path::Path;
 /// # Errors
 /// [`LoadError::Reader`] if a file can't be read or lacks `f`/`u`/`x`/`y`;
 /// [`LoadError::Invalid`] if `n_train < 2` (the normalizers' sample std is undefined for
-/// one sample), `config.n <` [`Transfers::MIN_N`] or `config.s() <` [`Transfers::MIN_S`]
+/// one sample), the subset asks for more than its `population` or its hash differs from
+/// the recomputed one, `config.n <` [`Transfers::MIN_N`] or `config.s() <` [`Transfers::MIN_S`]
 /// (T_uc of degree [`TRANSFER_DEGREE`] needs s − 1 ≥ d), `f` or `u` isn't `[samples, n, n]`, `x` or `y` isn't `[n]` or differs from the CGL nodes by more than
 /// 1e-14, or a file has fewer samples than requested.
 ///
@@ -41,18 +46,15 @@ pub fn load_poisson_uniform<T: HostFloat>(
     config: &PoissonConfig,
 ) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
     check_n_train(config.base.n_train)?;
+    let train_rows = Rows::train(config)?;
 
     // The transfers are built once and shared by both splits; each split's reader and
     // Chebyshev fields are freed before the next file is parsed.
     let transfers = transfers(config)?;
-    let (f_train, u_train) = read_uniform_split(
-        train_path.as_ref(),
-        "train",
-        config.base.n_train,
-        &transfers,
-    )?;
-    let (f_test, u_test) =
-        read_uniform_split(test_path.as_ref(), "test", config.base.n_test, &transfers)?;
+    let (f_train, u_train) =
+        read_uniform_split(train_path.as_ref(), "train", &train_rows, &transfers)?;
+    let test_rows = Rows::Prefix(config.base.n_test);
+    let (f_test, u_test) = read_uniform_split(test_path.as_ref(), "test", &test_rows, &transfers)?;
     Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
 }
 
@@ -78,8 +80,8 @@ pub fn load_poisson_uniform_test<T: HostFloat>(
     normalizers: &Normalizers,
 ) -> Result<OperatorDataset<T>, LoadError> {
     let transfers = transfers(config)?;
-    let (f_test, u_test) =
-        read_uniform_split(test_path.as_ref(), "test", config.base.n_test, &transfers)?;
+    let rows = Rows::Prefix(config.base.n_test);
+    let (f_test, u_test) = read_uniform_split(test_path.as_ref(), "test", &rows, &transfers)?;
     normalize_test_split(f_test, u_test, normalizers)
 }
 
@@ -102,22 +104,63 @@ fn transfers(config: &PoissonConfig) -> Result<Transfers, LoadError> {
     Ok(Transfers::with_s(n, s))
 }
 
-/// Reads one split's `f` and `u`, validated, and transfers the first `count` samples of
-/// each to the uniform grid with `transfers` ([`Transfers::to_uniform_all`]):
-/// `([count, s, s], [count, s, s])`. `split` only labels the error messages.
+/// The samples of a split to load.
+enum Rows {
+    /// The first `n`.
+    Prefix(usize),
+    /// These sorted rows of a split of at least `population` samples.
+    Subset { population: usize, rows: Vec<usize> },
+}
+
+impl Rows {
+    /// The train rows of `config`: its subset's, recomputed and checked against the hash
+    /// before any file is read ([`SubsetConfig::rows`](super::SubsetConfig::rows)), else
+    /// the first `base.n_train`.
+    fn train(config: &PoissonConfig) -> Result<Self, LoadError> {
+        let n = config.base.n_train;
+        Ok(match &config.subset {
+            Some(subset) => Self::Subset {
+                population: subset.population,
+                rows: subset.rows(n).map_err(LoadError::Invalid)?,
+            },
+            None => Self::Prefix(n),
+        })
+    }
+
+    /// The samples the split must hold.
+    fn required(&self) -> usize {
+        match self {
+            Self::Prefix(n) => *n,
+            Self::Subset { population, .. } => *population,
+        }
+    }
+
+    /// The selected samples of `values` (`[samples, n, n]`), in file order.
+    fn take(&self, values: Array3<f64>) -> Array3<f64> {
+        match self {
+            Self::Prefix(n) => values.slice_move(s![..*n, .., ..]),
+            Self::Subset { rows, .. } => values.select(Axis(0), rows),
+        }
+    }
+}
+
+/// Reads one split's `f` and `u`, validated (at least [`Rows::required`] samples), and
+/// transfers the `rows` of each to the uniform grid with `transfers`
+/// ([`Transfers::to_uniform_all`]): `([k, s, s], [k, s, s])` for k samples. `split` only
+/// labels the error messages.
 fn read_uniform_split(
     path: &Path,
     split: &str,
-    count: usize,
+    rows: &Rows,
     transfers: &Transfers,
 ) -> Result<(ArrayD<f64>, ArrayD<f64>), LoadError> {
     let n = transfers.n();
     let mut reader = NpzFileReader::new(path)?;
     check_nodes(&mut reader, split, n, &nodes(n))?;
     let mut read = |field| -> Result<ArrayD<f64>, LoadError> {
-        let values = read_samples(&mut reader, split, field, n, count)?;
+        let values = read_samples(&mut reader, split, field, n, rows.required())?;
         Ok(transfers
-            .to_uniform_all(values.slice(s![..count, .., ..]))
+            .to_uniform_all(rows.take(values).view())
             .into_dyn())
     };
     let f = read(PoissonField::F)?;
@@ -253,6 +296,81 @@ mod tests {
                 "s must be >= 3",
             );
         }
+    }
+
+    // --- phase 7 T1: nested seeded subsets, normalizers fitted on the subset ---
+
+    #[test]
+    fn subset_loads_the_selected_samples_and_fits_on_them() {
+        use crate::neural_operators::data::loaders::poisson::{SubsetConfig, subset_indices};
+
+        let dir = fresh_dir("subset");
+        let (_, test_path) = write_valid_pair(&dir);
+        let x = nodes(N);
+        let (population, n_sub, seed) = (8, 3, 0);
+        let f = poly_field(population, 0.0, &x, &x);
+        let train_path = write_npz(&dir, "train8.npz", &f, &(&f * -2.0), &x, &x);
+
+        let rows = subset_indices(population, n_sub, seed);
+        assert_ne!(rows, [0, 1, 2], "the subset is not the prefix");
+        let config =
+            cfg(n_sub, N_TEST).with_subset(Some(SubsetConfig::draw(seed, population, n_sub)));
+        let (train, test, norms) =
+            load_poisson_uniform::<f64>(&train_path, &test_path, &config).unwrap();
+
+        // the same samples written as a file of their own, loaded as a plain prefix
+        let f_sel = f.select(Axis(0), &rows);
+        let sel_path = write_npz(&dir, "selected.npz", &f_sel, &(&f_sel * -2.0), &x, &x);
+        let (want_train, want_test, want_norms) =
+            load_poisson_uniform::<f64>(&sel_path, &test_path, &cfg(n_sub, N_TEST)).unwrap();
+        assert_eq!(train.inputs(), want_train.inputs());
+        assert_eq!(train.targets(), want_train.targets());
+        assert_eq!(test.inputs(), want_test.inputs());
+        assert_eq!(norms.x.mean(), want_norms.x.mean());
+        assert_eq!(norms.y.std(), want_norms.y.std());
+
+        // not the normalizers of the whole population
+        let (_, _, all) =
+            load_poisson_uniform::<f64>(&train_path, &test_path, &cfg(population, N_TEST)).unwrap();
+        assert_ne!(norms.x.mean(), all.x.mean());
+    }
+
+    #[test]
+    fn subset_with_wrong_hash_or_population_is_invalid() {
+        use crate::neural_operators::data::loaders::poisson::SubsetConfig;
+
+        // nonexistent paths: both checks run before any file I/O
+        let wrong = SubsetConfig::new(0, 8, "0000000000000000".to_string());
+        expect_invalid(
+            load_poisson_uniform(
+                "/nope/train.npz",
+                "/nope/test.npz",
+                &cfg(3, 1).with_subset(Some(wrong)),
+            ),
+            "differs from the configured 0000000000000000",
+        );
+        let small = SubsetConfig::new(0, 2, String::new());
+        expect_invalid(
+            load_poisson_uniform(
+                "/nope/train.npz",
+                "/nope/test.npz",
+                &cfg(3, 1).with_subset(Some(small)),
+            ),
+            "needs a population of at least 3, got 2",
+        );
+    }
+
+    #[test]
+    fn subset_population_beyond_the_file_is_invalid() {
+        use crate::neural_operators::data::loaders::poisson::SubsetConfig;
+
+        let dir = fresh_dir("subset_population");
+        let (train_path, test_path) = write_valid_pair(&dir);
+        let config = cfg(2, N_TEST).with_subset(Some(SubsetConfig::draw(0, N_TRAIN + 1, 2)));
+        expect_invalid(
+            load_poisson_uniform(&train_path, &test_path, &config),
+            "requested 4 train samples but 'f' has 3",
+        );
     }
 
     /// Order-sensitive sum, compared bit for bit.

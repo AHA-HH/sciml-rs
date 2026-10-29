@@ -128,7 +128,7 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
     pub model: FNO<R>,
     /// Adam with weight decay.
     pub optim: ModuleOptimizer,
-    /// Cosine annealing over `epochs × steps_per_epoch` steps, stepped once per batch.
+    /// Cosine annealing over [`TrainingConfig::total_steps`] steps, stepped once per batch.
     pub scheduler: ModuleLrScheduler,
     /// Shuffled training batches on the autodiff device.
     pub train_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
@@ -177,11 +177,9 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
         .with_weight_decay(Some(WeightDecayConfig::new(train_cfg.weight_decay)))
         .init();
 
-    // DataLoader yields ceil(len / batch_size) batches, the last one partial
-    let steps_per_epoch = n_train.div_ceil(train_cfg.batch_size);
     let scheduler = CosineAnnealingLrSchedulerConfig::new(
         train_cfg.learning_rate,
-        train_cfg.epochs * steps_per_epoch,
+        train_cfg.total_steps(n_train),
     )
     .with_min_lr(train_cfg.min_lr)
     .init()
