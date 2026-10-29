@@ -211,7 +211,10 @@ than trusting prose when checking how an API behaves.
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`
 - Phase 5 comparison table and plots from evaluated Poisson runs (mean and min–max over
   seeds per (padding, s); plots `<stem>_*.png` beside the table, skipped without gnuplot):
-  `cargo run --release --example poisson_matrix -- docs/phase5/results.md runs/<run_dir> ...`
+  `cargo run --release --example poisson_matrix -- docs/phase5/results.md runs/<run_dir> ...`;
+  with `--by-n` the Phase 7 table instead (runs at one (padding, s) and one backend,
+  grouped by N, whole-split runs as N = 1000; D7 verdict, spread by seed, cost per fall in
+  error; plots against N): `poisson_matrix -- --by-n docs/phase7/results.md runs/<run_dir> ...`
 - Resolution study (errors 3 and 4 of a Poisson run on finer grids at the run's K, weights
   unchanged, normalisers refit on that n's `_train` split):
   `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> <n> [<n> ...]`
