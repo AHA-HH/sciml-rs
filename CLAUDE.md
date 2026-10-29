@@ -10,15 +10,15 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: Phase 5, grid-decoupled operator learning (docs/phase5/README.md,
-  briefs docs/phase5/T1–T7; design §13.3, decision 30 and its 2026-10-26 planning
-  amendment). Phases 0–4 are done (docs/phase0/README.md to
-  docs/phase4/README.md), and so is Phase 4s (side phase, repository health,
-  docs/phase4s/README.md; design §10, decision 25), closed 2026-10-24 with re-review
-  grade B (docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md).
-  Next (design §13, decision 30, which supersedes decision 24's Phase 5/6 split):
-  Phase 7, sample efficiency. Phase 6 (SVD/POD information content, beside Phase 5) is done
-  2026-10-27: docs/phase6/README.md, results docs/phase6/results.md. Phase 8 (θ-map) is optional; Phase 9 (HPC: profiling, checkpointing,
+- Current phase: Phase 7, training-set size and sample efficiency (design §10 Phase 7,
+  §13.5; not yet planned: its README and briefs come first, with D6 and D7). Its spatial
+  baseline is Phase 5's s = 64 (decision 30, amendment of 2026-10-29). Phases 0–4 are done
+  (docs/phase0/README.md to docs/phase4/README.md), and so is Phase 4s (side phase,
+  repository health, docs/phase4s/README.md; design §10, decision 25), closed 2026-10-24
+  with re-review grade B (docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md).
+  Phase 5 (grid-decoupled operator learning) is done 2026-10-29: docs/phase5/README.md,
+  results docs/phase5/results.md. Phase 6 (SVD/POD information content, beside Phase 5) is
+  done 2026-10-27: docs/phase6/README.md, results docs/phase6/results.md. Phase 8 (θ-map) is optional; Phase 9 (HPC: profiling, checkpointing,
   multi-GPU) is a separate systems track. Their 4s prerequisites (T10/T12 for Phase 9
   T2, T16 for Phase 8) are merged. Each phase gets its README and briefs when it
   starts; 4s briefs are in docs/phase4s/T*.md.

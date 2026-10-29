@@ -1539,6 +1539,32 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       §13.4: u's ranks (2 / 6 / 17) are unchanged on every learning grid, and f's 99% and
       99.9% ranks fall below s = 64, capped by the (s − 2)² interior points
       (docs/phase6/README.md, Results). Recorded by the author (AHA-HH), 2026-10-27.
+    - **Amendment, Phase 5 close-out (2026-10-29).** Phase 5 T1–T7 done
+      (`docs/phase5/README.md`, Results; `docs/phase5/results.md`).
+      - **The Phase 7 baseline is s = 64,** by the rule fixed before T5: the s = 128
+        main-arm mean error 4 is 1.065e-2 over 5 seeds, and s = 64 is within 10% of it
+        (1.080e-2, +1.4%) while s = 32 is not (1.329e-2, +24.8%). Baseline: stage 3 data
+        (n = 129, K = 64, 1000 train / 200 test), s = 64, R = unfiltered T_cu, P =
+        Floater–Hormann d = 2, p = 0, modes [12, 12], width 32, 4 Fourier layers, relative
+        L² loss, Adam (1e-3, weight decay 1e-4) with cosine annealing to 1e-5, batch 20,
+        and initialisation seeds 42, 43, 44 (D4). The epoch count is Phase 7's training
+        budget (D6); Phase 5 used 500.
+      - **D4 escalation.** s = 64 and 128 were raised to 5 seeds (45, 46): with 3, the
+        spread at s = 64 exceeded the gap to s = 128. With 5, the gap (1.6e-4) is still
+        well inside the spreads (8.6e-4, 6.6e-4).
+      - **The padding control** (p = 4, one seed) has error 4 1.079e-2, inside the p = 0
+        seeds' range at s = 128: no gain from padding, so D3 stands. One seed cannot show a
+        penalty.
+      - **Contradicts H5 (§13.13), mechanism.** Error 4 does leave its s = 128 value below
+        s = 64, but the transfer-only error never becomes the larger part: it is 8.1% of
+        error 4 at s = 16 and 2.6% at s = 32. The growth is in the model's own coarse
+        error. A likely cause, not measured, is the forcing content the coarse grid cannot
+        hold, aliased into the input by the unfiltered R; at s = 16 the smaller modes (D2)
+        are confounded with it.
+      - **Contradicts H5, cost.** Time per epoch does not fall with s²: on the A100 it is
+        1.68–1.69 s from s = 16 to 64 and 2.45 s at s = 128, so below s = 128 a fixed
+        per-epoch cost dominates. Costs hold for this device only (§13.14).
+      - Recorded by the author (AHA-HH), 2026-10-29.
 
 ## 13. Research programme after Phase 4s
 
