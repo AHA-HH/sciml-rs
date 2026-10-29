@@ -41,6 +41,29 @@ impl SubsetConfig {
             indices_hash(&subset_indices(population, n, seed)),
         )
     }
+
+    /// The subset's `n` rows, recomputed by the rule and checked against `hash`: the
+    /// inverse of [`SubsetConfig::draw`].
+    ///
+    /// # Errors
+    /// A message if `n > population` or the recomputed hash differs from `hash`.
+    pub fn rows(&self, n: usize) -> Result<Vec<usize>, String> {
+        let population = self.population;
+        if n > population {
+            return Err(format!(
+                "a subset of {n} train samples needs a population of at least {n}, got {population}"
+            ));
+        }
+        let rows = subset_indices(population, n, self.seed);
+        let hash = indices_hash(&rows);
+        if hash != self.hash {
+            return Err(format!(
+                "subset hash {hash} (seed {}, {n} of {population}) differs from the configured {}",
+                self.seed, self.hash
+            ));
+        }
+        Ok(rows)
+    }
 }
 
 /// The first `n` indices of the seeded permutation of `0..population` (module docs),
@@ -122,6 +145,22 @@ mod tests {
             );
         }
         assert!(subset_indices(0, 0, 0).is_empty());
+    }
+
+    #[test]
+    fn rows_inverts_draw() {
+        let subset = SubsetConfig::draw(2, 1000, 50);
+        assert_eq!(subset.rows(50), Ok(subset_indices(1000, 50, 2)));
+
+        let err = subset.rows(25).unwrap_err();
+        assert!(err.contains("differs from the configured"), "{err}");
+        let err = subset.rows(1001).unwrap_err();
+        assert!(
+            err.contains("population of at least 1001, got 1000"),
+            "{err}"
+        );
+        let wrong = SubsetConfig::new(2, 1000, "0".repeat(16));
+        assert!(wrong.rows(50).is_err());
     }
 
     #[test]

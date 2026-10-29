@@ -28,3 +28,25 @@ pub struct TrainingConfig {
     #[config(default = 42)]
     pub seed: u64,
 }
+
+impl TrainingConfig {
+    /// Optimisation steps a run takes on `n_train` samples: `epochs` × ⌈`n_train` /
+    /// `batch_size`⌉, since an epoch's last batch may be partial. The trainer's cosine
+    /// schedule spans exactly these steps.
+    pub fn total_steps(&self, n_train: usize) -> usize {
+        self.epochs * n_train.div_ceil(self.batch_size)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn total_steps_counts_the_partial_last_batch() {
+        let cfg = TrainingConfig::new().with_epochs(500).with_batch_size(20);
+        assert_eq!(cfg.total_steps(25), 1000);
+        assert_eq!(cfg.total_steps(1000), 25_000);
+        assert_eq!(cfg.total_steps(20), 500);
+    }
+}

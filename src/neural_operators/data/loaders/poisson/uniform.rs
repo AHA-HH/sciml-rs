@@ -2,7 +2,7 @@
 //! (default n − 1), every sample transferred with T_cu and then normalized (see the module
 //! above).
 
-use super::{PoissonConfig, PoissonField, check_nodes, indices_hash, read_samples, subset_indices};
+use super::{PoissonConfig, PoissonField, check_nodes, read_samples};
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes};
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
@@ -10,7 +10,7 @@ use crate::neural_operators::data::{
     io::{errors::LoadError, readers::npz::NpzFileReader},
     loaders::common::{Normalizers, check_n_train, normalize_split_pair, normalize_test_split},
 };
-use ndarray::{ArrayD, Axis, s};
+use ndarray::{Array3, ArrayD, Axis, s};
 use std::path::Path;
 
 /// Builds the Poisson dataset on the uniform grid: inputs `[N, s, s, 1]` (the normalized
@@ -21,7 +21,8 @@ use std::path::Path;
 /// f(x_a, y_b)`) and `x`, `y` as the ascending CGL nodes `[n]`. The first
 /// `config.base.n_test` test samples are used. The train samples are the first
 /// `config.base.n_train`, or with `config.subset` the seeded nested subset of that many
-/// out of its first `population` samples ([`subset_indices`]), in file order; the
+/// out of its first `population` samples
+/// ([`subset_indices`](super::subset_indices)), in file order; the
 /// normalizers are then fitted on the subset alone (CONVENTIONS §10).
 ///
 /// Returns `(train_dataset, test_dataset, normalizers)`. `normalizers.y` is what the
@@ -45,24 +46,15 @@ pub fn load_poisson_uniform<T: HostFloat>(
     config: &PoissonConfig,
 ) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
     check_n_train(config.base.n_train)?;
-    let rows = subset_rows(config)?;
+    let train_rows = Rows::train(config)?;
 
     // The transfers are built once and shared by both splits; each split's reader and
     // Chebyshev fields are freed before the next file is parsed.
     let transfers = transfers(config)?;
-    let (count, rows) = match &rows {
-        Some((population, rows)) => (*population, Some(rows.as_slice())),
-        None => (config.base.n_train, None),
-    };
     let (f_train, u_train) =
-        read_uniform_split(train_path.as_ref(), "train", count, rows, &transfers)?;
-    let (f_test, u_test) = read_uniform_split(
-        test_path.as_ref(),
-        "test",
-        config.base.n_test,
-        None,
-        &transfers,
-    )?;
+        read_uniform_split(train_path.as_ref(), "train", &train_rows, &transfers)?;
+    let test_rows = Rows::Prefix(config.base.n_test);
+    let (f_test, u_test) = read_uniform_split(test_path.as_ref(), "test", &test_rows, &transfers)?;
     Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
 }
 
@@ -88,13 +80,8 @@ pub fn load_poisson_uniform_test<T: HostFloat>(
     normalizers: &Normalizers,
 ) -> Result<OperatorDataset<T>, LoadError> {
     let transfers = transfers(config)?;
-    let (f_test, u_test) = read_uniform_split(
-        test_path.as_ref(),
-        "test",
-        config.base.n_test,
-        None,
-        &transfers,
-    )?;
+    let rows = Rows::Prefix(config.base.n_test);
+    let (f_test, u_test) = read_uniform_split(test_path.as_ref(), "test", &rows, &transfers)?;
     normalize_test_split(f_test, u_test, normalizers)
 }
 
@@ -117,50 +104,64 @@ fn transfers(config: &PoissonConfig) -> Result<Transfers, LoadError> {
     Ok(Transfers::with_s(n, s))
 }
 
-/// `config.subset`'s population and its sorted train rows, recomputed and checked against
-/// the configured hash before any file is read; `None` without a subset.
-fn subset_rows(config: &PoissonConfig) -> Result<Option<(usize, Vec<usize>)>, LoadError> {
-    let Some(subset) = &config.subset else {
-        return Ok(None);
-    };
-    let (n, population) = (config.base.n_train, subset.population);
-    if n > population {
-        return Err(LoadError::Invalid(format!(
-            "a subset of {n} train samples needs a population of at least {n}, got {population}"
-        )));
-    }
-    let rows = subset_indices(population, n, subset.seed);
-    let hash = indices_hash(&rows);
-    if hash != subset.hash {
-        return Err(LoadError::Invalid(format!(
-            "subset hash {hash} (seed {}, {n} of {population}) differs from the configured {}",
-            subset.seed, subset.hash
-        )));
-    }
-    Ok(Some((population, rows)))
+/// The samples of a split to load.
+enum Rows {
+    /// The first `n`.
+    Prefix(usize),
+    /// These sorted rows of a split of at least `population` samples.
+    Subset { population: usize, rows: Vec<usize> },
 }
 
-/// Reads one split's `f` and `u`, validated (at least `count` samples), and transfers
-/// `rows` of each, or else the first `count`, to the uniform grid with `transfers`
+impl Rows {
+    /// The train rows of `config`: its subset's, recomputed and checked against the hash
+    /// before any file is read ([`SubsetConfig::rows`](super::SubsetConfig::rows)), else
+    /// the first `base.n_train`.
+    fn train(config: &PoissonConfig) -> Result<Self, LoadError> {
+        let n = config.base.n_train;
+        Ok(match &config.subset {
+            Some(subset) => Self::Subset {
+                population: subset.population,
+                rows: subset.rows(n).map_err(LoadError::Invalid)?,
+            },
+            None => Self::Prefix(n),
+        })
+    }
+
+    /// The samples the split must hold.
+    fn required(&self) -> usize {
+        match self {
+            Self::Prefix(n) => *n,
+            Self::Subset { population, .. } => *population,
+        }
+    }
+
+    /// The selected samples of `values` (`[samples, n, n]`), in file order.
+    fn take(&self, values: Array3<f64>) -> Array3<f64> {
+        match self {
+            Self::Prefix(n) => values.slice_move(s![..*n, .., ..]),
+            Self::Subset { rows, .. } => values.select(Axis(0), rows),
+        }
+    }
+}
+
+/// Reads one split's `f` and `u`, validated (at least [`Rows::required`] samples), and
+/// transfers the `rows` of each to the uniform grid with `transfers`
 /// ([`Transfers::to_uniform_all`]): `([k, s, s], [k, s, s])` for k samples. `split` only
 /// labels the error messages.
 fn read_uniform_split(
     path: &Path,
     split: &str,
-    count: usize,
-    rows: Option<&[usize]>,
+    rows: &Rows,
     transfers: &Transfers,
 ) -> Result<(ArrayD<f64>, ArrayD<f64>), LoadError> {
     let n = transfers.n();
     let mut reader = NpzFileReader::new(path)?;
     check_nodes(&mut reader, split, n, &nodes(n))?;
     let mut read = |field| -> Result<ArrayD<f64>, LoadError> {
-        let values = read_samples(&mut reader, split, field, n, count)?;
-        let values = match rows {
-            Some(rows) => values.select(Axis(0), rows),
-            None => values.slice_move(s![..count, .., ..]),
-        };
-        Ok(transfers.to_uniform_all(values.view()).into_dyn())
+        let values = read_samples(&mut reader, split, field, n, rows.required())?;
+        Ok(transfers
+            .to_uniform_all(rows.take(values).view())
+            .into_dyn())
     };
     let f = read(PoissonField::F)?;
     let u = read(PoissonField::U)?;

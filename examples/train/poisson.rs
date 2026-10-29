@@ -103,15 +103,13 @@ fn main() {
     let s = arg(3, "s", n - 1);
     let default_seed = TrainingConfig::new().seed;
     let seed = arg(4, "seed", default_seed);
-    let n_train = arg(5, "N", N_TRAIN);
-    // the subset seed is required with N: a default would hide which subset a run used
-    let subset_seed: Option<u64> = std::env::args().nth(5).map(|_| {
-        assert!(
-            std::env::args().nth(6).is_some(),
-            "N needs a subset_seed argument after it"
-        );
-        arg(6, "subset_seed", 0)
-    });
+    // N and the subset seed come as a pair: a default seed would hide which subset a run
+    // used
+    let (n_train, subset_seed) = match (std::env::args().nth(5), std::env::args().nth(6)) {
+        (None, _) => (N_TRAIN, None),
+        (Some(_), None) => panic!("N needs a subset_seed argument after it"),
+        (Some(_), Some(_)) => (arg(5, "N", N_TRAIN), Some(arg(6, "subset_seed", 0u64))),
+    };
     let modes = MAX_MODES.min(s / 2);
 
     let device = Device::default().autodiff();
@@ -140,14 +138,7 @@ fn main() {
         SplitSource::new(set.npz(split), sidecar.git_commit.clone())
     };
 
-    let subset = subset_seed.map(|seed| {
-        assert!(
-            n_train <= train_sidecar.count,
-            "N = {n_train} exceeds the {} train samples",
-            train_sidecar.count
-        );
-        SubsetConfig::draw(seed, train_sidecar.count, n_train)
-    });
+    let subset = subset_seed.map(|seed| SubsetConfig::draw(seed, train_sidecar.count, n_train));
     let dataset_cfg = PoissonConfig::new(
         DatasetConfig {
             n_train,
@@ -256,7 +247,7 @@ fn main() {
         device: format!("{device:?}"),
         git_commit: git_commit(),
         num_params: model.num_params(),
-        optimisation_steps: Some(train_cfg.epochs * n_train.div_ceil(train_cfg.batch_size)),
+        optimisation_steps: Some(train_cfg.total_steps(n_train)),
     };
 
     run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
