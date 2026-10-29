@@ -1,7 +1,7 @@
 # Phase 5: grid-decoupled operator learning
 
-As of 2026-10-26; planned, not started (decision 30, amended 2026-10-26 with the Phase 5
-planning decisions). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 5, §13).
+As of 2026-10-29; done, T1–T7 (decision 30, amended 2026-10-26 with the Phase 5
+planning decisions and 2026-10-29 with the close-out). Phase 7's baseline is s = 64. Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 5, §13).
 `docs/CONVENTIONS.md` wins on any conflict.
 
 Phase 5 asks how coarse the forcing representation and the FNO's learning grid can be
@@ -150,19 +150,38 @@ Filled in as tasks merge. Phase 5 is done when every row has a value.
 | Padding control (`poisson_fno_n129_p4_1792037830`) against the main arm at s = 128 | Re-evaluated on flex; reproduces Phase 4 T3 (errors 2–5, cross-checks, verdict 0.009). Error 4 1.079e-2 / 3.34e-2 (mean / max) against the p = 0 main arm's 1.065e-2 [1.040e-2–1.107e-2] (5 seeds): p = 4 is 1.3% worse than the p = 0 mean, above four of the five p = 0 seeds and inside their range, so the control shows no gain from padding, consistent with D3 | T6 |
 | Error 4 against ‖u‖ over the test set | corr(ln error 4, ln ‖u‖) over the 200 test samples: −0.66, −0.68, −0.68, −0.68, −0.68 for the s = 128 p = 0 seeds and −0.68 for the padding control; −0.86 / −0.74 / −0.68 / −0.68 (mean over seeds) at s = 16 / 32 / 64 / 128. High error 4 comes largely from small ‖u‖, as decision 22 suspected (sample 84 at Phase 4 T3); the scatter plot is attached to the PR | T6 |
 | Dataset generation time (solver cost, reported separately) | n = 129: 1.1 s train, 0.2 s test; n = 257: 5.2 s train, 1.1 s test | T1 (sidecars) |
-| Phase 7 baseline and its justification | | T7 |
+| Phase 7 baseline and its justification | **s = 64**, by the rule fixed before T5 (the smallest s whose mean error 4 over seeds is within 10% of the s = 128 main-arm mean). The s = 128 mean is 1.065e-2 (5 seeds), so the threshold is 1.172e-2: s = 16, 3.730e-2 (+250%), fails; s = 32, 1.329e-2 (+24.8%), fails; s = 64, 1.080e-2 (+1.4%), passes. The full baseline: stage 3 data (n = 129, K = 64, 1000 train / 200 test); s = 64; R = unfiltered T_cu (`cheb_to_uniform(129, 64)`), P = Floater–Hormann d = 2 (D1); p = 0 (D3); modes [12, 12] (D2); width 32, 4 Fourier layers; relative L² loss, Adam (learning rate 1e-3, weight decay 1e-4), cosine annealing to 1e-5, batch 20, 500 epochs (Phase 7's step budget is D6); initialisation seeds 42, 43, 44 (D4). Against s = 128 it costs 1.69 s/epoch instead of 2.45 (0.69×) and 32.8 MB of host-to-device training data instead of 131 MB (0.25×). Recorded in design §12, decision 30, amendment of 2026-10-29 | T7 |
+
+### H5 against the results
+
+H5 (design §13.13) holds in part:
+- **Holds:** error 4 stays close to its s = 128 value down to s = 64 (+1.4%) and leaves it
+  below (+24.8% at s = 32, 3.5× at s = 16). On this grid set s* = 64.
+- **Does not hold, mechanism:** H5 expected the transfer-only error (error 2) to become
+  the larger part of error 4 below s*. It does not at any s run: the floor is 0.02%,
+  0.2%, 2.6% and 8.1% of error 4 at s = 128, 64, 32 and 16. The growth below s* is in the
+  model's own coarse error (error 3 equals error 4 to within 1.1% everywhere). A likely
+  cause, not measured, is the forcing content the coarse grid cannot hold: T1's
+  filtered-out energy of f beyond s − 2 is 1.2e-3, 9.0e-3 and 4.2e-2 at s = 64, 32 and 16,
+  and the unfiltered R aliases it into the model's input (T1's aliasing row was skipped).
+  At s = 16 the smaller modes (8, D2) are confounded with the grid.
+- **Does not hold, cost:** time per epoch does not fall with s². It is flat at 1.68 to
+  1.69 s from s = 16 to 64 (s² falls 16×) and 2.45 s at s = 128 (1.45× s = 64, where s² is
+  4×). Below s = 128 a fixed per-epoch cost dominates on the A100.
+
+Both are recorded in design §12 (decision 30, amendment of 2026-10-29).
 
 ## Exit checklist
 
-- [ ] T1–T7 merged.
+- [x] T1–T7 merged.
 - [x] CONVENTIONS §12 amended and `CONVENTION_VERSION = 2`.
 - [x] The solver and learning grids are independently configurable.
 - [x] The same forcing examples are represented at several learning resolutions.
-- [ ] Restriction and prolongation errors are measured separately.
-- [ ] Coarse-grid and fine-grid FNO errors are both reported.
-- [ ] Accuracy/cost trade-offs are reproducible across seeds.
-- [ ] The baseline resolution for Phase 7 is justified.
-- [ ] D1 recorded in design §12 under decision 30 (D2–D4 and D8 are recorded at planning).
-- [ ] Every row of Results filled in.
-- [ ] Any result that contradicts the design is recorded in design §12, dated.
-- [ ] The "Current phase" bullet in `CLAUDE.md` is updated for what comes next.
+- [x] Restriction and prolongation errors are measured separately.
+- [x] Coarse-grid and fine-grid FNO errors are both reported.
+- [x] Accuracy/cost trade-offs are reproducible across seeds.
+- [x] The baseline resolution for Phase 7 is justified.
+- [x] D1 recorded in design §12 under decision 30 (D2–D4 and D8 are recorded at planning).
+- [x] Every row of Results filled in.
+- [x] Any result that contradicts the design is recorded in design §12, dated.
+- [x] The "Current phase" bullet in `CLAUDE.md` is updated for what comes next.
