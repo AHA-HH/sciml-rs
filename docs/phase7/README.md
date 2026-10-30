@@ -1,7 +1,8 @@
 # Phase 7: training-set size and sample efficiency
 
-As of 2026-10-29; planned, T1–T3 (decision 30, amended 2026-10-29 with the Phase 7
-planning decisions). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 7,
+As of 2026-10-30; done, T1–T3 (decision 30, amended 2026-10-29 with the Phase 7
+planning decisions and 2026-10-30 with the close-out). The smallest N meeting D7 is 500,
+in the mean. Results: `docs/phase7/results.md`. Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 7,
 §13.5). `docs/CONVENTIONS.md` wins on any conflict.
 
 Phase 7 asks how many forcing–solution pairs the FNO needs to reach the acceptance
@@ -124,21 +125,44 @@ Filled in as tasks merge. Phase 7 is done when every row has a value.
 | --- | --- | --- |
 | Subsets nested and reproducible; normalisers fitted on the subset; old runs still open | Done. Unit tests: nesting 25 ⊂ … ⊂ 1000 for seeds 0–2; the seed-0, N = 25 indices and their hash `65104831155be79e` pinned; a loaded subset equals a plain load of a file holding only those samples (tensors and normalisers), and differs from the fit on the whole split; old `data_cfg.json` (no subset) and `costs.json` (no `optimisation_steps`) still load; a wrong hash is rejected before any file is read. Without a subset the loader is unchanged (`poisson_output_is_pinned`, synthetic fields; not compared on the real stage 2 files). Smoke run on flex (not a result): stage 3, s = 64, N = 25, subset seed 0, seed 42, 500 epochs, 2.4 s/epoch, 1185 s; `data_cfg.json` records seed 0, population 1000 and hash `65104831155be79e`, `costs.json` 1000 optimisation steps. `predict_poisson` evaluates it unchanged: error 4 2.64e-1 mean (final train L² 1.26e-2), error 2 2.45e-5 as in Phase 5, error 3 within 1.1e-7 of the last test L². `poisson_resolution` rejects subset runs | T1 |
 | Matrix cost, timed and stated before the full runs | Timed on the cuda VM (NVIDIA A100, the GPU otherwise free), stage 3, s = 64, p = 0, subset seed 0, seed 42, about 60 s per N, partial runs deleted. Steady s/epoch (epoch 0, the warm-up, excluded): N = 25: 0.15–0.16; 50: 0.183–0.188; 100: 0.24–0.25; 250: 0.494–0.510; 500: 0.867–0.900. They fit 0.117 s + 1.53 ms × N per epoch: a fixed cost, mostly the 200-sample test pass every epoch, plus about 31 ms per training batch of 20; the fit predicts 1.65 s at N = 1000 against Phase 5's measured 1.69. Extrapolated to 500 epochs: 78 / 93 / 123 / 251 / 442 s, 986 s per (subset seed, seed) pair, about 2.5 h of training for the 45 runs, about 3.5–4 h wall time with warm-up and per-run overhead (about 1.5 min per run in Phase 5 T5). Approved by the author 2026-10-29 | T2 |
-| Coarse and fine-grid error per N, mean [min–max] over seeds; spread by subset seed and by initialisation seed | T2, coarse error as the final-epoch test relative L² on the learning grid, mean [min–max] over the 9 runs: N = 25: 2.340e-1 [1.995e-1–2.838e-1]; 50: 1.495e-1 [1.329e-1–1.660e-1]; 100: 7.618e-2 [7.008e-2–8.265e-2]; 250: 3.623e-2 [3.462e-2–3.900e-2]; 500: 1.969e-2 [1.909e-2–2.058e-2]; 1000: T3 (Phase 5: error 4 1.080e-2 over seeds 42–46). Mean by subset seed 0 / 1 / 2: N = 25: 2.55e-1 / 2.09e-1 / 2.38e-1; 50: 1.51e-1 / 1.49e-1 / 1.48e-1; 100: 7.50e-2 / 7.79e-2 / 7.56e-2; 250: 3.62e-2 / 3.52e-2 / 3.74e-2; 500: 2.02e-2 / 1.93e-2 / 1.96e-2. By seed 42 / 43 / 44: N = 25: 2.17e-1 / 2.32e-1 / 2.52e-1; 50: 1.40e-1 / 1.48e-1 / 1.61e-1; 100: 7.25e-2 / 7.47e-2 / 8.15e-2; 250: 3.52e-2 / 3.72e-2 / 3.63e-2; 500: 1.97e-2 / 1.97e-2 / 1.96e-2. No run diverged or stands apart from its N (all within 1.25× of the N's median); the mean best-epoch test L² is within 3 % of the mean final one at every N. Final train L² 1.0e-2 to 1.3e-2 at N = 25 and 50, 3.1e-3 to 4.0e-3 at N = 500: the gap to the test error closes with N. Fine-grid error (error 4): T3 |
-| Training time and optimisation steps per N | T2, cuda (A100), 500 epochs, from each run's `costs.json` and `metrics.csv` (median s/epoch after epoch 0). Steps 500 × ⌈N / 20⌉: 1000 / 1500 / 2500 / 6500 / 12500 (25,000 at N = 1000). On an unshared GPU: N = 25: 0.158–0.165 s/epoch, 87–91 s training; 50: 0.184–0.191, 101–105 s; 100: 0.249–0.259, 133–137 s; 250: 0.496–0.521, 258–268 s; 500: 0.867–0.886, 441–452 s; the timing fit's predictions (0.155 / 0.194 / 0.270 / 0.500 / 0.882 s/epoch) hold. Ten runs shared the GPU with another process for part of their run, seen as the whole-device peak memory rising from the matrix's own 938 MiB to 1.8–14.4 GB: N = 100 subset seed 1 seed 44 (memory only) and subset seed 2, all seeds (0.43 s/epoch, 200–225 s); N = 250 subset seed 0, all seeds (0.52–0.83 s/epoch, 272–419 s); N = 500 subset seed 0, all seeds, and subset seed 1 seed 42 (0.89–0.98 s/epoch, 470–629 s). The other process is unidentified (the VM may be shared). Their errors are in line with their N, but their times and peak memory are not costs of the run; the unshared ranges above are. Training time of the 45 runs: 10,157 s (2.8 h) against 2.5 h estimated. Cost per fall in error between successive N: T3 |
-| The smallest N meeting D7 (mean error 4 ≤ 2e-2), with the spread | | T3 |
-| Cost per additional reduction in error between successive N | | T3 |
-| H7 against the results | | T3 |
+| Coarse and fine-grid error per N, mean [min–max] over seeds; spread by subset seed and by initialisation seed | T2, coarse error as the final-epoch test relative L² on the learning grid, mean [min–max] over the 9 runs: N = 25: 2.340e-1 [1.995e-1–2.838e-1]; 50: 1.495e-1 [1.329e-1–1.660e-1]; 100: 7.618e-2 [7.008e-2–8.265e-2]; 250: 3.623e-2 [3.462e-2–3.900e-2]; 500: 1.969e-2 [1.909e-2–2.058e-2]; 1000 (seeds 42–44): 1.060e-2 [1.040e-2–1.095e-2]. Mean by subset seed 0 / 1 / 2: N = 25: 2.55e-1 / 2.09e-1 / 2.38e-1; 50: 1.51e-1 / 1.49e-1 / 1.48e-1; 100: 7.50e-2 / 7.79e-2 / 7.56e-2; 250: 3.62e-2 / 3.52e-2 / 3.74e-2; 500: 2.02e-2 / 1.93e-2 / 1.96e-2. By seed 42 / 43 / 44: N = 25: 2.17e-1 / 2.32e-1 / 2.52e-1; 50: 1.40e-1 / 1.48e-1 / 1.61e-1; 100: 7.25e-2 / 7.47e-2 / 8.15e-2; 250: 3.52e-2 / 3.72e-2 / 3.63e-2; 500: 1.97e-2 / 1.97e-2 / 1.96e-2. No run diverged or stands apart from its N (all within 1.25× of the N's median); the mean best-epoch test L² is within 3 % of the mean final one at every N. Final train L² 1.0e-2 to 1.3e-2 at N = 25 and 50, 3.1e-3 to 4.0e-3 at N = 500: the gap to the test error closes with N. T3, fine-grid error (error 4) from `predict_poisson` on flex, every run's error 3 within 8.8e-7 of its last test L²: N = 25: 2.340e-1 [1.995e-1–2.838e-1]; 50: 1.495e-1 [1.329e-1–1.660e-1]; 100: 7.619e-2 [7.009e-2–8.266e-2]; 250: 3.623e-2 [3.462e-2–3.901e-2]; 500: 1.969e-2 [1.909e-2–2.058e-2]; 1000: 1.061e-2 [1.041e-2–1.095e-2]. Error 4 equals error 3 to within 1e-5 at every N: prolongation adds nothing measurable, as in Phase 5. The min–max range relative to the mean falls from 0.36 at N = 25 to 0.22, 0.17, 0.12, 0.08 and 0.05. Per run, per N and by seed: `docs/phase7/results.md` | T2, T3 |
+| Training time and optimisation steps per N | T2, cuda (A100), 500 epochs, from each run's `costs.json` and `metrics.csv` (median s/epoch after epoch 0). Steps 500 × ⌈N / 20⌉: 1000 / 1500 / 2500 / 6500 / 12500 (25,000 at N = 1000). On an unshared GPU: N = 25: 0.158–0.165 s/epoch, 87–91 s training; 50: 0.184–0.191, 101–105 s; 100: 0.249–0.259, 133–137 s; 250: 0.496–0.521, 258–268 s; 500: 0.867–0.886, 441–452 s; the timing fit's predictions (0.155 / 0.194 / 0.270 / 0.500 / 0.882 s/epoch) hold. Ten runs shared the GPU with another process for part of their run, seen as the whole-device peak memory rising from the matrix's own 938 MiB to 1.8–14.4 GB: N = 100 subset seed 1 seed 44 (memory only) and subset seed 2, all seeds (0.43 s/epoch, 200–225 s); N = 250 subset seed 0, all seeds (0.52–0.83 s/epoch, 272–419 s); N = 500 subset seed 0, all seeds, and subset seed 1 seed 42 (0.89–0.98 s/epoch, 470–629 s). The other process is unidentified (the VM may be shared). Their errors are in line with their N, but their times and peak memory are not costs of the run; the unshared ranges above are. Training time of the 45 runs: 10,157 s (2.8 h) against 2.5 h estimated. Per run: `docs/phase7/results.md` | T2, T3 |
+| The smallest N meeting D7 (mean error 4 ≤ 2e-2), with the spread | **N = 500**: mean error 4 1.969e-2 [1.909e-2–2.058e-2] over 9 runs. Not every run meets it: 3 of 9 are over (2.058e-2, subset seed 0 seed 43; 2.012e-2, subset seed 0 seed 44; 2.009e-2, subset seed 2 seed 42), and subset seed 0's mean is 2.022e-2. N = 250 misses by 1.8× (3.623e-2); N = 1000 meets it in every run. Under D6, N = 500 also trains for half N = 1000's steps (12,500) | T3 |
+| Cost per additional reduction in error between successive N | Per 1e-3 fall in mean error 4, extra samples: 0.3 (25 → 50), 0.7 (50 → 100), 3.8 (100 → 250), 15.1 (250 → 500), 55.1 (500 → 1000). Extra training time on the A100, from the runs that had the GPU to themselves (T2): 0.17, 0.42, 3.2, 11.1, 45.0 s per 1e-3; `results.md`'s column, which includes the ten shared-GPU runs, gives 0.2, 0.8, 3.3, 11.6, 41.0. Each step costs 3–4× the one before, in both samples and time | T3 |
+| H7 against the results | Holds in part; below | T3 |
+
+### H7 against the results
+
+H7 (design §13.13) holds in part:
+- **Holds:** the test error falls with N at every step, and the spread across seeds is
+  largest at small N, in absolute terms (min–max 8.4e-2 at N = 25, 5.4e-4 at N = 1000) and
+  relative to the mean (0.36 to 0.05). At N = 25 the subset seed matters most (subset
+  means 2.09e-1 to 2.55e-1); from N = 250 on, neither seed moves the mean by more than 4%.
+- **Does not hold, flattening:** the error does not flatten by N = 1000. On log–log axes
+  it falls as a power law, slope −0.85 over N = 25–1000, and the local slope is −0.81 to
+  −0.97 from N = 50 on (−0.65 from 25 to 50). Only the absolute fall shrinks, which a
+  power law also does. So the error is still data-limited at N = 1000; where it would
+  flatten is outside the measured range.
+- **Unknown in H7, now measured:** the threshold is met below N = 1000, at N = 500 in the
+  mean, with 3 of 9 runs over it.
+- **Confounded by D6:** every N trains for 500 epochs, so steps grow with N (1,000 at
+  N = 25, 25,000 at N = 1000). The slope mixes more data with more updates; the fixed
+  step budget (deferred) would separate them. The final train L² (1.1e-2 at N = 25, 3.6e-3
+  at N = 500, 3.2e-3 at N = 1000) sits far below the test error at every N, so the
+  shortfall is mostly generalisation, not under-fitting, but this is not a measurement of
+  the step effect.
+
+Recorded in design §12 (decision 30, amendment of 2026-10-30).
 
 ## Exit checklist
 
-- [ ] T1–T3 merged.
+- [x] T1–T3 merged.
 - [x] The learning resolution and transfer method are fixed from Phase 5.
-- [ ] Every training subset uses the same held-out test set.
-- [ ] Results are repeated across seeds.
-- [ ] Error and cost are plotted against training-set size.
-- [ ] The minimum practically useful dataset size is identified.
+- [x] Every training subset uses the same held-out test set.
+- [x] Results are repeated across seeds.
+- [x] Error and cost are plotted against training-set size.
+- [x] The minimum practically useful dataset size is identified.
 - [x] D6 and D7 recorded in design §12 under decision 30, before any run.
-- [ ] Every row of Results filled in.
-- [ ] Any result that contradicts the design recorded in design §12, dated.
-- [ ] The "Current phase" bullet in `CLAUDE.md` is updated for what comes next.
+- [x] Every row of Results filled in.
+- [x] Any result that contradicts the design recorded in design §12, dated.
+- [x] The "Current phase" bullet in `CLAUDE.md` is updated for what comes next.

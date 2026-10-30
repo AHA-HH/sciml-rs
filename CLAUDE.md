@@ -10,10 +10,10 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: Phase 7, training-set size and sample efficiency (design §10 Phase 7,
-  §13.5; planned 2026-10-29: docs/phase7/README.md, briefs T1–T3; D6 fixed 500 epochs,
-  D7 mean fine-grid error ≤ 2e-2). Its spatial
-  baseline is Phase 5's s = 64 (decision 30, amendment of 2026-10-29). Phases 0–4 are done
+- Current phase: none planned. Phases 5–7, the research programme (design §13.16), are
+  done. Phase 7 (training-set size and sample efficiency) is done 2026-10-30:
+  docs/phase7/README.md, results docs/phase7/results.md; D7 (mean fine-grid error
+  ≤ 2e-2) is met at N = 500 (decision 30, amendment of 2026-10-30). Phases 0–4 are done
   (docs/phase0/README.md to docs/phase4/README.md), and so is Phase 4s (side phase,
   repository health, docs/phase4s/README.md; design §10, decision 25), closed 2026-10-24
   with re-review grade B (docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md).
