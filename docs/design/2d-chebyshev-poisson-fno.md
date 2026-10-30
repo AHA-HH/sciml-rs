@@ -1581,6 +1581,22 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
         `rand_chacha` leaves the `datagen` feature (no new dependency). Evaluation stays
         per epoch.
       - Recorded by the author (AHA-HH), 2026-10-29.
+    - **Amendment, Phase 7 close-out (2026-10-30).** Phase 7 T1–T3 done
+      (`docs/phase7/README.md`, Results; `docs/phase7/results.md`), 45 new runs plus the
+      three Phase 5 s = 64 runs at N = 1000.
+      - **D7 is met at N = 500,** in the mean: error 4 1.969e-2 [1.909e-2–2.058e-2] over
+        9 runs, with 3 of 9 runs over 2e-2. N = 250 misses (3.623e-2); N = 1000 meets it
+        in every run (1.061e-2). D7 is applied as fixed at planning.
+      - **Contradicts H7 (§13.13), flattening.** The error falls as a power law in N,
+        log–log slope −0.85 over N = 25–1000 (local slopes −0.81 to −0.97 from N = 50),
+        with no flattening by N = 1000. The spread across seeds is largest at small N, as
+        H7 says. Under D6 steps grow with N, so the slope mixes data with training
+        updates (§13.14); the fixed step budget remains deferred.
+      - The cost per 1e-3 fall in mean error 4 grows 3–4× per step: 0.3 to 55.1 extra
+        samples and 0.17 to 45 s of A100 training time from 25 → 50 to 500 → 1000. Ten
+        of the 45 runs shared the GPU with an unidentified process; their times are
+        flagged and left out of those figures (§13.14: costs are per device).
+      - Recorded by the author (AHA-HH), 2026-10-30.
 
 ## 13. Research programme after Phase 4s
 

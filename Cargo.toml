@@ -61,6 +61,8 @@ path = "examples/predict/poisson_resolution.rs"
 [[example]]
 name = "poisson_matrix"
 path = "examples/predict/poisson_matrix.rs"
+# its unit tests run under `cargo test` (phase 7 T3)
+test = true
 
 [[example]]
 name = "poisson_pod"
