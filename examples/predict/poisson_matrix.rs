@@ -32,7 +32,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use burn::config::Config;
-use gnuplot::{AutoOption::Fix, AxesCommon, Caption, Figure, FillAlpha, PointSymbol};
+use gnuplot::{AutoOption::Fix, AxesCommon, Caption, Figure, FillAlpha, PointSymbol, Tick};
 use sciml_rs::neural_operators::{
     data::loaders::poisson::PoissonConfig,
     metrics::poisson::{ERRORS_JSON, PoissonErrorsRecord},
@@ -702,6 +702,11 @@ fn plots_by_n(out: &Path, sizes: &[Size]) -> Result<Vec<PathBuf>, String> {
     let path = |name: &str| out.with_file_name(format!("{stem}_{name}.png"));
     let mut written = Vec::new();
     let ns: Vec<f64> = sizes.iter().map(|s| s.n as f64).collect();
+    // gnuplot's log-axis ticks skip most of 25–1000; label each N instead
+    let ticks: Vec<Tick<f64, String>> = sizes
+        .iter()
+        .map(|s| Tick::Major(s.n as f64, Fix(s.n.to_string())))
+        .collect();
     let scatter = |f: fn(&Run) -> Option<f64>| -> (Vec<f64>, Vec<f64>) {
         sizes
             .iter()
@@ -720,6 +725,7 @@ fn plots_by_n(out: &Path, sizes: &[Size]) -> Result<Vec<PathBuf>, String> {
         .set_y_label("relative L² on the CGL grid", &[])
         .set_x_log(Some(10.0))
         .set_x_range(Fix(N_RANGE.0), Fix(N_RANGE.1))
+        .set_x_ticks_custom(&ticks, &[], &[])
         .set_y_log(Some(10.0))
         .fill_between(
             &ns,
@@ -751,6 +757,7 @@ fn plots_by_n(out: &Path, sizes: &[Size]) -> Result<Vec<PathBuf>, String> {
         .set_y_label("training time (s)", &[])
         .set_x_log(Some(10.0))
         .set_x_range(Fix(N_RANGE.0), Fix(N_RANGE.1))
+        .set_x_ticks_custom(&ticks, &[], &[])
         .set_y_log(Some(10.0))
         .lines_points(&tn, &tm, &[Caption("mean"), PointSymbol('O')])
         .points(&x, &y, &[Caption("runs"), PointSymbol('x')]);
