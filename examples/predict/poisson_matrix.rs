@@ -155,12 +155,89 @@ fn means_by<K: Ord>(items: impl IntoIterator<Item = (K, f64)>) -> BTreeMap<K, f6
     groups.into_iter().map(|(k, v)| (k, mean(&v))).collect()
 }
 
-/// The smallest key whose mean is at most `threshold`.
-fn smallest_meeting(means: &BTreeMap<usize, f64>, threshold: f64) -> Option<usize> {
-    means
-        .iter()
-        .find(|&(_, &m)| m <= threshold)
-        .map(|(&n, _)| n)
+/// Mean, min and max of one column over a group of runs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Spread {
+    mean: f64,
+    min: f64,
+    max: f64,
+}
+
+impl Spread {
+    /// The spread of `v`; `None` if it is empty.
+    fn of(v: &[f64]) -> Option<Self> {
+        if v.is_empty() {
+            return None;
+        }
+        let (min, max) = v
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &x| {
+                (lo.min(x), hi.max(x))
+            });
+        Some(Self {
+            mean: mean(v),
+            min,
+            max,
+        })
+    }
+
+    /// `mean [min–max]`, each value written by `fmt`.
+    fn fmt(&self, fmt: fn(f64) -> String) -> String {
+        format!("{} [{}–{}]", fmt(self.mean), fmt(self.min), fmt(self.max))
+    }
+}
+
+/// `mean [min–max]` of `v`, or "–" if empty.
+fn spread(v: &[f64], fmt: fn(f64) -> String) -> String {
+    Spread::of(v).map_or("–".into(), |s| s.fmt(fmt))
+}
+
+/// One training-set size (Phase 7): its runs, sorted by (subset seed, seed), and what
+/// every Phase 7 output reads from them, computed once.
+struct Size<'a> {
+    n: usize,
+    runs: Vec<&'a Run>,
+    /// Error 4 (fine grid, mean over the test split) over the runs.
+    error4: Spread,
+    /// Whether every run's error 4 meets D7, not only their mean.
+    every_run_meets_d7: bool,
+    /// Training time over the runs that recorded one; `None` if none did.
+    training_time: Option<Spread>,
+}
+
+impl<'a> Size<'a> {
+    /// The size `n` of `runs`.
+    ///
+    /// # Panics
+    /// If `runs` is empty.
+    fn of(n: usize, mut runs: Vec<&'a Run>) -> Self {
+        runs.sort_by_key(|r| (r.subset_seed, r.seed));
+        let error4: Vec<f64> = runs.iter().map(|r| r.errors.error4.mean).collect();
+        let times: Vec<f64> = runs
+            .iter()
+            .filter_map(|r| r.costs.as_ref().map(|c| c.training_time_s))
+            .collect();
+        Self::from_columns(n, runs, &error4, &times)
+    }
+
+    /// The size from its columns: `error4` per run, `times` per run that has one.
+    ///
+    /// # Panics
+    /// If `error4` is empty.
+    fn from_columns(n: usize, runs: Vec<&'a Run>, error4: &[f64], times: &[f64]) -> Self {
+        Self {
+            n,
+            runs,
+            error4: Spread::of(error4).expect("a training-set size has runs"),
+            every_run_meets_d7: error4.iter().all(|&e| e <= D7_THRESHOLD),
+            training_time: Spread::of(times),
+        }
+    }
+
+    /// Whether the mean error 4 meets D7.
+    fn meets_d7(&self) -> bool {
+        self.error4.mean <= D7_THRESHOLD
+    }
 }
 
 /// From one training-set size to the next larger one.
@@ -174,32 +251,20 @@ struct Step {
     extra_time: Option<f64>,
 }
 
-/// The steps between successive sizes of `points`, `(N, mean error 4, mean training
-/// time)` in ascending N.
-fn steps_between(points: &[(usize, f64, Option<f64>)]) -> Vec<Step> {
-    points
+/// The steps between successive `sizes`, in ascending N.
+fn steps_between(sizes: &[Size]) -> Vec<Step> {
+    sizes
         .windows(2)
         .map(|w| Step {
-            from: w[0].0,
-            to: w[1].0,
-            fall: w[0].1 - w[1].1,
-            extra_time: w[0].2.zip(w[1].2).map(|(a, b)| b - a),
+            from: w[0].n,
+            to: w[1].n,
+            fall: w[0].error4.mean - w[1].error4.mean,
+            extra_time: w[0]
+                .training_time
+                .zip(w[1].training_time)
+                .map(|(a, b)| b.mean - a.mean),
         })
         .collect()
-}
-
-/// `mean [min–max]` of `v`, or "–" if empty.
-fn spread(v: &[f64], fmt: fn(f64) -> String) -> String {
-    if v.is_empty() {
-        return "–".into();
-    }
-    let mean = v.iter().sum::<f64>() / v.len() as f64;
-    let (lo, hi) = v
-        .iter()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &x| {
-            (lo.min(x), hi.max(x))
-        });
-    format!("{} [{}–{}]", fmt(mean), fmt(lo), fmt(hi))
 }
 
 fn sci(x: f64) -> String {
@@ -208,6 +273,11 @@ fn sci(x: f64) -> String {
 
 fn secs(x: f64) -> String {
     format!("{x:.1}")
+}
+
+/// Seconds per epoch for the by-N table, whose epochs run 0.16 to 1.7 s.
+fn per_epoch(x: f64) -> String {
+    format!("{x:.3}")
 }
 
 fn opt(x: Option<f64>, fmt: fn(f64) -> String) -> String {
@@ -445,10 +515,11 @@ fn plots(out: &Path, cells: &BTreeMap<(usize, usize), Vec<&Run>>) -> Result<Vec<
 
 /// The Phase 7 table: one row per N, its D7 verdict, the spread by seed, the cost per fall
 /// in error between successive N, then one row per run.
-fn table_by_n(runs: &[Run], sizes: &BTreeMap<usize, Vec<&Run>>) -> String {
+fn table_by_n(sizes: &[Size]) -> String {
     let mut md = String::new();
     let w = &mut md;
-    let e4_means = means_by(runs.iter().map(|r| (r.n, r.errors.error4.mean)));
+    let all: Vec<&Run> = sizes.iter().flat_map(|s| s.runs.iter().copied()).collect();
+    let yes = |b: bool| if b { "yes" } else { "no" };
     writeln!(w, "# Phase 7 results\n").unwrap();
     writeln!(
         w,
@@ -459,9 +530,9 @@ fn table_by_n(runs: &[Run], sizes: &BTreeMap<usize, Vec<&Run>>) -> String {
          CGL grid (design §13.3). D7: mean error 4 over an N's runs ≤ {D7_THRESHOLD:e} \
          (design §13.15). Every N trains for the same epochs, so steps grow with N (D6). Times \
          are wall-clock seconds; s/epoch is the median over epochs after the first.\n",
-        runs.len(),
-        runs[0].s,
-        runs[0].padding,
+        all.len(),
+        all[0].s,
+        all[0].padding,
     )
     .unwrap();
 
@@ -473,48 +544,42 @@ fn table_by_n(runs: &[Run], sizes: &BTreeMap<usize, Vec<&Run>>) -> String {
     )
     .unwrap();
     writeln!(w, "|{}", " --- |".repeat(13)).unwrap();
-    for (n, group) in sizes {
+    for size in sizes {
         let col =
-            |f: fn(&Run) -> Option<f64>| group.iter().filter_map(|r| f(r)).collect::<Vec<_>>();
+            |f: fn(&Run) -> Option<f64>| size.runs.iter().filter_map(|r| f(r)).collect::<Vec<_>>();
         let distinct = |f: fn(&Run) -> String| {
-            let mut v: Vec<String> = group.iter().map(|r| f(r)).collect();
+            let mut v: Vec<String> = size.runs.iter().map(|r| f(r)).collect();
             v.sort_unstable();
             v.dedup();
             v.join(", ")
         };
-        let yes = |b: bool| if b { "yes" } else { "no" };
         writeln!(
             w,
-            "| {n} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            group.len(),
-            distinct(|r| r.subset_seed.map_or("–".into(), |s| s.to_string())),
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            size.n,
+            size.runs.len(),
+            distinct(|r| subset_label(r.subset_seed)),
             distinct(|r| r.seed.to_string()),
             distinct(|r| r.steps.to_string()),
             spread(&col(|r| Some(r.errors.error3.mean)), sci),
-            spread(&col(|r| Some(r.errors.error4.mean)), sci),
-            yes(e4_means[n] <= D7_THRESHOLD),
-            yes(group.iter().all(|r| r.errors.error4.mean <= D7_THRESHOLD)),
+            size.error4.fmt(sci),
+            yes(size.meets_d7()),
+            yes(size.every_run_meets_d7),
             spread(&col(|r| Some(f64::from(r.last.train_l2))), sci),
             spread(&col(|r| Some(f64::from(r.last.test_l2))), sci),
-            spread(&col(|r| r.epoch_time_s), secs),
-            spread(&col(|r| r.costs.as_ref().map(|c| c.training_time_s)), secs),
+            spread(&col(|r| r.epoch_time_s), per_epoch),
+            size.training_time.map_or("–".into(), |t| t.fmt(secs)),
         )
         .unwrap();
     }
-    match smallest_meeting(&e4_means, D7_THRESHOLD) {
-        Some(n) => writeln!(
+    match sizes.iter().find(|s| s.meets_d7()) {
+        Some(size) => writeln!(
             w,
-            "\n**Smallest N meeting D7: {n}**, mean error 4 {} over {} runs; every run meets it: {}.",
-            spread(
-                &sizes[&n].iter().map(|r| r.errors.error4.mean).collect::<Vec<_>>(),
-                sci
-            ),
-            sizes[&n].len(),
-            if sizes[&n].iter().all(|r| r.errors.error4.mean <= D7_THRESHOLD) {
-                "yes"
-            } else {
-                "no"
-            },
+            "\n**Smallest N meeting D7: {}**, mean error 4 {} over {} runs; every run meets it: {}.",
+            size.n,
+            size.error4.fmt(sci),
+            size.runs.len(),
+            yes(size.every_run_meets_d7),
         ),
         None => writeln!(w, "\n**No N meets D7.**"),
     }
@@ -528,23 +593,38 @@ fn table_by_n(runs: &[Run], sizes: &BTreeMap<usize, Vec<&Run>>) -> String {
     .unwrap();
     writeln!(w, "| N | by subset seed | by seed |").unwrap();
     writeln!(w, "|{}", " --- |".repeat(3)).unwrap();
-    for (n, group) in sizes {
-        let list = |m: BTreeMap<String, f64>| {
-            m.iter()
+    for size in sizes {
+        let by_subset = means_by(
+            size.runs
+                .iter()
+                .map(|r| (r.subset_seed, r.errors.error4.mean)),
+        );
+        let by_seed = means_by(size.runs.iter().map(|r| (r.seed, r.errors.error4.mean)));
+        let list = |items: Vec<(String, f64)>| {
+            items
+                .iter()
                 .map(|(k, v)| format!("{k}: {}", sci(*v)))
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        let by_subset = means_by(group.iter().map(|r| {
-            let key = r.subset_seed.map_or("–".into(), |s| s.to_string());
-            (key, r.errors.error4.mean)
-        }));
-        let by_seed = means_by(
-            group
-                .iter()
-                .map(|r| (r.seed.to_string(), r.errors.error4.mean)),
-        );
-        writeln!(w, "| {n} | {} | {} |", list(by_subset), list(by_seed)).unwrap();
+        writeln!(
+            w,
+            "| {} | {} | {} |",
+            size.n,
+            list(
+                by_subset
+                    .into_iter()
+                    .map(|(k, v)| (subset_label(k), v))
+                    .collect()
+            ),
+            list(
+                by_seed
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v))
+                    .collect()
+            ),
+        )
+        .unwrap();
     }
 
     writeln!(w, "\n## Cost per further reduction in error\n").unwrap();
@@ -560,18 +640,7 @@ fn table_by_n(runs: &[Run], sizes: &BTreeMap<usize, Vec<&Run>>) -> String {
     )
     .unwrap();
     writeln!(w, "|{}", " --- |".repeat(7)).unwrap();
-    let points: Vec<(usize, f64, Option<f64>)> = sizes
-        .iter()
-        .map(|(n, group)| {
-            let times: Vec<f64> = group
-                .iter()
-                .filter_map(|r| r.costs.as_ref().map(|c| c.training_time_s))
-                .collect();
-            (*n, e4_means[n], (!times.is_empty()).then(|| mean(&times)))
-        })
-        .collect();
-    for step in steps_between(&points) {
-        let samples = (step.to - step.from) as f64;
+    for step in steps_between(sizes) {
         let per = |x: f64| {
             if step.fall > 0.0 {
                 format!("{:.1}", x / (step.fall / 1e-3))
@@ -587,7 +656,7 @@ fn table_by_n(runs: &[Run], sizes: &BTreeMap<usize, Vec<&Run>>) -> String {
             sci(step.fall),
             step.to - step.from,
             opt(step.extra_time, secs),
-            per(samples),
+            per((step.to - step.from) as f64),
             step.extra_time.map_or("–".into(), per),
         )
         .unwrap();
@@ -600,13 +669,13 @@ fn table_by_n(runs: &[Run], sizes: &BTreeMap<usize, Vec<&Run>>) -> String {
     )
     .unwrap();
     writeln!(w, "|{}", " --- |".repeat(11)).unwrap();
-    for r in sizes.values().flatten() {
+    for r in &all {
         writeln!(
             w,
             "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} / {} | {} | {} |",
             r.name,
             r.n,
-            r.subset_seed.map_or("–".into(), |s| s.to_string()),
+            subset_label(r.subset_seed),
             r.seed,
             r.steps,
             sci(f64::from(r.last.train_l2)),
@@ -614,7 +683,7 @@ fn table_by_n(runs: &[Run], sizes: &BTreeMap<usize, Vec<&Run>>) -> String {
             sci(r.errors.error3.mean),
             sci(r.errors.error4.mean),
             sci(r.errors.error4.max),
-            opt(r.epoch_time_s, secs),
+            opt(r.epoch_time_s, per_epoch),
             opt(r.costs.as_ref().map(|c| c.training_time_s), secs),
         )
         .unwrap();
@@ -622,42 +691,27 @@ fn table_by_n(runs: &[Run], sizes: &BTreeMap<usize, Vec<&Run>>) -> String {
     md
 }
 
+/// A subset seed as the tables write it: "–" for a run on the whole split.
+fn subset_label(seed: Option<u64>) -> String {
+    seed.map_or("–".into(), |s| s.to_string())
+}
+
 /// Draws the two Phase 7 plots beside `out`; returns the files written.
-fn plots_by_n(out: &Path, sizes: &BTreeMap<usize, Vec<&Run>>) -> Result<Vec<PathBuf>, String> {
+fn plots_by_n(out: &Path, sizes: &[Size]) -> Result<Vec<PathBuf>, String> {
     let stem = out.file_stem().unwrap_or_default().to_string_lossy();
     let path = |name: &str| out.with_file_name(format!("{stem}_{name}.png"));
     let mut written = Vec::new();
-    let ns: Vec<f64> = sizes.keys().map(|&n| n as f64).collect();
-    let per_n = |f: fn(&Run) -> Option<f64>| -> Vec<Vec<f64>> {
-        sizes
-            .values()
-            .map(|g| g.iter().filter_map(|r| f(r)).collect())
-            .collect()
-    };
-    let extremes = |v: &[Vec<f64>]| -> (Vec<f64>, Vec<f64>, Vec<f64>) {
-        let lo = v
-            .iter()
-            .map(|g| g.iter().copied().fold(f64::INFINITY, f64::min));
-        let hi = v
-            .iter()
-            .map(|g| g.iter().copied().fold(f64::NEG_INFINITY, f64::max));
-        (
-            lo.collect(),
-            v.iter().map(|g| mean(g)).collect(),
-            hi.collect(),
-        )
-    };
+    let ns: Vec<f64> = sizes.iter().map(|s| s.n as f64).collect();
     let scatter = |f: fn(&Run) -> Option<f64>| -> (Vec<f64>, Vec<f64>) {
         sizes
-            .values()
-            .flatten()
+            .iter()
+            .flat_map(|s| &s.runs)
             .filter_map(|r| f(r).map(|y| (r.n as f64, y)))
             .unzip()
     };
 
     // 1. fine-grid error against N, with the D7 line
-    let e4 = per_n(|r| Some(r.errors.error4.mean));
-    let (lo, m, hi) = extremes(&e4);
+    let e4 = |f: fn(&Spread) -> f64| sizes.iter().map(|s| f(&s.error4)).collect::<Vec<_>>();
     let (x, y) = scatter(|r| Some(r.errors.error4.mean));
     let mut fig = Figure::new();
     fig.axes2d()
@@ -667,8 +721,13 @@ fn plots_by_n(out: &Path, sizes: &BTreeMap<usize, Vec<&Run>>) -> Result<Vec<Path
         .set_x_log(Some(10.0))
         .set_x_range(Fix(N_RANGE.0), Fix(N_RANGE.1))
         .set_y_log(Some(10.0))
-        .fill_between(&ns, &lo, &hi, &[Caption("min–max"), FillAlpha(0.2)])
-        .lines_points(&ns, &m, &[Caption("mean"), PointSymbol('O')])
+        .fill_between(
+            &ns,
+            e4(|s| s.min),
+            e4(|s| s.max),
+            &[Caption("min–max"), FillAlpha(0.2)],
+        )
+        .lines_points(&ns, e4(|s| s.mean), &[Caption("mean"), PointSymbol('O')])
         .points(&x, &y, &[Caption("runs"), PointSymbol('x')])
         .lines(
             [N_RANGE.0, N_RANGE.1],
@@ -679,9 +738,11 @@ fn plots_by_n(out: &Path, sizes: &BTreeMap<usize, Vec<&Run>>) -> Result<Vec<Path
         .map_err(|e| format!("{e} (is gnuplot installed?)"))?;
     written.push(path("error_vs_n"));
 
-    // 2. training time against N
-    let times = per_n(|r| r.costs.as_ref().map(|c| c.training_time_s));
-    let (_, m, _) = extremes(&times);
+    // 2. training time against N, over the sizes that recorded one
+    let (tn, tm): (Vec<f64>, Vec<f64>) = sizes
+        .iter()
+        .filter_map(|s| s.training_time.map(|t| (s.n as f64, t.mean)))
+        .unzip();
     let (x, y) = scatter(|r| r.costs.as_ref().map(|c| c.training_time_s));
     let mut fig = Figure::new();
     fig.axes2d()
@@ -691,7 +752,7 @@ fn plots_by_n(out: &Path, sizes: &BTreeMap<usize, Vec<&Run>>) -> Result<Vec<Path
         .set_x_log(Some(10.0))
         .set_x_range(Fix(N_RANGE.0), Fix(N_RANGE.1))
         .set_y_log(Some(10.0))
-        .lines_points(&ns, &m, &[Caption("mean"), PointSymbol('O')])
+        .lines_points(&tn, &tm, &[Caption("mean"), PointSymbol('O')])
         .points(&x, &y, &[Caption("runs"), PointSymbol('x')]);
     fig.save_to_png(path("time_vs_n"), 1000, 700)
         .map_err(|e| format!("{e} (is gnuplot installed?)"))?;
@@ -699,7 +760,8 @@ fn plots_by_n(out: &Path, sizes: &BTreeMap<usize, Vec<&Run>>) -> Result<Vec<Path
     Ok(written)
 }
 
-/// The Phase 7 output (`--by-n`): every run at one (padding, s), grouped by N.
+/// The Phase 7 output (`--by-n`): every run at one (padding, s) and one backend, grouped
+/// by N.
 fn by_n(out: &Path, runs: &[Run]) {
     let grids: BTreeMap<(usize, usize), usize> = runs.iter().fold(BTreeMap::new(), |mut m, r| {
         *m.entry((r.padding, r.s)).or_default() += 1;
@@ -710,32 +772,37 @@ fn by_n(out: &Path, runs: &[Run]) {
         "--by-n compares one (padding, s); got runs at (p, s) = {:?}",
         grids.keys().collect::<Vec<_>>()
     );
-    // costs compare only within one backend (design §13.14)
-    let mut backends: Vec<&Vec<String>> = runs
+    // costs compare only within one backend (design §13.14); a run without costs.json
+    // (before Phase 5 T4) counts as a backend of its own, so it cannot slip into a mix
+    let mut backends: Vec<Option<&Vec<String>>> = runs
         .iter()
-        .filter_map(|r| r.costs.as_ref().map(|c| &c.backend_features))
+        .map(|r| r.costs.as_ref().map(|c| &c.backend_features))
         .collect();
     backends.sort_unstable();
     backends.dedup();
     assert!(
-        backends.len() <= 1,
-        "--by-n compares costs on one backend; got runs on {backends:?}"
+        backends.len() == 1,
+        "--by-n compares costs on one backend; got runs on {backends:?} (None: no costs.json)"
     );
-    let mut sizes: BTreeMap<usize, Vec<&Run>> = BTreeMap::new();
+    let mut groups: BTreeMap<usize, Vec<&Run>> = BTreeMap::new();
     for r in runs {
-        sizes.entry(r.n).or_default().push(r);
+        groups.entry(r.n).or_default().push(r);
     }
-    for group in sizes.values_mut() {
-        group.sort_by_key(|r| (r.subset_seed, r.seed));
-    }
-    std::fs::write(out, table_by_n(runs, &sizes)).expect("write the table");
-    println!(
-        "wrote {} ({} runs, {} sizes)",
-        out.display(),
-        runs.len(),
-        sizes.len()
+    let sizes: Vec<Size> = groups.into_iter().map(|(n, g)| Size::of(n, g)).collect();
+    emit(
+        out,
+        table_by_n(&sizes),
+        format!("{} runs, {} sizes", runs.len(), sizes.len()),
+        || plots_by_n(out, &sizes),
     );
-    match plots_by_n(out, &sizes) {
+}
+
+/// Writes the table `md` to `out` and reports it with `what`, then draws the plots or says
+/// why they were skipped.
+fn emit(out: &Path, md: String, what: String, draw: impl FnOnce() -> Result<Vec<PathBuf>, String>) {
+    std::fs::write(out, md).expect("write the table");
+    println!("wrote {} ({what})", out.display());
+    match draw() {
         Ok(files) => files.iter().for_each(|f| println!("wrote {}", f.display())),
         Err(e) => eprintln!("plots skipped: {e}"),
     }
@@ -759,18 +826,12 @@ fn main() {
     for cell in cells.values_mut() {
         cell.sort_by_key(|r| r.seed);
     }
-
-    std::fs::write(&out, table(&runs, &cells)).expect("write the table");
-    println!(
-        "wrote {} ({} runs, {} cells)",
-        out.display(),
-        runs.len(),
-        cells.len()
+    emit(
+        &out,
+        table(&runs, &cells),
+        format!("{} runs, {} cells", runs.len(), cells.len()),
+        || plots(&out, &cells),
     );
-    match plots(&out, &cells) {
-        Ok(files) => files.iter().for_each(|f| println!("wrote {}", f.display())),
-        Err(e) => eprintln!("plots skipped: {e}"),
-    }
 }
 
 #[cfg(test)]
@@ -797,37 +858,40 @@ mod tests {
     }
 
     #[test]
-    fn groups_by_n_and_finds_the_smallest_meeting_d7() {
-        // (N, error 4) of nine runs: N = 1000 has no subset, as the Phase 5 runs
-        let runs = [
-            (25, 0.30),
-            (25, 0.20),
-            (100, 0.03),
-            (100, 0.01),
-            (250, 0.015),
-            (250, 0.025),
-            (1000, 0.011),
-            (1000, 0.010),
-            (1000, 0.012),
+    fn spread_and_means_by() {
+        let s = Spread::of(&[0.3, 0.1, 0.2]).unwrap();
+        assert_eq!((s.min, s.max), (0.1, 0.3));
+        assert!((s.mean - 0.2).abs() < 1e-15);
+        assert_eq!(Spread::of(&[]), None);
+        assert_eq!(spread(&[], sci), "–");
+        let m = means_by([(Some(1), 0.2), (None, 0.5), (Some(1), 0.4)]);
+        assert_eq!(m.keys().copied().collect::<Vec<_>>(), [None, Some(1)]);
+        assert!((m[&Some(1)] - 0.3).abs() < 1e-15);
+    }
+
+    #[test]
+    fn d7_in_the_mean_and_for_every_run() {
+        // N = 100 meets D7 in the mean (0.02) although one run does not
+        let sizes = [
+            Size::from_columns(25, vec![], &[0.30, 0.20], &[]),
+            Size::from_columns(100, vec![], &[0.03, 0.01], &[]),
+            Size::from_columns(1000, vec![], &[0.011, 0.010, 0.012], &[]),
         ];
-        let means = means_by(runs);
-        assert_eq!(
-            means.keys().copied().collect::<Vec<_>>(),
-            [25, 100, 250, 1000]
-        );
-        assert!((means[&25] - 0.25).abs() < 1e-15);
-        // N = 100 meets it in the mean (0.02) although one run does not
-        assert_eq!(smallest_meeting(&means, 0.02), Some(100));
-        assert_eq!(smallest_meeting(&means, 0.005), None);
+        assert!(!sizes[0].meets_d7() && !sizes[0].every_run_meets_d7);
+        assert!(sizes[1].meets_d7() && !sizes[1].every_run_meets_d7);
+        assert!(sizes[2].meets_d7() && sizes[2].every_run_meets_d7);
+        assert_eq!(sizes.iter().find(|s| s.meets_d7()).map(|s| s.n), Some(100));
+        assert!(sizes[..1].iter().all(|s| !s.meets_d7()));
     }
 
     #[test]
     fn steps_between_successive_sizes() {
-        let steps = steps_between(&[
-            (25, 0.25, Some(80.0)),
-            (50, 0.15, Some(95.0)),
-            (100, 0.16, None),
-        ]);
+        let sizes = [
+            Size::from_columns(25, vec![], &[0.25], &[80.0]),
+            Size::from_columns(50, vec![], &[0.15], &[95.0]),
+            Size::from_columns(100, vec![], &[0.16], &[]),
+        ];
+        let steps = steps_between(&sizes);
         assert_eq!(steps.len(), 2);
         assert_eq!((steps[0].from, steps[0].to), (25, 50));
         assert!((steps[0].fall - 0.10).abs() < 1e-15);
@@ -835,6 +899,6 @@ mod tests {
         // error rose: a negative fall, and no time without both means
         assert!(steps[1].fall < 0.0);
         assert_eq!(steps[1].extra_time, None);
-        assert!(steps_between(&[(25, 0.1, None)]).is_empty());
+        assert!(steps_between(&sizes[..1]).is_empty());
     }
 }
