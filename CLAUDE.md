@@ -45,6 +45,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - Task numbers within a phase are execution order, from Phase 1 on (design §10). Phase 0
   keeps its signed-off numbers and runs T2, then T3 and T4, then T1.
 - Keep changes targeted: no drive-by reformatting or refactors.
+- When listing tasks (status reports, summaries of a phase), order them by completion,
+  earliest first; tasks still open follow, in execution order.
 
 ## Working rules
 - Run `cargo fmt` after every Rust edit, before the other checks or committing. CI
