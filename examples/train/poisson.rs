@@ -22,11 +22,16 @@
 //! normalizers fitted on those N; both are given together, and the run name carries them:
 //! cargo run --release --example train_poisson -- 0 129 64 42 25 0
 //!
+//! A run writes a checkpoint every `CHECKPOINT_EVERY` epochs and after the last (Phase 9
+//! T2). `--resume` continues an interrupted run from it, with the configs the run saved
+//! (not the literals below), truncating `metrics.csv` to the checkpoint's epoch:
+//! cargo run --release --example train_poisson -- --resume runs/<run_dir>
+//!
 //! Besides the configs, metrics, normalizers and weights, the run records `costs.json`
 //! (`RunCosts`, design §13.9): the dataset's generation time from its sidecars, the load,
 //! transfer and training times, host-to-device bytes, the parameter count, the
-//! optimisation steps, backend, device and commit. `data_cfg.json` records n, K, s, d,
-//! both split files with their generating commits and, with N, the subset's seed,
+//! optimisation steps, the resumes, backend, device and commit. `data_cfg.json` records n,
+//! K, s, d, both split files with their generating commits and, with N, the subset's seed,
 //! population and index hash.
 //!
 //! Structurally identical to `examples/train/darcy.rs`, with the Darcy model and
@@ -39,7 +44,7 @@ use burn::{config::Config, module::Module, tensor::Device};
 use sciml_rs::neural_operators::{
     chebyshev::TRANSFER_DEGREE,
     data::{
-        catalogue::stage,
+        catalogue::{PoissonSet, stage},
         dataset::OperatorDataset,
         loaders::{
             base_dataset::DatasetConfig,
@@ -50,12 +55,15 @@ use sciml_rs::neural_operators::{
         },
     },
     models::fno::FNOConfig,
-    runs::{RunCosts, RunDir},
-    training::{config::TrainingConfig, trainer::train_fno},
+    runs::{Checkpoint, RunCosts, RunDir},
+    training::{
+        config::TrainingConfig,
+        trainer::{build_training_components, train_components},
+    },
     utils::backend::{backend_features, git_commit},
 };
 use std::fmt::Display;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 
@@ -78,6 +86,8 @@ const MIN_LR: f64 = 1e-5;
 /// sweep over {0, 4, 8, 16}: p = 8 scored lowest and p = 4 lies within 2% of it, so the
 /// smaller p wins (design §12, decision 16; Phase 4 T2).
 const PADDING: usize = 4;
+/// Epochs between checkpoints; the last epoch is always checkpointed (Phase 9 P2).
+const CHECKPOINT_EVERY: usize = 25;
 
 /// The `i`-th command-line argument parsed as `T`, or `default` when it is absent.
 ///
@@ -95,7 +105,24 @@ where
     }
 }
 
-fn main() {
+/// `datasets/poisson/` in the repository.
+fn datasets() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson")
+}
+
+/// The sidecar of one split of `set`.
+///
+/// # Panics
+/// If it can't be read.
+fn sidecar(set: &PoissonSet, split: &str) -> SidecarRecord {
+    let path = datasets().join(set.json(split));
+    SidecarRecord::load(&path)
+        .unwrap_or_else(|e| panic!("could not read the sidecar {}: {e}", path.display()))
+}
+
+/// A new run from the command-line arguments and the literals above: creates its
+/// directory and saves its configs there before training, so `--resume` can read them.
+fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig) {
     let padding = arg(1, "padding", PADDING);
     let n = arg(2, "n", DEFAULT_N);
     let set = stage(n).unwrap_or_else(|e| panic!("{e}"));
@@ -112,28 +139,12 @@ fn main() {
     };
     let modes = MAX_MODES.min(s / 2);
 
-    let device = Device::default().autodiff();
     println!(
         "device: {device:?}, padding: {padding}, n: {n}, s: {s}, modes: {modes}, K: {k}, \
          seed: {seed}, N: {n_train}, subset seed: {subset_seed:?}"
     );
 
-    let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
-    let train_path = datasets.join(set.npz("train"));
-    let test_path = datasets.join(set.npz("test"));
-    for p in [&train_path, &test_path] {
-        assert!(
-            p.exists(),
-            "Poisson dataset not found at {}\nSee datasets/README.md",
-            p.display()
-        );
-    }
-    let sidecar = |split: &str| {
-        let path = datasets.join(set.json(split));
-        SidecarRecord::load(&path)
-            .unwrap_or_else(|e| panic!("could not read the sidecar {}: {e}", path.display()))
-    };
-    let (train_sidecar, test_sidecar) = (sidecar("train"), sidecar("test"));
+    let (train_sidecar, test_sidecar) = (sidecar(&set, "train"), sidecar(&set, "test"));
     let split = |split: &str, sidecar: &SidecarRecord| {
         SplitSource::new(set.npz(split), sidecar.git_commit.clone())
     };
@@ -154,24 +165,6 @@ fn main() {
         split("test", &test_sidecar),
     )))
     .with_subset(subset);
-
-    let load_start = Instant::now();
-    let (train_data, test_data, normalizers) =
-        load_poisson_uniform::<f32>(&train_path, &test_path, &dataset_cfg)
-            .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
-    let load_time_s = load_start.elapsed().as_secs_f64();
-    // what device_loader uploads: inputs and targets as stored
-    let bytes = |d: &OperatorDataset<f32>| {
-        (d.inputs().len() + d.targets().len()) * std::mem::size_of::<f32>()
-    };
-    let (train_bytes, test_bytes) = (bytes(&train_data), bytes(&test_data));
-    println!(
-        "poisson: {} train / {} test, n={} -> s={}",
-        train_data.inputs().shape()[0],
-        test_data.inputs().shape()[0],
-        dataset_cfg.n,
-        train_data.inputs().shape()[1]
-    );
 
     let model_cfg = FNOConfig {
         modes: vec![modes; 2],
@@ -211,27 +204,117 @@ fn main() {
         format!("_seed{seed}")
     };
     let name = format!("poisson_fno{grid}_p{padding}{subset_tag}{seed_tag}");
-    // Writes configs, metrics, normalizers and weights to runs/<name>_<timestamp>/.
-    // Created before training: train_fno appends each epoch's row of metrics.csv to it
+    // Writes configs, metrics, checkpoints, normalizers and weights to
+    // runs/<name>_<timestamp>/. Created before training: train_components appends each
+    // epoch's row of metrics.csv to it
     let run = RunDir::create(&Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"), &name)
         .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
+    run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
+        .expect("could not save configs");
+    (run, model_cfg, train_cfg, dataset_cfg)
+}
 
-    // y_normalizer is fitted on y_train during loading. train_fno uses it
+/// Reopens the run at `dir` with its saved configs and checkpoint (on `device`), and
+/// truncates its `metrics.csv` to the checkpoint's epoch. The checkpoint counts this
+/// resume.
+fn reopen(
+    dir: &str,
+    device: &Device,
+) -> (
+    RunDir,
+    FNOConfig,
+    TrainingConfig,
+    PoissonConfig,
+    Checkpoint<4>,
+) {
+    let run = RunDir::open(dir).unwrap_or_else(|e| panic!("could not open the run: {e}"));
+    let model_cfg = run.model_config().unwrap_or_else(|e| panic!("{e}"));
+    let train_cfg = run.training_config().unwrap_or_else(|e| panic!("{e}"));
+    let dataset_cfg: PoissonConfig = run.data_config().unwrap_or_else(|e| panic!("{e}"));
+    let mut ck = run
+        .checkpoint::<4>(device)
+        .unwrap_or_else(|e| panic!("could not read the checkpoint: {e}"))
+        .unwrap_or_else(|| panic!("{dir} has no checkpoint to resume from"));
+    ck.state.resumes += 1;
+    run.truncate_metrics(ck.state.next_epoch)
+        .unwrap_or_else(|e| panic!("could not truncate metrics.csv: {e}"));
+    println!(
+        "device: {device:?}, resuming {dir} at epoch {} of {} (resume {})",
+        ck.state.next_epoch, train_cfg.epochs, ck.state.resumes
+    );
+    (run, model_cfg, train_cfg, dataset_cfg, ck)
+}
+
+fn main() {
+    let device = Device::default().autodiff();
+    let (run, model_cfg, train_cfg, dataset_cfg, resume) = match std::env::args().nth(1) {
+        Some(flag) if flag == "--resume" => {
+            let dir = std::env::args()
+                .nth(2)
+                .expect("--resume needs a run directory");
+            let (run, model_cfg, train_cfg, dataset_cfg, ck) = reopen(&dir, &device);
+            (run, model_cfg, train_cfg, dataset_cfg, Some(ck))
+        }
+        _ => {
+            let (run, model_cfg, train_cfg, dataset_cfg) = new_run(&device);
+            (run, model_cfg, train_cfg, dataset_cfg, None)
+        }
+    };
+    let set = stage(dataset_cfg.n).unwrap_or_else(|e| panic!("{e}"));
+
+    let train_path = datasets().join(set.npz("train"));
+    let test_path = datasets().join(set.npz("test"));
+    for p in [&train_path, &test_path] {
+        assert!(
+            p.exists(),
+            "Poisson dataset not found at {}\nSee datasets/README.md",
+            p.display()
+        );
+    }
+    let (train_sidecar, test_sidecar) = (sidecar(&set, "train"), sidecar(&set, "test"));
+
+    let load_start = Instant::now();
+    let (train_data, test_data, normalizers) =
+        load_poisson_uniform::<f32>(&train_path, &test_path, &dataset_cfg)
+            .unwrap_or_else(|e| panic!("could not load Poisson data: {e}"));
+    let load_time_s = load_start.elapsed().as_secs_f64();
+    // what device_loader uploads: inputs and targets as stored
+    let bytes = |d: &OperatorDataset<f32>| {
+        (d.inputs().len() + d.targets().len()) * std::mem::size_of::<f32>()
+    };
+    let (train_bytes, test_bytes) = (bytes(&train_data), bytes(&test_data));
+    let n_train = train_data.inputs().shape()[0];
+    println!(
+        "poisson: {} train / {} test, n={} -> s={}",
+        n_train,
+        test_data.inputs().shape()[0],
+        dataset_cfg.n,
+        train_data.inputs().shape()[1]
+    );
+
+    // y_normalizer is fitted on y_train during loading. The trainer uses it
     // to decode both prediction and target during training, but only the
     // prediction during evaluation - y_test was never encoded
     // The recorded training_time_s: it includes building the model, optimiser and loaders,
-    // so it is slightly above the "total training time" train_fno prints from its own clock
+    // so it is slightly above the "total training time" the trainer prints from its own
+    // clock; after a resume it adds the earlier sessions' time up to the checkpoint
+    let (prior_time_s, resumes) = resume
+        .as_ref()
+        .map_or((0.0, 0), |ck| (ck.state.training_time_s, ck.state.resumes));
     let train_start = Instant::now();
-    let (model, metrics) = train_fno::<4, 3, _>(
-        train_data,
-        test_data,
+    let components = build_training_components::<4, 3, _>(
+        &model_cfg, &train_cfg, train_data, test_data, &device,
+    );
+    let (model, _) = train_components(
+        components,
         Some(&normalizers.y),
-        &model_cfg,
         &train_cfg,
         &device,
         &run,
+        Some(CHECKPOINT_EVERY),
+        resume,
     );
-    let training_time_s = train_start.elapsed().as_secs_f64();
+    let training_time_s = prior_time_s + train_start.elapsed().as_secs_f64();
 
     let costs = RunCosts {
         dataset_train_wall_time_s: Some(train_sidecar.wall_time_s),
@@ -248,10 +331,11 @@ fn main() {
         git_commit: git_commit(),
         num_params: model.num_params(),
         optimisation_steps: Some(train_cfg.total_steps(n_train)),
+        resumes: Some(resumes),
     };
 
-    run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
-        .expect("could not save configs");
+    // every epoch's metrics, the earlier sessions' included
+    let metrics = run.metrics().expect("could not read metrics.csv");
     run.save_plot(&metrics);
     run.save_normalizers(&normalizers)
         .expect("could not save normalizers");

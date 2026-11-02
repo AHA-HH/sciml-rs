@@ -1,6 +1,6 @@
 # Phase 9: HPC (systems track)
 
-As of 2026-11-02; planned, no task started. Design: `docs/design/2d-chebyshev-poisson-fno.md`
+As of 2026-11-02; T2 implemented (unmerged), T3, T4 and T6 open. Design: `docs/design/2d-chebyshev-poisson-fno.md`
 (§10 Phase 9 and the old Phase 5 rows it inherits, §13.11, decisions 19, 21 and 30).
 `docs/CONVENTIONS.md` wins on any conflict.
 
@@ -60,9 +60,10 @@ seeds, within a stated round-off, before it is used.
 
 ## Planning decisions
 
-Recorded in design §12, decision 30 (amendment of 2026-11-02). P1, P4 and P7 are decided
-there, with T1, T5 and T7 closed; P2, P3, P5 and P6 are proposed and are the author's
-(AHA-HH) to confirm before their task starts.
+Recorded in design §12, decision 30 (amendments of 2026-11-02). P1, P4 and P7 are decided
+there, with T1, T5 and T7 closed; P2 and P3 are confirmed by the author (AHA-HH) for T2,
+2026-11-02; P5 and P6 are proposed and are the author's to confirm before their task
+starts.
 
 - **P1, profiling target: the Phase 5 baseline** (s = 64, p = 0, N = 1000, cuda A100),
   not the old 129² p = 4 run. The baseline is what every later run trains; the
@@ -70,9 +71,13 @@ there, with T1, T5 and T7 closed; P2, P3, P5 and P6 are proposed and are the aut
   chosen padding (D3).
 - **P2, checkpoint cadence: every k epochs (default 25) plus the last epoch**, one
   checkpoint kept (overwritten), written atomically (temporary file then rename).
+  Confirmed by the author, 2026-11-02.
 - **P3, resume must be exact on flex:** an interrupted-and-resumed run gives the same
   `metrics.csv` rows and weights as an uninterrupted one, bit for bit, on flex. On GPU,
-  within a stated round-off.
+  within a stated round-off. Confirmed by the author, 2026-11-02.
+- **Shuffle across resume (T2): replay the shuffle.** The resumed loader's RNG is
+  advanced k epochs, so the shuffle order is today's and old runs stay reproducible bit
+  for bit; per-(seed, epoch) seeding is not adopted. Chosen by the author, 2026-11-02.
 - **P4, multi-GPU: Burn's `all_reduce` inside a hand-written data-parallel step**, not
   the Learner's DDP strategy and not `GradientsAccumulator` across devices. Each batch
   of 20 is split across the devices, gradients are mean-reduced, and one optimiser step
@@ -116,7 +121,7 @@ Filled in as tasks merge. Phase 9 is done when every row has a value.
 | Item | Value | Source |
 | --- | --- | --- |
 | Epoch time split on the baseline (cuda) | Closed 2026-11-02 from existing data, no new runs. cuda (A100), wall clock from `costs.json` / `metrics.csv`. Per epoch at N = 1000: about 1.53 s in 50 training batches (about 31 ms per batch of 20) and about 0.12 s fixed, mostly the 200-sample test pass (Phase 7 T2 fit 0.117 s + 1.53 ms × N, which predicts 1.65 s against 1.69 s measured). s/epoch is flat in the learning grid: 1.679 / 1.686 / 1.687 s at s = 16 / 32 / 64 (16× the grid points), 2.448 s at s = 128 (Phase 5 T5). **Finding:** up to s = 64 a training batch costs the same whatever its size, so the time is per-step overhead (kernel launches, synchronisation, host work), not arithmetic. Splitting a batch of 20 over two GPUs halves the arithmetic, not the overhead, so T3 should expect little speedup at s = 64 and more at s = 128 or stage 4. **Not measured:** which overhead (no trace) and GPU utilisation; both move to T4, which profiles the 1- and 2-GPU runs anyway | T1 |
-| Checkpoint and resume, exact on flex | | T2 |
+| Checkpoint and resume, exact on flex | Exact on flex. `checkpoint.bin` (weights, Adam record, cosine record, next epoch, resumes, training time) every 25 epochs and after the last, one per run, temp file then rename; `train_poisson -- --resume runs/<dir>` reads the run's configs, truncates `metrics.csv` and replays the shuffle. Tests: 6 epochs at cadence 2, killed in epoch 3 and resumed: every row but `epoch_time_s` and every weight bit-identical on flex; on metal the same test passes with rows bit-identical and weights within 1e-5 relative (the tolerance tested, not a measured spread). Acceptance (flex, stage 2, s = 32, p = 0, N = 100, 6 epochs at cadence 2, temporary literals): SIGINT during epoch 5 after 4 rows, resumed from epoch 4; all 6 rows equal an uninterrupted run's but `epoch_time_s`, and `predict_poisson`'s `errors.json` (errors 2–4, all digits) identical; `costs.json`: `resumes` 1 | T2 |
 | Multi-GPU run reproduces single-GPU, round-off stated | | T3 |
 | Speedup and efficiency, 1 vs 2 A100 | | T4 |
 | Smoke job in CI | Closed without a CI job (author, 2026-11-02). `train_poisson_smoke` (`training/trainer.rs`) already trains a Poisson FNO end to end through `train_fno` on flex, from synthetic `.npz` splits through `load_poisson_uniform` into a run directory, in every `cargo test` (CI's run-tests job). T2 extends it to stop and resume. **Not covered:** the `main`s of `train_poisson` and `predict_poisson` (argument parsing, the real dataset paths); CI only compiles them | T5 |

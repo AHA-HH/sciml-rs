@@ -47,4 +47,8 @@ pub struct RunCosts {
     /// Optimisation steps taken, epochs × ⌈N / batch size⌉ (design §13.9); `None` in
     /// files written before Phase 7 T1.
     pub optimisation_steps: Option<usize>,
+    /// Times training was resumed from a checkpoint (Phase 9 T2); `training_time_s` then
+    /// sums every session's training up to its last checkpoint and the final session.
+    /// `None` in files written before Phase 9 T2.
+    pub resumes: Option<usize>,
 }

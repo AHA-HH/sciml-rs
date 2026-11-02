@@ -69,7 +69,9 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
   read), `save_plot`, `save_normalizers`, `save_weights`, `save_costs` (`costs.json`,
-  Poisson runs since Phase 5 T4, `optimisation_steps` since Phase 7 T1); `open(dir)`, `load_fno`, `model_config`,
+  Poisson runs since Phase 5 T4, `optimisation_steps` since Phase 7 T1, `resumes` since
+  Phase 9 T2), `save_checkpoint` / `checkpoint::<R>(device)` (`checkpoint.bin`, Phase 9
+  T2) and `truncate_metrics`; `open(dir)`, `load_fno`, `model_config`,
   `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`. Run-file names appear
   nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `src/neural_operators/chebyshev/` builds without features, except `diff_matrix`/
@@ -205,7 +207,9 @@ than trusting prose when checking how an API behaves.
   fourth the seed, default 42, the fifth and sixth together a training subset of N samples
   and its seed (Phase 7), default the whole split; needs that stage in `datasets/poisson/`; `predict_poisson`
   evaluates any s, `poisson_resolution` and `poisson_plot` only s = n − 1). On cuda:
-  `--no-default-features --features cuda`
+  `--no-default-features --features cuda`. It checkpoints every 25 epochs and after the
+  last; `train_poisson -- --resume runs/<run_dir>` continues an interrupted run from its
+  checkpoint with the run's saved configs (Phase 9 T2)
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution -- runs/<run_dir> [<rate> ...]` on Burgers runs, s = 8192 / rate;
   `predict_darcy`, `darcy_plot` on Darcy runs)

@@ -1632,6 +1632,15 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       - **Proposed, not yet confirmed:** checkpoint every 25 epochs plus the last, one
         kept, written atomically; resume exact on flex; a 2× A100 machine for T3 and T4.
       - Recorded by the author (AHA-HH), 2026-11-02.
+    - **Amendment, Phase 9 T2 (2026-11-02).** The author (AHA-HH) confirms:
+      - **P2:** a checkpoint every k epochs (default 25) plus the last epoch, one per run
+        (overwritten), written atomically (temporary file, then rename).
+      - **P3:** resume is bit-exact on flex (every `metrics.csv` row but `epoch_time_s`,
+        and the final weights); on GPU, within a stated round-off.
+      - **Shuffle across resume:** the loader's RNG is advanced k epochs (the shuffle is
+        replayed), so today's shuffle order is unchanged and earlier runs stay
+        reproducible bit for bit. Per-(seed, epoch) seeding is not adopted.
+      - Recorded by the author (AHA-HH), 2026-11-02.
 
 ## 13. Research programme after Phase 4s
 

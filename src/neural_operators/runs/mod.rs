@@ -6,7 +6,9 @@
 //! - `metrics.csv` (one row per epoch) and `plots.png` (only if gnuplot is installed);
 //! - `x_normalizer.json`, `y_normalizer.json`: Darcy and Poisson runs only;
 //! - `model_weights.bpk`: the model;
-//! - `costs.json` ([`RunCosts`]): Poisson runs since Phase 5 T4.
+//! - `costs.json` ([`RunCosts`]): Poisson runs since Phase 5 T4;
+//! - `checkpoint.bin` ([`Checkpoint`]): the latest checkpoint, Poisson runs since Phase 9
+//!   T2, replaced every k epochs and after the last.
 //!
 //! [`RunDir`] writes these and reads them back. File names live only here. Runs written
 //! since Phase 3 open, including Learner runs from before Phase 4s T2, which lack
@@ -18,10 +20,12 @@
 //! normalizers, weights) return `Box<dyn Error>`, since Burn's config, record and store
 //! errors have no common type.
 
+mod checkpoint;
 mod costs;
 mod csv;
 mod plots;
 
+pub use checkpoint::{Checkpoint, CheckpointState};
 pub use costs::RunCosts;
 
 use std::error::Error;
@@ -31,6 +35,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use burn::{
     config::Config,
+    optim::{ModuleOptimizer, lr_scheduler::module_lr_scheduler::ModuleLrScheduler},
     store::{BurnpackStore, ModuleSnapshot},
     tensor::Device,
 };
@@ -52,6 +57,10 @@ const PLOTS_PNG: &str = "plots.png";
 const X_NORMALIZER: &str = "x_normalizer.json";
 const Y_NORMALIZER: &str = "y_normalizer.json";
 const COSTS: &str = "costs.json";
+const CHECKPOINT: &str = "checkpoint.bin";
+/// Written first, then renamed over `checkpoint.bin`, so a crash mid-write leaves the
+/// previous checkpoint intact.
+const CHECKPOINT_TMP: &str = "checkpoint.bin.tmp";
 /// Burn's `BurnpackStore` appends `.bpk` to an extensionless path on save and load
 /// alike, so both use this stem and the file is `model_weights.bpk`.
 const WEIGHTS_STEM: &str = "model_weights";
@@ -154,6 +163,17 @@ impl RunDir {
     /// If the file can't be opened or written.
     pub fn append_metrics(&self, m: &EpochMetrics) -> io::Result<()> {
         csv::append_metrics_row(self.path.join(METRICS_CSV), m)
+    }
+
+    /// Drops the rows of `metrics.csv` for epochs `next_epoch` and later, keeping the
+    /// others byte for byte: a resumed run calls this before training on from its
+    /// checkpoint, so the epochs after it are not listed twice.
+    ///
+    /// # Errors
+    /// If the file can't be read or written, or a row's epoch doesn't parse
+    /// ([`io::ErrorKind::InvalidData`]).
+    pub fn truncate_metrics(&self, next_epoch: usize) -> io::Result<()> {
+        csv::truncate_metrics_csv(self.path.join(METRICS_CSV), next_epoch)
     }
 
     /// Draws `plots.png` (loss curves and learning rate) from `metrics`, titled with the
@@ -276,6 +296,49 @@ impl RunDir {
     /// naming the line for a row with missing or unparsable fields.
     pub fn metrics(&self) -> io::Result<Vec<EpochMetrics>> {
         csv::read_metrics_csv(self.path.join(METRICS_CSV))
+    }
+
+    /// Writes `checkpoint.bin`: `state`, the model's weights and the optimiser's and
+    /// scheduler's records, replacing any earlier checkpoint. Atomic: the file is written
+    /// and synced under a temporary name, then renamed.
+    ///
+    /// # Errors
+    /// If the model or a record can't be serialised, or the file can't be written.
+    pub fn save_checkpoint<const R: usize>(
+        &self,
+        state: &CheckpointState,
+        model: &FNO<R>,
+        optim: &ModuleOptimizer,
+        scheduler: &ModuleLrScheduler,
+    ) -> Result<(), Box<dyn Error>> {
+        let bytes = checkpoint::encode(state, model, optim.to_record(), scheduler.to_record())?;
+        let tmp = self.path.join(CHECKPOINT_TMP);
+        let mut file = std::fs::File::create(&tmp)?;
+        io::Write::write_all(&mut file, &bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, self.path.join(CHECKPOINT))?;
+        Ok(())
+    }
+
+    /// The run's checkpoint, with the model built from `model_cfg.json` on `device`, or
+    /// `None` for a run without `checkpoint.bin`. Pass the training (autodiff) device to
+    /// resume.
+    ///
+    /// # Errors
+    /// If `checkpoint.bin` exists but can't be read, is truncated or malformed, or
+    /// doesn't fit the architecture in `model_cfg.json`.
+    pub fn checkpoint<const R: usize>(
+        &self,
+        device: &Device,
+    ) -> Result<Option<Checkpoint<R>>, Box<dyn Error>> {
+        let path = self.path.join(CHECKPOINT);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let bytes = std::fs::read(&path)?;
+        checkpoint::decode(&bytes, &self.model_config()?, device)
+            .map(Some)
+            .map_err(|e| format!("{}: {e}", path.display()).into())
     }
 }
 
@@ -437,6 +500,7 @@ mod tests {
             git_commit: "abc123".to_string(),
             num_params: 1_188_353,
             optimisation_steps: Some(500 * 50),
+            resumes: Some(1),
         };
         run.save_costs(&costs).unwrap();
         // predict completes the file written by training
@@ -460,10 +524,59 @@ mod tests {
         std::fs::write(run.path().join(COSTS), phase5).unwrap();
         let read = run.costs().unwrap().expect("costs were saved");
         assert_eq!(read.optimisation_steps, None);
+        assert_eq!(read.resumes, None);
 
         std::fs::write(run.path().join(COSTS), "{").unwrap();
         let msg = run.costs().expect_err("a broken costs.json").to_string();
         assert!(msg.contains("costs.json"), "{msg}");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// No `checkpoint.bin` reads as `None`; a truncated, overlong or foreign one is an
+    /// error naming the file, not a panic.
+    #[test]
+    fn missing_or_broken_checkpoint() {
+        use burn::{lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig, optim::AdamConfig};
+        let device = Device::default();
+        let root = fresh_root("checkpoint");
+        let run = RunDir::create(&root, "test_fno").unwrap();
+        run.save_configs(&model_config(), &TrainingConfig::new(), &data_config())
+            .unwrap();
+        assert!(run.checkpoint::<4>(&device).unwrap().is_none());
+
+        let model: FNO<4> = model_config().init::<4>(&device);
+        let optim: ModuleOptimizer = AdamConfig::new().init();
+        let scheduler = CosineAnnealingLrSchedulerConfig::new(1e-3, 10)
+            .init()
+            .unwrap();
+        let state = CheckpointState {
+            next_epoch: 25,
+            resumes: 0,
+            training_time_s: 12.5,
+        };
+        run.save_checkpoint(&state, &model, &optim, &scheduler)
+            .unwrap();
+        assert!(!run.path().join(CHECKPOINT_TMP).exists());
+        let read = run.checkpoint::<4>(&device).unwrap().expect("saved");
+        assert_eq!(read.state, state);
+
+        let path = run.path().join(CHECKPOINT);
+        let bytes = std::fs::read(&path).unwrap();
+        let longer = [bytes.as_slice(), b"x"].concat();
+        for broken in [
+            &bytes[..bytes.len() / 2],
+            &bytes[..12],
+            &longer[..],
+            &b"not a checkpoint at all"[..],
+        ] {
+            std::fs::write(&path, broken).unwrap();
+            let msg = run
+                .checkpoint::<4>(&device)
+                .err()
+                .expect("a broken checkpoint")
+                .to_string();
+            assert!(msg.contains("checkpoint.bin"), "{msg}");
+        }
         std::fs::remove_dir_all(&root).unwrap();
     }
 
