@@ -10,7 +10,9 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: none planned. Phases 5–7, the research programme (design §13.16), are
+- Current phase: Phase 9 (HPC, systems track), planned 2026-11-02: docs/phase9/README.md,
+  briefs T1–T7. T1, T5 and T7 closed 2026-11-02 without new work (existing data, folded
+  into T2, decision 19 amended); T2, T3, T4, T6 open. Phases 5–7, the research programme (design §13.16), are
   done. Phase 7 (training-set size and sample efficiency) is done 2026-10-30:
   docs/phase7/README.md, results docs/phase7/results.md; D7 (mean fine-grid error
   ≤ 2e-2) is met at N = 500 (decision 30, amendment of 2026-10-30). Phases 0–4 are done

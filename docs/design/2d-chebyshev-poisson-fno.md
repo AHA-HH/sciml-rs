@@ -565,9 +565,10 @@ flowchart LR
     P8W["W&B export (optional task)"]
   end
   subgraph P9["Phase 9: HPC (systems track)"]
-    P9T1["T1 profiling"] --> P9T3["T3 multi-GPU training"]
-    P9T2["T2 checkpoint / resume"]
-    P9F["flex run, plot shading, CI smoke (supplementary)"]
+    P9T1["T1 profiling ✓ (existing data)"] --> P9T3["T3 multi-GPU training"] --> P9T4["T4 1 vs 2 A100"]
+    P9T2["T2 checkpoint / resume (+ T5 smoke)"]
+    P9T6["T6 flex run"]
+    P9T7["T7 plot shading ✓ (flat cells)"]
   end
   P0T1 --> P1T1
   P1T1 --> P2T1
@@ -874,7 +875,18 @@ and can run at any time after it (decision 30, amendment of 2026-10-27). §13.10
 Old Phase 5: profiling, checkpoint and resume, data-parallel multi-GPU training, and its
 supplementary tasks (the flex run, decision 21; plot shading, decision 19; example smoke
 runs in CI). It can run at any time. No speedup it delivers enters a conclusion of
-Phases 5–7. §13.11.
+Phases 5–7. §13.11. Plan: `docs/phase9/README.md` (decision 30, amendment of
+2026-11-02).
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | Profiling of the Phase 5 baseline (s = 64, p = 0), not the 129² p = 4 run. **Closed 2026-11-02 from existing data:** per-batch cost flat in s up to 64, so overhead dominates; trace and GPU utilisation moved to T4 | – |
+| T2 | Checkpoint and resume, exact on flex; extends `train_poisson_smoke` with a resume (absorbs T5) | – |
+| T3 | Data-parallel training with Burn's `all_reduce` in a hand-written step; batch of 20 split across devices, schedule unchanged; reproduces the single-GPU run | T1; two GPUs |
+| T4 | One against two A100s: speedup, efficiency, trace, GPU utilisation | T3 |
+| T5 | Example smoke runs in CI. **Closed 2026-11-02, folded into T2:** `train_poisson_smoke` already covers the pipeline on flex | – |
+| T6 | The full-length flex run (decision 21) at the baseline (s = 64, p = 0, stage 3), cost stated first | – |
+| T7 | Plot shading. **Closed 2026-11-02: flat cells kept** (decision 19, amendment) | – |
 
 ## 11. Tests
 
@@ -1200,6 +1212,10 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       interpolate onto a uniform grid for display", so the choice is recorded here when
       it is made. It is display only and blocks nothing.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-13.
+    - **Amendment (2026-11-02): flat cells kept.** Phase 9 T7 closes with the first
+      option: every panel stays one flat cell per CGL node, so the plot shows the data
+      as sampled and where the nodes are, and decision 18 stands unrelaxed. No code
+      change. Chosen by the author (AHA-HH).
 20. **Phase 4 T2: the padding sweep ran on cuda, not metal (2026-10-14).**
     - **What changed.** Decision 18 put the sweep on metal, locally, before anything
       ran on cuda, which was to come in with T3. The sweep ran instead on cuda, on a VM
@@ -1597,6 +1613,25 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
         of the 45 runs shared the GPU with an unidentified process; their times are
         flagged and left out of those figures (§13.14: costs are per device).
       - Recorded by the author (AHA-HH), 2026-10-30.
+    - **Amendment, Phase 9 planning (2026-11-02).** Plan: `docs/phase9/README.md`, with
+      briefs T1–T7 (§10 Phase 9, §13.11). What changes from the old Phase 5 rows:
+      - **Profiling target:** the Phase 5 baseline (s = 64, p = 0), not the 129² p = 4
+        run; the Bluestein cost at p > 0 is already measured (decisions 17, 20) and
+        p = 0 is chosen (D3). T1 is closed from existing data (Phase 5 T5, Phase 7 T2):
+        the per-batch cost does not grow with s up to 64, so the step is overhead-bound.
+        Its trace and GPU utilisation move to T4.
+      - **Multi-GPU:** Burn's `all_reduce` in a hand-written data-parallel step, in
+        place of `GradientsAccumulator` across devices; not the Learner's DDP. Flex has
+        no `all_reduce`, so T3's tests run on GPU only. Expected gain at s = 64 is small
+        (above); T4 measures it.
+      - **Supplementary tasks:** example smoke runs in CI closed, already covered by
+        `train_poisson_smoke` on flex and folded into T2's resume test (the example
+        `main`s stay compile-checked only); plot shading closed with flat cells kept
+        (decision 19, amendment of 2026-11-02); the flex run (decision 21) proposed at
+        the baseline, p = 0, instead of 65² at p = 4.
+      - **Proposed, not yet confirmed:** checkpoint every 25 epochs plus the last, one
+        kept, written atomically; resume exact on flex; a 2× A100 machine for T3 and T4.
+      - Recorded by the author (AHA-HH), 2026-11-02.
 
 ## 13. Research programme after Phase 4s
 
@@ -2007,18 +2042,30 @@ alone.
 
 ### 13.11 Phase 9: HPC (systems track)
 
-Separate from Phases 5–7 and runnable at any time:
-- data-parallel model replicas, one per GPU;
-- device-local data shards (each device's `device_loader` holding its part of the
-  split);
-- gradient synchronisation through Burn's distributed support (or `GradientsAccumulator`
-  across devices, as old Phase 5 T3 proposed);
-- NCCL communication on cuda;
-- checkpoint and resume (old Phase 5 T2; needs Phase 4s T10/T12, merged);
-- profiling (old Phase 5 T1);
-- one- against two-A100 scaling benchmarks;
-- the supplementary tasks carried over: the flex run (decision 21), plot shading
-  (decision 19) and example smoke runs in CI.
+Separate from Phases 5–7 and runnable at any time. Plan and briefs:
+`docs/phase9/README.md` (amended 2026-11-02, decision 30):
+- data-parallel model replicas, one per GPU, in a hand-written step beside
+  `train_epoch` (not the Learner's `MultiDevice` or DDP strategy): each batch of 20 split
+  across devices, so the effective batch and the schedule are unchanged (T3);
+- device-local data (each device's `device_loader` holding the split or its shard; T3
+  states the memory cost);
+- gradient synchronisation by Burn's `burn::tensor::distributed::all_reduce` (mean),
+  which replaces the `GradientsAccumulator` route old Phase 5 T3 proposed. It is
+  implemented for the cubecl backends (cuda, metal, wgpu) and is `unimplemented!()` on
+  flex, so multi-device code cannot be tested in CI;
+- communication on cuda: NCCL is not a feature of the pinned fork; the collective goes
+  through cubecl's client. T3 reports what it uses (NCCL, peer-to-peer or host);
+- checkpoint and resume (old Phase 5 T2; needs Phase 4s T10/T12, merged), exact on flex,
+  including the epoch's shuffle order (T2);
+- profiling (old Phase 5 T1) of the Phase 5 baseline, not the 129² p = 4 run. Closed from
+  existing data: s/epoch is flat from s = 16 to 64 (Phase 5 T5), about 31 ms per batch
+  plus a fixed 0.12 s mostly in the test pass (Phase 7 T2), so the baseline step is
+  overhead-bound and a second GPU should help little at s = 64; the trace and GPU
+  utilisation move to T4;
+- one- against two-A100 scaling benchmarks (T4);
+- the supplementary tasks carried over: the flex run (decision 21) at the baseline,
+  p = 0 (T6); plot shading (decision 19), closed with flat cells kept (T7); example
+  smoke runs in CI, closed as covered by `train_poisson_smoke` and folded into T2 (T5).
 
 A multi-GPU run must reproduce its single-GPU result on the same seeds, within stated
 round-off, before it is used. **No multi-GPU speedup enters any conclusion about grid
