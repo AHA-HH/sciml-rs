@@ -1,0 +1,132 @@
+# Phase 9: HPC (systems track)
+
+As of 2026-11-02; planned, no task started. Design: `docs/design/2d-chebyshev-poisson-fno.md`
+(§10 Phase 9 and the old Phase 5 rows it inherits, §13.11, decisions 19, 21 and 30).
+`docs/CONVENTIONS.md` wins on any conflict.
+
+Phase 9 makes training at production sizes fast and robust: know where the time goes,
+survive interruption, and train one run on more than one GPU. It also carries the three
+supplementary tasks of old Phase 5: example smoke runs in CI, the full-length flex run
+(decision 21) and smooth display in `poisson_plot` (decision 19).
+
+It is a systems track. **No speedup it delivers enters a conclusion of Phases 5–7**
+(design §13.11), and a multi-GPU run must reproduce its single-GPU result on the same
+seeds, within a stated round-off, before it is used.
+
+## Read first
+
+- Design §13.11 (this phase), §10 "Phase 5: HPC (optional) — superseded" (the old task
+  rows and supplementary tasks, kept as history), decisions 17, 19, 20, 21 and 30.
+- `docs/phase5/README.md` (the baseline and its cost) and `docs/phase7/README.md` (the
+  per-epoch cost fit).
+- `CLAUDE.md`: Working agreement, Checks, Burn, Commands.
+
+## Inputs from earlier phases
+
+| Item | Value | Source |
+| --- | --- | --- |
+| Baseline run | stage 3 (n = 129, K = 64), s = 64, p = 0, modes [12, 12], width 32, 4 layers, batch 20, 500 epochs, Adam 1e-3 / wd 1e-4, cosine | Phase 5 T7 |
+| Baseline cost (cuda, A100) | 1.69 s/epoch, about 851 s per run; per-epoch time flat from s = 16 to 64 | Phase 5 T5 |
+| Per-epoch cost fit (cuda, A100, s = 64) | 0.117 s + 1.53 ms × N: a fixed cost, mostly the 200-sample test pass after every epoch, plus about 31 ms per training batch of 20 | Phase 7 T2 |
+| Old HPC numbers | 129² at p = 4 on cuda: about 112 s/epoch, 15.6 h for 500 epochs; any p > 0 about 20× slower per epoch than p = 0 (Bluestein at non-power-of-two padded lengths) | Phase 4, decisions 17, 20 |
+| Flex cost | stage 3, s = 64, p = 0, N = 25: 2.4 s/epoch (Phase 7 T1 smoke run); 65² at p = 4: about 520 s/epoch | Phase 7 T1, decision 17 |
+| What a run saves | configs at start, one `metrics.csv` row per epoch (`EpochObserver`), weights, normalisers and `costs.json` at the end only; no optimiser or scheduler state | Phase 4s T10/T12, Phase 5 T4 |
+
+## Facts verified at `8a545e5`
+
+- **The observer sees the model only.** `training_loop` (`training/trainer.rs`) calls
+  `on_epoch(&EpochMetrics, &FNO<R>)`; the optimiser and scheduler stay inside
+  `TrainingComponents`. A checkpoint needs both, so T2 either widens the observer or
+  saves inside the loop.
+- **Burn can serialise the state T2 needs.** `ModuleOptimizer` has `to_record`,
+  `load_record`, `save` and `load` (`burn-optim/src/optim/module/module_optimizer.rs`);
+  `ModuleLrScheduler` has `to_record` / `load_record`, and the cosine scheduler's record
+  is its `current_iter`.
+- **The shuffle is seeded once.** `device_loader(.., shuffle: Some(seed))` builds one
+  loader whose RNG advances every epoch. A resumed run at epoch k must see the epoch-k
+  order, not epoch 0's, to match an uninterrupted run.
+- **Burn has distributed training.** `burn::tensor::distributed` gives
+  `DistributedContext::init(devices, config)` and `all_reduce(tensor, Sum | Mean,
+  devices)`; `burn-train` has a DDP strategy (one thread and model replica per device,
+  gradients all-reduced after backward). `all_reduce` is implemented for the cubecl
+  backends (cuda, metal, wgpu) through the cubecl client, and is `unimplemented!()` on
+  flex: multi-device code cannot be tested on flex or in CI.
+- **NCCL is not a Burn feature at this pin.** No crate in the fork names NCCL; the
+  collective goes through cubecl's `client.all_reduce`. Whether that uses NCCL or a
+  device-to-device copy on cuda is for T3 to find out and report.
+- **The design asked for a hand-written data-parallel loop**, not the Learner's
+  `MultiDevice` (old Phase 5 T3), because `train_epoch` is the canonical loop and
+  `MultiDevice` splits the dataset, changing the effective batch.
+
+## Planning decisions
+
+Recorded in design §12, decision 30 (amendment of 2026-11-02). P1, P4 and P7 are decided
+there, with T1, T5 and T7 closed; P2, P3, P5 and P6 are proposed and are the author's
+(AHA-HH) to confirm before their task starts.
+
+- **P1, profiling target: the Phase 5 baseline** (s = 64, p = 0, N = 1000, cuda A100),
+  not the old 129² p = 4 run. The baseline is what every later run trains; the
+  Bluestein cost at p > 0 is already measured (decisions 17, 20) and p = 0 is the
+  chosen padding (D3).
+- **P2, checkpoint cadence: every k epochs (default 25) plus the last epoch**, one
+  checkpoint kept (overwritten), written atomically (temporary file then rename).
+- **P3, resume must be exact on flex:** an interrupted-and-resumed run gives the same
+  `metrics.csv` rows and weights as an uninterrupted one, bit for bit, on flex. On GPU,
+  within a stated round-off.
+- **P4, multi-GPU: Burn's `all_reduce` inside a hand-written data-parallel step**, not
+  the Learner's DDP strategy and not `GradientsAccumulator` across devices. Each batch
+  of 20 is split across the devices, gradients are mean-reduced, and one optimiser step
+  is taken, so the effective batch and the schedule are unchanged.
+- **P5, hardware: a 2× A100 machine for T3 and T4.** Not yet available; T3 and T4 wait
+  for it. T1, T2 and T5–T7 do not need it.
+- **P6, the flex run at p = 0, s = 64 on stage 3** (the baseline), recorded against the
+  §11 threshold, rather than 65² at p = 4 (about 72 h).
+- **P7, plot shading: flat cells kept** (chosen by the author, 2026-11-02; decision 19).
+
+## Tasks
+
+| Task | Brief | Delivers | Depends on |
+| --- | --- | --- | --- |
+| T1 | [T1-profiling.md](T1-profiling.md) | **Closed from existing data (2026-11-02), see Results.** Where an epoch's time goes on the baseline (cuda); the trace and GPU utilisation moved to T4 | – |
+| T2 | [T2-checkpoint.md](T2-checkpoint.md) | Periodic checkpoints (weights, optimiser, scheduler, epoch) and a run that resumes from them, exact on flex | – (parallel with T1) |
+| T3 | [T3-multi-gpu.md](T3-multi-gpu.md) | Data-parallel training of one run on several GPUs with an unchanged effective batch; reproduces a single-GPU run within round-off | T1; a multi-GPU machine |
+| T4 | [T4-scaling.md](T4-scaling.md) | One- against two-A100 scaling of the baseline: s/epoch, speedup, efficiency, where the time goes | T3 |
+| T5 | [T5-ci-smoke.md](T5-ci-smoke.md) | **Closed 2026-11-02, folded into T2.** Already covered by `train_poisson_smoke`; T2 extends it with a resume | – |
+| T6 | [T6-flex-run.md](T6-flex-run.md) | The full-length baseline run on flex, cost stated first; the §11 threshold checked there | – (any time) |
+| T7 | [T7-plot-shading.md](T7-plot-shading.md) | **Closed 2026-11-02: flat cells kept** (decision 19, amendment of 2026-11-02); no code change | – |
+
+Task numbers are execution order (design §10); T1 and T2 can run in parallel, and T6
+and T7 at any time. One task per branch and PR: `phase9/T<k>-<name>`. Each task is
+worked from its brief alone, plus the files the brief lists under "Read first".
+
+## Module layout
+
+- `training/trainer` (T2, T3): the checkpoint hook in `training_loop`; the
+  data-parallel step beside `train_epoch` (T3).
+- `runs/` (T2): checkpoint files and their reader; the only place their names appear.
+- `examples/train/poisson.rs` (T2, T3, T5): resume, device-list and smoke arguments.
+- `.github/workflows/run-tests.yml` (T5): the smoke job.
+- `examples/predict/poisson_plot.rs` (T7).
+- No change to the model, the loss, the transfers, the hyperparameters or CONVENTIONS.
+
+## Results
+
+Filled in as tasks merge. Phase 9 is done when every row has a value.
+
+| Item | Value | Source |
+| --- | --- | --- |
+| Epoch time split on the baseline (cuda) | Closed 2026-11-02 from existing data, no new runs. cuda (A100), wall clock from `costs.json` / `metrics.csv`. Per epoch at N = 1000: about 1.53 s in 50 training batches (about 31 ms per batch of 20) and about 0.12 s fixed, mostly the 200-sample test pass (Phase 7 T2 fit 0.117 s + 1.53 ms × N, which predicts 1.65 s against 1.69 s measured). s/epoch is flat in the learning grid: 1.679 / 1.686 / 1.687 s at s = 16 / 32 / 64 (16× the grid points), 2.448 s at s = 128 (Phase 5 T5). **Finding:** up to s = 64 a training batch costs the same whatever its size, so the time is per-step overhead (kernel launches, synchronisation, host work), not arithmetic. Splitting a batch of 20 over two GPUs halves the arithmetic, not the overhead, so T3 should expect little speedup at s = 64 and more at s = 128 or stage 4. **Not measured:** which overhead (no trace) and GPU utilisation; both move to T4, which profiles the 1- and 2-GPU runs anyway | T1 |
+| Checkpoint and resume, exact on flex | | T2 |
+| Multi-GPU run reproduces single-GPU, round-off stated | | T3 |
+| Speedup and efficiency, 1 vs 2 A100 | | T4 |
+| Smoke job in CI | Closed without a CI job (author, 2026-11-02). `train_poisson_smoke` (`training/trainer.rs`) already trains a Poisson FNO end to end through `train_fno` on flex, from synthetic `.npz` splits through `load_poisson_uniform` into a run directory, in every `cargo test` (CI's run-tests job). T2 extends it to stop and resume. **Not covered:** the `main`s of `train_poisson` and `predict_poisson` (argument parsing, the real dataset paths); CI only compiles them | T5 |
+| Flex run against the §11 threshold | | T6 |
+| `poisson_plot` display choice | Flat cells kept (author, 2026-11-02): each CGL node stays one flat cell, so the plot shows the data as sampled and where the nodes are. Decision 19 closed; no code change | T7 |
+
+## Exit checklist
+
+- [ ] T1–T7 merged, or a task dropped with the reason recorded in design §12.
+- [ ] P1–P7 confirmed by the author and recorded in design §12.
+- [ ] No Phase 9 speedup cited in a Phase 5–7 result.
+- [ ] Every row of Results filled in.
+- [ ] The "Current phase" bullet in `CLAUDE.md` updated for what comes next.
