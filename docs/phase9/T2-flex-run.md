@@ -1,6 +1,7 @@
-# T6: the full-length flex run
+# T2: the full-length flex run
 
-Phase 9, task 6. Branch `phase9/T6-flex-run`. Depends on nothing; runs at any time
+Phase 9, task 2 (task 6 before the renumbering of 2026-11-03). Branch
+`phase9/T2-flex-run`. Runs after T1 (checkpoints), by the author's choice of 2026-11-02
 (decision 21).
 
 ## Read first
@@ -21,8 +22,8 @@ pipeline row is met on flex as it is on metal and cuda.
 3. **Comparison** with the cuda run on the same seed (Phase 5's `…_1793188648`): final
    test relative L², error 4, and the per-epoch curves; a difference beyond round-off is
    explained or recorded.
-4. If T2 is merged, the run uses checkpoints, so a stop costs at most one cadence.
-5. Decision 21 closed in design §12 (dated), and the T6 Results row.
+4. The run uses T1's checkpoints, so a stop costs at most one cadence.
+5. Decision 21 closed in design §12 (dated), and the T2 Results row.
 
 ## Acceptance
 - Test relative L² ≤ 2e-2 on flex, or the shortfall recorded against decision 21.

@@ -1,10 +1,10 @@
 # T3: data-parallel training on several GPUs
 
-Phase 9, task 3. Branch `phase9/T3-multi-gpu`. Depends on T1, and on a machine with at
-least two GPUs of one kind (P5).
+Phase 9, task 3. Branch `phase9/T3-multi-gpu`. Depends on T1 (checkpoints),
+and on a machine with at least two GPUs of one kind (P5).
 
 ## Read first
-- T1's findings (this phase's README, Results): at s = 64 a batch costs about 31 ms
+- The profiling finding (this phase's README, "Closed at planning"): at s = 64 a batch costs about 31 ms
   whatever its size, so a split batch may not run faster. Expect gains at s = 128 or
   stage 4, not at the baseline.
 - `src/neural_operators/training/trainer.rs` (`train_epoch`, `training_loop`,
@@ -37,7 +37,7 @@ it within a stated round-off.
 5. **Communication backend:** find out and report whether cubecl's `all_reduce` on cuda
    uses NCCL, peer-to-peer copies or the host. No new dependency without the author's
    approval.
-6. Works with T2's checkpoints if T2 is merged (save from the first replica).
+6. Works with T1's checkpoints (save from the first replica).
 
 ## Tests
 - Gradient equivalence on one GPU split into D = 2 "devices" is not possible on flex

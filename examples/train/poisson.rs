@@ -23,7 +23,7 @@
 //! cargo run --release --example train_poisson -- 0 129 64 42 25 0
 //!
 //! A run writes a checkpoint every `CHECKPOINT_EVERY` epochs and after the last (Phase 9
-//! T2). `--resume` continues an interrupted run from it, with the configs the run saved
+//! T1). `--resume` continues an interrupted run from it, with the configs the run saved
 //! (not the literals below), truncating `metrics.csv` to the checkpoint's epoch:
 //! cargo run --release --example train_poisson -- --resume runs/<run_dir>
 //!

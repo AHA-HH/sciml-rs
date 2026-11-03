@@ -10,9 +10,10 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: Phase 9 (HPC, systems track), planned 2026-11-02: docs/phase9/README.md,
-  briefs T1–T7. T1, T5 and T7 closed 2026-11-02 without new work (existing data, folded
-  into T2, decision 19 amended); T2, T3, T4, T6 open. Phases 5–7, the research programme (design §13.16), are
+- Current phase: Phase 9 (HPC, systems track), planned 2026-11-02, renumbered 2026-11-03:
+  docs/phase9/README.md, briefs T1–T4 (T1 checkpoint and resume, T2 flex run, T3
+  multi-GPU, T4 scaling; three tasks closed at planning are in its "Closed at planning").
+  T1 in review (PR #87); T2–T4 open. Phases 5–7, the research programme (design §13.16), are
   done. Phase 7 (training-set size and sample efficiency) is done 2026-10-30:
   docs/phase7/README.md, results docs/phase7/results.md; D7 (mean fine-grid error
   ≤ 2e-2) is met at N = 500 (decision 30, amendment of 2026-10-30). Phases 0–4 are done
@@ -23,7 +24,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   results docs/phase5/results.md. Phase 6 (SVD/POD information content, beside Phase 5) is
   done 2026-10-27: docs/phase6/README.md, results docs/phase6/results.md. Phase 8 (θ-map) is optional; Phase 9 (HPC: profiling, checkpointing,
   multi-GPU) is a separate systems track. Their 4s prerequisites (T10/T12 for Phase 9
-  T2, T16 for Phase 8) are merged. Each phase gets its README and briefs when it
+  T1, T16 for Phase 8) are merged. Each phase gets its README and briefs when it
   starts; 4s briefs are in docs/phase4s/T*.md.
 - Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
   RLST reference solver, FNO; signed off 2026-10-05, amended 2026-10-08 and 2026-10-09,
@@ -72,8 +73,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
   read), `save_plot`, `save_normalizers`, `save_weights`, `save_costs` (`costs.json`,
   Poisson runs since Phase 5 T4, `optimisation_steps` since Phase 7 T1, `resumes` since
-  Phase 9 T2), `save_checkpoint` / `checkpoint::<R>(device)` (`checkpoint.bin`, Phase 9
-  T2) and `truncate_metrics`; `open(dir)`, `load_fno`, `model_config`,
+  Phase 9 T1), `save_checkpoint` / `checkpoint::<R>(device)` (`checkpoint.bin`, Phase 9
+  T1) and `truncate_metrics`; `open(dir)`, `load_fno`, `model_config`,
   `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`. Run-file names appear
   nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `src/neural_operators/chebyshev/` builds without features, except `diff_matrix`/
@@ -211,7 +212,7 @@ than trusting prose when checking how an API behaves.
   evaluates any s, `poisson_resolution` and `poisson_plot` only s = n − 1). On cuda:
   `--no-default-features --features cuda`. It checkpoints every 25 epochs and after the
   last; `train_poisson -- --resume runs/<run_dir>` continues an interrupted run from its
-  checkpoint with the run's saved configs (Phase 9 T2)
+  checkpoint with the run's saved configs (Phase 9 T1)
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution -- runs/<run_dir> [<rate> ...]` on Burgers runs, s = 8192 / rate;
   `predict_darcy`, `darcy_plot` on Darcy runs)

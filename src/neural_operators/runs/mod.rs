@@ -8,7 +8,7 @@
 //! - `model_weights.bpk`: the model;
 //! - `costs.json` ([`RunCosts`]): Poisson runs since Phase 5 T4;
 //! - `checkpoint.bin` ([`Checkpoint`]): the latest checkpoint, Poisson runs since Phase 9
-//!   T2, replaced every k epochs and after the last.
+//!   T1, replaced every k epochs and after the last.
 //!
 //! [`RunDir`] writes these and reads them back. File names live only here. Runs written
 //! since Phase 3 open, including Learner runs from before Phase 4s T2, which lack

@@ -186,7 +186,7 @@ mod tests {
         assert_eq!(err.to_string(), "line 2: expected 5 or 6 fields, got 2");
     }
 
-    // phase 9 T2: a resumed run drops the rows after its checkpoint
+    // phase 9 T1: a resumed run drops the rows after its checkpoint
     #[test]
     fn truncate_keeps_the_header_and_earlier_rows_verbatim() {
         let path = std::env::temp_dir().join("sciml_rs_metrics_truncate.csv");

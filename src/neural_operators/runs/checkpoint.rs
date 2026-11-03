@@ -1,4 +1,4 @@
-//! `checkpoint.bin`: the state a training run resumes from (Phase 9 T2).
+//! `checkpoint.bin`: the state a training run resumes from (Phase 9 T1).
 //!
 //! One file, little-endian: the magic `SCIMLCK1`, then `next_epoch`, `resumes` (u64) and
 //! `training_time_s` (f64), then three length-prefixed (u64) Burnpack blobs: the model

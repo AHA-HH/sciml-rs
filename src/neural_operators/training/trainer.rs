@@ -808,7 +808,7 @@ mod tests {
         assert_eq!(metrics.len(), 2);
         finite(&metrics);
 
-        // Phase 9 T2: stop after epoch 1 (its checkpoint written; epoch 2 killed after its
+        // Phase 9 T1: stop after epoch 1 (its checkpoint written; epoch 2 killed after its
         // metrics row) and resume to epoch 2 through the checkpoint, as train_poisson does
         let device = Device::default().autodiff();
         let run = RunDir::create(&dir, "smoke_resume").unwrap();
@@ -845,7 +845,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    // --- Phase 9 T2: checkpoint and resume ---
+    // --- Phase 9 T1: checkpoint and resume ---
 
     /// Runs `components` as a checkpointed run (every `every` epochs) that is killed in
     /// epoch `stop`, after its `metrics.csv` row and before its checkpoint: the observer
