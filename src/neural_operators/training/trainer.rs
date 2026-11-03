@@ -25,7 +25,7 @@ use crate::neural_operators::{
         transforms::normalizers::{FlatDecoder, UnitGaussianNormalizer},
     },
     models::fno::{FNO, FNOConfig},
-    runs::{EpochMetrics, RunDir},
+    runs::{Checkpoint, CheckpointState, EpochMetrics, RunDir},
     training::{
         config::TrainingConfig,
         step::{StepLoss, evaluate, forward_loss},
@@ -225,30 +225,61 @@ fn epoch_line(m: &EpochMetrics) -> String {
     format!("{m:?}")
 }
 
-/// Runs `train_cfg.epochs` epochs of [`train_epoch`] then [`evaluate`], calling `on_epoch`
-/// after each, and returns the trained model and every epoch's metrics.
+/// Runs epochs of [`train_epoch`] then [`evaluate`] up to `train_cfg.epochs`, calling
+/// `on_epoch` after each, and returns the trained model and the metrics of the epochs it
+/// ran.
 ///
 /// `decoder`, on the training (autodiff) device, decodes the model output in both training
 /// and evaluation ([`FlatDecoder::inner`] for the latter); `None` for data in physical units.
+///
+/// `checkpoints`, if given as `(run, k)`, writes the run's checkpoint
+/// ([`RunDir::save_checkpoint`]) after every k-th epoch and after the last, once
+/// `on_epoch` has seen the epoch; a failed write stops training (the atomic write leaves
+/// the previous checkpoint intact, so the run resumes from there).
+/// The loop saves the checkpoint itself rather than handing the optimiser and scheduler
+/// to the observer: they are the loop's working state, and only the loop knows the epoch
+/// count and the training time carried over from earlier sessions.
+///
+/// `resume` starts from a checkpoint ([`RunDir::checkpoint`]) instead of epoch 0: its
+/// model replaces `components.model`, its records are loaded into the optimiser and
+/// scheduler, and the training loader's shuffle is replayed for the epochs already done
+/// (each `iter()` draws one epoch's order), so every epoch sees the order of an
+/// uninterrupted run. `components` must be built from the same configs and data as the
+/// checkpointed run. On flex the resumed run then matches the uninterrupted one bit for
+/// bit.
 ///
 /// Prints nothing itself: pass [`print_epoch`] (or a closure calling it) for the console
 /// line.
 ///
 /// # Panics
 ///
-/// As [`train_epoch`] and [`evaluate`].
+/// As [`train_epoch`] and [`evaluate`]; if `k` is 0; if a checkpoint cannot be written.
 pub fn training_loop<const R: usize, const RM1: usize>(
     mut components: TrainingComponents<R, RM1>,
     train_cfg: &TrainingConfig,
     decoder: Option<&FlatDecoder>,
     on_epoch: &mut EpochObserver<'_, R>,
+    checkpoints: Option<(&RunDir, usize)>,
+    resume: Option<Checkpoint<R>>,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
     // evaluation tensors live on the inner device (model.valid())
     let eval_decoder = decoder.map(FlatDecoder::inner);
     let mut model = components.model;
     let mut metrics = Vec::with_capacity(train_cfg.epochs);
+    let mut state = CheckpointState::default();
+    if let Some(ck) = resume {
+        model = ck.model;
+        components.optim = components.optim.load_record(ck.optim);
+        components.scheduler = components.scheduler.load_record(ck.scheduler);
+        for _ in 0..ck.state.next_epoch {
+            drop(components.train_loader.iter());
+        }
+        state = ck.state;
+    }
+    let carried_time_s = state.training_time_s;
+    let start = Instant::now();
 
-    for epoch in 0..train_cfg.epochs {
+    for epoch in state.next_epoch..train_cfg.epochs {
         let epoch_start = Instant::now();
 
         let (m, means) = train_epoch(
@@ -279,6 +310,19 @@ pub fn training_loop<const R: usize, const RM1: usize>(
 
         on_epoch(&record, &model);
         metrics.push(record);
+
+        if let Some((run, every)) = checkpoints {
+            let next_epoch = epoch + 1;
+            if next_epoch % every == 0 || next_epoch == train_cfg.epochs {
+                state.next_epoch = next_epoch;
+                state.training_time_s = carried_time_s + start.elapsed().as_secs_f64();
+                if let Err(e) =
+                    run.save_checkpoint(&state, &model, &components.optim, &components.scheduler)
+                {
+                    panic!("could not save the checkpoint after epoch {epoch}: {e}");
+                }
+            }
+        }
     }
 
     (model, metrics)
@@ -318,7 +362,29 @@ pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
 ) -> (FNO<R>, Vec<EpochMetrics>) {
     let components =
         build_training_components::<R, RM1, T>(model_cfg, train_cfg, train_data, test_data, device);
+    train_components(components, y_norm, train_cfg, device, run, None, None)
+}
 
+/// [`train_fno`] after [`build_training_components`], with checkpoints and resume: prints
+/// each epoch's line, appends its `metrics.csv` row to `run`, and runs [`training_loop`].
+///
+/// `checkpoint_every`, if `Some(k)`, writes `run`'s checkpoint after every k-th epoch and
+/// after the last; `resume` continues from a checkpoint read with [`RunDir::checkpoint`]
+/// (see [`training_loop`]). The caller truncates `metrics.csv` to the checkpoint first
+/// ([`RunDir::truncate_metrics`]). Returns the metrics of the epochs this call ran.
+///
+/// # Panics
+///
+/// As [`training_loop`]; at the first step, if the model has more than one output channel.
+pub fn train_components<const R: usize, const RM1: usize>(
+    components: TrainingComponents<R, RM1>,
+    y_norm: Option<&UnitGaussianNormalizer>,
+    train_cfg: &TrainingConfig,
+    device: &Device,
+    run: &RunDir,
+    checkpoint_every: Option<usize>,
+    resume: Option<Checkpoint<R>>,
+) -> (FNO<R>, Vec<EpochMetrics>) {
     let start = Instant::now();
     let mut on_epoch = |m: &EpochMetrics, model: &FNO<R>| {
         print_epoch(m, model);
@@ -329,13 +395,22 @@ pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
             );
         }
     };
-    let trained = train_built(components, y_norm, train_cfg, device, &mut on_epoch);
+    let decoder = y_norm.map(|y| FlatDecoder::new(y, device));
+    let trained = training_loop(
+        components,
+        train_cfg,
+        decoder.as_ref(),
+        &mut on_epoch,
+        checkpoint_every.map(|k| (run, k)),
+        resume,
+    );
     println!("total training time: {:.2?}", start.elapsed());
     trained
 }
 
 /// [`train_fno`] after the build: builds the decoder for `y_norm` and runs the loop. Split
 /// out so tests can give two runs the same initial model.
+#[cfg(test)]
 fn train_built<const R: usize, const RM1: usize>(
     components: TrainingComponents<R, RM1>,
     y_norm: Option<&UnitGaussianNormalizer>,
@@ -344,7 +419,14 @@ fn train_built<const R: usize, const RM1: usize>(
     on_epoch: &mut EpochObserver<'_, R>,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
     let decoder = y_norm.map(|y| FlatDecoder::new(y, device));
-    training_loop(components, train_cfg, decoder.as_ref(), on_epoch)
+    training_loop(
+        components,
+        train_cfg,
+        decoder.as_ref(),
+        on_epoch,
+        None,
+        None,
+    )
 }
 
 #[cfg(test)]
@@ -364,6 +446,7 @@ mod tests {
         training::step::flatten_pair,
     };
     use burn::data::dataloader::DataLoaderBuilder;
+    use burn::store::ModuleSnapshot;
     use ndarray::{Array1, Array3, ArrayD};
     use ndarray_npy::NpzWriter;
     use std::fs::{self, File};
@@ -404,7 +487,8 @@ mod tests {
             tiny_dataset(n_test),
             &Device::default().autodiff(),
         );
-        let (model, metrics) = training_loop(components, &train_cfg, None, &mut |_, _| {});
+        let (model, metrics) =
+            training_loop(components, &train_cfg, None, &mut |_, _| {}, None, None);
 
         // Cosine over N = epochs * ceil(5 / 2) = 6 steps: step k (1-based)
         // gives min + (max - min)(1 + cos((k - 1)π / N)) / 2.
@@ -467,7 +551,8 @@ mod tests {
         let mut host = build();
         host.model = device_run.model.clone();
 
-        let (new_model, new) = training_loop(device_run, &train_cfg, None, &mut |_, _| {});
+        let (new_model, new) =
+            training_loop(device_run, &train_cfg, None, &mut |_, _| {}, None, None);
 
         host.train_loader = DataLoaderBuilder::new(OperatorBatcher::<3, 2>::new())
             .set_device(device.clone())
@@ -478,7 +563,7 @@ mod tests {
             .set_device(device.clone().inner())
             .batch_size(train_cfg.test_batch_size)
             .build(HostItems(tiny_dataset(n_test)));
-        let (old_model, old) = training_loop(host, &train_cfg, None, &mut |_, _| {});
+        let (old_model, old) = training_loop(host, &train_cfg, None, &mut |_, _| {}, None, None);
 
         assert_eq!(metric_bits(&new), metric_bits(&old));
 
@@ -547,7 +632,7 @@ mod tests {
         old.model = new.model.clone();
 
         let (_, new) = train_built(new, None, &train_cfg, &device, &mut |_, _| {});
-        let (_, old) = training_loop(old, &train_cfg, None, &mut |_, _| {});
+        let (_, old) = training_loop(old, &train_cfg, None, &mut |_, _| {}, None, None);
 
         assert_eq!(metric_bits(&new), metric_bits(&old));
     }
@@ -712,14 +797,247 @@ mod tests {
             &RunDir::create(&dir, "smoke").unwrap(),
         );
 
+        let finite = |metrics: &[EpochMetrics]| {
+            for m in metrics {
+                assert!(
+                    m.train_mse.is_finite() && m.train_l2.is_finite() && m.test_l2.is_finite(),
+                    "{m:?}"
+                );
+            }
+        };
         assert_eq!(metrics.len(), 2);
-        for m in &metrics {
-            assert!(
-                m.train_mse.is_finite() && m.train_l2.is_finite() && m.test_l2.is_finite(),
-                "{m:?}"
-            );
-        }
+        finite(&metrics);
+
+        // Phase 9 T1: stop after epoch 1 (its checkpoint written; epoch 2 killed after its
+        // metrics row) and resume to epoch 2 through the checkpoint, as train_poisson does
+        let device = Device::default().autodiff();
+        let run = RunDir::create(&dir, "smoke_resume").unwrap();
+        run.save_configs(&model_cfg, &train_cfg, &cfg).unwrap();
+        let build = || {
+            let (train, test, _) =
+                load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
+            build_training_components::<4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
+        };
+        let decoder = FlatDecoder::new(&normalizers.y, &device);
+        interrupt_at(build(), &train_cfg, Some(&decoder), &run, 1, 1);
+        let run = RunDir::open(run.path()).unwrap();
+        let ck = run
+            .checkpoint::<4>(&device)
+            .unwrap()
+            .expect("checkpoint after epoch 1");
+        assert_eq!(ck.state.next_epoch, 1);
+        run.truncate_metrics(ck.state.next_epoch).unwrap();
+        let (_, resumed) = train_components(
+            build(),
+            Some(&normalizers.y),
+            &train_cfg,
+            &device,
+            &run,
+            Some(1),
+            Some(ck),
+        );
+        assert_eq!(resumed.len(), 1);
+        let rows = run.metrics().unwrap();
+        assert_eq!(rows.iter().map(|m| m.epoch).collect::<Vec<_>>(), [0, 1]);
+        finite(&rows);
+        let last = run.checkpoint::<4>(&device).unwrap().unwrap();
+        assert_eq!(last.state.next_epoch, 2);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // --- Phase 9 T1: checkpoint and resume ---
+
+    /// Runs `components` as a checkpointed run (every `every` epochs) that is killed in
+    /// epoch `stop`, after its `metrics.csv` row and before its checkpoint: the observer
+    /// panics there.
+    fn interrupt_at<const R: usize, const RM1: usize>(
+        components: TrainingComponents<R, RM1>,
+        train_cfg: &TrainingConfig,
+        decoder: Option<&FlatDecoder>,
+        run: &RunDir,
+        every: usize,
+        stop: usize,
+    ) {
+        let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            training_loop(
+                components,
+                train_cfg,
+                decoder,
+                &mut |m, _| {
+                    run.append_metrics(m).unwrap();
+                    if m.epoch == stop {
+                        panic!("simulated interruption in epoch {stop}");
+                    }
+                },
+                Some((run, every)),
+                None,
+            )
+        }));
+        assert!(killed.is_err(), "the run was not interrupted");
+    }
+
+    /// Every parameter's values, by name.
+    fn weights<const R: usize>(model: &FNO<R>) -> Vec<(String, Vec<f32>)> {
+        model
+            .collect(None, None, false)
+            .iter()
+            .map(|t| {
+                let data = TensorData::from_bytes(t.to_bytes().unwrap(), t.shape.clone(), t.dtype);
+                (t.name.clone(), data.iter::<f32>().collect())
+            })
+            .collect()
+    }
+
+    /// Bit for bit on flex; on the fused GPU backends to a relative 1e-5 (see
+    /// `device_loaders_train_identically_to_host_loaders`).
+    fn assert_same_weights<const R: usize>(a: &FNO<R>, b: &FNO<R>) {
+        #[cfg(feature = "flex")]
+        let exact = Device::default() == Device::flex();
+        #[cfg(not(feature = "flex"))]
+        let exact = false;
+        let (a, b) = (weights(a), weights(b));
+        assert_eq!(a.len(), b.len());
+        for ((name, a), (_, b)) in a.iter().zip(&b) {
+            if exact {
+                let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+                assert_eq!(bits(a), bits(b), "{name}");
+            } else {
+                for (x, y) in a.iter().zip(b) {
+                    assert!(
+                        (x - y).abs() <= 1e-5 * y.abs().max(1.0),
+                        "{name}: {x} != {y}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The brief's resume test: 6 epochs, checkpoints every 2, killed in the third epoch
+    /// and resumed from the checkpoint after the second. Every `metrics.csv` row (but
+    /// `epoch_time_s`) and the final weights equal the uninterrupted run's, bit for bit on
+    /// flex.
+    #[test]
+    fn resumed_run_matches_uninterrupted_run() {
+        let root = std::env::temp_dir().join(format!("sciml_rs_resume_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(6)
+            .with_batch_size(2)
+            .with_test_batch_size(2)
+            .with_seed(5);
+        let device = Device::default().autodiff();
+        let build = || {
+            build_training_components::<3, 2, _>(
+                &tiny_model_cfg(),
+                &train_cfg,
+                tiny_dataset(5), // partial last batch
+                tiny_dataset(3),
+                &device,
+            )
+        };
+        // one initial model for both runs (the device RNG is shared between parallel tests)
+        let whole = build();
+        let mut first = build();
+        first.model = whole.model.clone();
+
+        let straight = RunDir::create(&root, "straight").unwrap();
+        let (straight_model, _) =
+            train_components(whole, None, &train_cfg, &device, &straight, Some(2), None);
+
+        let run = RunDir::create(&root, "resumed").unwrap();
+        // the checkpoint reader needs model_cfg.json; the data config is unused here
+        run.save_configs(&tiny_model_cfg(), &train_cfg, &train_cfg)
+            .unwrap();
+        interrupt_at(first, &train_cfg, None, &run, 2, 2);
+        assert_eq!(run.metrics().unwrap().len(), 3);
+        let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
+        assert_eq!(ck.state.next_epoch, 2);
+        run.truncate_metrics(ck.state.next_epoch).unwrap();
+        let (resumed_model, _) =
+            train_components(build(), None, &train_cfg, &device, &run, Some(2), Some(ck));
+
+        let (resumed, uninterrupted) = (run.metrics().unwrap(), straight.metrics().unwrap());
+        let epochs = |m: &[EpochMetrics]| m.iter().map(|m| m.epoch).collect::<Vec<_>>();
+        assert_eq!(epochs(&resumed), [0, 1, 2, 3, 4, 5]);
+        assert_eq!(metric_bits(&resumed), metric_bits(&uninterrupted));
+        assert_same_weights(&resumed_model, &straight_model);
+        let last = run.checkpoint::<3>(&device).unwrap().unwrap();
+        assert_eq!(last.state.next_epoch, 6);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A checkpoint carries Adam's moments and the cosine schedule's position: one more
+    /// epoch from the reloaded state equals one from the live state, and differs without
+    /// the moments.
+    #[test]
+    fn checkpoint_round_trips_adam_moments_and_cosine_position() {
+        let root = std::env::temp_dir().join(format!(
+            "sciml_rs_checkpoint_round_trip_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let train_cfg = TrainingConfig::new().with_epochs(4).with_batch_size(2);
+        let device = Device::default().autodiff();
+        let build = || {
+            build_training_components::<3, 2, _>(
+                &tiny_model_cfg(),
+                &train_cfg,
+                tiny_dataset(5),
+                tiny_dataset(3),
+                &device,
+            )
+        };
+        let loader = device_loader::<3, 2, _>(&tiny_dataset(5), &device, 2, None);
+        let mut live = build();
+        let (model, first) = train_epoch(
+            live.model,
+            &loader,
+            &mut live.optim,
+            &mut live.scheduler,
+            None,
+        );
+
+        let run = RunDir::create(&root, "ck").unwrap();
+        run.save_configs(&tiny_model_cfg(), &train_cfg, &train_cfg)
+            .unwrap();
+        let state = CheckpointState {
+            next_epoch: 1,
+            resumes: 3,
+            training_time_s: 1.5,
+        };
+        run.save_checkpoint(&state, &model, &live.optim, &live.scheduler)
+            .unwrap();
+        let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
+        assert_eq!(ck.state, state);
+        assert!(!ck.optim.is_empty(), "no Adam moments in the checkpoint");
+        let mut loaded = build();
+        loaded.optim = loaded.optim.load_record(ck.optim);
+        loaded.scheduler = loaded.scheduler.load_record(ck.scheduler.clone());
+
+        let (a, ma) = train_epoch(
+            model.clone(),
+            &loader,
+            &mut live.optim,
+            &mut live.scheduler,
+            None,
+        );
+        let (b, mb) = train_epoch(
+            ck.model,
+            &loader,
+            &mut loaded.optim,
+            &mut loaded.scheduler,
+            None,
+        );
+        assert_eq!(ma.last_lr.to_bits(), mb.last_lr.to_bits());
+        assert_ne!(ma.last_lr, first.last_lr, "the schedule did not move on");
+        assert_same_weights(&a, &b);
+
+        // the same schedule position without the moments steps differently
+        let mut fresh = build();
+        fresh.scheduler = fresh.scheduler.load_record(ck.scheduler);
+        let (c, _) = train_epoch(model, &loader, &mut fresh.optim, &mut fresh.scheduler, None);
+        assert_ne!(weights(&c), weights(&a));
+        let _ = fs::remove_dir_all(&root);
     }
 
     // --- Phase 4s T12: the epoch observer ---

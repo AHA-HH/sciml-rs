@@ -1,7 +1,7 @@
-# T2: checkpoint and resume
+# T1: checkpoint and resume
 
-Phase 9, task 2. Branch `phase9/T2-checkpoint`. Depends on Phase 4s T10/T12 (merged);
-parallel with T1.
+Phase 9, task 1 (task 2 before the renumbering of 2026-11-03). Branch
+`phase9/T2-checkpoint`. Depends on Phase 4s T10/T12 (merged).
 
 ## Read first
 - `src/neural_operators/training/trainer.rs` (`TrainingComponents`,
@@ -42,7 +42,7 @@ the same result as if it had never stopped.
   uninterrupted run's, bit for bit.
 - A checkpoint round-trips the Adam moments and the cosine `current_iter`.
 - `train_poisson_smoke` (`training/trainer.rs`) extended to stop after epoch 1 and
-  resume to epoch 2 through the checkpoint (this absorbs T5, closed 2026-11-02).
+  resume to epoch 2 through the checkpoint (this absorbs the CI smoke task, closed 2026-11-02).
 - A run directory without a checkpoint reports `None`; a truncated checkpoint file is an
   error, not a panic.
 - Every existing trainer and run-dir test unchanged.
@@ -50,7 +50,7 @@ the same result as if it had never stopped.
 ## Acceptance
 - Interrupt a short real run (stage 2 or 3, a few epochs) with Ctrl-C and resume it;
   report both `metrics.csv` files.
-- The T2 Results row filled in.
+- The T1 Results row filled in.
 
 ## Checks to run and report
 All of `CLAUDE.md`'s CI checks and `cargo clippy --all-targets -- -D warnings`; the

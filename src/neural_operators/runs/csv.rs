@@ -51,7 +51,8 @@ pub(super) fn read_metrics_csv(path: impl AsRef<Path>) -> io::Result<Vec<EpochMe
 }
 
 /// Appends one row to a metrics CSV, creating it with the header row if it is missing or
-/// empty. The only writer of `metrics.csv`. A row without an epoch time leaves its
+/// empty. The only writer of `metrics.csv` rows ([`truncate_metrics_csv`] only drops
+/// them). A row without an epoch time leaves its
 /// `epoch_time_s` field empty.
 pub(super) fn append_metrics_row(path: impl AsRef<Path>, m: &EpochMetrics) -> io::Result<()> {
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
@@ -67,6 +68,30 @@ pub(super) fn append_metrics_row(path: impl AsRef<Path>, m: &EpochMetrics) -> io
         "{},{},{},{},{},{epoch_time}",
         m.epoch, m.train_mse, m.train_l2, m.test_l2, m.current_lr
     )
+}
+
+/// Rewrites a metrics CSV keeping the header and the rows whose epoch is below
+/// `next_epoch`, byte for byte.
+pub(super) fn truncate_metrics_csv(path: impl AsRef<Path>, next_epoch: usize) -> io::Result<()> {
+    let text = std::fs::read_to_string(&path)?;
+    let mut kept = String::with_capacity(text.len());
+    for (i, line) in text.lines().enumerate() {
+        // the header (line 1) is always kept
+        if i > 0 {
+            let epoch: usize = line.split(',').next().unwrap_or("").parse().map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("line {}: could not parse epoch", i + 1),
+                )
+            })?;
+            if epoch >= next_epoch {
+                continue;
+            }
+        }
+        kept.push_str(line);
+        kept.push('\n');
+    }
+    std::fs::write(path, kept)
 }
 
 #[cfg(test)]
@@ -159,6 +184,21 @@ mod tests {
         std::fs::remove_file(&path).ok();
 
         assert_eq!(err.to_string(), "line 2: expected 5 or 6 fields, got 2");
+    }
+
+    // phase 9 T1: a resumed run drops the rows after its checkpoint
+    #[test]
+    fn truncate_keeps_the_header_and_earlier_rows_verbatim() {
+        let path = std::env::temp_dir().join("sciml_rs_metrics_truncate.csv");
+        let head = "epoch,train_mse,train_l2,test_l2,current_lr,epoch_time_s\n\
+                    0,0.5,0.3,0.4,0.001,1.5\n1,0.25,0.15,0.2,0.0005,\n";
+        std::fs::write(&path, format!("{head}2,0.125,0.1,0.1,0.0001,1.25\n")).unwrap();
+        truncate_metrics_csv(&path, 2).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), head);
+        std::fs::write(&path, format!("{head}x,1,1,1,1,1\n")).unwrap();
+        let err = truncate_metrics_csv(&path, 2).unwrap_err();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(err.to_string(), "line 4: could not parse epoch");
     }
 
     #[test]
