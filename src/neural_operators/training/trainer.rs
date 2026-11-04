@@ -28,6 +28,7 @@ use crate::neural_operators::{
     runs::{Checkpoint, CheckpointState, EpochMetrics, RunDir},
     training::{
         config::TrainingConfig,
+        data_parallel::{Peers, Replica, train_epoch_parallel},
         step::{StepLoss, evaluate, forward_loss},
     },
 };
@@ -43,7 +44,7 @@ pub struct EpochMeans {
 }
 
 /// `sum + x`, starting from the first `x`.
-fn accumulate(sum: Option<Tensor<1>>, x: Tensor<1>) -> Option<Tensor<1>> {
+pub(crate) fn accumulate(sum: Option<Tensor<1>>, x: Tensor<1>) -> Option<Tensor<1>> {
     Some(match sum {
         Some(sum) => sum + x,
         None => x,
@@ -134,6 +135,10 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
     pub train_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
     /// Unshuffled test batches on the inner (non-autodiff) device.
     pub test_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
+    /// The devices after the first of a data-parallel run, with their copies of the
+    /// training split ([`replicas`](crate::neural_operators::training::data_parallel::replicas));
+    /// empty, the default, for one device.
+    pub replicas: Vec<Replica<R, RM1>>,
 }
 
 /// Builds the model, optimizer, schedule and loaders.
@@ -204,6 +209,7 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
         scheduler,
         train_loader,
         test_loader,
+        replicas: Vec::new(),
     }
 }
 
@@ -248,6 +254,11 @@ fn epoch_line(m: &EpochMetrics) -> String {
 /// checkpointed run. On flex the resumed run then matches the uninterrupted one bit for
 /// bit.
 ///
+/// With `components.replicas`, each epoch is data-parallel
+/// ([`data_parallel`](crate::neural_operators::training::data_parallel)): the replicas
+/// start as copies of the (possibly resumed) model and optimiser, their loaders replay the
+/// same shuffle, and evaluation, the observer and checkpoints see the first replica.
+///
 /// Prints nothing itself: pass [`print_epoch`] (or a closure calling it) for the console
 /// line.
 ///
@@ -271,24 +282,40 @@ pub fn training_loop<const R: usize, const RM1: usize>(
         model = ck.model;
         components.optim = components.optim.load_record(ck.optim);
         components.scheduler = components.scheduler.load_record(ck.scheduler);
-        for _ in 0..ck.state.next_epoch {
-            drop(components.train_loader.iter());
+        let loaders = std::iter::once(&components.train_loader)
+            .chain(components.replicas.iter().map(|r| &r.train_loader));
+        for loader in loaders {
+            for _ in 0..ck.state.next_epoch {
+                drop(loader.iter());
+            }
         }
         state = ck.state;
     }
+    let mut peers = (!components.replicas.is_empty())
+        .then(|| Peers::new(&model, &components.optim, decoder, &components.replicas));
     let carried_time_s = state.training_time_s;
     let start = Instant::now();
 
     for epoch in state.next_epoch..train_cfg.epochs {
         let epoch_start = Instant::now();
 
-        let (m, means) = train_epoch(
-            model,
-            &components.train_loader,
-            &mut components.optim,
-            &mut components.scheduler,
-            decoder,
-        );
+        let (m, means) = match peers.as_mut() {
+            None => train_epoch(
+                model,
+                &components.train_loader,
+                &mut components.optim,
+                &mut components.scheduler,
+                decoder,
+            ),
+            Some(peers) => train_epoch_parallel(
+                model,
+                &components.train_loader,
+                &mut components.optim,
+                &mut components.scheduler,
+                decoder,
+                peers,
+            ),
+        };
         model = m;
 
         let test_l2 = evaluate(
@@ -443,7 +470,7 @@ mod tests {
             poisson::{PoissonConfig, load_poisson_uniform},
         },
         losses::data_losses::{LpLoss, Reduction},
-        training::step::flatten_pair,
+        training::{data_parallel, step::flatten_pair},
     };
     use burn::data::dataloader::DataLoaderBuilder;
     use burn::store::ModuleSnapshot;
@@ -1067,6 +1094,105 @@ mod tests {
         let epochs = |m: &[EpochMetrics]| m.iter().map(|m| m.epoch).collect::<Vec<_>>();
         assert_eq!(epochs(&written), [0, 1, 2]);
         assert_eq!(metric_bits(&written), metric_bits(&metrics));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- Phase 9 T2: data-parallel training ---
+
+    /// Components for `tiny_dataset(7)` (a partial last batch of one sample: the second
+    /// replica's shard is empty) with one replica per device of `extra`.
+    fn parallel_components(
+        train_cfg: &TrainingConfig,
+        device: &Device,
+        extra: &[Device],
+    ) -> TrainingComponents<3, 2> {
+        let mut c = build_training_components::<3, 2, _>(
+            &tiny_model_cfg(),
+            train_cfg,
+            tiny_dataset(7),
+            tiny_dataset(3),
+            device,
+        );
+        c.replicas = data_parallel::replicas(&tiny_dataset(7), extra, train_cfg);
+        c
+    }
+
+    /// Two replicas on one device (summed without a collective, so this runs on flex)
+    /// train as one device does, with a target decoder: every epoch's metrics and the
+    /// final weights agree to round-off (the gradient sums run in another order).
+    #[test]
+    fn two_replicas_train_as_one_device() {
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(3)
+            .with_batch_size(2)
+            .with_test_batch_size(2)
+            .with_seed(9);
+        let device = Device::default().autodiff();
+        let one = parallel_components(&train_cfg, &device, &[]);
+        let mut two = parallel_components(&train_cfg, &device, std::slice::from_ref(&device));
+        two.model = one.model.clone();
+        let y = UnitGaussianNormalizer::fit(tiny_dataset(7).targets());
+        let decoder = FlatDecoder::new(&y, &device);
+
+        let run = |c| training_loop(c, &train_cfg, Some(&decoder), &mut |_, _| {}, None, None);
+        let ((one_model, one), (two_model, two)) = (run(one), run(two));
+
+        let close = |x: f64, y: f64| (x - y).abs() <= 1e-5 * y.abs().max(1e-6);
+        assert_eq!(one.len(), 3);
+        for (a, b) in two.iter().zip(&one) {
+            assert_eq!(a.current_lr, b.current_lr);
+            for (x, y) in [
+                (a.train_mse, b.train_mse),
+                (a.train_l2, b.train_l2),
+                (a.test_l2, b.test_l2),
+            ] {
+                assert!(close(x.into(), y.into()), "epoch {}: {x} != {y}", a.epoch);
+            }
+        }
+        for ((name, a), (_, b)) in weights(&two_model).iter().zip(&weights(&one_model)) {
+            for (x, y) in a.iter().zip(b) {
+                assert!(close((*x).into(), (*y).into()), "{name}: {x} != {y}");
+            }
+        }
+    }
+
+    /// T1's resume test on a two-replica run: killed in the third epoch and resumed from
+    /// the first replica's checkpoint, it ends as the uninterrupted two-replica run does,
+    /// bit for bit on flex.
+    #[test]
+    fn resumed_parallel_run_matches_uninterrupted_run() {
+        let root =
+            std::env::temp_dir().join(format!("sciml_rs_parallel_resume_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(4)
+            .with_batch_size(2)
+            .with_test_batch_size(2)
+            .with_seed(5);
+        let device = Device::default().autodiff();
+        let build = || parallel_components(&train_cfg, &device, std::slice::from_ref(&device));
+        let whole = build();
+        let mut first = build();
+        first.model = whole.model.clone();
+
+        let straight = RunDir::create(&root, "straight").unwrap();
+        let (straight_model, _) =
+            train_components(whole, None, &train_cfg, &device, &straight, Some(2), None);
+
+        let run = RunDir::create(&root, "resumed").unwrap();
+        run.save_configs(&tiny_model_cfg(), &train_cfg, &train_cfg)
+            .unwrap();
+        interrupt_at(first, &train_cfg, None, &run, 2, 2);
+        let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
+        run.truncate_metrics(ck.state.next_epoch).unwrap();
+        let (resumed_model, _) =
+            train_components(build(), None, &train_cfg, &device, &run, Some(2), Some(ck));
+
+        assert_eq!(
+            metric_bits(&run.metrics().unwrap()),
+            metric_bits(&straight.metrics().unwrap())
+        );
+        assert_same_weights(&resumed_model, &straight_model);
         let _ = fs::remove_dir_all(&root);
     }
 

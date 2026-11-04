@@ -157,6 +157,23 @@ impl FlatDecoder {
         }
     }
 
+    /// The same decoder on `device`, autodiff if `device` is, for a model replica there
+    /// (data-parallel training, Phase 9 T2).
+    pub fn to_device(&self, device: &Device) -> Self {
+        let move_to = |t: &Tensor<1>| {
+            let t = t.clone().inner().to_device(&device.clone().inner());
+            if device.is_autodiff() {
+                t.autodiff()
+            } else {
+                t
+            }
+        };
+        Self {
+            mean: move_to(&self.mean),
+            scale: move_to(&self.scale),
+        }
+    }
+
     /// `x * (std + eps) + mean`, broadcast over the batch axis.
     pub fn decode(&self, x: Tensor<2>) -> Tensor<2> {
         x * self.scale.clone().unsqueeze::<2>() + self.mean.clone().unsqueeze::<2>()

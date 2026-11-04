@@ -5,11 +5,14 @@
 //!   [`step::evaluate`].
 //! - `trainer`: the components, one epoch, the loop with its per-epoch observer, and
 //!   [`trainer::train_fno`].
+//! - `data_parallel`: one run on several devices (Phase 9 T2), the epoch
+//!   [`trainer::training_loop`] runs when the components have replicas.
 //! - `learner`: the Burn `Learner` step impls.
 //!
 //! The per-epoch metrics type is [`crate::neural_operators::runs::EpochMetrics`].
 
 pub mod config;
+pub mod data_parallel;
 #[cfg(test)]
 pub(crate) mod fixtures;
 pub mod learner;

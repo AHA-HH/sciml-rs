@@ -27,6 +27,13 @@
 //! (not the literals below), truncating `metrics.csv` to the checkpoint's epoch:
 //! cargo run --release --example train_poisson -- --resume runs/<run_dir>
 //!
+//! `TRAIN_DEVICES`, a comma-separated list of cuda device indices, trains one run
+//! data-parallel on those devices (Phase 9 T2): each batch of `BATCH_SIZE` is split across
+//! them, with the schedule and the number of steps of a one-device run. Unset, the run
+//! trains on the one default device, as before. New runs and `--resume` both take it:
+//! TRAIN_DEVICES=0,1 cargo run --release --no-default-features --features cuda \
+//!     --example train_poisson -- 0 129 64
+//!
 //! Besides the configs, metrics, normalizers and weights, the run records `costs.json`
 //! (`RunCosts`, design §13.9): the dataset's generation time from its sidecars, the load,
 //! transfer and training times, host-to-device bytes, the parameter count, the
@@ -58,6 +65,7 @@ use sciml_rs::neural_operators::{
     runs::{Checkpoint, RunCosts, RunDir},
     training::{
         config::TrainingConfig,
+        data_parallel::replicas,
         trainer::{build_training_components, train_components},
     },
     utils::backend::{backend_features, git_commit},
@@ -103,6 +111,31 @@ where
             .unwrap_or_else(|e| panic!("{name} argument must be an integer, got {arg:?}: {e}")),
         None => default,
     }
+}
+
+/// The training devices, autodiff: the cuda devices `TRAIN_DEVICES` lists (Phase 9 T2),
+/// or the one default device when it is unset.
+///
+/// # Panics
+/// If an index does not parse, or if `TRAIN_DEVICES` is set without the cuda feature.
+fn train_devices() -> Vec<Device> {
+    let Ok(list) = std::env::var("TRAIN_DEVICES") else {
+        return vec![Device::default().autodiff()];
+    };
+    #[cfg(feature = "cuda")]
+    {
+        list.split(',')
+            .map(|i| {
+                let i: usize = i.trim().parse().unwrap_or_else(|e| {
+                    panic!("TRAIN_DEVICES must list cuda indices, got {list:?}: {e}")
+                });
+                Device::cuda(i).autodiff()
+            })
+            .collect()
+    }
+    // cubecl implements the all_reduce data-parallel training needs on cuda only
+    #[cfg(not(feature = "cuda"))]
+    panic!("TRAIN_DEVICES={list} needs the cuda feature")
 }
 
 /// `datasets/poisson/` in the repository.
@@ -246,7 +279,8 @@ fn reopen(
 }
 
 fn main() {
-    let device = Device::default().autodiff();
+    let devices = train_devices();
+    let device = devices[0].clone();
     let (run, model_cfg, train_cfg, dataset_cfg, resume) = match std::env::args().nth(1) {
         Some(flag) if flag == "--resume" => {
             let dir = std::env::args()
@@ -282,7 +316,8 @@ fn main() {
     let bytes = |d: &OperatorDataset<f32>| {
         (d.inputs().len() + d.targets().len()) * std::mem::size_of::<f32>()
     };
-    let (train_bytes, test_bytes) = (bytes(&train_data), bytes(&test_data));
+    // one copy of the training split per device
+    let (train_bytes, test_bytes) = (bytes(&train_data) * devices.len(), bytes(&test_data));
     let n_train = train_data.inputs().shape()[0];
     println!(
         "poisson: {} train / {} test, n={} -> s={}",
@@ -302,9 +337,11 @@ fn main() {
         .as_ref()
         .map_or((0.0, 0), |ck| (ck.state.training_time_s, ck.state.resumes));
     let train_start = Instant::now();
-    let components = build_training_components::<4, 3, _>(
+    let replicas = replicas::<4, 3, _>(&train_data, &devices[1..], &train_cfg);
+    let mut components = build_training_components::<4, 3, _>(
         &model_cfg, &train_cfg, train_data, test_data, &device,
     );
+    components.replicas = replicas;
     let (model, _) = train_components(
         components,
         Some(&normalizers.y),
@@ -327,7 +364,10 @@ fn main() {
         // no backend reports it; never estimated (design §13.9)
         peak_gpu_memory: "unavailable".to_string(),
         backend_features: backend_features().into_iter().map(String::from).collect(),
-        device: format!("{device:?}"),
+        device: match devices.len() {
+            1 => format!("{device:?}"),
+            _ => format!("{devices:?}"),
+        },
         git_commit: git_commit(),
         num_params: model.num_params(),
         optimisation_steps: Some(train_cfg.total_steps(n_train)),
