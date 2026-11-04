@@ -1657,6 +1657,14 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       confirmed:** a 2× A100 VM is available for T2 and T3; code is written locally and
       the cuda checks and GPU runs are done on the VM. Recorded by the author (AHA-HH),
       2026-11-04.
+    - **Amendment, Phase 9 P4 (2026-11-04).** The shard gradients are **summed**, not
+      averaged, by `all_reduce`. The training loss is the relative L² summed over the
+      batch (`LpLoss::new(2, Reduction::Sum)`), so the sum of the shard gradients is the
+      full-batch gradient, for any shard sizes; a mean would scale it by 1/D, which
+      Adam's L2 weight decay does not cancel. Effective batch, learning rate and
+      schedule stay those of the single-GPU run. At the pinned cubecl, `all_reduce`
+      exists only on cuda, through NCCL; flex, metal and wgpu have no collectives
+      (correcting the planning amendment). Recorded by the author (AHA-HH), 2026-11-04.
 
 ## 13. Research programme after Phase 4s
 
@@ -2074,12 +2082,13 @@ Separate from Phases 5–7 and runnable at any time. Plan and briefs:
   across devices, so the effective batch and the schedule are unchanged (T2);
 - device-local data (each device's `device_loader` holding the split or its shard; T3
   states the memory cost);
-- gradient synchronisation by Burn's `burn::tensor::distributed::all_reduce` (mean),
-  which replaces the `GradientsAccumulator` route old Phase 5 T3 proposed. It is
-  implemented for the cubecl backends (cuda, metal, wgpu) and is `unimplemented!()` on
-  flex, so multi-device code cannot be tested in CI;
-- communication on cuda: NCCL is not a feature of the pinned fork; the collective goes
-  through cubecl's client. T3 reports what it uses (NCCL, peer-to-peer or host);
+- gradient synchronisation by Burn's `burn::tensor::distributed::all_reduce` (sum, the
+  loss being summed over the batch; amended 2026-11-04), which replaces the
+  `GradientsAccumulator` route old Phase 5 T3 proposed. At the pinned cubecl only cuda
+  has collectives; flex, metal and wgpu have no device transport and panic, so
+  multi-device code cannot be tested in CI (T2);
+- communication on cuda: NCCL (`ncclAllReduce`), loaded at runtime, so the machine needs
+  `libnccl` installed (T2);
 - checkpoint and resume (old Phase 5 T2; needs Phase 4s T10/T12, merged), exact on flex,
   including the epoch's shuffle order (T1);
 - profiling (old Phase 5 T1) of the Phase 5 baseline, not the 129² p = 4 run. Closed from

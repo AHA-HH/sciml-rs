@@ -91,8 +91,11 @@ starts.
   for bit; per-(seed, epoch) seeding is not adopted. Chosen by the author, 2026-11-02.
 - **P4, multi-GPU: Burn's `all_reduce` inside a hand-written data-parallel step**, not
   the Learner's DDP strategy and not `GradientsAccumulator` across devices. Each batch
-  of 20 is split across the devices, gradients are mean-reduced, and one optimiser step
-  is taken, so the effective batch and the schedule are unchanged.
+  of 20 is split across the devices, gradients are sum-reduced, and one optimiser step
+  is taken, so the effective batch and the schedule are unchanged. **Amended by the
+  author, 2026-11-04: sum, not mean.** The loss is the relative L² summed over the
+  batch, so the summed shard gradients are the full-batch gradient; a mean would scale
+  it by 1/D, which Adam's L2 weight decay does not cancel.
 - **P5, hardware: a 2× A100 machine for T2 and T3.** Confirmed by the author,
   2026-11-04: a 2× A100 VM is available. Code is written on the author's Mac and the
   cuda checks and GPU runs are done on the VM. T1 and T4 do not need it.

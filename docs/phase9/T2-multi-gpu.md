@@ -26,7 +26,8 @@ it within a stated round-off.
 1. **A data-parallel step** beside `train_epoch`: one model replica per device, each
    batch of 20 split into D shards (equal when D divides the batch; the PR states the
    rule for a partial last batch), forward and backward per device, gradients
-   mean-reduced with `all_reduce` (weighted by shard size if shards differ), one
+   sum-reduced with `all_reduce` (the loss is summed over the batch, so the sum is the
+   full-batch gradient whatever the shard sizes; P4 amended 2026-11-04), one
    optimiser step applied identically on every replica (or on one, then broadcast; say
    which and why).
 2. **Data placement:** each device holds its own copy of the split, or its shard, via
@@ -43,7 +44,7 @@ it within a stated round-off.
 ## Tests
 - Gradient equivalence on one GPU split into D = 2 "devices" is not possible on flex
   (`all_reduce` is `unimplemented!()` there), so: a GPU test, `#[ignore]`d without
-  the feature, that compares the mean-reduced gradient of two shards with the gradient
+  the feature, that compares the sum-reduced gradient of two shards with the gradient
   of the whole batch on one device, within round-off.
 - With one device, `train_epoch`'s output is unchanged (existing tests).
 
