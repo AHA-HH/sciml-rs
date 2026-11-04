@@ -592,7 +592,7 @@ mod tests {
             .build(HostItems(tiny_dataset(n_test)));
         let (old_model, old) = training_loop(host, &train_cfg, None, &mut |_, _| {}, None, None);
 
-        assert_eq!(metric_bits(&new), metric_bits(&old));
+        assert_same_metrics(&new, &old);
 
         let probe = |m: &FNO<3>| -> Vec<f32> {
             let x = tiny_dataset(1);
@@ -661,7 +661,7 @@ mod tests {
         let (_, new) = train_built(new, None, &train_cfg, &device, &mut |_, _| {});
         let (_, old) = training_loop(old, &train_cfg, None, &mut |_, _| {}, None, None);
 
-        assert_eq!(metric_bits(&new), metric_bits(&old));
+        assert_same_metrics(&new, &old);
     }
 
     // --- Phase 4s T17: y_train stored in physical units ---
@@ -915,13 +915,51 @@ mod tests {
             .collect()
     }
 
-    /// Bit for bit on flex; on the fused GPU backends to a relative 1e-5 (see
-    /// `device_loaders_train_identically_to_host_loaders`).
-    fn assert_same_weights<const R: usize>(a: &FNO<R>, b: &FNO<R>) {
+    /// Whether runs on the default device are reproducible bit for bit: flex only. The GPU
+    /// backends' reductions may sum in a different order from run to run (Phase 9 P3).
+    fn exact_backend() -> bool {
         #[cfg(feature = "flex")]
         let exact = Device::default() == Device::flex();
         #[cfg(not(feature = "flex"))]
         let exact = false;
+        exact
+    }
+
+    /// The losses of two runs' epochs: bit for bit on flex, to a relative 1e-5 on the GPU
+    /// backends, as [`assert_same_weights`]. The learning rate is computed on the host
+    /// from the scheduler, so it is compared bit for bit everywhere.
+    fn assert_same_metrics(a: &[EpochMetrics], b: &[EpochMetrics]) {
+        if exact_backend() {
+            assert_eq!(metric_bits(a), metric_bits(b));
+            return;
+        }
+        assert_eq!(a.len(), b.len());
+        for (a, b) in a.iter().zip(b) {
+            assert_eq!(a.epoch, b.epoch);
+            assert_eq!(
+                a.current_lr.to_bits(),
+                b.current_lr.to_bits(),
+                "epoch {}",
+                a.epoch
+            );
+            for (name, x, y) in [
+                ("train_mse", a.train_mse, b.train_mse),
+                ("train_l2", a.train_l2, b.train_l2),
+                ("test_l2", a.test_l2, b.test_l2),
+            ] {
+                assert!(
+                    (x - y).abs() <= 1e-5 * y.abs().max(1.0),
+                    "epoch {} {name}: {x} != {y}",
+                    a.epoch
+                );
+            }
+        }
+    }
+
+    /// Bit for bit on flex; on the fused GPU backends to a relative 1e-5 (see
+    /// `device_loaders_train_identically_to_host_loaders`).
+    fn assert_same_weights<const R: usize>(a: &FNO<R>, b: &FNO<R>) {
+        let exact = exact_backend();
         let (a, b) = (weights(a), weights(b));
         assert_eq!(a.len(), b.len());
         for ((name, a), (_, b)) in a.iter().zip(&b) {
@@ -986,7 +1024,7 @@ mod tests {
         let (resumed, uninterrupted) = (run.metrics().unwrap(), straight.metrics().unwrap());
         let epochs = |m: &[EpochMetrics]| m.iter().map(|m| m.epoch).collect::<Vec<_>>();
         assert_eq!(epochs(&resumed), [0, 1, 2, 3, 4, 5]);
-        assert_eq!(metric_bits(&resumed), metric_bits(&uninterrupted));
+        assert_same_metrics(&resumed, &uninterrupted);
         assert_same_weights(&resumed_model, &straight_model);
         let last = run.checkpoint::<3>(&device).unwrap().unwrap();
         assert_eq!(last.state.next_epoch, 6);
@@ -1137,7 +1175,8 @@ mod tests {
         let run = |c| training_loop(c, &train_cfg, Some(&decoder), &mut |_, _| {}, None, None);
         let ((one_model, one), (two_model, two)) = (run(one), run(two));
 
-        let close = |x: f64, y: f64| (x - y).abs() <= 1e-5 * y.abs().max(1e-6);
+        // relative 1e-5, absolute 1e-5 near zero, as `assert_same_weights` on GPU
+        let close = |x: f64, y: f64| (x - y).abs() <= 1e-5 * y.abs().max(1.0);
         assert_eq!(one.len(), 3);
         for (a, b) in two.iter().zip(&one) {
             assert_eq!(a.current_lr, b.current_lr);
@@ -1188,10 +1227,7 @@ mod tests {
         let (resumed_model, _) =
             train_components(build(), None, &train_cfg, &device, &run, Some(2), Some(ck));
 
-        assert_eq!(
-            metric_bits(&run.metrics().unwrap()),
-            metric_bits(&straight.metrics().unwrap())
-        );
+        assert_same_metrics(&run.metrics().unwrap(), &straight.metrics().unwrap());
         assert_same_weights(&resumed_model, &straight_model);
         let _ = fs::remove_dir_all(&root);
     }
