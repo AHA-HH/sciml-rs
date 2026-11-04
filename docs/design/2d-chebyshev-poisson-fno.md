@@ -565,8 +565,8 @@ flowchart LR
     P8W["W&B export (optional task)"]
   end
   subgraph P9["Phase 9: HPC (systems track)"]
-    P9T1["T1 checkpoint / resume"] --> P9T2["T2 flex run"]
-    P9T1 --> P9T3["T3 multi-GPU training"] --> P9T4["T4 1 vs 2 A100"]
+    P9T1["T1 checkpoint / resume"] --> P9T2["T2 multi-GPU training"] --> P9T3["T3 1 vs 2 A100"]
+    P9T3 --> P9T4["T4 flex run"]
   end
   P0T1 --> P1T1
   P1T1 --> P2T1
@@ -877,15 +877,15 @@ Phases 5–7. §13.11. Plan: `docs/phase9/README.md` (decision 30, amendment of
 
 Closed at planning, 2026-11-02, without new work: profiling of the baseline (from
 existing data: per-batch cost flat in s up to 64, so overhead dominates; trace and GPU
-utilisation moved to T4), example smoke runs in CI (covered by `train_poisson_smoke`,
+utilisation moved to T3), example smoke runs in CI (covered by `train_poisson_smoke`,
 folded into T1) and plot shading (flat cells kept, decision 19).
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
 | T1 | Checkpoint and resume, exact on flex; extends `train_poisson_smoke` with a resume | – |
-| T2 | The full-length flex run (decision 21) at the baseline (s = 64, p = 0, stage 3), cost stated first | T1 |
-| T3 | Data-parallel training with Burn's `all_reduce` in a hand-written step; batch of 20 split across devices, schedule unchanged; reproduces the single-GPU run | T1; two GPUs |
-| T4 | One against two A100s: speedup, efficiency, trace, GPU utilisation | T3 |
+| T2 | Data-parallel training with Burn's `all_reduce` in a hand-written step; batch of 20 split across devices, schedule unchanged; reproduces the single-GPU run | T1; two GPUs |
+| T3 | One against two A100s: speedup, efficiency, trace, GPU utilisation | T2 |
+| T4 | The full-length flex run (decision 21) at the baseline (s = 64, p = 0, stage 3), cost stated first | T1; last |
 
 ## 11. Tests
 
@@ -1650,6 +1650,13 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       resume (old T2), T2 the flex run (old T6, after T1 by the author's choice), T3
       multi-GPU, T4 scaling. Earlier amendments keep the old numbers. Recorded by the
       author (AHA-HH), 2026-11-03.
+    - **Amendment, Phase 9 order and hardware (2026-11-04).** The flex run moves to the
+      end of the phase and the tasks are renumbered to match: T2 multi-GPU (was T3), T3
+      scaling (was T4), T4 flex run (was T2). Its 3-epoch timing was taken first, on an
+      Apple M2 Pro: about 29 s/epoch over 17 epochs, about 4.1 h for 500. **P5
+      confirmed:** a 2× A100 VM is available for T2 and T3; code is written locally and
+      the cuda checks and GPU runs are done on the VM. Recorded by the author (AHA-HH),
+      2026-11-04.
 
 ## 13. Research programme after Phase 4s
 
@@ -2064,7 +2071,7 @@ Separate from Phases 5–7 and runnable at any time. Plan and briefs:
 `docs/phase9/README.md` (amended 2026-11-02, decision 30):
 - data-parallel model replicas, one per GPU, in a hand-written step beside
   `train_epoch` (not the Learner's `MultiDevice` or DDP strategy): each batch of 20 split
-  across devices, so the effective batch and the schedule are unchanged (T3);
+  across devices, so the effective batch and the schedule are unchanged (T2);
 - device-local data (each device's `device_loader` holding the split or its shard; T3
   states the memory cost);
 - gradient synchronisation by Burn's `burn::tensor::distributed::all_reduce` (mean),
@@ -2079,10 +2086,10 @@ Separate from Phases 5–7 and runnable at any time. Plan and briefs:
   existing data: s/epoch is flat from s = 16 to 64 (Phase 5 T5), about 31 ms per batch
   plus a fixed 0.12 s mostly in the test pass (Phase 7 T2), so the baseline step is
   overhead-bound and a second GPU should help little at s = 64; the trace and GPU
-  utilisation move to T4;
-- one- against two-A100 scaling benchmarks (T4);
+  utilisation move to T3;
+- one- against two-A100 scaling benchmarks (T3);
 - the supplementary tasks carried over: the flex run (decision 21) at the baseline,
-  p = 0 (T2); plot shading (decision 19), closed with flat cells kept; example smoke
+  p = 0 (T4); plot shading (decision 19), closed with flat cells kept; example smoke
   runs in CI, closed as covered by `train_poisson_smoke` and folded into T1.
 
 A multi-GPU run must reproduce its single-GPU result on the same seeds, within stated

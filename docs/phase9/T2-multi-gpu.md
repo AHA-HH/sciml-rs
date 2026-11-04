@@ -1,7 +1,8 @@
-# T3: data-parallel training on several GPUs
+# T2: data-parallel training on several GPUs
 
-Phase 9, task 3. Branch `phase9/T3-multi-gpu`. Depends on T1 (checkpoints),
-and on a machine with at least two GPUs of one kind (P5).
+Phase 9, task 2 (task 3 before the renumbering of 2026-11-04). Branch
+`phase9/T2-multi-gpu`. Depends on T1 (checkpoints), and on a machine with at least two
+GPUs of one kind (P5: a 2× A100 VM, available 2026-11-04).
 
 ## Read first
 - The profiling finding (this phase's README, "Closed at planning"): at s = 64 a batch costs about 31 ms
@@ -50,7 +51,7 @@ it within a stated round-off.
 - On 2 GPUs: the baseline (s = 64, p = 0, N = 1000, seed 42) for 500 epochs; final test
   relative L² and error 4 within a stated round-off of the single-GPU run on the same
   seed (Phase 5's `…_1793188648`), and the per-epoch curves overlaid in the PR.
-- The T3 Results row filled in.
+- The T2 Results row filled in.
 
 ## Checks to run and report
 All of `CLAUDE.md`'s CI checks and `cargo clippy --all-targets -- -D warnings`; the GPU
