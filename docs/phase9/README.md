@@ -1,7 +1,7 @@
 # Phase 9: HPC (systems track)
 
-As of 2026-11-03; T1 implemented (unmerged), T2–T4 open; tasks renumbered 2026-11-03
-(below). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 9 and the old
+As of 2026-11-04; T1 done (PR #87), T2–T4 open; tasks renumbered 2026-11-03 and
+2026-11-04 (below). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 9 and the old
 Phase 5 rows it inherits, §13.11, decisions 19, 21 and 30).
 `docs/CONVENTIONS.md` wins on any conflict.
 
@@ -50,12 +50,20 @@ seeds, within a stated round-off, before it is used.
 - **Burn has distributed training.** `burn::tensor::distributed` gives
   `DistributedContext::init(devices, config)` and `all_reduce(tensor, Sum | Mean,
   devices)`; `burn-train` has a DDP strategy (one thread and model replica per device,
-  gradients all-reduced after backward). `all_reduce` is implemented for the cubecl
-  backends (cuda, metal, wgpu) through the cubecl client, and is `unimplemented!()` on
-  flex: multi-device code cannot be tested on flex or in CI.
-- **NCCL is not a Burn feature at this pin.** No crate in the fork names NCCL; the
-  collective goes through cubecl's `client.all_reduce`. Whether that uses NCCL or a
-  device-to-device copy on cuda is for T3 to find out and report.
+  gradients all-reduced after backward). `all_reduce` works on cuda only (corrected
+  in T2, cubecl `04676cd`): `ComputeClient::all_reduce` panics with "no transport
+  between its devices" unless `server_comm_enabled` is set
+  (`cubecl-runtime/src/client.rs:916-929, 973`), the default `Server::all_reduce` returns
+  `no_device_transport` (`cubecl-runtime/src/server/base.rs:884-893`), and only
+  cubecl-cuda sets the flag, when the NCCL library loads
+  (`cubecl-cuda/src/runtime.rs:406`). Flex, metal and wgpu panic: multi-device code
+  cannot run on flex, on metal or in CI.
+- **NCCL is not a Burn feature at this pin, but cuda's collectives are NCCL.** No crate
+  in the fork names NCCL; the collective goes through cubecl's `client.all_reduce`, which
+  on cuda is `ncclAllReduce` on a dedicated communication stream (found in T2:
+  `cubecl-cuda/src/compute/communication.rs:135-160`, `ncclAvg` for Mean, `ncclSum` for
+  Sum; `compute/server.rs:642-680`), NCCL loaded at run time by `cudarc` (`dlopen`), so
+  the machine needs `libnccl` installed. No host round trip.
 - **The design asked for a hand-written data-parallel loop**, not the Learner's
   `MultiDevice` (old Phase 5 T3), because `train_epoch` is the canonical loop and
   `MultiDevice` splits the dataset, changing the effective batch.
@@ -83,10 +91,14 @@ starts.
   for bit; per-(seed, epoch) seeding is not adopted. Chosen by the author, 2026-11-02.
 - **P4, multi-GPU: Burn's `all_reduce` inside a hand-written data-parallel step**, not
   the Learner's DDP strategy and not `GradientsAccumulator` across devices. Each batch
-  of 20 is split across the devices, gradients are mean-reduced, and one optimiser step
-  is taken, so the effective batch and the schedule are unchanged.
-- **P5, hardware: a 2× A100 machine for T3 and T4.** Not yet available; T3 and T4 wait
-  for it. T1 and T2 do not need it.
+  of 20 is split across the devices, gradients are sum-reduced, and one optimiser step
+  is taken, so the effective batch and the schedule are unchanged. **Amended by the
+  author, 2026-11-04: sum, not mean.** The loss is the relative L² summed over the
+  batch, so the summed shard gradients are the full-batch gradient; a mean would scale
+  it by 1/D, which Adam's L2 weight decay does not cancel.
+- **P5, hardware: a 2× A100 machine for T2 and T3.** Confirmed by the author,
+  2026-11-04: a 2× A100 VM is available. Code is written on the author's Mac and the
+  cuda checks and GPU runs are done on the VM. T1 and T4 do not need it.
 - **P6, the flex run at p = 0, s = 64 on stage 3** (the baseline), recorded against the
   §11 threshold, rather than 65² at p = 4 (about 72 h).
 - **P7, plot shading: flat cells kept** (chosen by the author, 2026-11-02; decision 19).
@@ -94,15 +106,16 @@ starts.
 ## Tasks
 
 Renumbered 2026-11-03 (author): the tasks closed at planning are removed, and the rest
-are numbered in the order they can run. Old numbers: T1 was T2, T2 was T6; T3 and T4
-keep theirs. Branch `phase9/T2-checkpoint` and PR #87 keep the old name.
+are numbered in the order they run. Renumbered again 2026-11-04 (author), when the
+flex run moved to the end of the phase. From the plan of 2026-11-02: T1 was T2, T2 was
+T3, T3 was T4, T4 was T6. Branch `phase9/T2-checkpoint` and PR #87 keep the old name.
 
 | Task | Brief | Delivers | Depends on |
 | --- | --- | --- | --- |
 | T1 | [T1-checkpoint.md](T1-checkpoint.md) | Periodic checkpoints (weights, optimiser, scheduler, epoch) and a run that resumes from them, exact on flex | – |
-| T2 | [T2-flex-run.md](T2-flex-run.md) | The full-length baseline run on flex, cost stated first; the §11 threshold checked there | T1 (author's choice) |
-| T3 | [T3-multi-gpu.md](T3-multi-gpu.md) | Data-parallel training of one run on several GPUs with an unchanged effective batch; reproduces a single-GPU run within round-off | T1; a multi-GPU machine |
-| T4 | [T4-scaling.md](T4-scaling.md) | One- against two-A100 scaling of the baseline: s/epoch, speedup, efficiency, where the time goes (with the trace and GPU utilisation from the closed profiling task) | T3 |
+| T2 | [T2-multi-gpu.md](T2-multi-gpu.md) | Data-parallel training of one run on several GPUs with an unchanged effective batch; reproduces a single-GPU run within round-off | T1; a multi-GPU machine |
+| T3 | [T3-scaling.md](T3-scaling.md) | One- against two-A100 scaling of the baseline: s/epoch, speedup, efficiency, where the time goes (with the trace and GPU utilisation from the closed profiling task) | T2 |
+| T4 | [T4-flex-run.md](T4-flex-run.md) | The full-length baseline run on flex, cost stated first; the §11 threshold checked there | T1; last, by the author's choice |
 
 Task numbers are execution order (design §10). One task per branch and PR:
 `phase9/T<k>-<name>`. Each task is worked from its brief alone, plus the files the brief
@@ -113,16 +126,16 @@ lists under "Read first".
 Three tasks of the plan of 2026-11-02 closed that day without new work; their briefs are
 removed (in git history at `a736dfc`) and design §12 decision 30 keeps the record.
 
-- **Profiling (old T1), from existing data.** Closed 2026-11-02 from existing data, no new runs. cuda (A100), wall clock from `costs.json` / `metrics.csv`. Per epoch at N = 1000: about 1.53 s in 50 training batches (about 31 ms per batch of 20) and about 0.12 s fixed, mostly the 200-sample test pass (Phase 7 T2 fit 0.117 s + 1.53 ms × N, which predicts 1.65 s against 1.69 s measured). s/epoch is flat in the learning grid: 1.679 / 1.686 / 1.687 s at s = 16 / 32 / 64 (16× the grid points), 2.448 s at s = 128 (Phase 5 T5). **Finding:** up to s = 64 a training batch costs the same whatever its size, so the time is per-step overhead (kernel launches, synchronisation, host work), not arithmetic. Splitting a batch of 20 over two GPUs halves the arithmetic, not the overhead, so T3 should expect little speedup at s = 64 and more at s = 128 or stage 4. **Not measured:** which overhead (no trace) and GPU utilisation; both move to T4, which profiles the 1- and 2-GPU runs anyway
+- **Profiling (old T1), from existing data.** Closed 2026-11-02 from existing data, no new runs. cuda (A100), wall clock from `costs.json` / `metrics.csv`. Per epoch at N = 1000: about 1.53 s in 50 training batches (about 31 ms per batch of 20) and about 0.12 s fixed, mostly the 200-sample test pass (Phase 7 T2 fit 0.117 s + 1.53 ms × N, which predicts 1.65 s against 1.69 s measured). s/epoch is flat in the learning grid: 1.679 / 1.686 / 1.687 s at s = 16 / 32 / 64 (16× the grid points), 2.448 s at s = 128 (Phase 5 T5). **Finding:** up to s = 64 a training batch costs the same whatever its size, so the time is per-step overhead (kernel launches, synchronisation, host work), not arithmetic. Splitting a batch of 20 over two GPUs halves the arithmetic, not the overhead, so multi-GPU (T2) should expect little speedup at s = 64 and more at s = 128 or stage 4. **Not measured:** which overhead (no trace) and GPU utilisation; both move to scaling (T3), which profiles the 1- and 2-GPU runs anyway
 - **Example smoke runs in CI (old T5), folded into T1.** Closed without a CI job (author, 2026-11-02). `train_poisson_smoke` (`training/trainer.rs`) already trains a Poisson FNO end to end through `train_fno` on flex, from synthetic `.npz` splits through `load_poisson_uniform` into a run directory, in every `cargo test` (CI's run-tests job). T1 extends it to stop and resume. **Not covered:** the `main`s of `train_poisson` and `predict_poisson` (argument parsing, the real dataset paths); CI only compiles them
 - **Plot shading (old T7).** Flat cells kept (author, 2026-11-02): each CGL node stays one flat cell, so the plot shows the data as sampled and where the nodes are. Decision 19 closed; no code change
 
 ## Module layout
 
-- `training/trainer` (T1, T3): the checkpoint hook in `training_loop`; the
-  data-parallel step beside `train_epoch` (T3).
+- `training/trainer` (T1, T2): the checkpoint hook in `training_loop`; the
+  data-parallel step beside `train_epoch` (T2).
 - `runs/` (T1): checkpoint files and their reader; the only place their names appear.
-- `examples/train/poisson.rs` (T1, T3): resume and device-list arguments.
+- `examples/train/poisson.rs` (T1, T2): resume and device-list arguments.
 - No change to the model, the loss, the transfers, the hyperparameters or CONVENTIONS.
 
 ## Results
@@ -132,9 +145,9 @@ Filled in as tasks merge. Phase 9 is done when every row has a value.
 | Item | Value | Source |
 | --- | --- | --- |
 | Checkpoint and resume, exact on flex | Exact on flex. `checkpoint.bin` (weights, Adam record, cosine record, next epoch, resumes, training time) every 25 epochs and after the last, one per run, temp file then rename; `train_poisson -- --resume runs/<dir>` reads the run's configs, truncates `metrics.csv` and replays the shuffle. Tests: 6 epochs at cadence 2, killed in epoch 3 and resumed: every row but `epoch_time_s` and every weight bit-identical on flex; on metal the same test passes with rows bit-identical and weights within 1e-5 relative (the tolerance tested, not a measured spread). Acceptance (flex, stage 2, s = 32, p = 0, N = 100, 6 epochs at cadence 2, temporary literals): SIGINT during epoch 5 after 4 rows, resumed from epoch 4; all 6 rows equal an uninterrupted run's but `epoch_time_s`, and `predict_poisson`'s `errors.json` (errors 2–4, all digits) identical; `costs.json`: `resumes` 1 | T1 |
-| Flex run against the §11 threshold | | T2 |
-| Multi-GPU run reproduces single-GPU, round-off stated | | T3 |
-| Speedup and efficiency, 1 vs 2 A100 | | T4 |
+| Multi-GPU run reproduces single-GPU, round-off stated | | T2 |
+| Speedup and efficiency, 1 vs 2 A100 | | T3 |
+| Flex run against the §11 threshold | | T4 |
 
 ## Exit checklist
 

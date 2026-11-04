@@ -1,7 +1,8 @@
-# T3: data-parallel training on several GPUs
+# T2: data-parallel training on several GPUs
 
-Phase 9, task 3. Branch `phase9/T3-multi-gpu`. Depends on T1 (checkpoints),
-and on a machine with at least two GPUs of one kind (P5).
+Phase 9, task 2 (task 3 before the renumbering of 2026-11-04). Branch
+`phase9/T2-multi-gpu`. Depends on T1 (checkpoints), and on a machine with at least two
+GPUs of one kind (P5: a 2× A100 VM, available 2026-11-04).
 
 ## Read first
 - The profiling finding (this phase's README, "Closed at planning"): at s = 64 a batch costs about 31 ms
@@ -25,7 +26,8 @@ it within a stated round-off.
 1. **A data-parallel step** beside `train_epoch`: one model replica per device, each
    batch of 20 split into D shards (equal when D divides the batch; the PR states the
    rule for a partial last batch), forward and backward per device, gradients
-   mean-reduced with `all_reduce` (weighted by shard size if shards differ), one
+   sum-reduced with `all_reduce` (the loss is summed over the batch, so the sum is the
+   full-batch gradient whatever the shard sizes; P4 amended 2026-11-04), one
    optimiser step applied identically on every replica (or on one, then broadcast; say
    which and why).
 2. **Data placement:** each device holds its own copy of the split, or its shard, via
@@ -42,7 +44,7 @@ it within a stated round-off.
 ## Tests
 - Gradient equivalence on one GPU split into D = 2 "devices" is not possible on flex
   (`all_reduce` is `unimplemented!()` there), so: a GPU test, `#[ignore]`d without
-  the feature, that compares the mean-reduced gradient of two shards with the gradient
+  the feature, that compares the sum-reduced gradient of two shards with the gradient
   of the whole batch on one device, within round-off.
 - With one device, `train_epoch`'s output is unchanged (existing tests).
 
@@ -50,7 +52,7 @@ it within a stated round-off.
 - On 2 GPUs: the baseline (s = 64, p = 0, N = 1000, seed 42) for 500 epochs; final test
   relative L² and error 4 within a stated round-off of the single-GPU run on the same
   seed (Phase 5's `…_1793188648`), and the per-epoch curves overlaid in the PR.
-- The T3 Results row filled in.
+- The T2 Results row filled in.
 
 ## Checks to run and report
 All of `CLAUDE.md`'s CI checks and `cargo clippy --all-targets -- -D warnings`; the GPU

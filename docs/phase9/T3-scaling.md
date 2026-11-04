@@ -1,9 +1,10 @@
-# T4: one against two A100s
+# T3: one against two A100s
 
-Phase 9, task 4. Branch `phase9/T4-scaling`. Depends on T3.
+Phase 9, task 3 (task 4 before the renumbering of 2026-11-04). Branch
+`phase9/T3-scaling`. Depends on T2.
 
 ## Read first
-- The profiling finding (this phase's README, "Closed at planning") and T3's results.
+- The profiling finding (this phase's README, "Closed at planning") and T2's results.
 - `docs/phase5/README.md` (the baseline cost) and `docs/phase7/README.md` (the per-epoch
   fit, and the shared-GPU runs it had to set aside).
 - Design §13.11.
@@ -24,7 +25,7 @@ Measure what a second A100 buys on the baseline, and why it is not 2×.
    2-GPU runs, and one nsys trace (or flamegraph) of each, attached to the PR. They
    should say which overhead makes a batch cost about 31 ms whatever its size up to
    s = 64 (the profiling finding).
-5. A table in `docs/phase9/results.md` and the T4 Results row.
+5. A table in `docs/phase9/results.md` and the T3 Results row.
 
 ## Acceptance
 - Every number names its machine, GPU, driver and commit.
