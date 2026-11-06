@@ -161,7 +161,7 @@ the data's structure is necessary for a model, not sufficient (§13.4).
 
 ## Exit checklist
 
-- [ ] T1–T2 merged (T1 #76; T2 on merge).
+- [x] T1–T2 merged (T1 #76; T2 #77, review fixes #78).
 - [x] The SVD results use training data only (the test split only projected).
 - [x] Forcings and solutions analysed separately.
 - [x] Rank/error curves generated.
