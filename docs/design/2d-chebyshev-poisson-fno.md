@@ -1665,6 +1665,13 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       schedule stay those of the single-GPU run. At the pinned cubecl, `all_reduce`
       exists only on cuda, through NCCL; flex, metal and wgpu have no collectives
       (correcting the planning amendment). Recorded by the author (AHA-HH), 2026-11-04.
+    - **Amendment, Phase 9 paused (2026-11-06).** **P6 confirmed** (author, 2026-11-03):
+      the flex run (T4) is the baseline, stage 3, s = 64, p = 0, not 65² at p = 4. T2's
+      code is merged (#88); its acceptance run on the 2× A100 VM failed at NCCL setup
+      (`CUDA driver version is insufficient for CUDA runtime version`: the VM's NCCL is
+      built for a newer CUDA than its driver). The fix is an NCCL built for the driver's
+      CUDA, through a Spack environment on the VM. Phase 9 is paused until the VM is
+      back; T3 and T4 not started. Recorded by the author (AHA-HH), 2026-11-06.
 
 ## 13. Research programme after Phase 4s
 

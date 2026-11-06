@@ -1,7 +1,8 @@
 # Phase 9: HPC (systems track)
 
-As of 2026-11-04; T1 done (PR #87), T2–T4 open; tasks renumbered 2026-11-03 and
-2026-11-04 (below). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 9 and the old
+As of 2026-11-06: **paused** (author). T1 done (#87); T2's code merged (#88), its
+acceptance run blocked on the VM (see "Paused" below); T3 and T4 not started. Tasks
+renumbered 2026-11-03 and 2026-11-04 (below). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 9 and the old
 Phase 5 rows it inherits, §13.11, decisions 19, 21 and 30).
 `docs/CONVENTIONS.md` wins on any conflict.
 
@@ -70,10 +71,9 @@ seeds, within a stated round-off, before it is used.
 
 ## Planning decisions
 
-Recorded in design §12, decision 30 (amendments of 2026-11-02 and 2026-11-03). P1, P4
+Recorded in design §12, decision 30 (amendments of 2026-11-02 to 2026-11-06). P1, P4
 and P7 are decided there; P2 and P3 are confirmed by the author (AHA-HH) for T1,
-2026-11-02; P5 and P6 are proposed and are the author's to confirm before their task
-starts.
+2026-11-02; P6 on 2026-11-03 and P5 on 2026-11-04; P4 amended 2026-11-04.
 
 - **P1, profiling target: the Phase 5 baseline** (s = 64, p = 0, N = 1000, cuda A100),
   not the old 129² p = 4 run. The baseline is what every later run trains; the
@@ -100,7 +100,8 @@ starts.
   2026-11-04: a 2× A100 VM is available. Code is written on the author's Mac and the
   cuda checks and GPU runs are done on the VM. T1 and T4 do not need it.
 - **P6, the flex run at p = 0, s = 64 on stage 3** (the baseline), recorded against the
-  §11 threshold, rather than 65² at p = 4 (about 72 h).
+  §11 threshold, rather than 65² at p = 4 (about 72 h). Confirmed by the author,
+  2026-11-03.
 - **P7, plot shading: flat cells kept** (chosen by the author, 2026-11-02; decision 19).
 
 ## Tasks
@@ -149,10 +150,29 @@ Filled in as tasks merge. Phase 9 is done when every row has a value.
 | Speedup and efficiency, 1 vs 2 A100 | | T3 |
 | Flex run against the §11 threshold | | T4 |
 
+## Paused (2026-11-06)
+
+Paused by the author. Where each task stands and what restarts it:
+
+- **T2:** code merged (#88), checked on flex and metal, type-checked on cuda. The first VM
+  run (2× A100, 2026-11-05) failed before any training: the gradient test's
+  `ncclCommInitRank` returned `NcclError`, and `NCCL_DEBUG=INFO` gave `CUDA driver
+  version is insufficient for CUDA runtime version`: the VM's `libnccl` is built for a
+  newer CUDA than its driver supports. Our code and cubecl are not at fault. **Restart:**
+  on the VM, a Spack environment with `nccl ^cuda@X.Y`, X.Y no newer than `nvidia-smi`'s
+  "CUDA Version" (author's choice of tooling, 2026-11-05); `spack env activate` before the
+  run; then the gradient test with `NCCL_DEBUG=WARN`, the 2-GPU baseline run and
+  `predict_poisson`, as in #88's runbook. Record driver, CUDA and NCCL versions with the
+  result.
+- **T3:** waits for T2's acceptance; runbook written then.
+- **T4:** the 3-epoch timing is taken (about 29 s/epoch on the M2 Pro, about 4.1 h for
+  500); the full run is last, by the author's choice.
+- **T1 follow-up merged:** #89 (metal round-off in run-against-run test comparisons).
+
 ## Exit checklist
 
 - [ ] T1–T4 merged, or a task dropped with the reason recorded in design §12.
-- [ ] P1–P7 confirmed by the author and recorded in design §12.
+- [x] P1–P7 confirmed by the author and recorded in design §12 (2026-11-06).
 - [ ] No Phase 9 speedup cited in a Phase 5–7 result.
 - [ ] Every row of Results filled in.
 - [ ] The "Current phase" bullet in `CLAUDE.md` updated for what comes next.
