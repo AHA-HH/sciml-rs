@@ -560,9 +560,9 @@ flowchart LR
   subgraph P7["Phase 7: sample efficiency"]
     P7T1["T1 nested subsets"] --> P7T2["T2 training matrix"] --> P7T3["T3 error and cost vs N"]
   end
-  subgraph P8["Phase 8 (optional): θ-map"]
-    P8T1["T1 θ-map model"] --> P8T2["T2 comparison with the Phase 5 baseline"]
-    P8W["W&B export (optional task)"]
+  subgraph P8["Phase 8 (optional): MLflow export and θ-map"]
+    P8T1["T1 MLflow export"]
+    P8T2["T2 θ-map model"] --> P8T3["T3 comparison with the Phase 5 baseline"]
   end
   subgraph P9["Phase 9: HPC (systems track)"]
     P9T1["T1 checkpoint / resume"] --> P9T2["T2 multi-GPU training"] --> P9T3["T3 1 vs 2 A100"]
@@ -863,9 +863,11 @@ Rows are proposals; the phase README and briefs refine them.
 
 Old Phase 6 T3–T4, unchanged in substance (option 2 of §6, its own convention diff). It
 is compared against the Phase 5 baseline, not a p = 4 one (decision 24). It needs Phase 5
-T7 and Phase 4s T16 (merged). It also holds one optional task independent of the θ-map:
-exporting run directories to Weights & Biases, which needs only Phase 5 T4's run files
-and can run at any time after it (decision 30, amendment of 2026-10-27). §13.10.
+T7 and Phase 4s T16 (merged). It also holds one task independent of the θ-map:
+exporting run directories to a self-hosted MLflow server, which needs only Phase 5 T4's
+run files and can run at any time after it (decision 30, amendments of 2026-10-27 and
+2026-11-06; MLflow replaced W&B). It runs first, as T1; the θ-map is T2–T3. §13.10.
+Plan: `docs/phase8/README.md`.
 
 ### Phase 9: HPC (systems track)
 
@@ -1672,6 +1674,22 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       built for a newer CUDA than its driver). The fix is an NCCL built for the driver's
       CUDA, through a Spack environment on the VM. Phase 9 is paused until the VM is
       back; T3 and T4 not started. Recorded by the author (AHA-HH), 2026-11-06.
+    - **Amendment, Phase 8 planning (2026-11-06).** Plan: `docs/phase8/README.md`, with
+      brief T1. Chosen by the author:
+      - Q1: the tracker is **MLflow**, not W&B; the W&B export task (amendment of
+        2026-10-27) is dropped. MLflow's tracking REST API is documented and the server
+        is open source and self-hostable, where W&B's upload protocol is not documented.
+        Same shape as before: Rust, behind an optional cargo feature (now `mlflow`), an
+        exporter of finished run directories, training unchanged, run directories the
+        record.
+      - Q2: Phase 8 runs T1 (MLflow export) first, then the θ-map as T2 (model and
+        convention diff) and T3 (comparison); their briefs are written when the task
+        before merges.
+      - Q3: the server runs on the author's Mac, bound to localhost, with SQLite and a
+        local artifact directory; GPU-VM runs are copied back before export.
+      Q4–Q6 (HTTP client, idempotency, no auth) are proposed in the plan and confirmed in
+      T1's PR. Phase 9 stays paused and resumes independently. Recorded by the author
+      (AHA-HH), 2026-11-06.
 
 ## 13. Research programme after Phase 4s
 
@@ -2051,34 +2069,32 @@ compared at 65², 129² and across resolutions on the same seeds and test sets. 
 is the Phase 5 baseline (decision 24's gate: fixed padding, several seeds). It does not
 block the completion of Phases 5–7.
 
-**Optional task: Weights & Biases export** (decision 30, amendment of 2026-10-27), in
-Rust, like the rest of the chain. W&B ships no Rust SDK (its client is Python; the one
-`wandb` crate is an unofficial 2024 alpha), so the exporter speaks W&B's HTTP API
-itself: the GraphQL endpoint to create the run with its config and summary, the run's
-file stream for the per-epoch history, and file uploads for the images. That protocol is
-what the open-source W&B client uses but is not a documented public interface, so the
-task's brief pins it against that client's source and the GraphQL schema first, and an
-upstream change can break the exporter without breaking anything else. It is a library
-module behind a new optional cargo feature `wandb` (an HTTP client with TLS), so the
-default build, CI's default jobs and the licence are unchanged, and an example
-(`wandb_export -- <project> runs/<run_dir> ...`) drives it. Training is unchanged: it
-reads finished run directories (§13.9) and uploads:
-- the three configs as the W&B run config (n, s, K, seed, padding, modes), grouped by
-  (padding, s) so the seeds of a cell sit together;
+**Task: MLflow export** (decision 30, amendment of 2026-11-06, which replaced the W&B
+export of the amendment of 2026-10-27; Phase 8 T1), in Rust, like the rest of the chain.
+MLflow's tracking server has a documented REST API (`runs/create`, `runs/log-batch`,
+`runs/update`, and the proxied `mlflow-artifacts` upload), so the exporter needs no
+reverse-engineered protocol; the brief pins it against the server version used. The
+server is self-hosted on the author's machine (localhost, SQLite, local artifact store).
+It is a library module behind a new optional cargo feature `mlflow` (an HTTP client with
+TLS), so the default build, CI's default jobs and the licence are unchanged, and an
+example (`mlflow_export -- <experiment> runs/<run_dir> ...`) drives it. Training is
+unchanged: it reads finished run directories (§13.9) and logs:
+- the three configs as params, with tags for (n, s, K, seed, padding, N) and a group tag
+  per (padding, s) so the seeds of a cell sit together;
 - `metrics.csv` as one step per epoch (train and test relative L², learning rate,
   `epoch_time_s`);
-- `errors.json` and `costs.json` as summary values, and the per-sample error 4 and ‖u‖
-  as a table;
-- `plots.png` and `prediction_*.png` as images.
+- `errors.json` and `costs.json` as summary metrics, and both files as artifacts (the
+  per-sample error 4 and ‖u‖ with them);
+- `plots.png` and `prediction_*.png` as artifacts.
 
-It is run from the author's machine, not the GPU VM, so the VM needs no network access
-or W&B key. The key comes from `WANDB_API_KEY`, the project from the command line, and
-no account name or key is committed. Its tests need no network: they check the requests
-it would send against a run-directory fixture, and one manual upload to a scratch
-project is the acceptance. Live logging during training is a possible later extension
-(an `EpochObserver` that streams each epoch, Phase 4s T12) and out of scope here. The
-run directories stay the record: W&B is a view of them, and no Results row cites W&B
-alone.
+It is run from the author's machine, not the GPU VM, so the VM needs no network access;
+VM runs are copied back first. The tracking URI comes from `MLFLOW_TRACKING_URI`
+(default localhost), the experiment from the command line, and nothing host-specific is
+committed. Its tests need no network: they check the requests it would send against a
+run-directory fixture, and one manual export to a scratch experiment is the acceptance.
+Live logging during training is a possible later extension (an `EpochObserver` that
+streams each epoch, Phase 4s T12) and out of scope here. The run directories stay the
+record: MLflow is a view of them, and no Results row cites MLflow alone.
 
 ### 13.11 Phase 9: HPC (systems track)
 
