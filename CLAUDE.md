@@ -10,7 +10,10 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: Phase 9 (HPC, systems track), planned 2026-11-02, renumbered 2026-11-03
+- Current phase: Phase 8 (optional), planned 2026-11-06: docs/phase8/README.md, brief T1
+  (MLflow export of run directories to a self-hosted server; MLflow replaced the W&B
+  task), then the θ-map as T2–T3 (briefs written later).
+- Phase 9 (HPC, systems track), planned 2026-11-02, renumbered 2026-11-03
   and 2026-11-04: docs/phase9/README.md, briefs T1–T4 (T1 checkpoint and resume, T2
   multi-GPU, T3 scaling, T4 flex run; three tasks closed at planning are in its "Closed
   at planning"). **Paused 2026-11-06** (README "Paused"): T1 done (#87); T2's code merged
