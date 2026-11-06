@@ -66,8 +66,12 @@ pub struct Request {
 
 /// The requests that export `run` into experiment `experiment_id`, in order: `runs/create`
 /// (name and tags), `runs/log-batch` for the params, then for the metrics, one `PUT` per
-/// artifact, and `runs/update` to `FINISHED`. `now_ms` (Unix milliseconds) is the start,
-/// end and metric timestamp. See the [module docs](super) for the mapping.
+/// artifact, and `runs/update` to `FINISHED`. See the [module docs](super) for the mapping.
+///
+/// Times are Unix milliseconds. The start is the directory's `_<unix_secs>` suffix, when
+/// it has one (training creates `runs/<name>_<unix_secs>/` as it starts), else `now_ms`;
+/// the end is the start plus `training_time_s` from `costs.json`, when present, else
+/// `now_ms`. `now_ms` is also every metric's timestamp.
 ///
 /// Reads `run` only: the configs as `FNOConfig`, `TrainingConfig` and `PoissonConfig`,
 /// `metrics.csv`, and `costs.json` and `errors.json` when present.
@@ -92,6 +96,13 @@ pub fn export_requests(
     let data: PoissonConfig = run.data_config()?;
     let costs = run.costs()?;
     let epochs = run.metrics()?;
+    let start_ms = name
+        .rsplit_once('_')
+        .and_then(|(_, secs)| secs.parse::<i64>().ok())
+        .map_or(now_ms, |secs| secs * 1000);
+    let end_ms = costs.as_ref().map_or(now_ms, |c| {
+        start_ms + (c.training_time_s * 1000.0).round() as i64
+    });
 
     let padding = model.padding.unwrap_or(0);
     let s = data.s();
@@ -165,7 +176,7 @@ pub fn export_requests(
         json!({
             "experiment_id": experiment_id,
             "run_name": name,
-            "start_time": now_ms,
+            "start_time": start_ms,
             "tags": key_values(&tags),
         }),
     )];
@@ -191,7 +202,7 @@ pub fn export_requests(
     }
     requests.push(post(
         "runs/update",
-        json!({"run_id": RUN_ID, "status": "FINISHED", "end_time": now_ms}),
+        json!({"run_id": RUN_ID, "status": "FINISHED", "end_time": end_ms}),
     ));
     Ok(requests)
 }
@@ -462,7 +473,8 @@ mod tests {
         let create = json(&requests[0]);
         assert_eq!(create["experiment_id"], "5");
         assert_eq!(create["run_name"], "poisson_fno_n129_s64_p0_1793188648");
-        assert_eq!(create["start_time"], 1_000);
+        // the directory's suffix; the end adds costs.json's training_time_s of 100 s
+        assert_eq!(create["start_time"], 1_793_188_648_000_i64);
         let tags: Vec<(String, String)> = pairs(&create["tags"]);
         let tag = |k: &str, v: &str| (k.to_string(), v.to_string());
         assert_eq!(
@@ -501,7 +513,7 @@ mod tests {
 
         assert_eq!(
             *json(requests.last().unwrap()),
-            serde_json::json!({"run_id": RUN_ID, "status": "FINISHED", "end_time": 1_000})
+            serde_json::json!({"run_id": RUN_ID, "status": "FINISHED", "end_time": 1_793_188_748_000_i64})
         );
         std::fs::remove_dir_all(run.path().parent().unwrap()).unwrap();
     }
@@ -528,6 +540,9 @@ mod tests {
             artifact_names(&requests),
             ["data_cfg.json", "model_cfg.json", "train_cfg.json"]
         );
+        // start from the directory's suffix; no costs.json, so the end is now
+        assert_eq!(json(&requests[0])["start_time"], 1_791_906_496_000_i64);
+        assert_eq!(json(requests.last().unwrap())["end_time"], 0);
         let tags = pairs(&json(&requests[0])["tags"]);
         assert!(
             tags.iter()
@@ -542,7 +557,9 @@ mod tests {
         run.save_configs(&model(), &TrainingConfig::new(), &data(true))
             .unwrap();
         write_epochs(&run, 1);
-        let requests = export_requests(&run, "1", 0).unwrap();
+        let requests = export_requests(&run, "1", 7).unwrap();
+        // no numeric suffix: the start is now
+        assert_eq!(json(&requests[0])["start_time"], 7);
         let params = pairs(&json(&requests[1])["params"]);
         let get = |k: &str| {
             params

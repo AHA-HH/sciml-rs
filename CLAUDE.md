@@ -225,10 +225,10 @@ than trusting prose when checking how an API behaves.
   last; `train_poisson -- --resume runs/<run_dir>` continues an interrupted run from its
   checkpoint with the run's saved configs (Phase 9 T1)
 - Export run directories to a local MLflow server (Phase 8 T1; server: `mlflow server
-  --host 127.0.0.1 --port 5000 --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db
+  --host 127.0.0.1 --port 5001 --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db
   --artifacts-destination $HOME/mlflow/artifacts`, see `README.md`):
   `cargo run --features mlflow --example mlflow_export -- [--replace] <experiment> runs/<run_dir> ...`
-  (`MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5000`; skips directories already
+  (`MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5001`; skips directories already
   exported, `--replace` re-exports them; exits non-zero if any failed)
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution -- runs/<run_dir> [<rate> ...]` on Burgers runs, s = 8192 / rate;

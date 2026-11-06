@@ -302,7 +302,8 @@ impl RunDir {
     /// The run's files worth viewing beside its metrics, those present, sorted by name:
     /// the three configs, `costs.json`, `errors.json` ([`ERRORS_JSON`]) and every `.png`
     /// (`plots.png`, `prediction_<k>.png`). Not the weights, checkpoint, normalizers or
-    /// `metrics.csv`. The MLflow exporter (Phase 8 T1) uploads these.
+    /// `metrics.csv`, and no symbolic link, so nothing outside the directory is picked up.
+    /// The MLflow exporter (Phase 8 T1) uploads these.
     ///
     /// # Errors
     /// If the directory can't be listed.
@@ -310,9 +311,12 @@ impl RunDir {
         let named = [MODEL_CFG, TRAIN_CFG, DATA_CFG, COSTS, ERRORS_JSON];
         let mut files = Vec::new();
         for entry in std::fs::read_dir(&self.path)? {
-            let path = entry?.path();
+            let entry = entry?;
+            // `DirEntry::file_type` does not follow symbolic links, so links are skipped
+            let is_file = entry.file_type()?.is_file();
+            let path = entry.path();
             let name = path.file_name().unwrap_or_default().to_string_lossy();
-            if path.is_file() && (named.contains(&&*name) || name.ends_with(".png")) {
+            if is_file && (named.contains(&&*name) || name.ends_with(".png")) {
                 files.push(path);
             }
         }
@@ -620,5 +624,18 @@ mod tests {
     fn open_reports_a_missing_run() {
         let err = RunDir::open(std::env::temp_dir().join("sciml_rs_no_such_run")).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn artifacts_skip_symbolic_links() {
+        let root = fresh_root("artifacts_symlink");
+        let run = RunDir::create(&root, "test_fno").unwrap();
+        std::fs::write(run.path().join("plots.png"), b"x").unwrap();
+        std::fs::write(root.join("outside.png"), b"x").unwrap();
+        std::os::unix::fs::symlink(root.join("outside.png"), run.path().join("linked.png"))
+            .unwrap();
+        assert_eq!(run.artifacts().unwrap(), vec![run.path().join("plots.png")]);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

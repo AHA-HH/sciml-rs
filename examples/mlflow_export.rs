@@ -5,10 +5,10 @@
 //! cargo run --features mlflow --example mlflow_export -- [--replace] <experiment> runs/<run_dir> ...
 //! ```
 //!
-//! The server is `MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5000`; the experiment
-//! is created if it does not exist. A directory already in the experiment (tag
-//! `sciml.run_dir`) is skipped, or with `--replace` its MLflow run is deleted and the
-//! directory exported again. Prints one line per directory (exported / skipped / failed)
+//! The server is `MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5001` (macOS's AirPlay
+//! receiver holds MLflow's usual 5000); the experiment is created if it does not exist.
+//! A directory already in the experiment (tag `sciml.run_dir`) is skipped, or with
+//! `--replace` its MLflow run is deleted and the directory exported again. Prints one line per directory (exported / skipped / failed)
 //! and exits non-zero if any failed.
 
 use std::process::ExitCode;
@@ -16,10 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use sciml_rs::neural_operators::{
     runs::RunDir,
-    tracking::{Client, export_requests},
+    tracking::{Client, DEFAULT_TRACKING_URI, export_requests},
 };
-
-const DEFAULT_URI: &str = "http://127.0.0.1:5000";
 
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,7 +29,7 @@ fn main() -> ExitCode {
         eprintln!("usage: mlflow_export [--replace] <experiment> <run_dir> ...");
         return ExitCode::FAILURE;
     }
-    let uri = std::env::var("MLFLOW_TRACKING_URI").unwrap_or_else(|_| DEFAULT_URI.into());
+    let uri = std::env::var("MLFLOW_TRACKING_URI").unwrap_or_else(|_| DEFAULT_TRACKING_URI.into());
     let client = Client::new(&uri);
     let experiment = match client.experiment_id(&args[0]) {
         Ok(id) => id,

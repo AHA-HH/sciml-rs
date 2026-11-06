@@ -24,11 +24,11 @@ become summary metrics, and the plots become artifacts. Training is not changed.
 ## Server setup (part of the deliverable, documented in the PR and `README.md`)
 - Install a pinned MLflow outside the repo, e.g. `uv tool install mlflow==<X.Y.Z>` (or
   `pipx`); record the version in the PR.
-- Run `mlflow server --host 127.0.0.1 --port 5000 --backend-store-uri
+- Run `mlflow server --host 127.0.0.1 --port 5001 --backend-store-uri
   sqlite:///$HOME/mlflow/mlflow.db --artifacts-destination $HOME/mlflow/artifacts`.
-  Bind to localhost only (Q6). Proxied artifacts are the default, so the client never
+  Port 5001, because macOS's AirPlay receiver holds 5000. Bind to localhost only (Q6). Proxied artifacts are the default, so the client never
   writes the artifact store directly.
-- The exporter reads `MLFLOW_TRACKING_URI` (default `http://127.0.0.1:5000`). No URI,
+- The exporter reads `MLFLOW_TRACKING_URI` (default `http://127.0.0.1:5001`). No URI,
   account or key is committed.
 - Runs trained on the VM: `rsync` the run directories back to `runs/` first.
 

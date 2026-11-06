@@ -30,4 +30,4 @@ pub use builder::{
     Body, MAX_KEY_LEN, MAX_METRICS, MAX_PARAMS, MAX_VALUE_LEN, Method, RUN_DIR_TAG, RUN_ID,
     Request, export_requests,
 };
-pub use client::{Client, MlflowError};
+pub use client::{Client, DEFAULT_TRACKING_URI, MlflowError};

@@ -134,14 +134,15 @@ To re-evaluate a saved run:
 Finished Poisson run directories can be exported to a local MLflow tracking server
 (feature `mlflow`), one MLflow run each, to browse, group and compare them in its UI.
 The run directories stay the record. Install a pinned MLflow outside the repository
-and start it bound to localhost (no authentication):
+and start it bound to localhost (no authentication), on port 5001 because macOS's
+AirPlay receiver holds MLflow's usual 5000:
 
     uv tool install mlflow==<X.Y.Z>        # or pipx
-    mlflow server --host 127.0.0.1 --port 5000 \
+    mlflow server --host 127.0.0.1 --port 5001 \
       --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db \
       --artifacts-destination $HOME/mlflow/artifacts
 
-Then export (the server is `MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5000`):
+Then export (the server is `MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5001`):
 
     cargo run --features mlflow --example mlflow_export -- [--replace] <experiment> runs/<run_dir> ...
 

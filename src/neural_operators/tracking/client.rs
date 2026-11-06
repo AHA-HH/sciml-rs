@@ -64,6 +64,10 @@ impl fmt::Display for MlflowError {
 
 impl std::error::Error for MlflowError {}
 
+/// The tracking URI when `MLFLOW_TRACKING_URI` is unset. Port 5001, not MLflow's default
+/// 5000: macOS's AirPlay receiver (ControlCenter) holds 5000.
+pub const DEFAULT_TRACKING_URI: &str = "http://127.0.0.1:5001";
+
 /// A blocking client of one MLflow tracking server.
 pub struct Client {
     base: String,
@@ -71,7 +75,7 @@ pub struct Client {
 }
 
 impl Client {
-    /// A client of the server at `tracking_uri`, e.g. `http://127.0.0.1:5000`. Sends
+    /// A client of the server at `tracking_uri`, e.g. [`DEFAULT_TRACKING_URI`]. Sends
     /// nothing yet.
     pub fn new(tracking_uri: &str) -> Self {
         let agent = ureq::Agent::config_builder()
