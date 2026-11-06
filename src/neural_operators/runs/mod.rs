@@ -45,6 +45,7 @@ use crate::neural_operators::{
         loaders::common::Normalizers,
         transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
     },
+    metrics::poisson::ERRORS_JSON,
     models::fno::{FNO, FNOConfig},
     training::config::TrainingConfig,
 };
@@ -296,6 +297,27 @@ impl RunDir {
     /// naming the line for a row with missing or unparsable fields.
     pub fn metrics(&self) -> io::Result<Vec<EpochMetrics>> {
         csv::read_metrics_csv(self.path.join(METRICS_CSV))
+    }
+
+    /// The run's files worth viewing beside its metrics, those present, sorted by name:
+    /// the three configs, `costs.json`, `errors.json` ([`ERRORS_JSON`]) and every `.png`
+    /// (`plots.png`, `prediction_<k>.png`). Not the weights, checkpoint, normalizers or
+    /// `metrics.csv`. The MLflow exporter (Phase 8 T1) uploads these.
+    ///
+    /// # Errors
+    /// If the directory can't be listed.
+    pub fn artifacts(&self) -> io::Result<Vec<PathBuf>> {
+        let named = [MODEL_CFG, TRAIN_CFG, DATA_CFG, COSTS, ERRORS_JSON];
+        let mut files = Vec::new();
+        for entry in std::fs::read_dir(&self.path)? {
+            let path = entry?.path();
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            if path.is_file() && (named.contains(&&*name) || name.ends_with(".png")) {
+                files.push(path);
+            }
+        }
+        files.sort();
+        Ok(files)
     }
 
     /// Writes `checkpoint.bin`: `state`, the model's weights and the optimiser's and

@@ -129,6 +129,28 @@ To re-evaluate a saved run:
 
     cargo run --release --example predict_burgers -- runs/burgers_fno_<timestamp>
 
+## Browsing runs in MLflow
+
+Finished Poisson run directories can be exported to a local MLflow tracking server
+(feature `mlflow`), one MLflow run each, to browse, group and compare them in its UI.
+The run directories stay the record. Install a pinned MLflow outside the repository
+and start it bound to localhost (no authentication):
+
+    uv tool install mlflow==<X.Y.Z>        # or pipx
+    mlflow server --host 127.0.0.1 --port 5000 \
+      --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db \
+      --artifacts-destination $HOME/mlflow/artifacts
+
+Then export (the server is `MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5000`):
+
+    cargo run --features mlflow --example mlflow_export -- [--replace] <experiment> runs/<run_dir> ...
+
+Configs become params, `metrics.csv` per-epoch metrics, `errors.json` and `costs.json`
+summary metrics, and the configs and plots artifacts; weights and checkpoints are not
+uploaded. Tags include `padding`, `s`, `n`, `K`, `seed`, `N` and `group` (`p{padding}_s{s}`).
+A directory already exported is skipped; `--replace` deletes its MLflow run and exports
+it again. Runs trained elsewhere are copied back to `runs/` (`rsync`) first.
+
 ## Layout
 
     examples/                 entry points and hyperparameters
@@ -141,6 +163,8 @@ To re-evaluate a saved run:
       chebyshev/              Chebyshev nodes, quadrature, grid transfers
       pde/                    Poisson reference solvers and dataset generation
       training/               training loop, metrics
+      runs/                   run directories
+      tracking/               MLflow export (feature `mlflow`)
       utils/                  fft wrappers
     datasets/                 .mat files (not committed)
     runs/                     output (not committed)
