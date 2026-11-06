@@ -1,6 +1,7 @@
 //! The I/O half of the exporter: sends [`Request`]s to an MLflow tracking server.
 
 use std::fmt;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -78,8 +79,15 @@ impl Client {
     /// A client of the server at `tracking_uri`, e.g. [`DEFAULT_TRACKING_URI`]. Sends
     /// nothing yet.
     pub fn new(tracking_uri: &str) -> Self {
+        Self::with_timeout(tracking_uri, None)
+    }
+
+    /// As [`Client::new`], with every call limited to `timeout` in total (connect, send
+    /// and read), if given.
+    pub fn with_timeout(tracking_uri: &str, timeout: Option<Duration>) -> Self {
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
+            .timeout_global(timeout)
             .build()
             .into();
         Self {
@@ -152,22 +160,9 @@ impl Client {
         let (create, rest) = requests
             .split_first()
             .ok_or_else(|| MlflowError::Other("no requests".into()))?;
-        let created = self.send(create)?;
-        let run_id = created["run"]["info"]["run_id"]
-            .as_str()
-            .ok_or_else(|| {
-                MlflowError::Other(format!("runs/create returned no run id: {created}"))
-            })?
-            .to_string();
+        let run_id = self.create(create)?;
         for r in rest {
-            let mut r = r.clone();
-            r.path = r.path.replace(RUN_ID, &run_id);
-            if let Body::Json(Value::Object(fields)) = &mut r.body
-                && fields.contains_key("run_id")
-            {
-                fields.insert("run_id".into(), run_id.clone().into());
-            }
-            if let Err(e) = self.send(&r) {
+            if let Err(e) = self.send_to(&run_id, r) {
                 let failed = json!({"run_id": run_id, "status": "FAILED", "end_time": now_ms});
                 // the first error is the one to report
                 let _ = self.post("runs/update", &failed);
@@ -175,6 +170,35 @@ impl Client {
             }
         }
         Ok(run_id)
+    }
+
+    /// Sends a `runs/create` request (the first of
+    /// [`export_requests`](super::export_requests) or
+    /// [`start_requests`](super::start_requests)) and returns the new run's id.
+    ///
+    /// # Errors
+    /// If the call fails or the response has no run id.
+    pub fn create(&self, create: &Request) -> Result<String, MlflowError> {
+        let created = self.send(create)?;
+        created["run"]["info"]["run_id"]
+            .as_str()
+            .map(String::from)
+            .ok_or_else(|| MlflowError::Other(format!("runs/create returned no run id: {created}")))
+    }
+
+    /// Sends `r` for run `run_id`, which replaces [`RUN_ID`] in its path and `run_id` field.
+    ///
+    /// # Errors
+    /// If the call fails.
+    pub fn send_to(&self, run_id: &str, r: &Request) -> Result<(), MlflowError> {
+        let mut r = r.clone();
+        r.path = r.path.replace(RUN_ID, run_id);
+        if let Body::Json(Value::Object(fields)) = &mut r.body
+            && fields.contains_key("run_id")
+        {
+            fields.insert("run_id".into(), run_id.into());
+        }
+        self.send(&r).map(drop)
     }
 
     /// The run's page in the MLflow UI.

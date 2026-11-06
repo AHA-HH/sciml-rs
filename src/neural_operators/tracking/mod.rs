@@ -22,12 +22,19 @@
 //! - artifacts: [`RunDir::artifacts`](crate::neural_operators::runs::RunDir::artifacts)
 //!   (configs, `costs.json`, `errors.json`, plots), never weights or checkpoints;
 //! - status `FINISHED` with `end_time`, or `FAILED` if a request fails.
+//!
+//! Live logging (opt-in, planning decision Q7): [`MlflowObserver`] sends the same run
+//! during training (`train_poisson` with `MLFLOW_EXPERIMENT_NAME` set), built from the
+//! same pieces ([`start_requests`], [`epoch_request`], [`finish_requests`]). It is
+//! best-effort; the export stays the authoritative record.
 
 mod builder;
 mod client;
+mod live;
 
 pub use builder::{
     Body, MAX_KEY_LEN, MAX_METRICS, MAX_PARAMS, MAX_VALUE_LEN, Method, RUN_DIR_TAG, RUN_ID,
-    Request, export_requests,
+    Request, epoch_request, export_requests, finish_requests, start_requests,
 };
 pub use client::{Client, DEFAULT_TRACKING_URI, MlflowError};
+pub use live::{EXPERIMENT_ENV, MlflowObserver, TRACKING_URI_ENV};

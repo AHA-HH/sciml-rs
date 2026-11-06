@@ -389,7 +389,7 @@ pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
 ) -> (FNO<R>, Vec<EpochMetrics>) {
     let components =
         build_training_components::<R, RM1, T>(model_cfg, train_cfg, train_data, test_data, device);
-    train_components(components, y_norm, train_cfg, device, run, None, None)
+    train_components(components, y_norm, train_cfg, device, run, None, None, None)
 }
 
 /// [`train_fno`] after [`build_training_components`], with checkpoints and resume: prints
@@ -398,11 +398,16 @@ pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
 /// `checkpoint_every`, if `Some(k)`, writes `run`'s checkpoint after every k-th epoch and
 /// after the last; `resume` continues from a checkpoint read with [`RunDir::checkpoint`]
 /// (see [`training_loop`]). The caller truncates `metrics.csv` to the checkpoint first
-/// ([`RunDir::truncate_metrics`]). Returns the metrics of the epochs this call ran.
+/// ([`RunDir::truncate_metrics`]). `also`, if given, is called after each epoch's line
+/// and row (live MLflow logging in `train_poisson`, Phase 8 T1). Returns the metrics of
+/// the epochs this call ran.
 ///
 /// # Panics
 ///
 /// As [`training_loop`]; at the first step, if the model has more than one output channel.
+// one more than clippy's 7: the optional observer (Phase 8 T1) joins the run's own
+// arguments; a struct for them would change every caller for one optional hook
+#[allow(clippy::too_many_arguments)]
 pub fn train_components<const R: usize, const RM1: usize>(
     components: TrainingComponents<R, RM1>,
     y_norm: Option<&UnitGaussianNormalizer>,
@@ -411,6 +416,7 @@ pub fn train_components<const R: usize, const RM1: usize>(
     run: &RunDir,
     checkpoint_every: Option<usize>,
     resume: Option<Checkpoint<R>>,
+    mut also: Option<&mut EpochObserver<'_, R>>,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
     let start = Instant::now();
     let mut on_epoch = |m: &EpochMetrics, model: &FNO<R>| {
@@ -420,6 +426,9 @@ pub fn train_components<const R: usize, const RM1: usize>(
                 "warning: could not append epoch {} to metrics.csv ({e})",
                 m.epoch
             );
+        }
+        if let Some(also) = also.as_mut() {
+            also(m, model);
         }
     };
     let decoder = y_norm.map(|y| FlatDecoder::new(y, device));
@@ -862,6 +871,7 @@ mod tests {
             &run,
             Some(1),
             Some(ck),
+            None,
         );
         assert_eq!(resumed.len(), 1);
         let rows = run.metrics().unwrap();
@@ -1006,8 +1016,16 @@ mod tests {
         first.model = whole.model.clone();
 
         let straight = RunDir::create(&root, "straight").unwrap();
-        let (straight_model, _) =
-            train_components(whole, None, &train_cfg, &device, &straight, Some(2), None);
+        let (straight_model, _) = train_components(
+            whole,
+            None,
+            &train_cfg,
+            &device,
+            &straight,
+            Some(2),
+            None,
+            None,
+        );
 
         let run = RunDir::create(&root, "resumed").unwrap();
         // the checkpoint reader needs model_cfg.json; the data config is unused here
@@ -1018,8 +1036,16 @@ mod tests {
         let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
         assert_eq!(ck.state.next_epoch, 2);
         run.truncate_metrics(ck.state.next_epoch).unwrap();
-        let (resumed_model, _) =
-            train_components(build(), None, &train_cfg, &device, &run, Some(2), Some(ck));
+        let (resumed_model, _) = train_components(
+            build(),
+            None,
+            &train_cfg,
+            &device,
+            &run,
+            Some(2),
+            Some(ck),
+            None,
+        );
 
         let (resumed, uninterrupted) = (run.metrics().unwrap(), straight.metrics().unwrap());
         let epochs = |m: &[EpochMetrics]| m.iter().map(|m| m.epoch).collect::<Vec<_>>();
@@ -1215,8 +1241,16 @@ mod tests {
         first.model = whole.model.clone();
 
         let straight = RunDir::create(&root, "straight").unwrap();
-        let (straight_model, _) =
-            train_components(whole, None, &train_cfg, &device, &straight, Some(2), None);
+        let (straight_model, _) = train_components(
+            whole,
+            None,
+            &train_cfg,
+            &device,
+            &straight,
+            Some(2),
+            None,
+            None,
+        );
 
         let run = RunDir::create(&root, "resumed").unwrap();
         run.save_configs(&tiny_model_cfg(), &train_cfg, &train_cfg)
@@ -1224,8 +1258,16 @@ mod tests {
         interrupt_at(first, &train_cfg, None, &run, 2, 2);
         let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
         run.truncate_metrics(ck.state.next_epoch).unwrap();
-        let (resumed_model, _) =
-            train_components(build(), None, &train_cfg, &device, &run, Some(2), Some(ck));
+        let (resumed_model, _) = train_components(
+            build(),
+            None,
+            &train_cfg,
+            &device,
+            &run,
+            Some(2),
+            Some(ck),
+            None,
+        );
 
         assert_same_metrics(&run.metrics().unwrap(), &straight.metrics().unwrap());
         assert_same_weights(&resumed_model, &straight_model);

@@ -152,6 +152,21 @@ uploaded. Tags include `padding`, `s`, `n`, `K`, `seed`, `N` and `group` (`p{pad
 A directory already exported is skipped; `--replace` deletes its MLflow run and exports
 it again. Runs trained elsewhere are copied back to `runs/` (`rsync`) first.
 
+Training can also log live (opt-in): build `train_poisson` with `mlflow` and set
+`MLFLOW_EXPERIMENT_NAME`. The run appears as it trains, one step per epoch; a failed
+request only turns live logging off, with a warning. After `--resume`, epochs trained
+again appear twice in the curves; `mlflow_export --replace` gives the clean record and
+adds `errors.json` once `predict_poisson` has run.
+
+    MLFLOW_EXPERIMENT_NAME=<experiment> cargo run --release --features mlflow --example train_poisson -- 0 129 64
+
+From the GPU VM, tunnel the Mac's server to the VM and train there:
+
+    ssh -R 5001:127.0.0.1:5001 <vm>
+    # on the VM
+    MLFLOW_EXPERIMENT_NAME=<experiment> MLFLOW_TRACKING_URI=http://127.0.0.1:5001 \
+      cargo run --release --no-default-features --features cuda,mlflow --example train_poisson -- 0 129 64
+
 ## Layout
 
     examples/                 entry points and hyperparameters

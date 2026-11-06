@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 use crate::neural_operators::{
     data::loaders::poisson::PoissonConfig,
     metrics::poisson::{ERRORS_JSON, PoissonErrorsRecord},
-    runs::RunDir,
+    runs::{EpochMetrics, RunCosts, RunDir},
 };
 
 // Per-request limits of `runs/log-batch`, from MLflow's REST reference
@@ -85,31 +85,48 @@ pub fn export_requests(
     experiment_id: &str,
     now_ms: i64,
 ) -> Result<Vec<Request>, Box<dyn Error>> {
-    let name = run
-        .path()
-        .file_name()
-        .ok_or("run directory has no name")?
-        .to_string_lossy()
-        .into_owned();
+    let mut requests = start_requests(run, experiment_id, now_ms)?;
+    let costs = run.costs()?;
+    let epochs = run.metrics()?;
+    let start_ms = start_ms(&dir_name(run)?, now_ms);
+    let end_ms = costs.as_ref().map_or(now_ms, |c| {
+        start_ms + (c.training_time_s * 1000.0).round() as i64
+    });
+    let mut metrics: Vec<Value> = epochs
+        .iter()
+        .flat_map(|e| epoch_metrics(e, now_ms))
+        .collect();
+    let last = epochs.last().map_or(0, |e| e.epoch);
+    metrics.extend(summary_metrics(run, costs.as_ref(), last, now_ms)?);
+    requests.extend(tail_requests(run, experiment_id, &metrics, end_ms)?);
+    Ok(requests)
+}
+
+/// The requests that open `run`'s MLflow run: `runs/create` with the run's name, its start
+/// time (as for [`export_requests`]) and tags, then `runs/log-batch` for the params. The
+/// first half of [`export_requests`]; live logging ([`MlflowObserver`](super::MlflowObserver))
+/// sends it as training starts, when the run directory holds its configs but no
+/// `costs.json` yet.
+///
+/// # Errors
+/// If a config or `costs.json` can't be read or parsed, or a key or value is longer than
+/// MLflow accepts.
+pub fn start_requests(
+    run: &RunDir,
+    experiment_id: &str,
+    now_ms: i64,
+) -> Result<Vec<Request>, Box<dyn Error>> {
+    let name = dir_name(run)?;
     let model = run.model_config()?;
     let train = run.training_config()?;
     let data: PoissonConfig = run.data_config()?;
     let costs = run.costs()?;
-    let epochs = run.metrics()?;
-    let start_ms = name
-        .rsplit_once('_')
-        .and_then(|(_, secs)| secs.parse::<i64>().ok())
-        .map_or(now_ms, |secs| secs * 1000);
-    let end_ms = costs.as_ref().map_or(now_ms, |c| {
-        start_ms + (c.training_time_s * 1000.0).round() as i64
-    });
 
     let padding = model.padding.unwrap_or(0);
     let s = data.s();
     let mut tags = vec![(RUN_DIR_TAG.to_string(), name.clone())];
     if let Some(c) = &costs {
-        tags.push(("sciml.git_commit".into(), c.git_commit.clone()));
-        tags.push(("backend".into(), c.backend_features.join(",")));
+        tags.extend(costs_tags(c));
     }
     tags.push(("padding".into(), padding.to_string()));
     tags.push(("s".into(), s.to_string()));
@@ -131,21 +148,109 @@ pub fn export_requests(
         }
     }
 
-    let mut metrics = Vec::new();
-    let mut metric = |key: &str, value: f64, step: usize| {
-        metrics
-            .push(json!({"key": key, "value": number(value), "timestamp": now_ms, "step": step}));
-    };
-    for e in &epochs {
-        metric("train_mse", e.train_mse.into(), e.epoch);
-        metric("train_l2", e.train_l2.into(), e.epoch);
-        metric("test_l2", e.test_l2.into(), e.epoch);
-        metric("lr", e.current_lr, e.epoch);
-        if let Some(t) = e.epoch_time_s {
-            metric("epoch_time_s", t, e.epoch);
-        }
+    let mut requests = vec![post(
+        "runs/create",
+        json!({
+            "experiment_id": experiment_id,
+            "run_name": name,
+            "start_time": start_ms(&name, now_ms),
+            "tags": key_values(&tags),
+        }),
+    )];
+    for chunk in params.chunks(MAX_PARAMS) {
+        requests.push(post(
+            "runs/log-batch",
+            json!({"run_id": RUN_ID, "params": key_values(chunk)}),
+        ));
     }
-    let last = epochs.last().map_or(0, |e| e.epoch);
+    Ok(requests)
+}
+
+/// One `runs/log-batch` with epoch `m`'s metrics at step `m.epoch`, timestamp `now_ms`:
+/// `train_mse`, `train_l2`, `test_l2`, `lr` and `epoch_time_s` when recorded. What live
+/// logging sends after each epoch; [`export_requests`] logs the same metrics, batched.
+pub fn epoch_request(m: &EpochMetrics, now_ms: i64) -> Request {
+    post(
+        "runs/log-batch",
+        json!({"run_id": RUN_ID, "metrics": epoch_metrics(m, now_ms)}),
+    )
+}
+
+/// The requests that close a live-logged run at the end of training: a `runs/log-batch`
+/// of the tags from `costs.json` (commit, backend) when present, the summary metrics at
+/// the last epoch of `metrics.csv` (as for [`export_requests`]), one `PUT` per artifact,
+/// and `runs/update` to `FINISHED` with end time `now_ms`.
+///
+/// # Errors
+/// If `metrics.csv`, `costs.json` or `errors.json` can't be read or parsed, or the
+/// directory can't be listed.
+pub fn finish_requests(
+    run: &RunDir,
+    experiment_id: &str,
+    now_ms: i64,
+) -> Result<Vec<Request>, Box<dyn Error>> {
+    let costs = run.costs()?;
+    let last = run.metrics()?.last().map_or(0, |e| e.epoch);
+    let mut requests = Vec::new();
+    if let Some(c) = &costs {
+        requests.push(post(
+            "runs/log-batch",
+            json!({"run_id": RUN_ID, "tags": key_values(&costs_tags(c))}),
+        ));
+    }
+    let metrics = summary_metrics(run, costs.as_ref(), last, now_ms)?;
+    requests.extend(tail_requests(run, experiment_id, &metrics, now_ms)?);
+    Ok(requests)
+}
+
+fn dir_name(run: &RunDir) -> Result<String, Box<dyn Error>> {
+    Ok(run
+        .path()
+        .file_name()
+        .ok_or("run directory has no name")?
+        .to_string_lossy()
+        .into_owned())
+}
+
+/// The directory's `_<unix_secs>` suffix in milliseconds, else `now_ms`.
+fn start_ms(name: &str, now_ms: i64) -> i64 {
+    name.rsplit_once('_')
+        .and_then(|(_, secs)| secs.parse::<i64>().ok())
+        .map_or(now_ms, |secs| secs * 1000)
+}
+
+fn costs_tags(c: &RunCosts) -> Vec<(String, String)> {
+    vec![
+        ("sciml.git_commit".into(), c.git_commit.clone()),
+        ("backend".into(), c.backend_features.join(",")),
+    ]
+}
+
+fn metric(key: &str, value: f64, step: usize, now_ms: i64) -> Value {
+    json!({"key": key, "value": number(value), "timestamp": now_ms, "step": step})
+}
+
+fn epoch_metrics(e: &EpochMetrics, now_ms: i64) -> Vec<Value> {
+    let mut metrics = vec![
+        metric("train_mse", e.train_mse.into(), e.epoch, now_ms),
+        metric("train_l2", e.train_l2.into(), e.epoch, now_ms),
+        metric("test_l2", e.test_l2.into(), e.epoch, now_ms),
+        metric("lr", e.current_lr, e.epoch, now_ms),
+    ];
+    if let Some(t) = e.epoch_time_s {
+        metrics.push(metric("epoch_time_s", t, e.epoch, now_ms));
+    }
+    metrics
+}
+
+/// Errors 2–5 from `errors.json` and the numeric fields of `costs`, at step `last`.
+fn summary_metrics(
+    run: &RunDir,
+    costs: Option<&RunCosts>,
+    last: usize,
+    now_ms: i64,
+) -> Result<Vec<Value>, Box<dyn Error>> {
+    let mut metrics = Vec::new();
     let errors_path = run.path().join(ERRORS_JSON);
     if errors_path.exists() {
         let r = PoissonErrorsRecord::load(&errors_path)
@@ -157,35 +262,31 @@ pub fn export_requests(
             ("error5_max_ratio", r.error5_max_ratio),
             ("error5_rel_rms", r.error5_rel_rms),
         ] {
-            metric(&format!("{key}_mean"), stats.mean, last);
-            metric(&format!("{key}_max"), stats.max, last);
+            metrics.push(metric(&format!("{key}_mean"), stats.mean, last, now_ms));
+            metrics.push(metric(&format!("{key}_max"), stats.max, last, now_ms));
         }
     }
-    if let Some(c) = &costs
+    if let Some(c) = costs
         && let Value::Object(fields) = to_json(c)?
     {
         for (key, v) in fields {
             if let Some(x) = v.as_f64() {
-                metric(&key, x, last);
+                metrics.push(metric(&key, x, last, now_ms));
             }
         }
     }
+    Ok(metrics)
+}
 
-    let mut requests = vec![post(
-        "runs/create",
-        json!({
-            "experiment_id": experiment_id,
-            "run_name": name,
-            "start_time": start_ms,
-            "tags": key_values(&tags),
-        }),
-    )];
-    for chunk in params.chunks(MAX_PARAMS) {
-        requests.push(post(
-            "runs/log-batch",
-            json!({"run_id": RUN_ID, "params": key_values(chunk)}),
-        ));
-    }
+/// `metrics` in `runs/log-batch`es within the limits, one `PUT` per artifact, and
+/// `runs/update` to `FINISHED` at `end_ms`.
+fn tail_requests(
+    run: &RunDir,
+    experiment_id: &str,
+    metrics: &[Value],
+    end_ms: i64,
+) -> Result<Vec<Request>, Box<dyn Error>> {
+    let mut requests = Vec::new();
     for chunk in metrics.chunks(MAX_METRICS) {
         requests.push(post(
             "runs/log-batch",
@@ -265,7 +366,6 @@ mod tests {
         },
         metrics::stats::ErrorStats,
         models::fno::FNOConfig,
-        runs::{EpochMetrics, RunCosts},
         training::config::TrainingConfig,
     };
     use std::collections::HashSet;
@@ -609,6 +709,71 @@ mod tests {
         // 2507 metrics → 3 batches
         let batches = requests.iter().filter(|r| json_has(r, "metrics")).count();
         assert_eq!(batches, 3);
+        std::fs::remove_dir_all(run.path().parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn epoch_request_is_one_log_batch_of_the_epochs_metrics() {
+        let m = EpochMetrics {
+            epoch: 3,
+            train_mse: 0.5,
+            train_l2: 0.25,
+            test_l2: 0.125,
+            current_lr: 1e-3,
+            epoch_time_s: Some(2.5),
+        };
+        let at = |key: &str, value: f64| serde_json::json!({"key": key, "value": value, "timestamp": 9, "step": 3});
+        assert_eq!(
+            epoch_request(&m, 9),
+            Request {
+                method: Method::Post,
+                path: "/api/2.0/mlflow/runs/log-batch".into(),
+                body: Body::Json(serde_json::json!({
+                    "run_id": RUN_ID,
+                    "metrics": [
+                        at("train_mse", 0.5),
+                        at("train_l2", 0.25),
+                        at("test_l2", 0.125),
+                        at("lr", 1e-3),
+                        at("epoch_time_s", 2.5),
+                    ],
+                })),
+            }
+        );
+    }
+
+    #[test]
+    fn finish_requests_close_a_live_run() {
+        let run = fresh_run("finish", "poisson_fno_n129_s64_p0_1793188648");
+        run.save_configs(&model(), &TrainingConfig::new(), &data(true))
+            .unwrap();
+        write_epochs(&run, 3);
+        write_costs(&run);
+        let requests = finish_requests(&run, "5", 2_000).unwrap();
+        assert_eq!(
+            pairs(&json(&requests[0])["tags"]),
+            vec![
+                ("sciml.git_commit".to_string(), "deadbeef".to_string()),
+                ("backend".to_string(), "flex".to_string())
+            ]
+        );
+        // only the 7 numeric costs, at the last epoch; no per-epoch metrics
+        let metrics = metric_keys(&requests);
+        assert_eq!(metrics.len(), 7);
+        assert!(metrics.iter().all(|(_, step)| *step == 2));
+        assert_eq!(
+            artifact_names(&requests),
+            [
+                "costs.json",
+                "data_cfg.json",
+                "model_cfg.json",
+                "train_cfg.json"
+            ]
+        );
+        assert_eq!(
+            *json(requests.last().unwrap()),
+            serde_json::json!({"run_id": RUN_ID, "status": "FINISHED", "end_time": 2_000})
+        );
         std::fs::remove_dir_all(run.path().parent().unwrap()).unwrap();
     }
 
