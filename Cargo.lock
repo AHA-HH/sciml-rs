@@ -6161,6 +6161,7 @@ dependencies = [
  "rand_distr",
  "rlst",
  "serde_json",
+ "ureq 3.4.2",
 ]
 
 [[package]]

@@ -70,6 +70,11 @@ path = "examples/predict/poisson_pod.rs"
 required-features = ["datagen"]
 
 [[example]]
+name = "mlflow_export"
+path = "examples/mlflow_export.rs"
+required-features = ["mlflow"]
+
+[[example]]
 name = "generate_poisson"
 path = "examples/generate/poisson.rs"
 required-features = ["datagen"]
@@ -108,6 +113,12 @@ datagen = [
     "dep:rand_distr",
     "dep:serde_json",
 ]
+# `mlflow`: the exporter of finished run directories to a self-hosted MLflow tracking
+# server (`neural_operators::tracking`, `mlflow_export`; Phase 8 T1). `ureq` is a blocking
+# HTTP client, so no async runtime; rustls rather than native TLS, so no system OpenSSL.
+# `serde_json` builds the REST bodies. Both are pinned exactly, like the other optional
+# dependencies; neither is in the default build.
+mlflow = ["dep:ureq", "dep:serde_json"]
 
 # The crate is the only default member, so root `cargo test` / `clippy` / `doc` build only
 # it. `spikes/metal_diag` and `spikes/transfer_floor` share this lock, target directory and
@@ -132,6 +143,7 @@ rlst = { version = "0.9", optional = true, default-features = false }
 rand_chacha = "=0.10.0"
 rand_distr = { version = "=0.6.0", optional = true }
 serde_json = { version = "=1.0.151", optional = true }
+ureq = { version = "=3.4.2", optional = true, default-features = false, features = ["rustls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 blas-src = { version = "0.14", features = ["accelerate"], optional = true }

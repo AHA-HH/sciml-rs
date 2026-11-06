@@ -24,11 +24,11 @@ become summary metrics, and the plots become artifacts. Training is not changed.
 ## Server setup (part of the deliverable, documented in the PR and `README.md`)
 - Install a pinned MLflow outside the repo, e.g. `uv tool install mlflow==<X.Y.Z>` (or
   `pipx`); record the version in the PR.
-- Run `mlflow server --host 127.0.0.1 --port 5000 --backend-store-uri
+- Run `mlflow server --host 127.0.0.1 --port 5001 --backend-store-uri
   sqlite:///$HOME/mlflow/mlflow.db --artifacts-destination $HOME/mlflow/artifacts`.
-  Bind to localhost only (Q6). Proxied artifacts are the default, so the client never
+  Port 5001, because macOS's AirPlay receiver holds 5000. Bind to localhost only (Q6). Proxied artifacts are the default, so the client never
   writes the artifact store directly.
-- The exporter reads `MLFLOW_TRACKING_URI` (default `http://127.0.0.1:5000`). No URI,
+- The exporter reads `MLFLOW_TRACKING_URI` (default `http://127.0.0.1:5001`). No URI,
   account or key is committed.
 - Runs trained on the VM: `rsync` the run directories back to `runs/` first.
 
@@ -69,6 +69,17 @@ become summary metrics, and the plots become artifacts. Training is not changed.
    failed and the MLflow run URL), and exits non-zero if any run failed.
 6. **Docs:** the server setup and the command in `README.md` and `CLAUDE.md`
    (Commands, Layout); README "Results" row filled in.
+7. **Opt-in live logging (Q7, added 2026-11-06):** `MlflowObserver` in `tracking/`,
+   passed by `train_poisson` to `train_components` as an extra `EpochObserver`, only in
+   `mlflow` builds and only with `MLFLOW_EXPERIMENT_NAME` set (`MLFLOW_TRACKING_URI`,
+   default `http://127.0.0.1:5001`). At the start it creates the run with the
+   exporter's tags and params (or, after `--resume`, continues the run tagged with the
+   directory); after each epoch one `log-batch` of that epoch's metrics; at the end of
+   `train_poisson` the `costs.json` tags and summary metrics, the artifacts and
+   `FINISHED`. All requests come from the exporter's builder. Best-effort, with a short
+   timeout: the first failure prints one warning (live logging off, run `mlflow_export
+   --replace` afterwards) and nothing more is sent. `errors.json` arrives with that
+   export, as before.
 
 ## Tests
 No test needs a network or an MLflow server.
@@ -82,6 +93,10 @@ No test needs a network or an MLflow server.
   limits, with every (key, step) present exactly once.
 - Client error mapping: an MLflow error body (`{"error_code": ..., "message": ...}`)
   becomes the module's error with both fields, against a canned response, not a socket.
+- Live logging: the per-epoch request for one `EpochMetrics` is exactly the expected
+  `log-batch`; the finish requests of a run with `costs.json`; an observer pointed at a
+  closed port (`127.0.0.1:1`) turns itself off after the first failure, without panicking
+  and without sending again on later epochs.
 
 ## Acceptance (manual, recorded in the PR)
 - With the local server running: export one Phase 5 baseline run and one pre-Phase-5
@@ -100,8 +115,9 @@ No test needs a network or an MLflow server.
 (proposed: add both to the style-checks and run-tests jobs. They need no network.)
 
 ## Do not
-- Change training, `train_epoch`, `EpochObserver` or any run-file writer. Live logging
-  is out of scope (design §13.10).
+- Change `training_loop`, `train_epoch`, the `EpochObserver` type or any run-file
+  writer. Live logging only adds an optional observer to `train_components` (item 7),
+  never on by default.
 - Upload weights, checkpoints or datasets.
 - Hard-code a tracking URI other than the localhost default, or commit credentials.
 - Add an async runtime or the unofficial MLflow/W&B crates.

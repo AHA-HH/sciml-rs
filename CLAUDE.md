@@ -81,8 +81,16 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   Poisson runs since Phase 5 T4, `optimisation_steps` since Phase 7 T1, `resumes` since
   Phase 9 T1), `save_checkpoint` / `checkpoint::<R>(device)` (`checkpoint.bin`, Phase 9
   T1) and `truncate_metrics`; `open(dir)`, `load_fno`, `model_config`,
-  `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`. Run-file names appear
+  `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`, `artifacts()` (the files the MLflow export uploads). Run-file names appear
   nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
+- `tracking/` (behind `mlflow`, Phase 8 T1): `export_requests` (pure: a Poisson
+  `RunDir` to the MLflow REST requests: tags, params, per-epoch and summary metrics in
+  `log-batch`es within its limits, artifact `PUT`s from `RunDir::artifacts`) and `Client`
+  (ureq: sends them, threads the run id, finds/deletes runs by the `sciml.run_dir` tag,
+  marks a failed export `FAILED`; `MlflowError`), driven by `examples/mlflow_export.rs`;
+  `start_requests` / `epoch_request` / `finish_requests` (the same run in three parts)
+  and `MlflowObserver` (opt-in live logging, best-effort, off after the first failure),
+  which `train_poisson` passes to `train_components` as an extra `EpochObserver`.
 - `src/neural_operators/chebyshev/` builds without features, except `diff_matrix`/
   `diff2_matrix`, behind the `datagen` feature (need system libfftw3; design §12, decision
   27). `points` and `quadrature` (RLST nodes, `clenshaw_curtis`) are
@@ -219,6 +227,19 @@ than trusting prose when checking how an API behaves.
   `--no-default-features --features cuda`. It checkpoints every 25 epochs and after the
   last; `train_poisson -- --resume runs/<run_dir>` continues an interrupted run from its
   checkpoint with the run's saved configs (Phase 9 T1)
+- Export run directories to a local MLflow server (Phase 8 T1; server: `mlflow server
+  --host 127.0.0.1 --port 5001 --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db
+  --artifacts-destination $HOME/mlflow/artifacts`, see `README.md`):
+  `cargo run --features mlflow --example mlflow_export -- [--replace] <experiment> runs/<run_dir> ...`
+  (`MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5001`; skips directories already
+  exported, `--replace` re-exports them; exits non-zero if any failed)
+- Live MLflow logging while training (opt-in, Q7): `MLFLOW_EXPERIMENT_NAME=<exp> cargo run
+  --release --features mlflow --example train_poisson -- ...`; unset, training is
+  unchanged. From the GPU VM: `ssh -R 5001:127.0.0.1:5001 <vm>`, then on the VM
+  `MLFLOW_EXPERIMENT_NAME=<exp> MLFLOW_TRACKING_URI=http://127.0.0.1:5001 cargo run
+  --release --no-default-features --features cuda,mlflow --example train_poisson -- ...`.
+  After `--resume` re-trained epochs appear twice; `mlflow_export --replace` gives the
+  clean record (and adds `errors.json`)
 - Evaluate a run: `cargo run --release --example predict_burgers -- runs/<run_dir>`
   (also `burgers_resolution -- runs/<run_dir> [<rate> ...]` on Burgers runs, s = 8192 / rate;
   `predict_darcy`, `darcy_plot` on Darcy runs)

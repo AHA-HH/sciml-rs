@@ -129,6 +129,44 @@ To re-evaluate a saved run:
 
     cargo run --release --example predict_burgers -- runs/burgers_fno_<timestamp>
 
+## Browsing runs in MLflow
+
+Finished Poisson run directories can be exported to a local MLflow tracking server
+(feature `mlflow`), one MLflow run each, to browse, group and compare them in its UI.
+The run directories stay the record. Install a pinned MLflow outside the repository
+and start it bound to localhost (no authentication), on port 5001 because macOS's
+AirPlay receiver holds MLflow's usual 5000:
+
+    uv tool install mlflow==<X.Y.Z>        # or pipx
+    mlflow server --host 127.0.0.1 --port 5001 \
+      --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db \
+      --artifacts-destination $HOME/mlflow/artifacts
+
+Then export (the server is `MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5001`):
+
+    cargo run --features mlflow --example mlflow_export -- [--replace] <experiment> runs/<run_dir> ...
+
+Configs become params, `metrics.csv` per-epoch metrics, `errors.json` and `costs.json`
+summary metrics, and the configs and plots artifacts; weights and checkpoints are not
+uploaded. Tags include `padding`, `s`, `n`, `K`, `seed`, `N` and `group` (`p{padding}_s{s}`).
+A directory already exported is skipped; `--replace` deletes its MLflow run and exports
+it again. Runs trained elsewhere are copied back to `runs/` (`rsync`) first.
+
+Training can also log live (opt-in): build `train_poisson` with `mlflow` and set
+`MLFLOW_EXPERIMENT_NAME`. The run appears as it trains, one step per epoch; a failed
+request only turns live logging off, with a warning. After `--resume`, epochs trained
+again appear twice in the curves; `mlflow_export --replace` gives the clean record and
+adds `errors.json` once `predict_poisson` has run.
+
+    MLFLOW_EXPERIMENT_NAME=<experiment> cargo run --release --features mlflow --example train_poisson -- 0 129 64
+
+From the GPU VM, tunnel the Mac's server to the VM and train there:
+
+    ssh -R 5001:127.0.0.1:5001 <vm>
+    # on the VM
+    MLFLOW_EXPERIMENT_NAME=<experiment> MLFLOW_TRACKING_URI=http://127.0.0.1:5001 \
+      cargo run --release --no-default-features --features cuda,mlflow --example train_poisson -- 0 129 64
+
 ## Layout
 
     examples/                 entry points and hyperparameters
@@ -141,6 +179,8 @@ To re-evaluate a saved run:
       chebyshev/              Chebyshev nodes, quadrature, grid transfers
       pde/                    Poisson reference solvers and dataset generation
       training/               training loop, metrics
+      runs/                   run directories
+      tracking/               MLflow export (feature `mlflow`)
       utils/                  fft wrappers
     datasets/                 .mat files (not committed)
     runs/                     output (not committed)

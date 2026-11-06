@@ -50,12 +50,15 @@ Results row in any phase cites MLflow alone (design §13.10).
 - **No HTTP client is a dependency today.** `serde_json` is optional, behind `datagen`.
   T1 adds both behind the new `mlflow` feature, so the default build, CI's default jobs
   and the licence are unchanged.
-- **Training is untouched.** The exporter reads finished run directories. Live logging
-  through an `EpochObserver` (`training/trainer.rs`) stays out of scope (design §13.10).
+- **The training loop is untouched.** The exporter reads finished run directories.
+  Live logging (Q7) is opt-in: `train_components` takes one optional extra
+  `EpochObserver` (`training/trainer.rs`), which `train_poisson` fills only when built
+  with `mlflow` and run with `MLFLOW_EXPERIMENT_NAME` set; `training_loop` and the
+  run-file writers are unchanged.
 
 ## Planning decisions
 
-Q1 to Q3 were chosen by the author (AHA-HH) on 2026-11-06 and are recorded in design §12, decision 30
+Q1 to Q3 and Q7 were chosen by the author (AHA-HH) on 2026-11-06 and are recorded in design §12, decision 30
 (amendment of 2026-11-06, Phase 8 planning). Q4 to Q6 are proposed and are confirmed in
 T1's PR.
 
@@ -78,6 +81,16 @@ T1's PR.
 - **Q6 (proposed), no auth in T1:** the server is bound to localhost only. MLflow's basic
   auth (`--app-name basic-auth`) and remote hosting are later work, needed only if the
   server ever leaves the Mac.
+- **Q7 (chosen by the author, 2026-11-06), opt-in live logging in T1:** with the `mlflow`
+  feature and `MLFLOW_EXPERIMENT_NAME` (MLflow's own variable) set, `train_poisson` logs
+  the run as it trains: the run with its tags and params at the start, each epoch's
+  metrics, and the costs, artifacts and `FINISHED` at the end, through the exporter's
+  request builder. Never on by default. Best-effort: the first failed request turns it off
+  for the run with one warning, and training goes on. A `--resume` continues the same
+  MLflow run (found by `sciml.run_dir`), so epochs trained again after the checkpoint
+  appear twice. The export stays the authoritative record: `mlflow_export --replace`
+  rewrites the run from the finished directory, `errors.json` included. GPU-VM runs can
+  log live through a reverse tunnel (`ssh -R 5001:127.0.0.1:5001 <vm>`).
 
 ## Tasks
 
@@ -94,7 +107,11 @@ lists under "Read first".
 ## Module layout
 
 - `src/neural_operators/tracking/` (T1, behind `mlflow`): the request builder (pure:
-  run directory → list of MLflow requests) and the client that sends them.
+  run directory → list of MLflow requests), the client that sends them, and
+  `MlflowObserver` (live logging, Q7).
+- `training/trainer.rs` (T1): `train_components` takes an optional extra
+  `EpochObserver`; `examples/train/poisson.rs` passes the `MlflowObserver` in `mlflow`
+  builds.
 - `examples/mlflow_export.rs` (T1): the command line.
 - `runs/` (T1): read-only use; at most one public reader added if a file has none.
 - `models/`, `chebyshev/`, CONVENTIONS (T2, T3): to be set by T2's brief.
@@ -113,7 +130,7 @@ dropped with the reason recorded in design §12.
 ## Exit checklist
 
 - [ ] T1–T3 merged, or a task dropped with the reason recorded in design §12.
-- [x] Q1–Q3 chosen by the author and recorded in design §12 (2026-11-06).
+- [x] Q1–Q3, Q7 chosen by the author and recorded in design §12 (2026-11-06).
 - [ ] Q4–Q6 confirmed in T1's PR.
 - [ ] No result row cites MLflow alone.
 - [ ] Every row of Results filled in.

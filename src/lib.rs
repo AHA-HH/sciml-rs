@@ -23,6 +23,8 @@
 //! - `neural_operators::pde` (feature `datagen`): the Poisson reference solvers, forcings
 //!   and dataset generation
 //! - [`neural_operators::utils`]: the inverse complex FFT and backend features
+//! - `neural_operators::tracking` (feature `mlflow`): the export of finished run
+//!   directories to a self-hosted MLflow tracking server
 //!
 //! # Examples
 //!
@@ -36,7 +38,8 @@
 //! One backend feature is required: `flex` (default, pure-Rust CPU), `metal`, `cuda` or
 //! `wgpu`. The optional `datagen` feature enables RLST (BLAS/LAPACK, FFTW), the Poisson
 //! reference solvers in `neural_operators::pde` and the `generate_poisson` dataset
-//! generator.
+//! generator. The optional `mlflow` feature enables `neural_operators::tracking` and the
+//! `mlflow_export` example.
 
 #![warn(missing_docs)]
 

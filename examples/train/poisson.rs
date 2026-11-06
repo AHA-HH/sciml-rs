@@ -34,6 +34,16 @@
 //! TRAIN_DEVICES=0,1 cargo run --release --no-default-features --features cuda \
 //!     --example train_poisson -- 0 129 64
 //!
+//! Built with `--features mlflow` and run with `MLFLOW_EXPERIMENT_NAME` set, the run is
+//! also logged live to MLflow (`MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5001`;
+//! Phase 8 T1): the configs as it starts, each epoch's metrics, and at the end the costs,
+//! artifacts and `FINISHED`. Best-effort: a failed request turns it off with a warning,
+//! and training goes on. A `--resume` continues the same MLflow run, so epochs trained
+//! again after the checkpoint appear twice in its curves; `mlflow_export --replace` gives
+//! the clean record:
+//! MLFLOW_EXPERIMENT_NAME=scratch cargo run --release --features mlflow \
+//!     --example train_poisson -- 0 129 64
+//!
 //! Besides the configs, metrics, normalizers and weights, the run records `costs.json`
 //! (`RunCosts`, design §13.9): the dataset's generation time from its sidecars, the load,
 //! transfer and training times, host-to-device bytes, the parameter count, the
@@ -336,6 +346,21 @@ fn main() {
     let (prior_time_s, resumes) = resume
         .as_ref()
         .map_or((0.0, 0), |ck| (ck.state.training_time_s, ck.state.resumes));
+    // opt-in live MLflow logging (Phase 8 T1, Q7): only built with `--features mlflow`,
+    // only on with MLFLOW_EXPERIMENT_NAME set; started before the training clock
+    #[cfg(feature = "mlflow")]
+    let mut live = sciml_rs::neural_operators::tracking::MlflowObserver::from_env(&run);
+    #[cfg(feature = "mlflow")]
+    let mut live_epoch = |m: &sciml_rs::neural_operators::runs::EpochMetrics, _: &_| {
+        if let Some(o) = live.as_mut() {
+            o.on_epoch(m);
+        }
+    };
+    #[cfg(feature = "mlflow")]
+    let also: Option<&mut sciml_rs::neural_operators::training::trainer::EpochObserver<'_, 4>> =
+        Some(&mut live_epoch);
+    #[cfg(not(feature = "mlflow"))]
+    let also = None;
     let train_start = Instant::now();
     let replicas = replicas::<4, 3, _>(&train_data, &devices[1..], &train_cfg);
     let mut components = build_training_components::<4, 3, _>(
@@ -350,6 +375,7 @@ fn main() {
         &run,
         Some(CHECKPOINT_EVERY),
         resume,
+        also,
     );
     let training_time_s = prior_time_s + train_start.elapsed().as_secs_f64();
 
@@ -382,6 +408,10 @@ fn main() {
     run.save_weights(&model)
         .unwrap_or_else(|e| panic!("could not save model weights: {e}"));
     run.save_costs(&costs).expect("could not save costs.json");
+    #[cfg(feature = "mlflow")]
+    if let Some(o) = live.as_mut() {
+        o.finish();
+    }
 
     println!("run written to {}", run.path().display());
 }

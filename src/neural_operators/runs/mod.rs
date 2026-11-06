@@ -45,6 +45,7 @@ use crate::neural_operators::{
         loaders::common::Normalizers,
         transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
     },
+    metrics::poisson::ERRORS_JSON,
     models::fno::{FNO, FNOConfig},
     training::config::TrainingConfig,
 };
@@ -296,6 +297,31 @@ impl RunDir {
     /// naming the line for a row with missing or unparsable fields.
     pub fn metrics(&self) -> io::Result<Vec<EpochMetrics>> {
         csv::read_metrics_csv(self.path.join(METRICS_CSV))
+    }
+
+    /// The run's files worth viewing beside its metrics, those present, sorted by name:
+    /// the three configs, `costs.json`, `errors.json` ([`ERRORS_JSON`]) and every `.png`
+    /// (`plots.png`, `prediction_<k>.png`). Not the weights, checkpoint, normalizers or
+    /// `metrics.csv`, and no symbolic link, so nothing outside the directory is picked up.
+    /// The MLflow exporter (Phase 8 T1) uploads these.
+    ///
+    /// # Errors
+    /// If the directory can't be listed.
+    pub fn artifacts(&self) -> io::Result<Vec<PathBuf>> {
+        let named = [MODEL_CFG, TRAIN_CFG, DATA_CFG, COSTS, ERRORS_JSON];
+        let mut files = Vec::new();
+        for entry in std::fs::read_dir(&self.path)? {
+            let entry = entry?;
+            // `DirEntry::file_type` does not follow symbolic links, so links are skipped
+            let is_file = entry.file_type()?.is_file();
+            let path = entry.path();
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            if is_file && (named.contains(&&*name) || name.ends_with(".png")) {
+                files.push(path);
+            }
+        }
+        files.sort();
+        Ok(files)
     }
 
     /// Writes `checkpoint.bin`: `state`, the model's weights and the optimiser's and
@@ -598,5 +624,18 @@ mod tests {
     fn open_reports_a_missing_run() {
         let err = RunDir::open(std::env::temp_dir().join("sciml_rs_no_such_run")).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn artifacts_skip_symbolic_links() {
+        let root = fresh_root("artifacts_symlink");
+        let run = RunDir::create(&root, "test_fno").unwrap();
+        std::fs::write(run.path().join("plots.png"), b"x").unwrap();
+        std::fs::write(root.join("outside.png"), b"x").unwrap();
+        std::os::unix::fs::symlink(root.join("outside.png"), run.path().join("linked.png"))
+            .unwrap();
+        assert_eq!(run.artifacts().unwrap(), vec![run.path().join("plots.png")]);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

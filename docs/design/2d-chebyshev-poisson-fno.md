@@ -1687,6 +1687,11 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
         before merges.
       - Q3: the server runs on the author's Mac, bound to localhost, with SQLite and a
         local artifact directory; GPU-VM runs are copied back before export.
+      - Q7 (chosen in T1's review, 2026-11-06): **opt-in live logging** in T1. With the
+        `mlflow` feature and `MLFLOW_EXPERIMENT_NAME` set, `train_poisson` logs the run
+        as it trains (an `EpochObserver`); otherwise training is unchanged. Best-effort:
+        the first failed request turns it off for the run. The export of the finished
+        run directory stays the authoritative record (`mlflow_export --replace`).
       Q4–Q6 (HTTP client, idempotency, no auth) are proposed in the plan and confirmed in
       T1's PR. Phase 9 stays paused and resumes independently. Recorded by the author
       (AHA-HH), 2026-11-06.
@@ -2092,8 +2097,10 @@ VM runs are copied back first. The tracking URI comes from `MLFLOW_TRACKING_URI`
 (default localhost), the experiment from the command line, and nothing host-specific is
 committed. Its tests need no network: they check the requests it would send against a
 run-directory fixture, and one manual export to a scratch experiment is the acceptance.
-Live logging during training is a possible later extension (an `EpochObserver` that
-streams each epoch, Phase 4s T12) and out of scope here. The run directories stay the
+Live logging during training is opt-in in T1 (amendment of 2026-11-06, Q7): with the
+`mlflow` feature and `MLFLOW_EXPERIMENT_NAME` set, `train_poisson` sends the same run as
+it trains, through an `EpochObserver` (Phase 4s T12), best-effort, and the export stays
+the authoritative record. The run directories stay the
 record: MLflow is a view of them, and no Results row cites MLflow alone.
 
 ### 13.11 Phase 9: HPC (systems track)

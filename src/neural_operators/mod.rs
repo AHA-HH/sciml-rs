@@ -9,5 +9,7 @@ pub mod models;
 #[cfg(feature = "datagen")]
 pub mod pde;
 pub mod runs;
+#[cfg(feature = "mlflow")]
+pub mod tracking;
 pub mod training;
 pub mod utils;
