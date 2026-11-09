@@ -11,7 +11,8 @@ Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), 
 (decision 22) and the resolution study (decision 23), and 2026-10-15 for the Phase 4
 close-out and the Phase 5/6 split (decision 24), and 2026-10-15 for the Phase 4s side
 phase (decision 25), and 2026-10-26 for the research programme after Phase 4s, Phases
-5–9 (decision 30, Section 13), amended the same day for Phase 5 planning. The decisions are recorded in Section 12.
+5–9 (decision 30, Section 13), amended the same day for Phase 5 planning, and 2026-11-09
+for Phase 10, Gauss–Newton optimisation (decision 31, §13.17). The decisions are recorded in Section 12.
 This document is the specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -512,7 +513,8 @@ and sample efficiency). Then come Phase 8 (experiment tracking, MLflow) and Phas
 (HPC, including multi-GPU training, kept apart from the scientific results; since the
 amendment of 2026-11-09 it also carries the θ-map as T5–T6). Section
 13 specifies them. The short Phase 5–9 entries at the end of this section give the task
-rows.
+rows. **Phase 10** (decision 31, 2026-11-09) adds a model-agnostic Gauss–Newton optimiser,
+validated on the Phase 5 baseline; it starts after Phase 9 (§13.17).
 
 **Task numbering.** From Phase 1 on, task numbers are execution order: T<k> depends only
 on tasks with a lower number in the same phase, or on earlier phases. Tasks that can run
@@ -569,6 +571,11 @@ flowchart LR
     P9T3 --> P9T4["T4 flex run"]
     P9T5["T5 θ-map model"] --> P9T6["T6 θ-map vs the Phase 5 baseline"]
   end
+  subgraph P10["Phase 10: Gauss–Newton optimisation"]
+    P10T1["T1 generic core: VJP, JVP, CG"] --> P10T2["T2 Gauss–Newton step"] --> P10T3["T3 trainer integration"] --> P10T4["T4 validation gate, N = 100"]
+    P10T4 --> P10T5["T5 N = 1000 matrix"]
+    P10T4 --> P10T6["T6 PDE vs operator conditioning"]
+  end
   P0T1 --> P1T1
   P1T1 --> P2T1
   P1T2 --> P2T2
@@ -582,12 +589,18 @@ flowchart LR
   P5T7 --> P9T5
   P4ST16 --> P9T5
   P4ST12 --> P9T1
+  P9T6 -.-> P10T1
+  P9T2 -.-> P10T4
+  P9T1 --> P10T3
+  P7T3 --> P10T4
 ```
 
 The Phase 5 and Phase 6 subgraphs of decision 24 (old Phase 5 HPC, old Phase 6
 Chebyshev-native) are replaced in this chart by decision 30. Their text stays below as
 history. Phase 6 may start beside Phase 5; only its T2 needs Phase 5's grids and
-restriction (dashed edge).
+restriction (dashed edge). Phase 10's dashed edges are order by the author's choice, not
+data dependencies (decision 31, G8): its code starts after Phase 9 T6, and its runs need
+the VM that Phase 9 T2's restart fixes.
 
 ### Phase 0: conventions and feasibility
 
@@ -893,6 +906,24 @@ folded into T1) and plot shading (flat cells kept, decision 19).
 T5–T6 joined Phase 9 on 2026-11-09 (decision 30). They are research, not systems work:
 the rule that no Phase 9 speedup enters a conclusion of Phases 5–7 applies to T1–T4, and
 T6 compares error and cost on one device of one kind like Phases 5–7.
+
+### Phase 10: Gauss–Newton optimisation
+
+A matrix-free, damped Gauss–Newton optimiser (Levenberg–Marquardt with truncated CG),
+written against Burn's `Module` so that any differentiable neural operator can use it,
+validated first on the Phase 5 baseline (decision 31, 2026-11-09). Research, compared
+on one A100 against Adam on the same seeds, splits and test set; it does not block
+§13.16's completion. It starts after Phase 9 (G8). §13.17. Plan:
+`docs/phase10/README.md`.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | Generic core: parameter vectors, VJP, finite-difference JVP, adjoint check, CG with Lanczos estimates, for any `Module` | Phase 9 (order, G8) |
+| T2 | The Gauss–Newton step: LM damping, ρ, warm start, Hutchinson-diagonal preconditioner, diagnostics | T1 |
+| T3 | Trainer integration: optimiser choice, FNO residual adapter, `gn_steps.csv`, passes in `costs.json`, checkpoints, `train_poisson` | T2; Phase 9 T1 |
+| T4 | Validation gate: full-batch GN at N = 100 against Phase 7's Adam run, equal wall-clock; go / no-go | T3; Phase 7; the VM |
+| T5 | The N = 1000 matrix: Adam reruns and four GN arms, 3 seeds; results | T4 |
+| T6 | PDE against neural-operator conditioning across s | T4 |
 
 ## 11. Tests
 
@@ -1726,9 +1757,41 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       (P16), Metal for acceptance if parity passes, else flex (P17). Chosen by the author
       (AHA-HH), 2026-11-09.
 
+31. **Phase 10: Gauss–Newton optimisation (2026-11-09).** Plan: `docs/phase10/README.md`;
+    specification §13.17.
+    - **What.** A second-order optimiser for the existing operator-output least-squares
+      problem: matrix-free Levenberg–Marquardt Gauss–Newton with truncated preconditioned
+      CG. It is written against Burn's `Module` and a one-method `LeastSquares` trait, not
+      the FNO, so a later architecture supplies its residual (and, optionally, an exact
+      JVP) and reuses the optimiser unchanged. The first validation case is the Phase 5
+      baseline (stage 3, s = 64, p = 0, N = 1000).
+    - **Why this route.** The pinned Burn fork has first-order reverse-mode autodiff only
+      (`Device::autodiff`'s documentation): VJPs are one backward each, JVPs are not
+      available. An explicit Jacobian is infeasible (38.8 GB for one sample in f32, 2.37M
+      parameters × 4,096 outputs). Hence matrix-free products, with the JVP by central
+      finite differences.
+    - **Decisions G1–G8**, chosen by the author: G1, the residual is the per-sample relative
+      error, squared and averaged over the batch (option A), training still reporting the
+      baseline loss; iteratively reweighted (C) a later arm, the exact generalised
+      Gauss–Newton of the unsquared loss (B) rejected. G2, finite-difference JVPs first;
+      an exact FNO JVP only if T4 needs it; no forward mode in the Burn fork. G3, batch 20
+      and 200 arms, full batch at N = 100. G4, equal A100 wall-clock against the Adam
+      reruns, with updates, passes and memory reported. G5, weight decay 1e-4 kept as a
+      Tikhonov term. G6, Adam rerun on the A100 on three seeds on the Phase 10 commit (the
+      budget, peak memory, and a regression check within Phase 7's spread). G7, every
+      Phase 10 run on cuda on one A100 (the VM), tests on flex. G8, Phase 10 starts after
+      Phase 9: the VM's NCCL blocker is resolved there, and T5–T6 (θ-map) run first.
+      G1–G5 and G8 as recommended at planning; G6 and G7 amended by the author for the
+      A100s. Chosen by the author (AHA-HH), 2026-11-09.
+    - **Unchanged.** The Adam path, its settings and every existing run and result;
+      CONVENTIONS (T3 adds the GN residual to §11, which does not bump the version); the
+      model, data, transfers and metrics. Phases 5–7's completion does not wait for
+      Phase 10.
+
 ## 13. Research programme after Phase 4s
 
-Added by decision 30 (2026-10-26). This section specifies Phases 5–9. Every number quoted
+Added by decision 30 (2026-10-26). This section specifies Phases 5–9, and since decision
+31 (2026-11-09) Phase 10 (§13.17). Every number quoted
 here is a measurement already recorded in §12 or in `docs/phase4/README.md`. Everything
 else is a hypothesis or a future experiment, and is labelled as one.
 
@@ -2210,6 +2273,16 @@ Stated before the experiments and tested by them. None is a result.
   forcing's is not.
 - **H7 (Phase 7).** The test error falls with N and flattens, with the spread across seeds
   largest at small N. Whether the threshold is met below N = 1000, and where, is unknown.
+- **H10a (Phase 10).** Gauss–Newton reaches the baseline's training loss in far fewer
+  updates than Adam, but each update costs about 15–20 Adam updates at batch 20. Whether
+  it reaches a lower fine-grid error at equal A100 wall-clock is unknown; a lower
+  training loss need not lower error 4 (Adam's train L² is already about 3× below its
+  test L²).
+- **H10b (Phase 10).** With the relative residual, the Gauss–Newton curvature of the
+  trained FNO converges as s grows (its top Ritz values change little from s = 32 to 128),
+  unlike the PDE's discrete operator, whose condition number grows like s² (uniform
+  finite differences) or n⁴ (Chebyshev collocation). Its spectrum is expected to decay
+  with the solution data's POD spectrum rather than with the Laplacian's.
 
 ### 13.14 Known limitations
 
@@ -2230,6 +2303,9 @@ Stated before the experiments and tested by them. None is a result.
 - Phase 7 trains every N for 500 epochs (D6), so small N gets fewer optimisation steps
   (1,000 at N = 25 against 25,000 at N = 1000): its error mixes too little data with too
   little training. A fixed step budget is deferred.
+- Phase 10's Jacobian–vector products are finite differences (the Burn fork has no
+  forward mode), so its curvature products carry a truncation and round-off error,
+  largest in f32; T4 measures it before any comparison.
 
 ### 13.15 Open decisions
 
@@ -2251,8 +2327,78 @@ plan or brief that needs each is approved. Each is recorded under decision 30 wh
 
 The research programme is not complete until Phases 5, 6 and 7 have each measured their
 errors, costs and controls and met their reproducibility requirements (§13.3–§13.5).
-Phases 8 and 9 do not block completion. No phase's conclusion is drawn from another
+Phases 8, 9 and 10 do not block completion. No phase's conclusion is drawn from another
 phase's measurements beyond the baseline that Phase 5 hands on.
+
+### 13.17 Phase 10: Gauss–Newton optimisation
+
+Added by decision 31 (2026-11-09). Plan and briefs: `docs/phase10/README.md`.
+
+**The loss today.** For a batch of B samples with targets uᵢ ∈ ℝᴹ (physical units,
+M = s² points of the uniform learning grid) and decoded predictions
+ûᵢ(θ) = (σ_y + ε) ⊙ zᵢ(θ) + μ_y (CONVENTIONS §10), training minimises
+L(θ) = Σᵢ ‖ûᵢ − uᵢ‖₂ / ‖uᵢ‖₂: a sum of norms, not of squares (CONVENTIONS §11). The
+residual for Gauss–Newton is therefore a choice:
+
+| | Objective | Gauss–Newton curvature | Status |
+| --- | --- | --- | --- |
+| A | Φ = (1/2B) Σᵢ ‖rᵢ‖², rᵢ = (ûᵢ − uᵢ)/‖uᵢ‖ | JᵀJ | chosen (G1) |
+| B | L itself, generalised Gauss–Newton | Σᵢ Jᵢᵀ (I − êᵢêᵢᵀ) Jᵢ / (‖uᵢ‖ ‖ûᵢ − uᵢ‖), êᵢ the unit residual | rejected: no curvature along êᵢ, unbounded as the residual vanishes |
+| C | Σᵢ wᵢ ‖rᵢ‖² / 2, wᵢ = 1/eᵢ frozen per step (eᵢ = ‖rᵢ‖) | Σᵢ wᵢ JᵢᵀJᵢ | later arm: its gradient equals ∇L exactly; needs a floor on eᵢ |
+
+A and L share their minimiser at zero residual; L is still what `metrics.csv` reports.
+
+**Gradient, curvature, step.** Stack r ∈ ℝ^{BM}, J = ∂r/∂θ ∈ ℝ^{BM×P}, P = 2,368,001.
+∇Φ = Jᵀr. ∇²Φ = JᵀJ + Σₖ rₖ ∇²rₖ; Gauss–Newton keeps G = JᵀJ, positive semi-definite,
+of rank at most min(BM, P) (81,920 at B = 20: G is singular on every mini-batch). With
+weight decay μ as a Tikhonov term (G5) and damping λ, each step solves
+
+  (G + (λ + μ) I) p = −(Jᵀr + μθ)
+
+by truncated preconditioned CG, and is judged by ρ = [Φ(θ + p) − Φ(θ)] / [m(p) − m(0)],
+m the quadratic model, on the same batch; λ grows when ρ is small and shrinks when ρ is
+near 1 (Levenberg–Marquardt; Martens 2010 for the CG stopping, warm start and
+backtracking).
+
+**Independent of the architecture:** Φ, G, the damping, CG, ρ and the Lanczos estimates
+need only r(θ), J v, Jᵀu and the parameter space's inner product. The architecture
+enters through the forward map, and optionally through an exact JVP and structured
+preconditioners (for the FNO, the spectral weights by Fourier mode).
+
+**Operator outputs.**
+- *Field outputs:* each sample contributes M residual rows, and G = Σᵢ JᵢᵀJᵢ.
+- *Spatial weighting:* with quadrature weights W, rᵢ = W^½(ûᵢ − uᵢ)/‖uᵢ‖_W. The equal
+  uniform weights cancel in the ratio, so A is already a consistent discrete L² residual.
+  A fine-grid residual W_cc^½(T_uc ûᵢ − u_{f,i})/‖u_{f,i}‖_cc is the same machinery with
+  J_f = W_cc^½ T_uc J (a later arm).
+- *Batches:* the mean over the batch makes λ independent of B; a mini-batch G estimates
+  the full split's without bias; the gradient, G and ρ use one batch.
+- *Resolution:* the relative normalisation makes ‖rᵢ‖² a Riemann-sum ratio converging
+  to the continuous relative L² error, so for a discretisation-invariant model G should
+  converge as s grows (H10b). An absolute residual without the h² weights would scale G
+  by s² and λ would need retuning per s.
+- *Normalisation:* the decoder is part of the forward map; autodiff carries its
+  (σ_y + ε) factor.
+
+**Products in this codebase.** Jᵀu is one backward of Σ r ⊙ u.detach() after a fresh
+forward (Burn consumes the graph on backward); the gradient is the case u = r. J v has no
+autodiff route in the pinned fork (first order, reverse mode only), so it is the central
+difference [r(θ + εv) − r(θ − εv)]/2ε on the inner device, unless the problem supplies an
+exact JVP. G v = Jᵀ(J v) costs about five forward-equivalents. The adjoint error
+|⟨u, Jv⟩ − ⟨Jᵀu, v⟩| / (‖u‖‖Jv‖) is logged to check the JVP during training.
+
+**Conditioning (T6).** On the PDE side, the discrete Laplacian's condition number grows
+like s² (uniform finite differences) or n⁴ (Chebyshev collocation), and the solution
+operator damps sine mode (k, l) by 1/μ_kl (§13.4). On the operator side, T6 measures the
+top Ritz values of G at s = 32, 64, 128, and the single-sample tangent kernel JᵢJᵢᵀ in the
+sine basis against 1/μ_kl and Phase 6's POD spectrum of u. A later arm measures the
+residual in a PDE-induced norm (sine-mode weights μ^{±½}) as an output-space
+preconditioner.
+
+**Other architectures.** A new operator implements `LeastSquares::residual` (and, if it
+can, `jvp`) and uses the optimiser, the trainer branch and the run files unchanged; only
+`training/`'s FNO-typed loop would need generalising, which Phase 10 does not do.
+
 
 ## References
 
