@@ -1,26 +1,22 @@
-# Phase 8 (optional): experiment tracking and the θ-map
+# Phase 8 (optional): experiment tracking
 
-As of 2026-11-06: T1 (MLflow export and opt-in live logging) **done** (#91); T2 (the
-θ-map model) is next, its brief not yet written; T3 follows T2. Phase 9 is paused (`docs/phase9/README.md`, "Paused")
-and resumes independently when the GPU VM is back. Design:
+As of 2026-11-09: **done**. T1 (MLflow export and opt-in live logging) merged (#91).
+The θ-map, planned here as T2–T3 on 2026-11-06, moved to Phase 9 as T5–T6 on 2026-11-09
+(`docs/phase9/README.md`, brief `docs/phase9/T5-theta-map.md`). Design:
 `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 8, §13.10, decision 30 and its
-amendments of 2026-10-27 and 2026-11-06). `docs/CONVENTIONS.md` wins on any conflict.
+amendments of 2026-10-27, 2026-11-06 and 2026-11-09). `docs/CONVENTIONS.md` wins on any conflict.
 
-Phase 8 holds two independent pieces of work:
-
-1. **Experiment tracking (T1).** Export finished run directories to a self-hosted MLflow
-   tracking server, so runs can be browsed, grouped and compared in a UI. It replaces the
-   Weights & Biases export of the amendment of 2026-10-27 (planning decision Q1).
-2. **The θ-map (T2, T3).** Old Phase 6 T3–T4, unchanged in substance: option 2 of §6
-   with its own convention diff, compared against the Phase 5 baseline (decision 24's
-   gate) at 65², 129² and across resolutions, on the same seeds and test sets.
+Phase 8 is **experiment tracking (T1)**: export finished run directories to a
+self-hosted MLflow tracking server, and log runs live during training (opt-in), so runs
+can be browsed, grouped and compared in a UI. It replaces the Weights & Biases export of
+the amendment of 2026-10-27 (planning decision Q1).
 
 The run directories stay the record of every result. MLflow is a view of them: no
 Results row in any phase cites MLflow alone (design §13.10).
 
 ## Read first
 
-- Design §13.10 (this phase), §13.9 (run-directory metadata), §6 (option 2, the θ-map),
+- Design §13.10 (this phase), §13.9 (run-directory metadata), §6 (option 2, the θ-map, now Phase 9 T5–T6),
   decisions 24 and 30.
 - `src/neural_operators/runs/mod.rs` (`RunDir`: the run-file names and their readers).
 - `CLAUDE.md`: Working agreement, Checks, Commands.
@@ -66,7 +62,8 @@ as proposed in T1 (#91) and confirmed by the author on 2026-11-06.
   protocol. MLflow's tracking server has a documented REST API, is open source and is
   self-hostable, so no third-party account or key is needed. The W&B task is dropped.
 - **Q2, scope and order:** T1 is the MLflow export; the θ-map follows as T2 (model and
-  convention diff) and T3 (comparison). Only T1 has a brief now.
+  convention diff) and T3 (comparison). Only T1 has a brief now. (Amended 2026-11-09:
+  T2–T3 moved to Phase 9 as T5–T6.)
 - **Q3, hosting: the author's Mac**, `mlflow server` bound to `127.0.0.1`, SQLite backend
   store and a local artifact directory, both outside the repository. The GPU VM needs no
   network access to the server; run directories are copied back (`rsync`) before export,
@@ -97,8 +94,9 @@ as proposed in T1 (#91) and confirmed by the author on 2026-11-06.
 | Task | Brief | Delivers | Depends on |
 | --- | --- | --- | --- |
 | T1 | [T1-mlflow-export.md](T1-mlflow-export.md) | `mlflow` feature: a Rust exporter of run directories to a self-hosted MLflow server, the `mlflow_export` example, and the server setup | Phase 5 T4 (run files) |
-| T2 | to be written (T1 merged) | The θ-map model (option 2 of §6) and its convention diff (`CONVENTION_VERSION` bump) | Phase 5 T7, Phase 4s T16 |
-| T3 | written when T2 merges | θ-map against the Phase 5 baseline at 65², 129² and across resolutions, same seeds and test sets | T2 |
+
+T2 (θ-map model) and T3 (θ-map comparison) moved to Phase 9 as T5 and T6 on 2026-11-09
+(decision 30); Phase 8 keeps T1 only.
 
 Task numbers are execution order (design §10). One task per branch and PR:
 `phase8/T<k>-<name>`. Each task is worked from its brief alone, plus the files the brief
@@ -114,7 +112,6 @@ lists under "Read first".
   builds.
 - `examples/mlflow_export.rs` (T1): the command line.
 - `runs/` (T1): read-only use; at most one public reader added if a file has none.
-- `models/`, `chebyshev/`, CONVENTIONS (T2, T3): to be set by T2's brief.
 
 ## Results
 
@@ -124,12 +121,10 @@ dropped with the reason recorded in design §12.
 | Item | Value | Source |
 | --- | --- | --- |
 | Run directories exported to MLflow, and logged live during training | Done (#91), MLflow 3.18.0 on `127.0.0.1:5001`, 2026-11-06. **Export:** the Phase 5 baseline run `poisson_fno_n129_p0_1793189507` arrived `FINISHED` with 10 tags (`group = p0_s128`), 25 params, `test_l2` over 500 steps (0.280 → 0.01045), errors 2–5 and the costs as summary metrics, and its JSON artifacts; shown in the UI; a repeat export skipped, `--replace` kept one run. **Live:** `train_poisson 0 65 16 42 25 7` (flex, 500 epochs) logged epoch by epoch to one `FINISHED` run, `plots.png` uploaded at the end; a run stopped by SIGTERM after 50 epochs and resumed continued the same MLflow run, 500 distinct steps. Not exercised: non-finite metric values, a server dropping mid-run (unit-tested against a closed port). The Phase 5 and Phase 7 matrices are not yet exported (optional) | T1 |
-| θ-map model and convention diff | | T2 |
-| θ-map against the Phase 5 baseline | | T3 |
 
 ## Open items
 
-Known work outside T2–T3, recorded so it is not only in old review documents. None
+Known work outside the θ-map (Phase 9 T5–T6), recorded so it is not only in old review documents. None
 blocks Phase 8 or the programme's completion (design §13.16); each becomes a task only
 when the author schedules it.
 
@@ -143,17 +138,18 @@ when the author schedules it.
   (`docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md`, partly resolved): S1,
   `errors.json` and `prediction*.png` named in examples rather than in `RunDir`; S3, the
   `load_X` / `load_X_test` pairs of Darcy and Poisson, the run-write tail copied in three
-  train examples and the predict → decode block copied four times. T2 touches the train
-  and predict examples, so its brief decides whether to clear these first.
+  train examples and the predict → decode block copied four times. Phase 9 T5 (the θ-map)
+  touches the train and predict examples, so its brief decides whether to clear these
+  first.
 - **Deferred research:** D6's fixed optimisation-step budget for Phase 7 ("deferred to
   later research", decision 30); the aliasing row of Phase 5 T1 (the effect of the
   unfiltered R on f, needs `datagen`, skipped by the author's choice).
 
 ## Exit checklist
 
-- [ ] T1–T3 merged, or a task dropped with the reason recorded in design §12.
+- [x] T1 merged (#91); T2–T3 moved to Phase 9 as T5–T6 (decision 30, 2026-11-09).
 - [x] Q1–Q3, Q7 chosen by the author and recorded in design §12 (2026-11-06).
 - [x] Q4–Q6 confirmed by the author after T1 (#91), 2026-11-06.
-- [ ] No result row cites MLflow alone.
-- [ ] Every row of Results filled in.
-- [ ] The "Current phase" bullet in `CLAUDE.md` updated for what comes next.
+- [x] No result row cites MLflow alone.
+- [x] Every row of Results filled in.
+- [x] The "Current phase" bullet in `CLAUDE.md` updated for what comes next.
