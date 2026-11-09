@@ -1695,6 +1695,13 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       Q4–Q6 (HTTP client, idempotency, no auth) are proposed in the plan and confirmed in
       T1's PR. Phase 9 stays paused and resumes independently. Recorded by the author
       (AHA-HH), 2026-11-06.
+    - **Amendment, Phase 8 T1 done (2026-11-06).** T1 merged (#91): the MLflow export
+      and opt-in live logging, accepted against MLflow 3.18.0 on the author's Mac (Phase 8
+      README, Results). **Q4–Q6 confirmed** as built: `ureq` (blocking, rustls, no async
+      runtime); a directory already exported is skipped unless `--replace`; no auth, the
+      server on localhost only. Open items (CI steps for `mlflow`, the review leftovers,
+      D6's step budget, the aliasing row) are listed in the Phase 8 README. T2 (θ-map
+      model) is next. Recorded by the author (AHA-HH), 2026-11-06.
 
 ## 13. Research programme after Phase 4s
 
