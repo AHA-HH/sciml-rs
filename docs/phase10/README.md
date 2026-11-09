@@ -1,9 +1,9 @@
 # Phase 10: Gauss–Newton optimisation
 
 As of 2026-11-09: **planned, not started.** Plan and briefs T1–T6 written 2026-11-09;
-decisions G1–G8 chosen by the author the same day (below). Implementation starts after
-Phase 9: the VM's NCCL blocker is fixed there, and Phase 9 T5–T6 (the θ-map) run first
-(G8). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 10, §13.17, decision
+decisions G1–G8 chosen by the author the same day (below). It can start now: G8, amended
+2026-11-09, has it wait neither for Phase 9 nor for the θ-map (now an optional phase).
+Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 10, §13.17, decision
 31). `docs/CONVENTIONS.md` wins on any conflict.
 
 Phase 10 adds a second-order optimiser: matrix-free, damped Gauss–Newton (Levenberg–
@@ -84,7 +84,8 @@ G2) and one VJP (backward with the residual seeded by J v).
 ## Planning decisions
 
 Chosen by the author (AHA-HH), 2026-11-09, and recorded in design §12, decision 31.
-G1–G5 and G8 as recommended at planning; G6 and G7 amended by the author (A100s).
+G1–G5 and G8 as recommended at planning; G6 and G7 amended by the author (A100s); G8
+amended by the author later the same day (below).
 
 - **G1, residual: (A), the squared per-sample relative error**, mean over the batch.
   Training still reports the baseline loss L = Σᵢ ‖ûᵢ − uᵢ‖/‖uᵢ‖ in `metrics.csv`.
@@ -108,15 +109,17 @@ G1–G5 and G8 as recommended at planning; G6 and G7 amended by the author (A100
 - **G7, hardware: cuda on one A100 (the VM) for every Phase 10 run**; flex for tests; metal
   optional for development. Whether f64 works end to end on cuda (FFTs included) is
   checked in T3; if it does, f64 finite differences are an option for T4.
-- **G8, order: Phase 10 starts after Phase 9.** The VM's NCCL blocker is resolved in
-  Phase 9 (T2's restart), and T5–T6 (the θ-map) run before Phase 10's code. Phase 10
-  needs one GPU per run, not NCCL, but the author fixes the VM first.
+- **G8, order: amended 2026-11-09 by the author: Phase 10 starts now** and waits for
+  nothing. It needs one A100 per run, not NCCL, so the VM's NCCL fix (Phase 9 T2) does
+  not gate it, and the θ-map became an optional phase that nothing waits for. G7 still
+  puts its runs (T4–T6) on the VM. (At planning, superseded: Phase 10 started after
+  Phase 9, once the NCCL fix and the θ-map, then Phase 9 T5–T6, were done.)
 
 ## Tasks
 
 | Task | Brief | Delivers | Depends on |
 | --- | --- | --- | --- |
-| T1 | [T1-gn-core.md](T1-gn-core.md) | The generic core: parameter vectors, VJP, finite-difference JVP, adjoint check, CG with Lanczos estimates, for any Burn `Module` | Phase 9 (G8) |
+| T1 | [T1-gn-core.md](T1-gn-core.md) | The generic core: parameter vectors, VJP, finite-difference JVP, adjoint check, CG with Lanczos estimates, for any Burn `Module` | – (G8, amended) |
 | T2 | [T2-gauss-newton.md](T2-gauss-newton.md) | `GaussNewton`: Levenberg–Marquardt damping, ρ, warm start, Hutchinson-diagonal preconditioner, per-step diagnostics | T1 |
 | T3 | [T3-trainer.md](T3-trainer.md) | Trainer integration: optimiser choice in `TrainingConfig`, the FNO residual adapter, `gn_steps.csv`, forward-equivalent passes in `costs.json`, GN state in checkpoints, `OPTIMIZER` in `train_poisson`; the CONVENTIONS §11 note | T2 |
 | T4 | [T4-validation-gate.md](T4-validation-gate.md) | The smallest viable experiment: full-batch GN at N = 100 against Phase 7's Adam run at equal wall-clock; go / no-go for T5 | T3; Phase 7's runs; the VM |

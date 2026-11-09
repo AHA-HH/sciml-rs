@@ -1,9 +1,9 @@
-# Phase 9: HPC (systems track) and the θ-map
+# Phase 9: HPC (systems track)
 
 As of 2026-11-09: T2–T4 **paused** (author, 2026-11-06). T1 done (#87); T2's code merged
 (#88), its acceptance run blocked on the VM (see "Paused" below); T3 and T4 not started.
-T5–T6 (the θ-map, moved here from Phase 8 on 2026-11-09) are not paused: T5's brief is
-approved, decisions P8–P17 chosen by the author on 2026-11-09; T5 is next. Tasks
+The θ-map was T5–T6 here for part of 2026-11-09 and is now an optional phase of its own
+(`docs/optional/README.md`; decision 30, amendment of 2026-11-09). Tasks
 renumbered 2026-11-03 and 2026-11-04 (below). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 9 and the old
 Phase 5 rows it inherits, §13.11, decisions 19, 21 and 30).
 `docs/CONVENTIONS.md` wins on any conflict.
@@ -17,12 +17,6 @@ closed at planning (below).
 It is a systems track. **No speedup it delivers enters a conclusion of Phases 5–7**
 (design §13.11), and a multi-GPU run must reproduce its single-GPU result on the same
 seeds, within a stated round-off, before it is used.
-
-Since 2026-11-09 it also carries **the θ-map (T5–T6)**: option 2 of design §6, old Phase 6
-T3–T4, then Phase 8 T2–T3 (decision 30, amendment of 2026-11-09). These are research,
-not systems work: the speedup rule above applies to T1–T4, and T6 compares error and
-cost against the Phase 5 baseline on one device of one kind, like Phases 5–7. T5 runs on
-the author's Mac and does not wait for the VM.
 
 ## Read first
 
@@ -111,13 +105,8 @@ and P7 are decided there; P2 and P3 are confirmed by the author (AHA-HH) for T1,
   §11 threshold, rather than 65² at p = 4 (about 72 h). Confirmed by the author,
   2026-11-03.
 - **P7, plot shading: flat cells kept** (chosen by the author, 2026-11-02; decision 19).
-- **P8–P17, the θ-map (T5):** chosen by the author on 2026-11-09, all as recommended in
-  `T5-theta-map.md` ("Decisions"): the even extension as an `FNOConfig` option (P8),
-  once around the spectral block (P9), grid channels θ/π (P10), 12 modes with ~24 as a
-  possible T6 arm (P11), `PoissonConfig::cgl` in the existing loaders (P12), the
-  unweighted relative L² loss (P13), `theta` in the s argument (P14), `predict_poisson`
-  and `poisson_resolution` in scope (P15), the review leftovers worked around (P16),
-  Metal for acceptance if its parity case passes, else flex (P17).
+- **P8–P17** are the θ-map's decisions, chosen 2026-11-09 while it was T5 here; they moved
+  with it to the optional phase (`docs/optional/README.md`).
 
 ## Tasks
 
@@ -132,11 +121,9 @@ T3, T3 was T4, T4 was T6. Branch `phase9/T2-checkpoint` and PR #87 keep the old 
 | T2 | [T2-multi-gpu.md](T2-multi-gpu.md) | Data-parallel training of one run on several GPUs with an unchanged effective batch; reproduces a single-GPU run within round-off | T1; a multi-GPU machine |
 | T3 | [T3-scaling.md](T3-scaling.md) | One- against two-A100 scaling of the baseline: s/epoch, speedup, efficiency, where the time goes (with the trace and GPU utilisation from the closed profiling task) | T2 |
 | T4 | [T4-flex-run.md](T4-flex-run.md) | The full-length baseline run on flex, cost stated first; the §11 threshold checked there | T1; last, by the author's choice |
-| T5 | [T5-theta-map.md](T5-theta-map.md) | The θ-map model (option 2 of §6) and its convention diff (`CONVENTION_VERSION` bump) | Phase 5 T7, Phase 4s T16; not the VM |
-| T6 | written when T5 merges | θ-map against the Phase 5 baseline at 65², 129² and across resolutions, same seeds and test sets | T5 |
 
-T5–T6 joined on 2026-11-09 (author), as Phase 8 T2–T3 renumbered. They are independent
-of T1–T4 and may run before them while the VM is down.
+T5–T6 (the θ-map) joined on 2026-11-09 and left the same day for the optional θ-map
+phase, as its T1–T2 (author).
 
 Task numbers are execution order (design §10). One task per branch and PR:
 `phase9/T<k>-<name>`. Each task is worked from its brief alone, plus the files the brief
@@ -157,10 +144,7 @@ removed (in git history at `a736dfc`) and design §12 decision 30 keeps the reco
   data-parallel step beside `train_epoch` (T2).
 - `runs/` (T1): checkpoint files and their reader; the only place their names appear.
 - `examples/train/poisson.rs` (T1, T2): resume and device-list arguments.
-- No change to the model, the loss, the transfers, the hyperparameters or CONVENTIONS in
-  T1–T4.
-- `models/fno`, `data/loaders/poisson`, `metrics/poisson`, the train and predict
-  examples, and CONVENTIONS with a version bump (T5): as set by T5's brief.
+- No change to the model, the loss, the transfers, the hyperparameters or CONVENTIONS.
 
 ## Results
 
@@ -172,12 +156,10 @@ Filled in as tasks merge. Phase 9 is done when every row has a value.
 | Multi-GPU run reproduces single-GPU, round-off stated | | T2 |
 | Speedup and efficiency, 1 vs 2 A100 | | T3 |
 | Flex run against the §11 threshold | | T4 |
-| θ-map model and convention diff | | T5 |
-| θ-map against the Phase 5 baseline | | T6 |
 
 ## Paused (2026-11-06)
 
-T2–T4 paused by the author; T5–T6, added 2026-11-09, are not. Where each task stands and what restarts it:
+T2–T4 paused by the author. Where each task stands and what restarts it:
 
 - **T2:** code merged (#88), checked on flex and metal, type-checked on cuda. The first VM
   run (2× A100, 2026-11-05) failed before any training: the gradient test's
@@ -196,9 +178,8 @@ T2–T4 paused by the author; T5–T6, added 2026-11-09, are not. Where each tas
 
 ## Exit checklist
 
-- [ ] T1–T6 merged, or a task dropped with the reason recorded in design §12.
+- [ ] T1–T4 merged, or a task dropped with the reason recorded in design §12.
 - [x] P1–P7 confirmed by the author and recorded in design §12 (2026-11-06).
-- [ ] No Phase 9 speedup (T1–T4) cited in a Phase 5–7 result.
-- [x] P8–P17 (T5's decisions) chosen by the author and recorded in design §12 (2026-11-09).
+- [ ] No Phase 9 speedup cited in a Phase 5–7 result.
 - [ ] Every row of Results filled in.
 - [ ] The "Current phase" bullet in `CLAUDE.md` updated for what comes next.

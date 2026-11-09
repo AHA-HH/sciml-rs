@@ -12,7 +12,8 @@ Phase 3 close-out (decision 17), 2026-10-12 for Phase 4 planning (decision 18), 
 close-out and the Phase 5/6 split (decision 24), and 2026-10-15 for the Phase 4s side
 phase (decision 25), and 2026-10-26 for the research programme after Phase 4s, Phases
 5–9 (decision 30, Section 13), amended the same day for Phase 5 planning, and 2026-11-09
-for Phase 10, Gauss–Newton optimisation (decision 31, §13.17). The decisions are recorded in Section 12.
+for Phase 10, Gauss–Newton optimisation (decision 31, §13.17), and 2026-11-09 for the
+θ-map as an optional phase (decision 30) and Phase 10 starting at once (G8, decision 31). The decisions are recorded in Section 12.
 This document is the specification for the phase plans.
 
 This document designs the first 2D experiment of `sciml-rs` that uses data on a Chebyshev
@@ -510,11 +511,12 @@ decision 24, below, are superseded and kept as history. After Phase 4s the work 
 one research question in three scientific phases: Phase 5 (grid-decoupled operator
 learning), Phase 6 (information content of the samples) and Phase 7 (training-set size
 and sample efficiency). Then come Phase 8 (experiment tracking, MLflow) and Phase 9
-(HPC, including multi-GPU training, kept apart from the scientific results; since the
-amendment of 2026-11-09 it also carries the θ-map as T5–T6). Section
+(HPC, including multi-GPU training, kept apart from the scientific results). Section
 13 specifies them. The short Phase 5–9 entries at the end of this section give the task
 rows. **Phase 10** (decision 31, 2026-11-09) adds a model-agnostic Gauss–Newton optimiser,
-validated on the Phase 5 baseline; it starts after Phase 9 (§13.17).
+validated on the Phase 5 baseline; it does not wait for Phase 9 (G8, amended 2026-11-09;
+§13.17). **The θ-map** is an optional, unnumbered phase since 2026-11-09 (decision 30,
+§13.18): it can run at any time after Phase 5 and nothing waits for it.
 
 **Task numbering.** From Phase 1 on, task numbers are execution order: T<k> depends only
 on tasks with a lower number in the same phase, or on earlier phases. Tasks that can run
@@ -566,10 +568,12 @@ flowchart LR
   subgraph P8["Phase 8 (optional): experiment tracking"]
     P8T1["T1 MLflow export and live logging"]
   end
-  subgraph P9["Phase 9: HPC (systems track) and the θ-map"]
+  subgraph P9["Phase 9: HPC (systems track)"]
     P9T1["T1 checkpoint / resume"] --> P9T2["T2 multi-GPU training"] --> P9T3["T3 1 vs 2 A100"]
     P9T3 --> P9T4["T4 flex run"]
-    P9T5["T5 θ-map model"] --> P9T6["T6 θ-map vs the Phase 5 baseline"]
+  end
+  subgraph POPT["Optional phase: the θ-map"]
+    POPTT1["T1 θ-map model"] --> POPTT2["T2 θ-map vs the Phase 5 baseline"]
   end
   subgraph P10["Phase 10: Gauss–Newton optimisation"]
     P10T1["T1 generic core: VJP, JVP, CG"] --> P10T2["T2 Gauss–Newton step"] --> P10T3["T3 trainer integration"] --> P10T4["T4 validation gate, N = 100"]
@@ -586,11 +590,9 @@ flowchart LR
   P5T2 -.-> P6T2
   P5T7 --> P7T1
   P5T4 -.-> P8T1
-  P5T7 --> P9T5
-  P4ST16 --> P9T5
+  P5T7 --> POPTT1
+  P4ST16 --> POPTT1
   P4ST12 --> P9T1
-  P9T6 -.-> P10T1
-  P9T2 -.-> P10T4
   P9T1 --> P10T3
   P7T3 --> P10T4
 ```
@@ -598,9 +600,10 @@ flowchart LR
 The Phase 5 and Phase 6 subgraphs of decision 24 (old Phase 5 HPC, old Phase 6
 Chebyshev-native) are replaced in this chart by decision 30. Their text stays below as
 history. Phase 6 may start beside Phase 5; only its T2 needs Phase 5's grids and
-restriction (dashed edge). Phase 10's dashed edges are order by the author's choice, not
-data dependencies (decision 31, G8): its code starts after Phase 9 T6, and its runs need
-the VM that Phase 9 T2's restart fixes.
+restriction (dashed edge). Phase 10 has no ordering edges: G8, amended 2026-11-09
+(decision 31), lets it start without waiting for Phase 9 or the θ-map. Its runs need one
+A100 on the VM, not NCCL. The optional θ-map phase hangs off Phase 5 and Phase 4s T16
+only.
 
 ### Phase 0: conventions and feasibility
 
@@ -878,7 +881,7 @@ Rows are proposals; the phase README and briefs refine them.
 One task, done: exporting run directories to a self-hosted MLflow server, and opt-in
 live logging during training (T1, #91). It needs only Phase 5 T4's run files (decision
 30, amendments of 2026-10-27, 2026-11-06 and 2026-11-09; MLflow replaced W&B). The θ-map,
-planned here as T2–T3 on 2026-11-06, moved to Phase 9 as T5–T6 on 2026-11-09. §13.10.
+planned here as T2–T3 on 2026-11-06, moved to Phase 9 as T5–T6 on 2026-11-09, then the same day to the optional θ-map phase. §13.10.
 Plan: `docs/phase8/README.md`.
 
 ### Phase 9: HPC (systems track)
@@ -900,12 +903,9 @@ folded into T1) and plot shading (flat cells kept, decision 19).
 | T2 | Data-parallel training with Burn's `all_reduce` in a hand-written step; batch of 20 split across devices, schedule unchanged; reproduces the single-GPU run | T1; two GPUs |
 | T3 | One against two A100s: speedup, efficiency, trace, GPU utilisation | T2 |
 | T4 | The full-length flex run (decision 21) at the baseline (s = 64, p = 0, stage 3), cost stated first | T1; last |
-| T5 | The θ-map model (option 2 of §6, old Phase 6 T3, then Phase 8 T2) and its convention diff; runs on the author's Mac, so it does not wait for the VM | Phase 5 T7, Phase 4s T16 |
-| T6 | θ-map against the Phase 5 baseline (old Phase 6 T4, then Phase 8 T3), same seeds and test sets; a research comparison, outside the systems-track rule | T5 |
 
-T5–T6 joined Phase 9 on 2026-11-09 (decision 30). They are research, not systems work:
-the rule that no Phase 9 speedup enters a conclusion of Phases 5–7 applies to T1–T4, and
-T6 compares error and cost on one device of one kind like Phases 5–7.
+The θ-map was T5–T6 here for part of 2026-11-09, then moved the same day to the optional
+θ-map phase (below; decision 30).
 
 ### Phase 10: Gauss–Newton optimisation
 
@@ -913,17 +913,29 @@ A matrix-free, damped Gauss–Newton optimiser (Levenberg–Marquardt with trunc
 written against Burn's `Module` so that any differentiable neural operator can use it,
 validated first on the Phase 5 baseline (decision 31, 2026-11-09). Research, compared
 on one A100 against Adam on the same seeds, splits and test set; it does not block
-§13.16's completion. It starts after Phase 9 (G8). §13.17. Plan:
-`docs/phase10/README.md`.
+§13.16's completion. It does not wait for Phase 9 or the θ-map (G8, amended 2026-11-09).
+§13.17. Plan: `docs/phase10/README.md`.
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
-| T1 | Generic core: parameter vectors, VJP, finite-difference JVP, adjoint check, CG with Lanczos estimates, for any `Module` | Phase 9 (order, G8) |
+| T1 | Generic core: parameter vectors, VJP, finite-difference JVP, adjoint check, CG with Lanczos estimates, for any `Module` | – |
 | T2 | The Gauss–Newton step: LM damping, ρ, warm start, Hutchinson-diagonal preconditioner, diagnostics | T1 |
 | T3 | Trainer integration: optimiser choice, FNO residual adapter, `gn_steps.csv`, passes in `costs.json`, checkpoints, `train_poisson` | T2; Phase 9 T1 |
 | T4 | Validation gate: full-batch GN at N = 100 against Phase 7's Adam run, equal wall-clock; go / no-go | T3; Phase 7; the VM |
 | T5 | The N = 1000 matrix: Adam reruns and four GN arms, 3 seeds; results | T4 |
 | T6 | PDE against neural-operator conditioning across s | T4 |
+
+### Optional phase: the θ-map
+
+Option 2 of §6 with its own convention diff, compared against the Phase 5 baseline.
+Unnumbered and optional since 2026-11-09 (decision 30): old Phase 6 T3–T4, then Phase 8
+T2–T3, then Phase 9 T5–T6. It can run at any time after Phase 5, on the author's Mac,
+and no phase waits for it. §13.18. Plan: `docs/optional/README.md`.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| T1 | The θ-map model (option 2 of §6) and its convention diff | Phase 5 T7, Phase 4s T16 |
+| T2 | θ-map against the Phase 5 baseline, same seeds and test sets | T1 |
 
 ## 11. Tests
 
@@ -954,7 +966,7 @@ on one A100 against Adam on the same seeds, splits and test set; it does not blo
 | 5 | Uniform grid sizes | Keep 32/64/128/256 as stated, and have Phase 0 T3 also measure s = n (33/65/…); switch if it is clearly better (§5.3) |
 | 6 | RLST and BLAS | rlst 0.9 behind the optional feature `chebyshev`, `default-features = false`; Accelerate on macOS, OpenBLAS on Linux; no FFTW, burn, MPI or SuiteSparse (FFTW: superseded by decision 12) |
 | 7 | FFTW later | Only as an optional, non-default backend, after supervisor approval, confirmed licensing and a measured benefit (taken up by decision 12) |
-| 8 | Research programme after Phase 4s (added 2026-10-26) | Phases 5–7 as in §13, with Phase 8 (MLflow, optional) and Phase 9 (HPC; the θ-map as T5–T6 since 2026-11-09) beside them; open choices D1–D8 in §13.15 (decision 30) |
+| 8 | Research programme after Phase 4s (added 2026-10-26) | Phases 5–7 as in §13, with Phase 8 (MLflow, optional) and Phase 9 (HPC) beside them, and the θ-map as an optional phase (since 2026-11-09); open choices D1–D8 in §13.15 (decision 30) |
 
 Further choices made in this design. They were not asked individually and stand unless
 overruled later:
@@ -1756,6 +1768,15 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       `poisson_resolution` in scope (P15), the review leftovers S1/S3/R1 worked around
       (P16), Metal for acceptance if parity passes, else flex (P17). Chosen by the author
       (AHA-HH), 2026-11-09.
+    - **Amendment, θ-map moved to an optional phase (2026-11-09).** The θ-map leaves
+      Phase 9 and becomes its own **optional, unnumbered phase** (`docs/optional/`), with
+      **T1 (model and convention diff, was Phase 9 T5) and T2 (comparison against the
+      Phase 5 baseline, was Phase 9 T6)**. It is a research question (option 2 of §6),
+      not systems work, so it does not belong in Phase 9, and no phase waits for it. The
+      brief moves from `docs/phase9/T5-theta-map.md` to `docs/optional/T1-theta-map.md`,
+      unchanged in substance; P8–P17 keep their names and choices. Phase 9 is T1–T4 again.
+      Where earlier text says Phase 9 T5–T6 for the θ-map, read the optional phase's
+      T1–T2. Decided by the author (AHA-HH), 2026-11-09.
 
 31. **Phase 10: Gauss–Newton optimisation (2026-11-09).** Plan: `docs/phase10/README.md`;
     specification §13.17.
@@ -1783,6 +1804,10 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       Phase 9: the VM's NCCL blocker is resolved there, and T5–T6 (θ-map) run first.
       G1–G5 and G8 as recommended at planning; G6 and G7 amended by the author for the
       A100s. Chosen by the author (AHA-HH), 2026-11-09.
+    - **Amendment, G8 (2026-11-09).** Phase 10 starts at once and waits for nothing:
+      neither Phase 9 (the NCCL fix) nor the θ-map, which became an optional phase the
+      same day (decision 30). Phase 10 needs one A100 per run, not NCCL. G7 is unchanged:
+      its runs (T4–T6) are on the VM. Decided by the author (AHA-HH), 2026-11-09.
     - **Unchanged.** The Adam path, its settings and every existing run and result;
       CONVENTIONS (T3 adds the GN residual to §11, which does not bump the version); the
       model, data, transfers and metrics. Phases 5–7's completion does not wait for
@@ -1791,7 +1816,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
 ## 13. Research programme after Phase 4s
 
 Added by decision 30 (2026-10-26). This section specifies Phases 5–9, and since decision
-31 (2026-11-09) Phase 10 (§13.17). Every number quoted
+31 (2026-11-09) Phase 10 (§13.17) and the optional θ-map phase (§13.18). Every number quoted
 here is a measurement already recorded in §12 or in `docs/phase4/README.md`. Everything
 else is a hypothesis or a future experiment, and is labelled as one.
 
@@ -1821,10 +1846,10 @@ Phase 5: Grid decoupling ───────► Phase 7: Sample efficiency
               │
               ├───────────────► Phase 6: SVD/information content
               │
-              └───────────────► Phase 9 T5–T6: θ-map
+              └───────────────► Optional phase: θ-map
 
 Phase 8: experiment tracking (MLflow) — independent; a view of the run directories
-Phase 9 T1–T4: HPC (systems track) — independent; no scientific conclusion depends on it
+Phase 9: HPC (systems track) — independent; no scientific conclusion depends on it
 ```
 
 - **Phase 6** may start beside Phase 5, since the SVD of the fine-grid snapshots needs no
@@ -1832,9 +1857,9 @@ Phase 9 T1–T4: HPC (systems track) — independent; no scientific conclusion d
   Phase 5's grids and restriction.
 - **Phase 7** follows Phase 5: it needs a fixed learning resolution, transfer method,
   padding policy, FNO architecture and training baseline.
-- **Phase 9 T5–T6 (θ-map)** follow Phase 5, whose baseline they are compared against
-  (decision 24's gate).
-- **Phase 8** and **Phase 9 T1–T4** can run at any time.
+- **The optional θ-map phase** follows Phase 5, whose baseline it is compared against
+  (decision 24's gate). Nothing waits for it.
+- **Phase 8** and **Phase 9** can run at any time.
 
 ### 13.3 Phase 5: grid-decoupled operator learning
 
@@ -2164,7 +2189,7 @@ Results live in the main checkout's `runs/` (as in Phase 4).
 
 ### 13.10 Phase 8 (optional): experiment tracking
 
-The θ-map, planned here until 2026-11-09, is Phase 9 T5–T6 (§13.11).
+The θ-map, planned here until 2026-11-09, is the optional θ-map phase (§13.18).
 
 **Task: MLflow export** (decision 30, amendment of 2026-11-06, which replaced the W&B
 export of the amendment of 2026-10-27; Phase 8 T1), in Rust, like the rest of the chain.
@@ -2228,13 +2253,8 @@ round-off, before it is used. **No multi-GPU speedup enters any conclusion about
 resolution, dataset information content or sample efficiency.** Phases 5–7 compare costs
 on one device of one kind.
 
-**The θ-map (T5–T6, since 2026-11-09).** Old Phase 6 T3–T4, then Phase 8 T2–T3,
-unchanged in substance: option 2 of §6 with its own convention diff, compared at 65²,
-129² and across resolutions on the same seeds and test sets. Its baseline is the Phase 5
-baseline (decision 24's gate: fixed padding, several seeds). It does not block the
-completion of Phases 5–7. It is research inside the systems track: the rule above applies
-to T1–T4, and T6 compares on one device of one kind. T5 runs on the author's Mac and
-does not wait for the VM. Brief: `docs/phase9/T5-theta-map.md`.
+The θ-map was T5–T6 of this phase for part of 2026-11-09; it is now the optional θ-map
+phase (§13.18).
 
 ### 13.12 Literature terminology
 
@@ -2291,7 +2311,7 @@ Stated before the experiments and tested by them. None is a result.
   non-smooth problems.
 - One fine grid (n = 129) for the main study; 257 enters only as a reference check unless
   D8 says otherwise.
-- One model family (FNO); DeepONet and the θ-map (Phase 9 T5–T6) are outside Phases 5–7.
+- One model family (FNO); DeepONet and the θ-map (the optional phase, §13.18) are outside Phases 5–7.
 - Every Phase 4 result comes from one seed (42). Phase 5 is the first multi-seed study,
   so earlier single-seed numbers are context, not baselines.
 - The choice of R defines what "coarse forcing" means; a different filter can move s*.
@@ -2398,6 +2418,17 @@ preconditioner.
 **Other architectures.** A new operator implements `LeastSquares::residual` (and, if it
 can, `jvp`) and uses the optimiser, the trainer branch and the run files unchanged; only
 `training/`'s FNO-typed loop would need generalising, which Phase 10 does not do.
+
+### 13.18 Optional phase: the θ-map
+
+Optional and unnumbered since 2026-11-09 (decision 30): old Phase 6 T3–T4, then Phase 8
+T2–T3, then Phase 9 T5–T6, unchanged in substance. Option 2 of §6 with its own
+convention diff (T1), compared at 65², 129² and across resolutions on the same seeds and
+test sets (T2). Its baseline is the Phase 5 baseline (decision 24's gate: fixed padding,
+several seeds). It is research, so T2 compares error and cost on one device of one kind,
+like Phases 5–7. It does not block the completion of Phases 5–7, and no phase waits for
+it. T1 runs on the author's Mac and does not need the VM. Plan: `docs/optional/README.md`;
+brief `docs/optional/T1-theta-map.md` (P8–P17 chosen 2026-11-09).
 
 
 ## References

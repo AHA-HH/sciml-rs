@@ -1,20 +1,21 @@
-# T5: the θ-map model
+# T1: the θ-map model
 
-Phase 9, task 5 (Phase 8 T2 until 2026-11-09). Branch `phase9/T5-theta-map`. Depends on Phase 5 T7 (the baseline) and
+Optional phase (the θ-map), task 1. Branch `optional/T1-theta-map`. Depends on Phase 5 T7 (the baseline) and
 Phase 4s T16 (the ungated `chebyshev` module), both merged. Option 2 of design §6, old
-Phase 6 T3, then Phase 8 T2 (§10, decision 30, amendment of 2026-11-09). The comparison against the Phase 5 baseline is T6, not
+Phase 6 T3, then Phase 8 T2, then Phase 9 T5, all until 2026-11-09 (§10, decision 30,
+amendments of 2026-11-09). The comparison against the Phase 5 baseline is T2, not
 this task. The open choices are in "Decisions for the author" at the end. The author
 decided them on 2026-11-09 (all as recommended), and the brief matches.
 
 ## Read first
-- This phase's README ("Inputs from earlier phases", the T5 row) and the Phase 8 README
+- This phase's README ("Inputs from earlier phases") and the Phase 8 README
   ("Inputs from earlier phases", "Open items").
-- Design §6.1 (the option 2 row), §10 Phase 9, §13.6 (confounders), §13.11; decisions 2,
+- Design §6.1 (the option 2 row), §10 "Optional phase: the θ-map", §13.6 (confounders), §13.18; decisions 2,
   10 ("Phase 5 reframed"), 23, 24 and 30 (D2, D3 and the amendment of 2026-10-29: the
   baseline).
-- `docs/CONVENTIONS.md`, all of it. T5 changes §1–§5, §7, §9 and §12.
+- `docs/CONVENTIONS.md`, all of it. T1 changes §1–§5, §7, §9 and §12.
 - `src/neural_operators/models/fno/mod.rs` and `models/fno/tests/padding.rs` (the
-  pattern T5 copies); `layers/spectral_convolution.rs` (`corner_ranges`,
+  pattern T1 copies); `layers/spectral_convolution.rs` (`corner_ranges`,
   `check_modes_fit`, `fft_ctensor`).
 - `data/loaders/poisson/{mod,uniform,cheb}.rs`; `metrics/poisson.rs` (`poisson_errors`,
   `evaluate`).
@@ -39,7 +40,7 @@ decided them on 2026-11-09 (all as recommended), and the brief matches.
   and 257. So no θ-map FFT reaches the Metal Bluestein bug (`spectral_convolution.rs:306-308`),
   and the rfft half-width L/2 + 1 = n is odd. Not known: whether the extension's own
   `flip` and `cat` are correct on Metal. The fused-`cat` bugs in `tests/gpu_parity.rs`
-  are why T5 adds a parity case.
+  are why T1 adds a parity case.
 - **Mode limits.** `check_modes_fit` asserts m ≤ L/2 on non-last axes and m ≤ L/2 + 1 on
   the last (`spectral_convolution.rs:241-254`). On an extended axis that means m ≤ n − 1
   and m ≤ n.
@@ -169,7 +170,7 @@ Every existing test passes unchanged. That includes `padding_zero_is_bitwise_ide
   (input 65², L = 128), forward and backward, against Flex. Run it with
   `--features metal`, and say whether it ran and what it gave.
 
-## Acceptance (sanity only; the comparison is T6)
+## Acceptance (sanity only; the comparison is T2)
 - Time the first epochs on stage 2 (n = 65, L = 128) and state the timing before the
   run. As an estimate, not measured: the spectral grid is 128², as for the baseline at
   s = 128, which took 2.45 s/epoch on cuda (Phase 5 T5).
@@ -178,10 +179,10 @@ Every existing test passes unchanged. That includes `padding_zero_is_bitwise_ide
   cross-checks pass (error 3 against `metrics.csv`, error 2 skipped) and error 2 is 0.
   Report errors 3, 4 and 5 as a sanity check only.
 - `poisson_resolution` on that run at n = 129 and 257 (the K = 32 sets) runs end to end.
-  Report the numbers but draw no conclusion (T6).
+  Report the numbers but draw no conclusion (T2).
 - Load a Phase 5 baseline run and re-run `predict_poisson` on it: its `errors.json` is
   unchanged.
-- Fill in the README Results row (T5).
+- Fill in the README Results row (T1).
 
 ## Checks
 `cargo fmt`, then the CI set in `CLAUDE.md` and `cargo clippy --all-targets -- -D warnings`.
@@ -194,13 +195,13 @@ The change is backend-sensitive (new tensor ops in `forward`), so also run
   `grid_cl`, the losses, the trainer and `train_components`'s signature.
 - Edit CONVENTIONS without proposing the diff in the PR description and bumping
   `CONVENTION_VERSION` in both places.
-- Train comparison runs, run seeds or write the T6 tables. That is T6.
+- Train comparison runs, run seeds or write the T2 tables. That is T2.
 - Change `poisson_matrix`, `poisson_plot` or the MLflow exporter, or depend on MLflow.
 - Regenerate datasets, or make the loaders check a sidecar's version.
 
 ## Decisions (chosen by the author, 2026-11-09)
 Numbered after Phase 9's planning decisions P1–P7 (Q8–Q17 in the draft written for
-Phase 8). Each is recorded in design §12,
+Phase 8), and they keep the names P8–P17 in the optional phase. Each is recorded in design §12,
 decision 30 (amendment of 2026-11-09, P8–P17). **All ten were chosen as recommended by
 the author (AHA-HH), 2026-11-09**; the reasoning is kept below.
 
@@ -218,7 +219,7 @@ the author (AHA-HH), 2026-11-09**; the reasoning is kept below.
   operator on node values, the pointwise layers run on n² points, and there are 4×
   more `flip`/`cat` ops (the Metal risk). **Chosen: (a)** (author, 2026-11-09). It is the smallest
   change, it is how §3 places padding, and it is the variant §6.1's "evenness only
-  approximate" describes. (b) can be a T6 arm if (a) disappoints.
+  approximate" describes. (b) can be a T2 arm if (a) disappoints.
 - **P10, grid channels.** (a) θ/π, which is `grid_cl` unchanged on the n-node input;
   extended, it is a triangle wave. (b) The physical ξ = (x + 1)/2 = (1 − cos θ)/2:
   smooth on the circle, but it needs a new grid function and a §2 formula change.
@@ -227,8 +228,8 @@ the author (AHA-HH), 2026-11-09**; the reasoning is kept below.
   (2,368,001 at width 32), but Chebyshev degree < 12. (b) Matched bandwidth: T_k has k
   zeros on [−1, 1] and the baseline's FFT index q has 2q, so about 24 modes, with about
   4× the spectral parameters. An estimate, not measured. **Chosen: (a)** (author, 2026-11-09)
-  as the default. It changes one thing, the basis, so T6 compares like with like. (b)
-  is a natural T6 arm, mirroring the dropped mode-control arm of D2.
+  as the default. It changes one thing, the basis, so T2 compares like with like. (b)
+  is a natural T2 arm, mirroring the dropped mode-control arm of D2.
 - **P12, data path and run record.** (a) `PoissonConfig::cgl`, handled inside
   `load_poisson_uniform{,_test}`. (b) New `load_poisson_cgl{,_test}`, chosen at each call
   site. **Chosen: (a)** (author, 2026-11-09). It adds no new public function and no new loader pair
@@ -239,18 +240,18 @@ the author (AHA-HH), 2026-11-09**; the reasoning is kept below.
   Error 3 is then the training metric, as today. (b) A CC-weighted relative loss: the
   true L² norm, but a new loss and a §11 change. Equal weights on CGL nodes weight the
   boundary bands, where the nodes cluster and u = 0, more heavily than L² does.
-  **Chosen: (a)** for T5 (author, 2026-11-09). One change at a time, and error 4 already reports the CC
-  norm. Raise (b) at T6 if errors 3 and 4 diverge.
+  **Chosen: (a)** for T1 (author, 2026-11-09). One change at a time, and error 4 already reports the CC
+  norm. Raise (b) at T2 if errors 3 and 4 diverge.
 - **P14, command line.** (a) `theta` in the s slot: `train_poisson -- 0 129 theta [seed]
   [N subset_seed]`. (b) A `--theta` flag, which shifts the positional arguments. (c) An
   environment variable. **Chosen: (a)** (author, 2026-11-09). The s slot is where the learning grid is
   named, and no other argument moves.
-- **P15, scope of evaluation.** `predict_poisson` and `poisson_resolution` in T5;
-  `poisson_plot` and `poisson_matrix` not. **Chosen as stated** (author, 2026-11-09). T6 needs errors
+- **P15, scope of evaluation.** `predict_poisson` and `poisson_resolution` in T1;
+  `poisson_plot` and `poisson_matrix` not. **Chosen as stated** (author, 2026-11-09). T2 needs errors
   2–5 and the resolution study, and `poisson_resolution` needs only the branch of
-  `predict_poisson`. The plot and the matrix table are presentation; T6 can add them.
+  `predict_poisson`. The plot and the matrix table are presentation; T2 can add them.
 - **P16, the review leftovers S1, S3, R1** (Phase 8 README, "Open items"). (a) Clear them first.
-  (b) Work around them. **Chosen: (b)** (author, 2026-11-09). T5 adds no run file (S1 is untouched), no
+  (b) Work around them. **Chosen: (b)** (author, 2026-11-09). T1 adds no run file (S1 is untouched), no
   argument to `train_components` (R1), and with P12 (a) no loader pair. The one S3 copy
   it touches, predict → decode, gets a branch on which errors function to call, not a
   new copy. Clearing them first would put three refactors in front of a model task,

@@ -1,7 +1,7 @@
 # T4: validation gate, the smallest viable experiment
 
 Phase 10, task 4. Branch `phase10/T4-validation-gate`. Depends on T3, Phase 7's runs and a working
-single-GPU run on the VM (Phase 9).
+single-GPU run on the VM (one A100, no NCCL; G8, amended 2026-11-09, removed the wait for Phase 9).
 
 ## Read first
 - This phase's README (G2–G4, G7, "Risks") and design §13.17.
