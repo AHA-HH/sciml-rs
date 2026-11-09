@@ -2,7 +2,7 @@
 
 As of 2026-11-09: **done**. T1 (MLflow export and opt-in live logging) merged (#91).
 The θ-map, planned here as T2–T3 on 2026-11-06, moved to Phase 9 as T5–T6 on 2026-11-09
-(`docs/phase9/README.md`, brief `docs/phase9/T5-theta-map.md`). Design:
+and the same day to an optional phase (`docs/optional/README.md`, brief `docs/optional/T1-theta-map.md`). Design:
 `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 8, §13.10, decision 30 and its
 amendments of 2026-10-27, 2026-11-06 and 2026-11-09). `docs/CONVENTIONS.md` wins on any conflict.
 
@@ -16,7 +16,7 @@ Results row in any phase cites MLflow alone (design §13.10).
 
 ## Read first
 
-- Design §13.10 (this phase), §13.9 (run-directory metadata), §6 (option 2, the θ-map, now Phase 9 T5–T6),
+- Design §13.10 (this phase), §13.9 (run-directory metadata), §6 (option 2, the θ-map, now the optional phase),
   decisions 24 and 30.
 - `src/neural_operators/runs/mod.rs` (`RunDir`: the run-file names and their readers).
 - `CLAUDE.md`: Working agreement, Checks, Commands.
@@ -124,7 +124,7 @@ dropped with the reason recorded in design §12.
 
 ## Open items
 
-Known work outside the θ-map (Phase 9 T5–T6), recorded so it is not only in old review documents. None
+Known work outside the θ-map (the optional phase), recorded so it is not only in old review documents. None
 blocks Phase 8 or the programme's completion (design §13.16); each becomes a task only
 when the author schedules it.
 
@@ -138,7 +138,7 @@ when the author schedules it.
   (`docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md`, partly resolved): S1,
   `errors.json` and `prediction*.png` named in examples rather than in `RunDir`; S3, the
   `load_X` / `load_X_test` pairs of Darcy and Poisson, the run-write tail copied in three
-  train examples and the predict → decode block copied four times. Phase 9 T5 (the θ-map)
+  train examples and the predict → decode block copied four times. Optional T1 (the θ-map)
   touches the train and predict examples, so its brief decides whether to clear these
   first.
 - **Deferred research:** D6's fixed optimisation-step budget for Phase 7 ("deferred to

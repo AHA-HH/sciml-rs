@@ -1,6 +1,6 @@
 # T1: the generic core (parameter vectors, VJP, JVP, CG)
 
-Phase 10, task 1. Branch `phase10/T1-gn-core`. Depends on Phase 9 (G8). No trainer
+Phase 10, task 1. Branch `phase10/T1-gn-core`. No dependency on other phases (G8, amended 2026-11-09). No trainer
 change.
 
 ## Read first

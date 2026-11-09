@@ -10,20 +10,21 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: Phase 9 (HPC, systems track, and since 2026-11-09 the θ-map as T5–T6):
-  docs/phase9/README.md. Next is T5, the θ-map model: brief docs/phase9/T5-theta-map.md
-  approved, its decisions P8–P17 chosen 2026-11-09; then T6, the comparison against the
-  Phase 5 baseline. T5–T6 are research inside the systems track (the speedup rule covers
-  T1–T4 only) and run on the Mac, so they do not wait for the VM.
-- Phase 10 (Gauss–Newton optimisation) is planned 2026-11-09, not started:
+- Current phase: Phase 10 (Gauss–Newton optimisation), planned 2026-11-09, not started:
   docs/phase10/README.md, briefs T1–T6 (T5–T6 drafts), design §13.17, decision 31,
-  decisions G1–G8 chosen 2026-11-09. A model-agnostic, matrix-free Levenberg–Marquardt
-  Gauss–Newton (finite-difference JVPs: the Burn fork has reverse mode only), validated
-  on the Phase 5 baseline. It starts after Phase 9 (G8): the VM's NCCL blocker is fixed
-  there and Phase 9 T5–T6 run first. Its runs are on one A100 on the VM.
+  decisions G1–G8 chosen 2026-11-09. Next is T1, the generic core. A model-agnostic,
+  matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: the Burn fork
+  has reverse mode only), validated on the Phase 5 baseline. G8, amended 2026-11-09: it
+  starts now and waits neither for Phase 9 nor for the θ-map. Code is written on the Mac;
+  T3's cuda f64 check and the runs (T4–T6) are on one A100 on the VM (no NCCL needed).
+- The θ-map is an optional, unnumbered phase since 2026-11-09 (decision 30):
+  docs/optional/README.md, design §13.18. T1, the θ-map model (brief
+  docs/optional/T1-theta-map.md approved, decisions P8–P17 chosen 2026-11-09); T2, the
+  comparison against the Phase 5 baseline. It runs on the Mac, at any time; nothing waits
+  for it. It was Phase 9 T5–T6 for part of 2026-11-09.
 - Phase 8 (experiment tracking) is done 2026-11-09: docs/phase8/README.md. T1 (#91):
   MLflow export of run directories to a self-hosted server and opt-in live logging
-  (MLflow replaced the W&B task). Its θ-map tasks T2–T3 moved to Phase 9 as T5–T6. Open
+  (MLflow replaced the W&B task). Its θ-map tasks T2–T3 are now the optional phase. Open
   items (mlflow CI steps, review leftovers, D6, the aliasing row) are in its README.
 - Phase 9 T1–T4 (HPC), planned 2026-11-02, renumbered 2026-11-03
   and 2026-11-04: briefs T1–T4 (T1 checkpoint and resume, T2
@@ -41,8 +42,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   Phase 5 (grid-decoupled operator learning) is done 2026-10-29: docs/phase5/README.md,
   results docs/phase5/results.md. Phase 6 (SVD/POD information content, beside Phase 5) is
   done 2026-10-27: docs/phase6/README.md, results docs/phase6/results.md. Phase 8 (MLflow) is optional; Phase 9 (HPC: profiling, checkpointing,
-  multi-GPU; and the θ-map as T5–T6) is a separate systems track. Their 4s prerequisites
-  (T10/T12 for Phase 9 T1, T16 for Phase 9 T5) are merged. Each phase gets its README and briefs when it
+  multi-GPU) is a separate systems track. Their 4s prerequisites
+  (T10/T12 for Phase 9 T1, T16 for the optional θ-map T1) are merged. Each phase gets its README and briefs when it
   starts; 4s briefs are in docs/phase4s/T*.md.
 - Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
   RLST reference solver, FNO; signed off 2026-10-05, amended 2026-10-08 and 2026-10-09,
