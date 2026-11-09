@@ -1778,10 +1778,11 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       Where earlier text says Phase 9 T5–T6 for the θ-map, read the optional phase's
       T1–T2. Decided by the author (AHA-HH), 2026-11-09.
     - **Amendment, T2 accepted and the pause lifted (2026-11-09).** The VM's NCCL is
-      fixed by a Spack environment (`sciml-gpu`: NCCL 2.29.7 built against the system
-      CUDA 12.6.3, under the driver's 13.3). **P18:** a multi-GPU run reproduces the
+      fixed by a Spack environment that builds it against a CUDA the driver supports
+      (`env/vm-a100/`). **P18:** a multi-GPU run reproduces the
       single-GPU one when its final error 4 lies inside Phase 5's range over seeds at that
-      (p, s) and within 2% of the same-seed single-GPU run; per-step exactness is the
+      (p, s) and within 2% of the same-seed single-GPU run (the 2% alone where Phase 5
+      has no range at that configuration); per-step exactness is the
       all-reduce gradient test's. The 2-GPU baseline gives error 4 1.0842e-2 against
       1.0952e-2 (−1.0%), inside 1.041e-2–1.127e-2. Phase 9's T3 runs next on the VM, T4
       stays last. Chosen by the author (AHA-HH), 2026-11-09.
