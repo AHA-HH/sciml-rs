@@ -15,6 +15,12 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   approved, its decisions P8–P17 chosen 2026-11-09; then T6, the comparison against the
   Phase 5 baseline. T5–T6 are research inside the systems track (the speedup rule covers
   T1–T4 only) and run on the Mac, so they do not wait for the VM.
+- Phase 10 (Gauss–Newton optimisation) is planned 2026-11-09, not started:
+  docs/phase10/README.md, briefs T1–T6 (T5–T6 drafts), design §13.17, decision 31,
+  decisions G1–G8 chosen 2026-11-09. A model-agnostic, matrix-free Levenberg–Marquardt
+  Gauss–Newton (finite-difference JVPs: the Burn fork has reverse mode only), validated
+  on the Phase 5 baseline. It starts after Phase 9 (G8): the VM's NCCL blocker is fixed
+  there and Phase 9 T5–T6 run first. Its runs are on one A100 on the VM.
 - Phase 8 (experiment tracking) is done 2026-11-09: docs/phase8/README.md. T1 (#91):
   MLflow export of run directories to a self-hosted server and opt-in live logging
   (MLflow replaced the W&B task). Its θ-map tasks T2–T3 moved to Phase 9 as T5–T6. Open
