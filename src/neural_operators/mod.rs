@@ -6,6 +6,7 @@ pub mod layers;
 pub mod losses;
 pub mod metrics;
 pub mod models;
+pub mod optim;
 #[cfg(feature = "datagen")]
 pub mod pde;
 pub mod runs;

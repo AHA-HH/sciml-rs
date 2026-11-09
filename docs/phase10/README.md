@@ -1,6 +1,6 @@
 # Phase 10: Gauss–Newton optimisation
 
-As of 2026-11-09: **planned, not started.** Plan and briefs T1–T6 written 2026-11-09;
+As of 2026-11-09: **started.** T1 (the generic core) in review. Plan and briefs T1–T6 written 2026-11-09;
 decisions G1–G8 chosen by the author the same day (below). It can start now: G8, amended
 2026-11-09, has it wait neither for Phase 9 nor for the θ-map (now an optional phase).
 Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 10, §13.17, decision
@@ -190,7 +190,7 @@ Filled in as tasks merge. Phase 10 is done when every row has a value.
 
 | Item | Value | Source |
 | --- | --- | --- |
-| Generic core, adjoint and explicit-Jacobian tests | | T1 |
+| Generic core, adjoint and explicit-Jacobian tests | `optim/gauss_newton/` (`ParamVec`, `params` / `with_params`, `LeastSquares`, `vjp`, finite-difference `jvp`, `adjoint_error`, `cg` with Lanczos Ritz values), generic over `Module`. Tiny 2D FNO (P = 591, m = 32 outputs, deterministic weights), f32 on flex, against an explicit Jacobian built from VJPs: `vjp` 4.7e-7, finite-difference `jvp` 1.3e-4 (max-relative) at the default step ∛u = 4.9e-3; worst adjoint error over 4 (u, v) pairs 4.6e-6; a sign-flipped J v gives about 2. Step sweep on that model: the error has the expected V shape, minimum at h ≈ 5e-3 to 1e-2. On a randomly initialised FNO the ReLU kinks dominated instead (error about 2e-2 at any h from 1e-2 to 1e-3), the G2 risk T4 measures. **f64 on flex not usable**: flex's f64 `rfft` uses f32 twiddles (1.9e-7 error on a length-16 rfft), so the f64 FNO is f32-accurate (vjp 8.0e-8, jvp 1.0e-3); kept as `#[ignore]`d repro and oracle in `tests/gauss_newton_f64.rs`; tests stay f32 | T1 |
 | Gauss–Newton on synthetic problems (linear one-step, nonlinear fit, tiny FNO) | | T2 |
 | Adam path unchanged; GN smoke and resume on flex | | T3 |
 | Validation gate (N = 100): adjoint error, ρ, error 4 against Adam, go / no-go | | T4 |
