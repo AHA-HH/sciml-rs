@@ -18,6 +18,10 @@ systems work, so it left Phase 9, and no phase waits for it: Phase 10 starts wit
 (G8, amended 2026-11-09). It can run at any time after Phase 5, on the author's Mac.
 Decided by the author (AHA-HH), 2026-11-09 (decision 30).
 
+The phase also holds **other optional items** (section below): work set aside for later
+by the author, which no phase waits for. Each becomes a task with its own brief only
+when the author schedules it.
+
 ## Read first
 
 - Design §6.1 (the option 2 row), §13.6 (confounders), §13.18; decisions 2, 10, 23, 24
@@ -71,8 +75,18 @@ Filled in as tasks merge. The phase is done when every row has a value.
 | θ-map model and convention diff | | T1 |
 | θ-map against the Phase 5 baseline | | T2 |
 
+## Other optional items
+
+Not part of the θ-map. Recorded so they are not lost; none blocks any phase.
+
+| Item | What | Why later | Recorded |
+| --- | --- | --- | --- |
+| Martens' backtracking and ρ rule for Gauss–Newton | Phase 10's `GaussNewton::step` (T2) takes CG's last iterate whenever it lowers Φ, backtracks only when it does not, and drives λ by ρ of the step taken. Martens (2010) always steps back while an earlier iterate is better still, and drives λ by ρ of CG's final iterate, which raises λ whenever the full solve overshoots. The alternative: those two rules, as a `GaussNewtonConfig` option, compared against T2's rule at equal wall-clock. | T2's rule is cheaper (one forward when the last iterate is good) and follows the brief's wording; Martens' extra forwards cost a few percent of a step at batch 20. Worth trying if Phase 10 T4 shows λ oscillating or GN leaning on backtracking (taken iterates often earlier than CG's last). | 2026-11-09, author (AHA-HH), at Phase 10 T2's review |
+
 ## Exit checklist
 
-- [ ] T1–T2 merged, or a task dropped with the reason recorded in design §12.
+- [ ] T1–T2 merged, or a task dropped with the reason recorded in design §12. (The
+  other optional items do not count towards the exit: each is closed only by its own
+  task, when scheduled.)
 - [x] P8–P17 chosen by the author and recorded in design §12 (2026-11-09).
 - [ ] Every row of Results filled in.

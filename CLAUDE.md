@@ -92,7 +92,10 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   the model's device without autodiff), `params` / `with_params`, `LeastSquares`
   (residual, optional exact J v), `vjp` (Jᵀu, one backward), `jvp` (central finite
   differences, step ∛u · max(‖θ‖, 1) / ‖v‖), `adjoint_error`, and `cg` (preconditioned
-  CG, warm start, Martens' stop, Lanczos Ritz values). Its FNO tests are in
+  CG, warm start, Martens' stop, Lanczos Ritz values); since T2 `GaussNewton` (`step`:
+  one damped step, ρ on the same batch, backtracking over CG's iterates, λ from ρ;
+  `GaussNewtonConfig`, `GnStep` diagnostics, `GaussNewtonState` (owned state, bytes for checkpoints))
+  and `hutchinson_diagonal` (the `Preconditioner::HutchinsonDiagonal`). Its FNO tests are in
   `tests/gauss_newton_fno.rs` (helpers in `tests/gauss_newton_common/`), and the f64
   ones are `#[ignore]`d in `tests/gauss_newton_f64.rs` (flex's f64 rfft uses f32
   twiddles).

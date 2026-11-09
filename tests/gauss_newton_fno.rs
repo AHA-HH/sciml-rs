@@ -75,13 +75,74 @@ fn adjoint_error_is_small_and_a_wrong_jvp_is_caught() {
     for k in 0..4 {
         let u = from_host(&wave(B * S * S, 0.4 + k as f64), &device);
         let v = theta.from_flat_like(from_host(&wave(theta.numel(), 2.6 + k as f64), &device));
-        worst = worst.max(adjoint_error(&RelResidual, &model, &data, &u, &v));
+        worst = worst.max(adjoint_error(&RelResidual, &model, &data, &u, &v, None));
         // The error is normalised by ‖u‖ ‖J v‖, so a flip shows as 2 |cos ∠(u, J v)|: test
         // it with u along J v, where a flipped J v gives about 2.
         let along = jvp(&RelResidual, &model, &data, &v, None);
-        let bad = adjoint_error(&FlippedJvp, &model, &data, &along, &v);
+        let bad = adjoint_error(&FlippedJvp, &model, &data, &along, &v, None);
         assert!(bad > 1.5, "a sign-flipped J v must be caught, got {bad}");
     }
     println!("f32 tiny FNO: worst adjoint error over 4 (u, v) pairs {worst:.2e}");
     assert!(worst < 1e-3, "adjoint error {worst}");
+}
+
+// --- Phase 10 T2: Gauss–Newton steps on the tiny FNO ---
+
+use sciml_rs::neural_operators::optim::gauss_newton::{CgStop, GaussNewton, GaussNewtonConfig};
+
+#[test]
+fn gauss_newton_never_raises_phi_on_an_accepted_step() {
+    let device = Device::default().autodiff();
+    let data = batch(&device);
+    let mut model = tiny_fno(&device);
+    let mut gn = GaussNewton::new(GaussNewtonConfig::new());
+    let mut accepted = 0;
+    for _ in 0..6 {
+        let (next, report) = gn.step(model, &RelResidual, &data);
+        model = next;
+        if report.accepted {
+            accepted += 1;
+            assert!(
+                report.phi_after < report.phi_before,
+                "step {}: Φ {} → {}",
+                report.step,
+                report.phi_before,
+                report.phi_after
+            );
+        } else {
+            assert_eq!(report.phi_after, report.phi_before);
+        }
+        println!(
+            "f32 tiny FNO GN step {}: Φ {:.3e} → {:.3e}, ρ {:.3}, λ {:.1e}, CG {}, passes {}F {}B",
+            report.step,
+            report.phi_before,
+            report.phi_after,
+            report.rho,
+            report.lambda,
+            report.cg_iterations,
+            report.forward_passes,
+            report.backward_passes
+        );
+    }
+    assert!(accepted >= 3, "only {accepted} of 6 steps accepted");
+}
+
+#[test]
+fn a_rejected_step_leaves_the_weights_unchanged_and_raises_lambda() {
+    let device = Device::default().autodiff();
+    let data = batch(&device);
+    let model = tiny_fno(&device);
+    let before = params(&model).to_flat().into_data();
+    // With J v sign-flipped the "curvature" is −JᵀJ: with almost no damping CG meets
+    // negative curvature at once and offers no candidate, so the step must be rejected.
+    let cfg = GaussNewtonConfig::new()
+        .with_lambda_init(1e-8)
+        .with_weight_decay(0.0);
+    let mut gn = GaussNewton::new(cfg);
+    let (model, report) = gn.step(model, &FlippedJvp, &data);
+    assert_eq!(report.cg_stop, CgStop::NegativeCurvature);
+    assert!(!report.accepted);
+    assert_eq!(params(&model).to_flat().into_data(), before);
+    assert!(report.lambda_next > report.lambda);
+    assert_eq!(gn.lambda(), report.lambda_next);
 }

@@ -40,6 +40,17 @@ impl ParamVec {
         self.parts.first().map(|(_, t)| t.dtype())
     }
 
+    /// The device of the parameters (that of the first; all share it).
+    ///
+    /// # Panics
+    /// For a vector with no parameters.
+    pub fn device(&self) -> Device {
+        self.parts
+            .first()
+            .map(|(_, t)| t.device())
+            .expect("ParamVec::device: no parameters")
+    }
+
     /// The total number of scalars over all parameters.
     pub fn numel(&self) -> usize {
         self.parts.iter().map(|(_, t)| t.dims()[0]).sum()
@@ -130,7 +141,13 @@ impl ParamVec {
         Self { parts }
     }
 
-    fn map(&self, f: impl Fn(Tensor<1>) -> Tensor<1>) -> Self {
+    /// The parts, flattened, without autodiff and in visit order.
+    pub(super) fn parts(&self) -> &[(ParamId, Tensor<1>)] {
+        &self.parts
+    }
+
+    /// Applies `f` to every part.
+    pub(super) fn map(&self, f: impl Fn(Tensor<1>) -> Tensor<1>) -> Self {
         Self {
             parts: self
                 .parts
