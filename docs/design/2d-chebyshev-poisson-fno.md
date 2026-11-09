@@ -508,8 +508,9 @@ returns to the Chebyshev question (decision 24).
 decision 24, below, are superseded and kept as history. After Phase 4s the work follows
 one research question in three scientific phases: Phase 5 (grid-decoupled operator
 learning), Phase 6 (information content of the samples) and Phase 7 (training-set size
-and sample efficiency). Then come an optional Phase 8 (the θ-map) and Phase 9 (HPC,
-including multi-GPU training), which is kept apart from the scientific results. Section
+and sample efficiency). Then come Phase 8 (experiment tracking, MLflow) and Phase 9
+(HPC, including multi-GPU training, kept apart from the scientific results; since the
+amendment of 2026-11-09 it also carries the θ-map as T5–T6). Section
 13 specifies them. The short Phase 5–9 entries at the end of this section give the task
 rows.
 
@@ -560,13 +561,13 @@ flowchart LR
   subgraph P7["Phase 7: sample efficiency"]
     P7T1["T1 nested subsets"] --> P7T2["T2 training matrix"] --> P7T3["T3 error and cost vs N"]
   end
-  subgraph P8["Phase 8 (optional): MLflow export and θ-map"]
-    P8T1["T1 MLflow export"]
-    P8T2["T2 θ-map model"] --> P8T3["T3 comparison with the Phase 5 baseline"]
+  subgraph P8["Phase 8 (optional): experiment tracking"]
+    P8T1["T1 MLflow export and live logging"]
   end
-  subgraph P9["Phase 9: HPC (systems track)"]
+  subgraph P9["Phase 9: HPC (systems track) and the θ-map"]
     P9T1["T1 checkpoint / resume"] --> P9T2["T2 multi-GPU training"] --> P9T3["T3 1 vs 2 A100"]
     P9T3 --> P9T4["T4 flex run"]
+    P9T5["T5 θ-map model"] --> P9T6["T6 θ-map vs the Phase 5 baseline"]
   end
   P0T1 --> P1T1
   P1T1 --> P2T1
@@ -577,9 +578,9 @@ flowchart LR
   P4SE --> P5T1
   P5T2 -.-> P6T2
   P5T7 --> P7T1
-  P5T7 --> P8T1
-  P4ST16 --> P8T1
-  P5T4 -.-> P8W
+  P5T4 -.-> P8T1
+  P5T7 --> P9T5
+  P4ST16 --> P9T5
   P4ST12 --> P9T1
 ```
 
@@ -859,14 +860,12 @@ Rows are proposals; the phase README and briefs refine them.
 
 - **Exit:** the acceptance criteria of §13.5.
 
-### Phase 8 (optional): θ-map
+### Phase 8 (optional): experiment tracking
 
-Old Phase 6 T3–T4, unchanged in substance (option 2 of §6, its own convention diff). It
-is compared against the Phase 5 baseline, not a p = 4 one (decision 24). It needs Phase 5
-T7 and Phase 4s T16 (merged). It also holds one task independent of the θ-map:
-exporting run directories to a self-hosted MLflow server, which needs only Phase 5 T4's
-run files and can run at any time after it (decision 30, amendments of 2026-10-27 and
-2026-11-06; MLflow replaced W&B). It runs first, as T1; the θ-map is T2–T3. §13.10.
+One task, done: exporting run directories to a self-hosted MLflow server, and opt-in
+live logging during training (T1, #91). It needs only Phase 5 T4's run files (decision
+30, amendments of 2026-10-27, 2026-11-06 and 2026-11-09; MLflow replaced W&B). The θ-map,
+planned here as T2–T3 on 2026-11-06, moved to Phase 9 as T5–T6 on 2026-11-09. §13.10.
 Plan: `docs/phase8/README.md`.
 
 ### Phase 9: HPC (systems track)
@@ -888,6 +887,12 @@ folded into T1) and plot shading (flat cells kept, decision 19).
 | T2 | Data-parallel training with Burn's `all_reduce` in a hand-written step; batch of 20 split across devices, schedule unchanged; reproduces the single-GPU run | T1; two GPUs |
 | T3 | One against two A100s: speedup, efficiency, trace, GPU utilisation | T2 |
 | T4 | The full-length flex run (decision 21) at the baseline (s = 64, p = 0, stage 3), cost stated first | T1; last |
+| T5 | The θ-map model (option 2 of §6, old Phase 6 T3, then Phase 8 T2) and its convention diff; runs on the author's Mac, so it does not wait for the VM | Phase 5 T7, Phase 4s T16 |
+| T6 | θ-map against the Phase 5 baseline (old Phase 6 T4, then Phase 8 T3), same seeds and test sets; a research comparison, outside the systems-track rule | T5 |
+
+T5–T6 joined Phase 9 on 2026-11-09 (decision 30). They are research, not systems work:
+the rule that no Phase 9 speedup enters a conclusion of Phases 5–7 applies to T1–T4, and
+T6 compares error and cost on one device of one kind like Phases 5–7.
 
 ## 11. Tests
 
@@ -918,7 +923,7 @@ folded into T1) and plot shading (flat cells kept, decision 19).
 | 5 | Uniform grid sizes | Keep 32/64/128/256 as stated, and have Phase 0 T3 also measure s = n (33/65/…); switch if it is clearly better (§5.3) |
 | 6 | RLST and BLAS | rlst 0.9 behind the optional feature `chebyshev`, `default-features = false`; Accelerate on macOS, OpenBLAS on Linux; no FFTW, burn, MPI or SuiteSparse (FFTW: superseded by decision 12) |
 | 7 | FFTW later | Only as an optional, non-default backend, after supervisor approval, confirmed licensing and a measured benefit (taken up by decision 12) |
-| 8 | Research programme after Phase 4s (added 2026-10-26) | Phases 5–7 as in §13, with Phase 8 (θ-map, optional) and Phase 9 (HPC) beside them; open choices D1–D8 in §13.15 (decision 30) |
+| 8 | Research programme after Phase 4s (added 2026-10-26) | Phases 5–7 as in §13, with Phase 8 (MLflow, optional) and Phase 9 (HPC; the θ-map as T5–T6 since 2026-11-09) beside them; open choices D1–D8 in §13.15 (decision 30) |
 
 Further choices made in this design. They were not asked individually and stand unless
 overruled later:
@@ -1702,6 +1707,24 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       server on localhost only. Open items (CI steps for `mlflow`, the review leftovers,
       D6's step budget, the aliasing row) are listed in the Phase 8 README. T2 (θ-map
       model) is next. Recorded by the author (AHA-HH), 2026-11-06.
+    - **Amendment, θ-map moved to Phase 9 (2026-11-09).** The θ-map leaves Phase 8 and
+      joins Phase 9 as **T5 (model and convention diff) and T6 (comparison against the
+      Phase 5 baseline)**, after the HPC tasks T1–T4. Phase 8 closes with T1 (MLflow
+      export and live logging, #91) as its only task. The draft brief moves from
+      `docs/phase8/T2-theta-map.md` to `docs/phase9/T5-theta-map.md`, its open decisions
+      renumbered Q8–Q17 → P8–P17 (Phase 9's P1–P7 are taken). T5–T6 are research, not
+      systems work: the rule that no Phase 9 speedup enters a conclusion of Phases 5–7
+      applies to T1–T4. T5 runs on the author's Mac and does not wait for the VM, so the
+      pause of 2026-11-06 covers T2–T4 only. Where earlier text says Phase 8 T2–T3 for the
+      θ-map, read Phase 9 T5–T6; where it says "Phase 8 (θ-map)", read Phase 9 T5–T6. The
+      prerequisite T16 (Phase 4s) now gates Phase 9 T5. **P8–P17 chosen, all as
+      recommended** in the brief: an `FNOConfig` even-extension option (P8), once around
+      the spectral block (P9), grid channels θ/π (P10), 12 modes, ~24 a possible T6 arm
+      (P11), `PoissonConfig::cgl` in the existing loaders (P12), the unweighted relative L²
+      loss (P13), `theta` in the s argument (P14), `predict_poisson` and
+      `poisson_resolution` in scope (P15), the review leftovers S1/S3/R1 worked around
+      (P16), Metal for acceptance if parity passes, else flex (P17). Chosen by the author
+      (AHA-HH), 2026-11-09.
 
 ## 13. Research programme after Phase 4s
 
@@ -1735,9 +1758,10 @@ Phase 5: Grid decoupling ───────► Phase 7: Sample efficiency
               │
               ├───────────────► Phase 6: SVD/information content
               │
-              └───────────────► Phase 8 (optional): θ-map
+              └───────────────► Phase 9 T5–T6: θ-map
 
-Phase 9: HPC (systems track) — independent; no scientific conclusion depends on it
+Phase 8: experiment tracking (MLflow) — independent; a view of the run directories
+Phase 9 T1–T4: HPC (systems track) — independent; no scientific conclusion depends on it
 ```
 
 - **Phase 6** may start beside Phase 5, since the SVD of the fine-grid snapshots needs no
@@ -1745,8 +1769,9 @@ Phase 9: HPC (systems track) — independent; no scientific conclusion depends o
   Phase 5's grids and restriction.
 - **Phase 7** follows Phase 5: it needs a fixed learning resolution, transfer method,
   padding policy, FNO architecture and training baseline.
-- **Phase 8** follows Phase 5, whose baseline it is compared against (decision 24's gate).
-- **Phase 9** can run at any time.
+- **Phase 9 T5–T6 (θ-map)** follow Phase 5, whose baseline they are compared against
+  (decision 24's gate).
+- **Phase 8** and **Phase 9 T1–T4** can run at any time.
 
 ### 13.3 Phase 5: grid-decoupled operator learning
 
@@ -2074,12 +2099,9 @@ Results), and plots of error and cost against s (Phase 5) and against N (Phase 7
 the rank/energy curves (Phase 6). `runs/` and `datasets/` stay git-ignored. Runs cited in
 Results live in the main checkout's `runs/` (as in Phase 4).
 
-### 13.10 Phase 8 (optional): the θ-map
+### 13.10 Phase 8 (optional): experiment tracking
 
-Old Phase 6 T3–T4, unchanged in substance: option 2 of §6 with its own convention diff,
-compared at 65², 129² and across resolutions on the same seeds and test sets. Its baseline
-is the Phase 5 baseline (decision 24's gate: fixed padding, several seeds). It does not
-block the completion of Phases 5–7.
+The θ-map, planned here until 2026-11-09, is Phase 9 T5–T6 (§13.11).
 
 **Task: MLflow export** (decision 30, amendment of 2026-11-06, which replaced the W&B
 export of the amendment of 2026-10-27; Phase 8 T1), in Rust, like the rest of the chain.
@@ -2143,6 +2165,14 @@ round-off, before it is used. **No multi-GPU speedup enters any conclusion about
 resolution, dataset information content or sample efficiency.** Phases 5–7 compare costs
 on one device of one kind.
 
+**The θ-map (T5–T6, since 2026-11-09).** Old Phase 6 T3–T4, then Phase 8 T2–T3,
+unchanged in substance: option 2 of §6 with its own convention diff, compared at 65²,
+129² and across resolutions on the same seeds and test sets. Its baseline is the Phase 5
+baseline (decision 24's gate: fixed padding, several seeds). It does not block the
+completion of Phases 5–7. It is research inside the systems track: the rule above applies
+to T1–T4, and T6 compares on one device of one kind. T5 runs on the author's Mac and
+does not wait for the VM. Brief: `docs/phase9/T5-theta-map.md`.
+
 ### 13.12 Literature terminology
 
 Terms for the literature review. References marked "(to verify)" are to be checked
@@ -2188,7 +2218,7 @@ Stated before the experiments and tested by them. None is a result.
   non-smooth problems.
 - One fine grid (n = 129) for the main study; 257 enters only as a reference check unless
   D8 says otherwise.
-- One model family (FNO); DeepONet and the θ-map (Phase 8) are outside Phases 5–7.
+- One model family (FNO); DeepONet and the θ-map (Phase 9 T5–T6) are outside Phases 5–7.
 - Every Phase 4 result comes from one seed (42). Phase 5 is the first multi-seed study,
   so earlier single-seed numbers are context, not baselines.
 - The choice of R defines what "coarse forcing" means; a different filter can move s*.
