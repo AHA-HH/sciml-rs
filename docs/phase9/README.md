@@ -1,7 +1,8 @@
 # Phase 9: HPC (systems track)
 
-As of 2026-11-09: T2–T4 **paused** (author, 2026-11-06). T1 done (#87); T2's code merged
-(#88), its acceptance run blocked on the VM (see "Paused" below); T3 and T4 not started.
+As of 2026-11-09: T1 done (#87); T2 done (code #88, VM acceptance 2026-11-09 after the
+NCCL fix, criterion P18). The pause of 2026-11-06 is lifted: T3 is next, on the VM; T4
+last.
 The θ-map was T5–T6 here for part of 2026-11-09 and is now an optional phase of its own
 (`docs/optional/README.md`; decision 30, amendment of 2026-11-09). Tasks
 renumbered 2026-11-03 and 2026-11-04 (below). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 9 and the old
@@ -107,6 +108,11 @@ and P7 are decided there; P2 and P3 are confirmed by the author (AHA-HH) for T1,
 - **P7, plot shading: flat cells kept** (chosen by the author, 2026-11-02; decision 19).
 - **P8–P17** are the θ-map's decisions, chosen 2026-11-09 while it was T5 here; they moved
   with it to the optional phase (`docs/optional/README.md`).
+- **P18, T2's round-off (author, 2026-11-09):** a multi-GPU run reproduces the
+  single-GPU one when its final error 4 lies inside Phase 5's range over seeds at that
+  (p, s) and within 2% of the same-seed single-GPU run. Exactness is checked per step by
+  the all-reduce gradient test, not over a whole run: over 500 epochs Adam amplifies the
+  changed summation order.
 
 ## Tasks
 
@@ -153,7 +159,7 @@ Filled in as tasks merge. Phase 9 is done when every row has a value.
 | Item | Value | Source |
 | --- | --- | --- |
 | Checkpoint and resume, exact on flex | Exact on flex. `checkpoint.bin` (weights, Adam record, cosine record, next epoch, resumes, training time) every 25 epochs and after the last, one per run, temp file then rename; `train_poisson -- --resume runs/<dir>` reads the run's configs, truncates `metrics.csv` and replays the shuffle. Tests: 6 epochs at cadence 2, killed in epoch 3 and resumed: every row but `epoch_time_s` and every weight bit-identical on flex; on metal the same test passes with rows bit-identical and weights within 1e-5 relative (the tolerance tested, not a measured spread). Acceptance (flex, stage 2, s = 32, p = 0, N = 100, 6 epochs at cadence 2, temporary literals): SIGINT during epoch 5 after 4 rows, resumed from epoch 4; all 6 rows equal an uninterrupted run's but `epoch_time_s`, and `predict_poisson`'s `errors.json` (errors 2–4, all digits) identical; `costs.json`: `resumes` 1 | T1 |
-| Multi-GPU run reproduces single-GPU, round-off stated | | T2 |
+| Multi-GPU run reproduces single-GPU, round-off stated | Reproduces it (P18). 2× A100 80 GB PCIe (topology `NODE`, no NVLink), driver 610.57.04 (CUDA ≤ 13.3), CUDA 12.6.3, NCCL 2.29.7+cuda12.6 from the VM's Spack environment `sciml-gpu`, at `362367e`. The all-reduce gradient test passes. Baseline (s = 64, p = 0, N = 1000, seed 42, 500 epochs) on devices 0,1, `runs/poisson_fno_n129_s64_p0_1794233847`, against Phase 5's `…_1793188648` on one A100: final test relative L² 1.0837e-2 against 1.0947e-2, error 4 1.0842e-2 against 1.0952e-2 (−1.0%), inside Phase 5's five-seed range 1.041e-2–1.127e-2; learning rate identical every epoch. The curves agree to five digits at epoch 0, then part (test L² 0.1085 against 0.0388 at epoch 14, a loss spike in one run only) and close again as the rate decays (mean difference 0.94% over the last 50 epochs): round-off in the summation order, amplified by Adam, not a bias. Timing (3.87 s/epoch against 1.7) is T3's and enters no result here | T2 |
 | Speedup and efficiency, 1 vs 2 A100 | | T3 |
 | Flex run against the §11 threshold | | T4 |
 
@@ -170,8 +176,11 @@ T2–T4 paused by the author. Where each task stands and what restarts it:
   "CUDA Version" (author's choice of tooling, 2026-11-05); `spack env activate` before the
   run; then the gradient test with `NCCL_DEBUG=WARN`, the 2-GPU baseline run and
   `predict_poisson`, as in #88's runbook. Record driver, CUDA and NCCL versions with the
-  result.
-- **T3:** waits for T2's acceptance; runbook written then.
+  result. **Resolved 2026-11-09:** Spack environment `sciml-gpu` on the VM (NCCL
+  2.29.7 `cuda_arch=80 fabrics=none` against the system CUDA 12.6.3 as an external;
+  gnuplot with cairo), set up by `source ~/sciml-gpu.sh` before any `cargo` command;
+  T2 accepted (Results, P18).
+- **T3:** unblocked by T2's acceptance; runbook written with its brief.
 - **T4:** the 3-epoch timing is taken (about 29 s/epoch on the M2 Pro, about 4.1 h for
   500); the full run is last, by the author's choice.
 - **T1 follow-up merged:** #89 (metal round-off in run-against-run test comparisons).
@@ -180,6 +189,7 @@ T2–T4 paused by the author. Where each task stands and what restarts it:
 
 - [ ] T1–T4 merged, or a task dropped with the reason recorded in design §12.
 - [x] P1–P7 confirmed by the author and recorded in design §12 (2026-11-06).
+- [x] P18 (T2's round-off criterion) chosen by the author and recorded in design §12 (2026-11-09).
 - [ ] No Phase 9 speedup cited in a Phase 5–7 result.
 - [ ] Every row of Results filled in.
 - [ ] The "Current phase" bullet in `CLAUDE.md` updated for what comes next.
