@@ -87,6 +87,15 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - `training/`: `config` (`TrainingConfig`), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
   `training_loop` with its `EpochObserver`, `train_fno`), `learner` (Burn `Learner` impls).
+- `optim/gauss_newton/` (Phase 10 T1, generic over any Burn `Module`; imports nothing from
+  `models/` or `training/`): `ParamVec` (a model's float parameters as one vector, on
+  the model's device without autodiff), `params` / `with_params`, `LeastSquares`
+  (residual, optional exact J v), `vjp` (Jᵀu, one backward), `jvp` (central finite
+  differences, step ∛u · max(‖θ‖, 1) / ‖v‖), `adjoint_error`, and `cg` (preconditioned
+  CG, warm start, Martens' stop, Lanczos Ritz values). Its FNO tests are in
+  `tests/gauss_newton_fno.rs` (helpers in `tests/gauss_newton_common/`), and the f64
+  ones are `#[ignore]`d in `tests/gauss_newton_f64.rs` (flex's f64 rfft uses f32
+  twiddles).
 - `runs` (`RunDir`, `EpochMetrics`, `RunCosts`) owns the run directory:
   `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
