@@ -53,8 +53,8 @@ pub struct TrainingConfig {
 }
 
 impl TrainingConfig {
-    /// Optimisation steps a run takes on `n_train` samples: `epochs` × ⌈`n_train` /
-    /// `batch_size`⌉, since an epoch's last batch may be partial. The trainer's cosine
+    /// Optimisation steps a run of all `epochs` takes on `n_train` samples: `epochs` ×
+    /// ⌈`n_train` / `batch_size`⌉, since an epoch's last batch may be partial. The trainer's cosine
     /// schedule spans exactly these steps.
     pub fn total_steps(&self, n_train: usize) -> usize {
         self.epochs * n_train.div_ceil(self.batch_size)
