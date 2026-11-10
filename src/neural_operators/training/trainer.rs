@@ -348,9 +348,10 @@ fn run_loop<const R: usize, const RM1: usize>(
     let carried_time_s = state.training_time_s;
     let start = Instant::now();
     // a run resumed from the checkpoint its budget stopped it at has nothing left to train
-    let first_epoch = match train_cfg.time_budget_s {
-        Some(b) if state.next_epoch > 0 && carried_time_s >= b => train_cfg.epochs,
-        _ => state.next_epoch,
+    let first_epoch = if state.next_epoch > 0 && train_cfg.budget_spent(carried_time_s) {
+        train_cfg.epochs
+    } else {
+        state.next_epoch
     };
 
     for epoch in first_epoch..train_cfg.epochs {
@@ -405,15 +406,14 @@ fn run_loop<const R: usize, const RM1: usize>(
         metrics.push(record);
 
         let next_epoch = epoch + 1;
-        let out_of_time = train_cfg
-            .time_budget_s
-            .is_some_and(|b| carried_time_s + start.elapsed().as_secs_f64() >= b);
-        let last = next_epoch == train_cfg.epochs || out_of_time;
+        // one clock read: the stop decision and the checkpoint's time agree
+        let trained_s = carried_time_s + start.elapsed().as_secs_f64();
+        let last = next_epoch == train_cfg.epochs || train_cfg.budget_spent(trained_s);
         if let Some((run, every)) = checkpoints
             && (next_epoch % every == 0 || last)
         {
             state.next_epoch = next_epoch;
-            state.training_time_s = carried_time_s + start.elapsed().as_secs_f64();
+            state.training_time_s = trained_s;
             if let Err(e) = run.save_checkpoint_gn(
                 &state,
                 &model,
@@ -424,7 +424,7 @@ fn run_loop<const R: usize, const RM1: usize>(
                 panic!("could not save the checkpoint after epoch {epoch}: {e}");
             }
         }
-        if out_of_time {
+        if last {
             break;
         }
     }

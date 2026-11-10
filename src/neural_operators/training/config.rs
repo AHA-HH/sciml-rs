@@ -60,6 +60,12 @@ impl TrainingConfig {
         self.epochs * n_train.div_ceil(self.batch_size)
     }
 
+    /// Whether `trained_s` seconds of training have spent [`time_budget_s`](Self::time_budget_s);
+    /// always `false` without a budget.
+    pub fn budget_spent(&self, trained_s: f64) -> bool {
+        self.time_budget_s.is_some_and(|b| trained_s >= b)
+    }
+
     /// The Gauss–Newton settings if this run trains with Gauss–Newton, else `None` (Adam).
     pub fn gauss_newton(&self) -> Option<&GaussNewtonConfig> {
         match &self.optimizer {

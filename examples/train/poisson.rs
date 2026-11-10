@@ -302,11 +302,17 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         gn || time_budget_s.is_none(),
         "TIME_BUDGET_S is for OPTIMIZER=gauss-newton runs"
     );
+    // NaN would never stop the run
+    assert!(
+        time_budget_s.is_none_or(|b| b.is_finite() && b > 0.0),
+        "TIME_BUDGET_S must be a positive number of seconds, got {time_budget_s:?}"
+    );
     let batch_size = if gn {
         env_var("GN_BATCH_SIZE").unwrap_or(GN_BATCH_SIZE)
     } else {
         BATCH_SIZE
     };
+    assert!(batch_size > 0, "GN_BATCH_SIZE must be positive");
     let train_cfg = TrainingConfig::new()
         .with_epochs(EPOCHS)
         .with_time_budget_s(time_budget_s)
@@ -472,16 +478,22 @@ fn main() {
         also,
     );
     let training_time_s = prior_time_s + train_start.elapsed().as_secs_f64();
-    let steps = train_cfg.total_steps(n_train);
-    // Adam: one forward and one backward per step; Gauss-Newton: from gn_steps.csv,
-    // every session's
-    let (forward_passes, backward_passes) = match train_cfg.gauss_newton() {
-        None => (steps, steps),
-        Some(_) => training_passes(
-            &run.gn_passes()
+    // Adam: every planned step (it takes no budget), one forward and one backward each;
+    // Gauss-Newton: the steps taken, from gn_steps.csv, every session's (a budget may stop
+    // it before EPOCHS)
+    let (steps, forward_passes, backward_passes) = match train_cfg.gauss_newton() {
+        None => {
+            let steps = train_cfg.total_steps(n_train);
+            (steps, steps, steps)
+        }
+        Some(_) => {
+            let p = run
+                .gn_passes()
                 .expect("could not read gn_steps.csv")
-                .expect("a Gauss-Newton run writes gn_steps.csv"),
-        ),
+                .expect("a Gauss-Newton run writes gn_steps.csv");
+            let (forward, backward) = training_passes(&p);
+            (p.steps, forward, backward)
+        }
     };
 
     let costs = RunCosts {
