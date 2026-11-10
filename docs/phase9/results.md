@@ -78,3 +78,37 @@ script `run.sh`, `gpu_state.log` (`nvidia-smi` before and after each run), `dmon
 the two traces `nsys_P1_1gpu_s64.nsys-rep` (80 MB) and `nsys_P2_2gpu_s64.nsys-rep`
 (88 MB), and the plots `plots/t3_epoch_times.png` and `plots/t3_gpu_utilisation.png`.
 The traces are too large for a PR attachment, so the PR carries their summaries.
+
+## T4: the full-length flex run (2026-11-10)
+
+**Machine.** The author's Mac: Apple M2 Pro, macOS 26.6.2; flex backend (pure-Rust CPU),
+release build at `3027a78`. Run in tmux, log `logs/t4_flex.log`.
+
+**Run.** The baseline (stage 3, n = 129, s = 64, p = 0, N = 1000, seed 42, batch 20,
+12 modes, 500 epochs), hyperparameters unchanged: `runs/poisson_fno_n129_s64_p0_1794241907`
+(git-ignored). 13,506 s of training (3.75 h; median 26.8 s/epoch over epochs 5–499,
+26.5–40.9), no resumes; T1's checkpoint every 25 epochs. Evaluated with
+`predict_poisson` on flex.
+
+| | flex (T4) | cuda, same seed (Phase 5, `…_1793188648`) |
+| --- | --- | --- |
+| Final test relative L² (epoch 499) | **1.0210e-2** | 1.0947e-2 |
+| Error 4 (fine-grid, mean / max) | **1.0215e-2** / 4.150e-2 | 1.0952e-2 / 3.249e-2 |
+| Error 2 (transfer floor, mean) | 2.4545e-5 | 2.4545e-5 |
+| Error 3 against `metrics.csv` | rel diff 1.1e-7 | – |
+| Boundary RMS / error 4 | 0.009 | – |
+| s/epoch | 26.8 (M2 Pro) | 1.7 (A100) |
+
+**Acceptance: met.** Test relative L² 1.021e-2 ≤ 2e-2 (§11) on flex.
+
+**Comparison.** Flex ends 6.7% below cuda (error 4), beyond round-off, and the difference
+is the starting point, not the backend's arithmetic. The two runs differ already at epoch 0
+(test L² 0.2892 against 0.2774), whereas T2's two cuda runs agreed there to five
+digits. The same seed draws different numbers on the two backends: flex seeds a host
+`FlexRng` (`burn-flex/src/backend.rs`), cubecl its own GPU generator
+(`cubek::random::seed`, `burn-cubecl/src/backend.rs`), so the initial weights differ and
+the flex run is in effect another seed. Its error 4 lies 1.9% below the best of Phase 5's
+five cuda seeds (range 1.041e-2–1.127e-2). The learning rate is the same every epoch (to one f64 ulp, ≤ 1e-15 relative);
+the curves cross repeatedly during training and differ by 6.7% on average over the last
+50 epochs (`logs/t4/plots/t4_flex_vs_cuda.png`). Flex's error 2 equals cuda's to five
+digits: the transfer is deterministic host code.
