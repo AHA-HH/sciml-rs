@@ -10,12 +10,13 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
-- Current phase: Phase 10 (Gauss–Newton optimisation), planned 2026-11-09, not started:
+- Current phase: Phase 10 (Gauss–Newton optimisation), planned 2026-11-09:
   docs/phase10/README.md, briefs T1–T6 (T5–T6 drafts), design §13.17, decision 31,
-  decisions G1–G8 chosen 2026-11-09. Next is T1, the generic core. A model-agnostic,
+  decisions G1–G8 chosen 2026-11-09. T1, the generic core, done (#98); T2, the
+  `GaussNewton` optimiser, done (#102); next is T3, trainer integration. A model-agnostic,
   matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: the Burn fork
   has reverse mode only), validated on the Phase 5 baseline. G8, amended 2026-11-09: it
-  starts now and waits neither for Phase 9 nor for the θ-map. Code is written on the Mac;
+  waits neither for Phase 9 (now done) nor for the θ-map. Code is written on the Mac;
   T3's cuda f64 check and the runs (T4–T6) are on one A100 on the VM (no NCCL needed).
 - The θ-map is an optional, unnumbered phase since 2026-11-09 (decision 30):
   docs/optional/README.md, design §13.18. T1, the θ-map model (brief
@@ -26,7 +27,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   MLflow export of run directories to a self-hosted server and opt-in live logging
   (MLflow replaced the W&B task). Its θ-map tasks T2–T3 are now the optional phase. Open
   items (mlflow CI steps, review leftovers, D6, the aliasing row) are in its README.
-- Phase 9 T1–T4 (HPC), planned 2026-11-02, renumbered 2026-11-03
+- Phase 9 (HPC) is done 2026-11-10: docs/phase9/README.md. T1–T4, planned 2026-11-02, renumbered 2026-11-03
   and 2026-11-04: briefs T1–T4 (T1 checkpoint and resume, T2
   multi-GPU, T3 scaling, T4 flex run; three tasks closed at planning are in its "Closed
   at planning"). T1 done (#87); T2 done (code #88, VM acceptance 2026-11-09, criterion

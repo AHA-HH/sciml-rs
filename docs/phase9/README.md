@@ -1,8 +1,8 @@
 # Phase 9: HPC (systems track)
 
-As of 2026-11-09: T1 done (#87); T2 done (code #88, VM acceptance 2026-11-09 after the
+**Done 2026-11-10.** T1 done (#87); T2 done (code #88, VM acceptance 2026-11-09 after the
 NCCL fix, criterion P18); T3 done (2026-11-09, `results.md`). The pause of 2026-11-06 is
-lifted. T4 done (2026-11-10, flex on the author's Mac, `results.md`).
+lifted. T4 done (#101, 2026-11-10, flex on the author's Mac, `results.md`).
 The θ-map was T5–T6 here for part of 2026-11-09 and is now an optional phase of its own
 (`docs/optional/README.md`; decision 30, amendment of 2026-11-09). Tasks
 renumbered 2026-11-03 and 2026-11-04 (below). Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 9 and the old
@@ -175,9 +175,9 @@ round-off in run-against-run test comparisons) merged during the pause.
 
 ## Exit checklist
 
-- [ ] T1–T4 merged, or a task dropped with the reason recorded in design §12.
+- [x] T1–T4 merged, or a task dropped with the reason recorded in design §12 (#87; #88 and #99; #100; #101).
 - [x] P1–P7 confirmed by the author and recorded in design §12 (2026-11-06).
 - [x] P18 (T2's round-off criterion) chosen by the author and recorded in design §12 (2026-11-09).
-- [ ] No Phase 9 speedup cited in a Phase 5–7 result.
+- [x] No Phase 9 speedup cited in a Phase 5–7 result (their results and READMEs checked 2026-11-10).
 - [x] Every row of Results filled in.
-- [ ] The "Current phase" bullet in `CLAUDE.md` updated for what comes next.
+- [x] The "Current phase" bullet in `CLAUDE.md` updated for what comes next (Phase 10).

@@ -907,6 +907,11 @@ folded into T1) and plot shading (flat cells kept, decision 19).
 The θ-map was T5–T6 here for part of 2026-11-09, then moved the same day to the optional
 θ-map phase (below; decision 30).
 
+- **Status (2026-11-10):** done. T1–T4 merged (#87; #88 with the VM acceptance #99; #100;
+  #101). Checkpoint and resume exact on flex; two A100s reproduce one (P18) but run at
+  0.44× at s = 64, the step being host-bound; the §11 pipeline row met on flex (test
+  relative L² 1.021e-2), closing decision 21. Results: `docs/phase9/results.md`.
+
 ### Phase 10: Gauss–Newton optimisation
 
 A matrix-free, damped Gauss–Newton optimiser (Levenberg–Marquardt with truncated CG),

@@ -1,6 +1,6 @@
 # Phase 10: Gauss–Newton optimisation
 
-As of 2026-11-09: **started.** T1 (the generic core) done (#98); T2 (the optimiser) in review. Plan and briefs T1–T6 written 2026-11-09;
+As of 2026-11-10: **started.** T1 (the generic core) done (#98); T2 (the optimiser) done (#102); T3 next. Plan and briefs T1–T6 written 2026-11-09;
 decisions G1–G8 chosen by the author the same day (below). It can start now: G8, amended
 2026-11-09, has it wait neither for Phase 9 nor for the θ-map (now an optional phase).
 Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 10, §13.17, decision
