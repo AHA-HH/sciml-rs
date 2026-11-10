@@ -30,7 +30,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   and 2026-11-04: briefs T1–T4 (T1 checkpoint and resume, T2
   multi-GPU, T3 scaling, T4 flex run; three tasks closed at planning are in its "Closed
   at planning"). T1 done (#87); T2 done (code #88, VM acceptance 2026-11-09, criterion
-  P18; the pause of 2026-11-06 is lifted); T3 next, T4 not started. T2 and T3 run on a
+  P18; the pause of 2026-11-06 is lifted); T3 done (results docs/phase9/results.md:
+  the step is host-bound, 2 GPUs 0.44× at s = 64); T4 (flex) running. T2 and T3 run on a
   2× A100 VM: code here, cuda checks and GPU runs there. Phases 5–7, the research programme (design §13.16), are
   done. Phase 7 (training-set size and sample efficiency) is done 2026-10-30:
   docs/phase7/README.md, results docs/phase7/results.md; D7 (mean fine-grid error
