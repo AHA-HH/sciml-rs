@@ -953,7 +953,7 @@ and no phase waits for it. §13.18. Plan: `docs/optional/README.md`.
 | GRF sampler | same seed gives the same field at every n (nodes in common); empirical covariance against the formula | statistical, stated in the brief |
 | `generate_poisson` label check | exact sine-series solution, every sample; recorded in the sidecar | aborts above 1e-8 relative CC-L² for n ≥ 65 |
 | Loader | shapes, normaliser asymmetry as in Darcy's tests | exact |
-| Pipeline | 65² training on metal (Phase 3 T2) and cuda (Phase 4 T2); on flex in Phase 5 (decision 21) | test relative L² ≤ 2e-2, f32 (decision 16) |
+| Pipeline | 65² training on metal (Phase 3 T2) and cuda (Phase 4 T2); on flex at 129², s = 64 (Phase 9 T4, decision 21) | test relative L² ≤ 2e-2, f32 (decision 16) |
 
 ## 12. Questions for sign-off
 
@@ -1306,6 +1306,12 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - **Options for the Phase 5 task**, chosen when it is planned (§10): flex at p = 0,
       a Bluestein fix in Burn first, or the full p = 4 run.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-14.
+    - **Closed (2026-11-10), Phase 9 T4.** The run was made at p = 0 (the baseline Phase 6
+      settled, no Bluestein) and at stage 3, s = 64 (the Phase 5 baseline), on flex on an
+      Apple M2 Pro: 500 epochs, 3.75 h, test relative L² 1.021e-2 ≤ 2e-2, error 4
+      1.0215e-2. The §11 pipeline row is met on flex, its backward pass included. Cuda
+      on the same seed gives 1.0952e-2; the gap is the backends' different random
+      draws from one seed, not their arithmetic (`docs/phase9/results.md`, T4).
 22. **`poisson_plot` on every stage; the worst sample (2026-10-15).**
     - **What changes.** A small follow-up to Phase 4 T3, outside the T1–T4 briefs, as the
       cells fix (#29) was to T1. `poisson_plot` was hard-wired to stage 2 (n = 65), so it
