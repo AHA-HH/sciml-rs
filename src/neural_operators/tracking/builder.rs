@@ -443,6 +443,8 @@ mod tests {
             num_params: 7,
             optimisation_steps: Some(100),
             resumes: None,
+            forward_passes: None,
+            backward_passes: None,
         })
         .unwrap();
     }

@@ -1,6 +1,8 @@
 //! `metrics.csv`: per-epoch training metrics, one row per epoch with a header row. Since
 //! Phase 5 T4 a sixth column, `epoch_time_s`, follows the original five; files written
-//! before it have five columns and still read, with `epoch_time_s` = `None`.
+//! before it have five columns and still read, with `epoch_time_s` = `None`. In a
+//! Gauss–Newton run (Phase 10 T3) `current_lr` holds the damping λ, since Gauss–Newton
+//! has no learning rate.
 
 use super::EpochMetrics;
 use std::fs::{File, OpenOptions};
@@ -70,8 +72,8 @@ pub(super) fn append_metrics_row(path: impl AsRef<Path>, m: &EpochMetrics) -> io
     )
 }
 
-/// Rewrites a metrics CSV keeping the header and the rows whose epoch is below
-/// `next_epoch`, byte for byte.
+/// Rewrites a CSV whose first column is the epoch (`metrics.csv`, `gn_steps.csv`),
+/// keeping the header and the rows whose epoch is below `next_epoch`, byte for byte.
 pub(super) fn truncate_metrics_csv(path: impl AsRef<Path>, next_epoch: usize) -> io::Result<()> {
     let text = std::fs::read_to_string(&path)?;
     let mut kept = String::with_capacity(text.len());

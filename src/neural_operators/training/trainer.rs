@@ -25,10 +25,12 @@ use crate::neural_operators::{
         transforms::normalizers::{FlatDecoder, UnitGaussianNormalizer},
     },
     models::fno::{FNO, FNOConfig},
-    runs::{Checkpoint, CheckpointState, EpochMetrics, RunDir},
+    optim::gauss_newton::GaussNewton,
+    runs::{Checkpoint, CheckpointState, EpochMetrics, GnStepRecord, RunDir},
     training::{
         config::TrainingConfig,
         data_parallel::{Peers, Replica, train_epoch_parallel},
+        gn::train_epoch_gn,
         step::{StepLoss, evaluate, forward_loss},
     },
 };
@@ -39,7 +41,8 @@ pub struct EpochMeans {
     pub train_mse: f32,
     /// Relative L² averaged over the epoch's samples.
     pub train_l2: f32,
-    /// Learning rate after the epoch's final step.
+    /// Learning rate after the epoch's final step. For a Gauss–Newton run (Phase 10 T3), which has no learning rate, the damping λ the
+    /// next step will use.
     pub last_lr: f64,
 }
 
@@ -139,6 +142,10 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
     /// training split ([`replicas`](crate::neural_operators::training::data_parallel::replicas));
     /// empty, the default, for one device.
     pub replicas: Vec<Replica<R, RM1>>,
+    /// The Gauss–Newton optimiser when `TrainingConfig::optimizer` asks for it (Phase 10
+    /// T3); `None` trains with `optim` and `scheduler`, which a Gauss–Newton run leaves
+    /// unused.
+    pub gn: Option<GaussNewton>,
 }
 
 /// Builds the model, optimizer, schedule and loaders.
@@ -210,6 +217,9 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
         train_loader,
         test_loader,
         replicas: Vec::new(),
+        gn: train_cfg
+            .gauss_newton()
+            .map(|cfg| GaussNewton::new(cfg.clone())),
     }
 }
 
@@ -254,25 +264,59 @@ fn epoch_line(m: &EpochMetrics) -> String {
 /// checkpointed run. On flex the resumed run then matches the uninterrupted one bit for
 /// bit.
 ///
+/// With `components.gn`, each epoch is [`train_epoch_gn`] instead (Phase 10 T3), and the
+/// checkpoints carry the Gauss–Newton state; `resume` must then hold one.
+///
 /// With `components.replicas`, each epoch is data-parallel
 /// ([`data_parallel`](crate::neural_operators::training::data_parallel)): the replicas
 /// start as copies of the (possibly resumed) model and optimiser, their loaders replay the
 /// same shuffle, and evaluation, the observer and checkpoints see the first replica.
+///
+/// `training_loop` drops each Gauss–Newton step's row; [`train_components`] writes them to
+/// `gn_steps.csv`.
 ///
 /// Prints nothing itself: pass [`print_epoch`] (or a closure calling it) for the console
 /// line.
 ///
 /// # Panics
 ///
-/// As [`train_epoch`] and [`evaluate`]; if `k` is 0; if a checkpoint cannot be written.
+/// As [`train_epoch`] and [`evaluate`]; if `k` is 0; if a checkpoint cannot be written;
+/// for Gauss–Newton with replicas (data-parallel Gauss–Newton is out of scope), or a
+/// `resume` whose optimiser state does not match the components'.
 pub fn training_loop<const R: usize, const RM1: usize>(
-    mut components: TrainingComponents<R, RM1>,
+    components: TrainingComponents<R, RM1>,
     train_cfg: &TrainingConfig,
     decoder: Option<&FlatDecoder>,
     on_epoch: &mut EpochObserver<'_, R>,
     checkpoints: Option<(&RunDir, usize)>,
     resume: Option<Checkpoint<R>>,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
+    run_loop(
+        components,
+        train_cfg,
+        decoder,
+        on_epoch,
+        &mut |_| {},
+        checkpoints,
+        resume,
+    )
+}
+
+/// [`training_loop`] with `on_gn_step`, called after each Gauss–Newton step with its row
+/// (never for Adam).
+fn run_loop<const R: usize, const RM1: usize>(
+    mut components: TrainingComponents<R, RM1>,
+    train_cfg: &TrainingConfig,
+    decoder: Option<&FlatDecoder>,
+    on_epoch: &mut EpochObserver<'_, R>,
+    on_gn_step: &mut dyn FnMut(&GnStepRecord),
+    checkpoints: Option<(&RunDir, usize)>,
+    resume: Option<Checkpoint<R>>,
+) -> (FNO<R>, Vec<EpochMetrics>) {
+    assert!(
+        components.gn.is_none() || components.replicas.is_empty(),
+        "Gauss-Newton trains on one device: data-parallel Gauss-Newton is out of scope"
+    );
     // evaluation tensors live on the inner device (model.valid())
     let eval_decoder = decoder.map(FlatDecoder::inner);
     let mut model = components.model;
@@ -282,6 +326,12 @@ pub fn training_loop<const R: usize, const RM1: usize>(
         model = ck.model;
         components.optim = components.optim.load_record(ck.optim);
         components.scheduler = components.scheduler.load_record(ck.scheduler);
+        components.gn = match (components.gn, ck.gn) {
+            (None, None) => None,
+            (Some(gn), Some(state)) => Some(GaussNewton::from_state(gn.config().clone(), state)),
+            (Some(_), None) => panic!("a Gauss-Newton run's checkpoint has no Gauss-Newton state"),
+            (None, Some(_)) => panic!("an Adam run's checkpoint has a Gauss-Newton state"),
+        };
         let loaders = std::iter::once(&components.train_loader)
             .chain(components.replicas.iter().map(|r| &r.train_loader));
         for loader in loaders {
@@ -299,15 +349,24 @@ pub fn training_loop<const R: usize, const RM1: usize>(
     for epoch in state.next_epoch..train_cfg.epochs {
         let epoch_start = Instant::now();
 
-        let (m, means) = match peers.as_mut() {
-            None => train_epoch(
+        let (m, means) = match (components.gn.as_mut(), peers.as_mut()) {
+            (Some(gn), None) => train_epoch_gn(
+                model,
+                &components.train_loader,
+                gn,
+                decoder,
+                epoch,
+                on_gn_step,
+            ),
+            (None, None) => train_epoch(
                 model,
                 &components.train_loader,
                 &mut components.optim,
                 &mut components.scheduler,
                 decoder,
             ),
-            Some(peers) => train_epoch_parallel(
+            (Some(_), Some(_)) => unreachable!("Gauss-Newton with replicas is rejected above"),
+            (None, Some(peers)) => train_epoch_parallel(
                 model,
                 &components.train_loader,
                 &mut components.optim,
@@ -343,9 +402,13 @@ pub fn training_loop<const R: usize, const RM1: usize>(
             if next_epoch % every == 0 || next_epoch == train_cfg.epochs {
                 state.next_epoch = next_epoch;
                 state.training_time_s = carried_time_s + start.elapsed().as_secs_f64();
-                if let Err(e) =
-                    run.save_checkpoint(&state, &model, &components.optim, &components.scheduler)
-                {
+                if let Err(e) = run.save_checkpoint_gn(
+                    &state,
+                    &model,
+                    &components.optim,
+                    &components.scheduler,
+                    components.gn.as_ref().map(GaussNewton::state),
+                ) {
                     panic!("could not save the checkpoint after epoch {epoch}: {e}");
                 }
             }
@@ -398,7 +461,10 @@ pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
 /// `checkpoint_every`, if `Some(k)`, writes `run`'s checkpoint after every k-th epoch and
 /// after the last; `resume` continues from a checkpoint read with [`RunDir::checkpoint`]
 /// (see [`training_loop`]). The caller truncates `metrics.csv` to the checkpoint first
-/// ([`RunDir::truncate_metrics`]). `also`, if given, is called after each epoch's line
+/// ([`RunDir::truncate_metrics`], and [`RunDir::truncate_gn_steps`] for Gauss–Newton).
+/// A Gauss–Newton run appends each step's row to `gn_steps.csv`
+/// ([`RunDir::append_gn_step`]); a failed append warns, as for `metrics.csv`. `also`, if
+/// given, is called after each epoch's line
 /// and row (live MLflow logging in `train_poisson`, Phase 8 T1). Returns the metrics of
 /// the epochs this call ran.
 ///
@@ -431,12 +497,21 @@ pub fn train_components<const R: usize, const RM1: usize>(
             also(m, model);
         }
     };
+    let mut on_gn_step = |r: &GnStepRecord| {
+        if let Err(e) = run.append_gn_step(r) {
+            eprintln!(
+                "warning: could not append step {} to gn_steps.csv ({e})",
+                r.step.step
+            );
+        }
+    };
     let decoder = y_norm.map(|y| FlatDecoder::new(y, device));
-    let trained = training_loop(
+    let trained = run_loop(
         components,
         train_cfg,
         decoder.as_ref(),
         &mut on_epoch,
+        &mut on_gn_step,
         checkpoint_every.map(|k| (run, k)),
         resume,
     );
@@ -880,6 +955,180 @@ mod tests {
         let last = run.checkpoint::<4>(&device).unwrap().unwrap();
         assert_eq!(last.state.next_epoch, 2);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // --- Phase 10 T3: Gauss-Newton in the trainer ---
+
+    /// A `train_cfg.json` from before Phase 10 T3 (no `optimizer`) builds Adam components
+    /// and trains as the same settings given in code, from one initial model.
+    #[test]
+    fn old_training_config_trains_as_adam() {
+        let old = r#"{"epochs": 2, "batch_size": 2, "test_batch_size": 2,
+            "learning_rate": 0.001, "weight_decay": 0.0001, "min_lr": 1e-7, "seed": 42}"#;
+        let loaded = TrainingConfig::load_binary(old.as_bytes()).unwrap();
+        let given = TrainingConfig::new()
+            .with_epochs(2)
+            .with_batch_size(2)
+            .with_test_batch_size(2);
+        let device = Device::default().autodiff();
+        let build = |cfg: &TrainingConfig| {
+            build_training_components::<3, 2, _>(
+                &tiny_model_cfg(),
+                cfg,
+                tiny_dataset(5),
+                tiny_dataset(3),
+                &device,
+            )
+        };
+        let a = build(&loaded);
+        let mut b = build(&given);
+        b.model = a.model.clone();
+        assert!(a.gn.is_none(), "an old config must train with Adam");
+        let (_, a) = train_built(a, None, &loaded, &device, &mut |_, _| {});
+        let (_, b) = train_built(b, None, &given, &device, &mut |_, _| {});
+        assert_same_metrics(&a, &b);
+    }
+
+    /// A Gauss-Newton run of `train_poisson_smoke`'s fixture writes `metrics.csv` and one
+    /// `gn_steps.csv` row per step, and checkpoints its state; stopped in its second epoch
+    /// and resumed from the first epoch's checkpoint, it ends as the uninterrupted run
+    /// does, bit for bit on flex.
+    #[test]
+    fn gauss_newton_smoke_run_resumes_exactly() {
+        use crate::neural_operators::{
+            optim::gauss_newton::GaussNewtonConfig, training::config::OptimizerConfig,
+        };
+        let dir = std::env::temp_dir().join(format!("sciml_rs_gn_smoke_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let train_path = write_poisson_split(&dir, "train.npz", POISSON_N_TRAIN, 0.0);
+        let test_path = write_poisson_split(&dir, "test.npz", POISSON_N_TEST, 0.5);
+        let cfg = PoissonConfig::new(
+            DatasetConfig {
+                n_train: POISSON_N_TRAIN,
+                n_test: POISSON_N_TEST,
+            },
+            POISSON_N,
+        );
+        let model_cfg = FNOConfig::new(vec![2, 2], 1, 1)
+            .with_hidden_channels(4)
+            .with_n_layers(2);
+        let gn = GaussNewtonConfig::new()
+            .with_cg_max_iters(5)
+            .with_adjoint_check_every(2);
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(3)
+            .with_batch_size(2)
+            .with_test_batch_size(2)
+            .with_optimizer(Some(OptimizerConfig::GaussNewton(gn)));
+        let device = Device::default().autodiff();
+        let (_, _, normalizers) =
+            load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
+        let build = || {
+            let (train, test, _) =
+                load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
+            build_training_components::<4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
+        };
+        let whole = build();
+        let mut first = build();
+        first.model = whole.model.clone();
+
+        let straight = RunDir::create(&dir, "gn_straight").unwrap();
+        straight.save_configs(&model_cfg, &train_cfg, &cfg).unwrap();
+        let (straight_model, metrics) = train_components(
+            whole,
+            Some(&normalizers.y),
+            &train_cfg,
+            &device,
+            &straight,
+            Some(1),
+            None,
+            None,
+        );
+        assert_eq!(metrics.len(), 3);
+        for m in &metrics {
+            assert!(m.train_l2.is_finite() && m.test_l2.is_finite(), "{m:?}");
+            assert!(m.current_lr > 0.0, "the damping λ is reported: {m:?}");
+        }
+        // 3 epochs of 2 batches, one step each
+        let passes = straight.gn_passes().unwrap().unwrap();
+        assert_eq!(passes.steps, 6);
+        assert!(passes.backward >= passes.steps, "{passes:?}");
+        // one metrics forward per step on top of the optimiser's
+        assert_eq!(
+            crate::neural_operators::training::gn::training_passes(&passes),
+            (passes.forward + 6, passes.backward)
+        );
+        let ck = straight.checkpoint::<4>(&device).unwrap().unwrap();
+        assert_eq!(ck.gn.expect("Gauss-Newton state").step, 6);
+
+        let run = RunDir::create(&dir, "gn_resumed").unwrap();
+        run.save_configs(&model_cfg, &train_cfg, &cfg).unwrap();
+        let decoder = FlatDecoder::new(&normalizers.y, &device);
+        // killed in epoch 1 after its metrics row and its steps' rows, before its checkpoint
+        let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_loop(
+                first,
+                &train_cfg,
+                Some(&decoder),
+                &mut |m, _| {
+                    run.append_metrics(m).unwrap();
+                    if m.epoch == 1 {
+                        panic!("simulated interruption in epoch 1");
+                    }
+                },
+                &mut |r| run.append_gn_step(r).unwrap(),
+                Some((&run, 1)),
+                None,
+            )
+        }));
+        assert!(killed.is_err(), "the run was not interrupted");
+        let ck = run.checkpoint::<4>(&device).unwrap().unwrap();
+        assert_eq!(ck.state.next_epoch, 1);
+        run.truncate_metrics(ck.state.next_epoch).unwrap();
+        run.truncate_gn_steps(ck.state.next_epoch).unwrap();
+        let (resumed_model, _) = train_components(
+            build(),
+            Some(&normalizers.y),
+            &train_cfg,
+            &device,
+            &run,
+            Some(1),
+            Some(ck),
+            None,
+        );
+        assert_same_metrics(&run.metrics().unwrap(), &straight.metrics().unwrap());
+        assert_same_weights(&resumed_model, &straight_model);
+        // gn_steps.csv as the uninterrupted run's, but for the wall times
+        let rows = |r: &RunDir| -> Vec<String> {
+            fs::read_to_string(r.path().join("gn_steps.csv"))
+                .unwrap()
+                .lines()
+                .map(|l| l.rsplit_once(',').unwrap().0.to_string())
+                .collect()
+        };
+        let (resumed_rows, straight_rows) = (rows(&run), rows(&straight));
+        assert_eq!(resumed_rows.len(), 7, "a header and six steps");
+        if exact_backend() {
+            assert_eq!(resumed_rows, straight_rows);
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Data-parallel Gauss-Newton is out of scope: replicas with Gauss-Newton panic.
+    #[test]
+    #[should_panic(expected = "data-parallel Gauss-Newton is out of scope")]
+    fn gauss_newton_with_replicas_panics() {
+        use crate::neural_operators::{
+            optim::gauss_newton::GaussNewtonConfig, training::config::OptimizerConfig,
+        };
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(1)
+            .with_batch_size(2)
+            .with_optimizer(Some(OptimizerConfig::GaussNewton(GaussNewtonConfig::new())));
+        let device = Device::default().autodiff();
+        let c = parallel_components(&train_cfg, &device, std::slice::from_ref(&device));
+        let _ = training_loop(c, &train_cfg, None, &mut |_, _| {}, None, None);
     }
 
     // --- Phase 9 T1: checkpoint and resume ---

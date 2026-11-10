@@ -56,7 +56,7 @@ pub(super) fn plot_metrics(
             &epochs,
             &lr,
             &[
-                Caption("lr"),
+                Caption("lr (Gauss-Newton: damping)"),
                 Color(gnuplot::RGBString("green")),
                 LineWidth(1.5),
             ],
