@@ -77,6 +77,31 @@ pub fn vjp<M: Module, P: LeastSquares<M>>(
     );
     assert_eq!(r.dims(), u.dims(), "vjp: u must have the residual's length");
     let u = u.clone().inner().to_device(&r.device());
+    backward_to_params(r, u, model)
+}
+
+/// r(θ), `[m]` without autodiff, and the gradient Jᵀr, from one forward and one backward
+/// (calling [`vjp`] with u = r would cost a second forward to get r first).
+///
+/// # Panics
+/// As [`vjp`].
+pub(super) fn residual_and_gradient<M: Module, P: LeastSquares<M>>(
+    problem: &P,
+    model: &M,
+    batch: &P::Batch,
+) -> (Tensor<1>, ParamVec) {
+    let r = problem.residual(model, batch);
+    assert!(
+        r.is_tracked(),
+        "residual_and_gradient: the residual is not tracked; put the model on an autodiff device with parameters that require gradients"
+    );
+    let value = r.clone().inner();
+    let seed = r.clone().detach();
+    (value, backward_to_params(r, seed, model))
+}
+
+/// Jᵀu by one backward of Σ r ⊙ u (u constant), collected per parameter of `model`.
+fn backward_to_params<M: Module>(r: Tensor<1>, u: Tensor<1>, model: &M) -> ParamVec {
     let grads = GradientsParams::from_grads((r * u).sum().backward(), model);
     let mut collect = CollectGrads {
         grads: &grads,
@@ -138,8 +163,8 @@ pub fn jvp<M: Module, P: LeastSquares<M>>(
     (at(eps) - at(-eps)).div_scalar(2.0 * eps)
 }
 
-/// |⟨u, J v⟩ − ⟨Jᵀu, v⟩| / (‖u‖ ‖J v‖): how far [`jvp`] (default step) is from the adjoint
-/// of [`vjp`]. Zero up to rounding for an exact J v; for a finite-difference J v it
+/// |⟨u, J v⟩ − ⟨Jᵀu, v⟩| / (‖u‖ ‖J v‖): how far [`jvp`] (relative step `rel_step`, as
+/// there) is from the adjoint of [`vjp`]. Zero up to rounding for an exact J v; for a finite-difference J v it
 /// measures the difference noise along v. Returns 0 when both inner products vanish
 /// and ‖u‖ ‖J v‖ = 0, and infinity when only the denominator does.
 ///
@@ -153,8 +178,9 @@ pub fn adjoint_error<M: Module, P: LeastSquares<M>>(
     batch: &P::Batch,
     u: &Tensor<1>,
     v: &ParamVec,
+    rel_step: Option<f64>,
 ) -> f64 {
-    let jv = jvp(problem, model, batch, v, None);
+    let jv = jvp(problem, model, batch, v, rel_step);
     let jtu = vjp(problem, model, batch, u);
     let u = u.clone().inner();
     let lhs = (u.clone() * jv.clone()).sum().into_scalar::<f64>();
@@ -318,9 +344,9 @@ mod tests {
             deterministic(8, 2.6).as_slice(),
             &device,
         ));
-        let good = adjoint_error(&TanhFit, &model, &data, &u, &v);
+        let good = adjoint_error(&TanhFit, &model, &data, &u, &v, None);
         assert!(good < 1e-3, "adjoint error {good}");
-        let bad = adjoint_error(&FlippedJvp, &model, &data, &u, &v);
+        let bad = adjoint_error(&FlippedJvp, &model, &data, &u, &v, None);
         assert!(bad > 0.5, "a sign-flipped J v must be caught, got {bad}");
     }
 

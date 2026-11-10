@@ -50,15 +50,27 @@ pub enum CgStop {
     ZeroRhs,
 }
 
+/// One iterate [`cg`] kept for backtracking.
+#[derive(Clone, Debug)]
+pub struct CgIterate {
+    /// The iteration it was reached at (0 for an unchanged warm start).
+    pub iteration: usize,
+    /// The iterate.
+    pub x: ParamVec,
+    /// The quadratic model q(x) = ½ xᵀA x − bᵀx there, from CG's recurrence residual.
+    pub quadratic: f64,
+}
+
 /// The outcome of [`cg`].
 #[derive(Clone, Debug)]
 pub struct CgResult {
     /// The final iterate.
     pub x: ParamVec,
-    /// Iterates for backtracking, as `(iteration, x)`: those at iterations ⌈γʲ⌉ (γ =
-    /// [`CgConfig::keep_ratio`]) up to the last, then the final iterate if it is not
-    /// among them. Empty if no iteration was taken.
-    pub iterates: Vec<(usize, ParamVec)>,
+    /// Iterates for backtracking, in order: those at iterations ⌈γʲ⌉ (γ =
+    /// [`CgConfig::keep_ratio`]), then the final iterate if it is not among them. The
+    /// final iterate is always last: a warm start that already meets the tolerance gives
+    /// one entry at iteration 0. Empty only if no iteration was taken from x = 0.
+    pub iterates: Vec<CgIterate>,
     /// Iterations taken (operator applications, not counting the one for a warm start's
     /// initial residual).
     pub iterations: usize,
@@ -155,7 +167,11 @@ pub fn cg(
             let q = quadratic(&x, &r);
             q_history.push(q);
             if i as f64 >= next_keep.ceil() {
-                iterates.push((i, x.clone()));
+                iterates.push(CgIterate {
+                    iteration: i,
+                    x: x.clone(),
+                    quadratic: q,
+                });
                 while next_keep.ceil() <= i as f64 {
                     next_keep *= cfg.keep_ratio;
                 }
@@ -187,8 +203,13 @@ pub fn cg(
     }
 
     let iterations = alphas.len();
-    if iterations > 0 && iterates.last().is_none_or(|(i, _)| *i != iterations) {
-        iterates.push((iterations, x.clone()));
+    let final_kept = iterates.last().is_some_and(|it| it.iteration == iterations);
+    if !final_kept && (iterations > 0 || x0.is_some()) {
+        iterates.push(CgIterate {
+            iteration: iterations,
+            x: x.clone(),
+            quadratic: q_history[iterations],
+        });
     }
     CgResult {
         x,
@@ -379,7 +400,26 @@ mod tests {
         assert_eq!(result.stop, CgStop::Converged);
         assert!(result.iterations <= 2 * EIGENVALUES.len());
         assert!(max_abs_diff(&host(&result.x), &x_star) < 1e-4);
-        assert_eq!(result.iterates.last().unwrap().0, result.iterations);
+        assert_eq!(result.iterates.last().unwrap().iteration, result.iterations);
+
+        // every kept iterate's q equals ½ xᵀA x − bᵀx computed on the host
+        let b_host = host(&b);
+        for it in &result.iterates {
+            let x = host(&it.x);
+            let ax = apply_host(&a, 0.0, &x);
+            let q: f64 = x
+                .iter()
+                .zip(&ax)
+                .map(|(xi, axi)| 0.5 * xi * axi)
+                .sum::<f64>()
+                - x.iter().zip(&b_host).map(|(xi, bi)| xi * bi).sum::<f64>();
+            assert!(
+                (it.quadratic - q).abs() < 1e-4 * q.abs().max(1.0),
+                "iteration {}: {} vs {q}",
+                it.iteration,
+                it.quadratic
+            );
+        }
     }
 
     #[test]
@@ -481,7 +521,7 @@ mod tests {
             ..exact(8)
         };
         let result = cg(operator(&a, 0.0, &t, &device), &b, None, None, &cfg);
-        let kept: Vec<usize> = result.iterates.iter().map(|(i, _)| *i).collect();
+        let kept: Vec<usize> = result.iterates.iter().map(|it| it.iteration).collect();
         // ⌈1.3ʲ⌉: 1, 2, 3, 4, 5, 7, then the final 8.
         assert_eq!(kept, [1, 2, 3, 4, 5, 7, 8]);
     }

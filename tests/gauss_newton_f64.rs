@@ -74,7 +74,7 @@ fn f64_oracle_and_adjoint_on_flex() {
     let theta = params(&model);
     let u = from_host(&wave(B * S * S, 0.4), &device);
     let v = theta.from_flat_like(from_host(&wave(theta.numel(), 2.6), &device));
-    let adjoint = adjoint_error(&RelResidual, &model, &data, &u, &v);
+    let adjoint = adjoint_error(&RelResidual, &model, &data, &u, &v, None);
     println!(
         "f64 tiny FNO: P = {}, step {:.1e}; vjp vs Jᵀu {:.2e}, finite-difference jvp vs J v {:.2e}, adjoint error {:.2e}",
         errors.n_params,
