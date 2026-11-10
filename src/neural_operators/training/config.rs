@@ -44,6 +44,12 @@ pub struct TrainingConfig {
     /// The optimiser; `None` (the default) means [`OptimizerConfig::Adam`]. An `Option`
     /// so that saved configs without this field (before Phase 10 T3) still load.
     pub optimizer: Option<OptimizerConfig>,
+    /// A wall-clock budget in seconds (Phase 10 T4, G4's equal wall-clock): training stops
+    /// after the first epoch that ends with the run's training time (earlier sessions'
+    /// included) at or over it, so it overshoots by at most one epoch; `epochs` stays the
+    /// cap. `None` (the default, and every config before Phase 10 T4) trains all `epochs`.
+    /// Adam's cosine schedule still spans `epochs`, so a budget cuts it short.
+    pub time_budget_s: Option<f64>,
 }
 
 impl TrainingConfig {
