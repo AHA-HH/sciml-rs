@@ -86,9 +86,12 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
   since Accelerate's `gesdd` returned wrong singular values), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
   (`backend_features`, `git_commit`).
-- `training/`: `config` (`TrainingConfig`), `step` (`flatten_pair`, `forward_loss`,
+- `training/`: `config` (`TrainingConfig`; since Phase 10 T3 `optimizer`, an
+  `OptimizerConfig`, `None` meaning Adam), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
-  `training_loop` with its `EpochObserver`, `train_fno`), `learner` (Burn `Learner` impls).
+  `training_loop` with its `EpochObserver`, `train_fno`), `gn` (Phase 10 T3:
+  `FnoResidual`, the FNO's Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
+  runs when the config asks for Gauss–Newton), `learner` (Burn `Learner` impls).
 - `optim/gauss_newton/` (Phase 10 T1, generic over any Burn `Module`; imports nothing from
   `models/` or `training/`): `ParamVec` (a model's float parameters as one vector, on
   the model's device without autodiff), `params` / `with_params`, `LeastSquares`
@@ -106,8 +109,11 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
   read), `save_plot`, `save_normalizers`, `save_weights`, `save_costs` (`costs.json`,
   Poisson runs since Phase 5 T4, `optimisation_steps` since Phase 7 T1, `resumes` since
-  Phase 9 T1), `save_checkpoint` / `checkpoint::<R>(device)` (`checkpoint.bin`, Phase 9
-  T1) and `truncate_metrics`; `open(dir)`, `load_fno`, `model_config`,
+  Phase 9 T1; `forward_passes` / `backward_passes` since Phase 10 T3), `save_checkpoint` /
+  `checkpoint::<R>(device)` (`checkpoint.bin`, Phase 9 T1; `save_checkpoint_gn` adds the
+  Gauss–Newton state, Phase 10 T3), `truncate_metrics`, and since Phase 10 T3
+  `append_gn_step` (`gn_steps.csv`, `GnStepRecord`, the only writer), `truncate_gn_steps`
+  and `gn_passes`; `open(dir)`, `load_fno`, `model_config`,
   `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`, `artifacts()` (the files the MLflow export uploads). Run-file names appear
   nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `tracking/` (behind `mlflow`, Phase 8 T1): `export_requests` (pure: a Poisson
@@ -258,7 +264,9 @@ than trusting prose when checking how an API behaves.
   evaluates any s, `poisson_resolution` and `poisson_plot` only s = n − 1). On cuda:
   `--no-default-features --features cuda`. It checkpoints every 25 epochs and after the
   last; `train_poisson -- --resume runs/<run_dir>` continues an interrupted run from its
-  checkpoint with the run's saved configs (Phase 9 T1)
+  checkpoint with the run's saved configs (Phase 9 T1). `OPTIMIZER=gauss-newton` trains a new run with
+  Gauss–Newton (the `GN_*` literals; one device; run name `_gn`; writes `gn_steps.csv`;
+  Phase 10 T3)
 - Export run directories to a local MLflow server (Phase 8 T1; server: `mlflow server
   --host 127.0.0.1 --port 5001 --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db
   --artifacts-destination $HOME/mlflow/artifacts`, see `README.md`):

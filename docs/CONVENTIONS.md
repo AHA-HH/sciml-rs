@@ -256,8 +256,15 @@ h_a = \frac{1}{s_a - 1}
 - `LpLoss::abs(D, x, y)` takes unflattened `[B, s_1, .., s_D]` and checks D against them;
   every s_a ≥ 2. `rel` needs no D: the quadrature weight cancels in the ratio.
 - At an exact match both return 0 with gradient 0 (the `torch.norm` subgradient).
+- The Gauss–Newton residual (Phase 10 T3, design §13.17, decision 31 G1 (A)):
+  `training::gn::FnoResidual` gives, per sample of a batch of B,
+  rᵢ = (ûᵢ − uᵢ) / (‖uᵢ‖₂ √B) on the flattened, decoded output and the physical target,
+  with equal weights over the learning grid, so ½‖r‖² = (1/2B) Σᵢ eᵢ², eᵢ = `rel`(ûᵢ, uᵢ)
+  for p = 2. The weight wᵢ = 1 / (‖uᵢ‖₂ √B) is the one place a reweighted residual would
+  change. Training still reports the summed `rel` of `Reduction::Sum` in `metrics.csv`.
 
 ### Verification
+`half_squared_residual_is_the_mean_squared_relative_error` (the Gauss–Newton residual),
 `test_rel_known_value`, `test_abs_known_value`, `abs_2d_non_square_known_value`,
 `abs_3d_known_value`, `abs_gradient_matches_analytic`,
 `rel_gradient_at_exact_match_is_zero_not_nan`, `abs_gradient_at_exact_match_is_zero_not_nan`,

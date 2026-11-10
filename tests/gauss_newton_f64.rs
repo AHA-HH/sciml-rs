@@ -8,21 +8,30 @@
 //!
 //! Its own test binary because a device's float dtype can be configured only once, before
 //! any tensor is created on it.
+//!
+//! Phase 10 T3 (G7) adds the same oracle on cuda, `#[ignore]`d since it needs a GPU: on
+//! the VM, `cargo test --release --no-default-features --features cuda --test
+//! gauss_newton_f64 -- --ignored --nocapture` answers whether the tiny FNO runs in f64
+//! end to end there, FFTs included.
 
-#![cfg(feature = "flex")]
+#![cfg(any(feature = "flex", feature = "cuda"))]
 
 mod gauss_newton_common;
 
+#[cfg(feature = "flex")]
 use std::sync::OnceLock;
 
+#[cfg(feature = "flex")]
+use burn::tensor::TensorData;
 use burn::{
     prelude::*,
-    tensor::{DType, FloatDType, TensorData},
+    tensor::{DType, FloatDType},
 };
 use gauss_newton_common::*;
 use sciml_rs::neural_operators::optim::gauss_newton::{adjoint_error, default_rel_step, params};
 
 /// Flex configured for f64, once per process.
+#[cfg(feature = "flex")]
 fn flex_f64() -> Device {
     static DEVICE: OnceLock<Device> = OnceLock::new();
     DEVICE
@@ -36,6 +45,7 @@ fn flex_f64() -> Device {
         .clone()
 }
 
+#[cfg(feature = "flex")]
 #[test]
 #[ignore = "Burn bug: flex's f64 rfft uses f32 twiddles"]
 fn repro_flex_rfft_f64_is_f64_accurate() {
@@ -61,10 +71,28 @@ fn repro_flex_rfft_f64_is_f64_accurate() {
     assert!(worst < 1e-12, "f64 rfft max error {worst:.2e}");
 }
 
+#[cfg(feature = "flex")]
 #[test]
 #[ignore = "Burn bug: flex's f64 rfft uses f32 twiddles (see repro_flex_rfft_f64_is_f64_accurate)"]
 fn f64_oracle_and_adjoint_on_flex() {
-    let device = flex_f64().autodiff();
+    assert_f64_oracle(flex_f64().autodiff(), "flex");
+}
+
+/// The cuda device 0 configured for f64 (Phase 10 T3, G7).
+#[cfg(feature = "cuda")]
+#[test]
+#[ignore = "needs a cuda GPU (the VM)"]
+fn f64_oracle_and_adjoint_on_cuda() {
+    let mut device = Device::cuda(0);
+    device
+        .configure(FloatDType::F64)
+        .expect("cuda accepts f64 as its default float dtype");
+    assert_f64_oracle(device.autodiff(), "cuda");
+}
+
+/// T1's explicit-Jacobian oracle and the adjoint check on the tiny FNO, on an f64
+/// `device`, held to f64 accuracy.
+fn assert_f64_oracle(device: Device, backend: &str) {
     assert_eq!(float_dtype(&device), DType::F64);
     let model = tiny_fno(&device);
     let data = batch(&device);
@@ -76,7 +104,7 @@ fn f64_oracle_and_adjoint_on_flex() {
     let v = theta.from_flat_like(from_host(&wave(theta.numel(), 2.6), &device));
     let adjoint = adjoint_error(&RelResidual, &model, &data, &u, &v, None);
     println!(
-        "f64 tiny FNO: P = {}, step {:.1e}; vjp vs Jᵀu {:.2e}, finite-difference jvp vs J v {:.2e}, adjoint error {:.2e}",
+        "f64 tiny FNO on {backend}: P = {}, step {:.1e}; vjp vs Jᵀu {:.2e}, finite-difference jvp vs J v {:.2e}, adjoint error {:.2e}",
         errors.n_params,
         default_rel_step(DType::F64),
         errors.vjp,

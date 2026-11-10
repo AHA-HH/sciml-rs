@@ -2,8 +2,10 @@
 //!
 //! One file, little-endian: the magic `SCIMLCK1`, then `next_epoch`, `resumes` (u64) and
 //! `training_time_s` (f64), then three length-prefixed (u64) Burnpack blobs: the model
-//! weights, the optimiser record and the scheduler record. A short or overlong file is an
-//! error, never a panic.
+//! weights, the optimiser record and the scheduler record. A Gauss–Newton run (Phase 10
+//! T3) appends a fourth length-prefixed blob, its optimiser state
+//! ([`GaussNewtonState::to_bytes`]); an Adam checkpoint has none, so files written before
+//! T3 decode unchanged. A short or overlong file is an error, never a panic.
 
 use std::error::Error;
 use std::io;
@@ -15,7 +17,10 @@ use burn::{
     tensor::{Bytes, Device},
 };
 
-use crate::neural_operators::models::fno::{FNO, FNOConfig};
+use crate::neural_operators::{
+    models::fno::{FNO, FNOConfig},
+    optim::gauss_newton::GaussNewtonState,
+};
 
 const MAGIC: &[u8; 8] = b"SCIMLCK1";
 
@@ -43,6 +48,8 @@ pub struct Checkpoint<const R: usize> {
     pub optim: OptimizerRecord,
     /// The cosine schedule's position (`current_iter`).
     pub scheduler: LrSchedulerRecord,
+    /// The Gauss–Newton state of a Gauss–Newton run, `None` for an Adam run.
+    pub gn: Option<GaussNewtonState>,
 }
 
 /// Encodes a checkpoint as the bytes of `checkpoint.bin`.
@@ -51,6 +58,7 @@ pub(super) fn encode<const R: usize>(
     model: &FNO<R>,
     optim: OptimizerRecord,
     scheduler: LrSchedulerRecord,
+    gn: Option<&GaussNewtonState>,
 ) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut store = BurnpackStore::from_bytes(None);
     model.save_into(&mut store)?;
@@ -64,7 +72,9 @@ pub(super) fn encode<const R: usize>(
     out.extend_from_slice(&(state.next_epoch as u64).to_le_bytes());
     out.extend_from_slice(&(state.resumes as u64).to_le_bytes());
     out.extend_from_slice(&state.training_time_s.to_le_bytes());
-    for blob in &blobs {
+    let gn = gn.map(GaussNewtonState::to_bytes);
+    let blobs = blobs.iter().map(|b| &b[..]).chain(gn.as_deref());
+    for blob in blobs {
         out.extend_from_slice(&(blob.len() as u64).to_le_bytes());
         out.extend_from_slice(blob);
     }
@@ -95,9 +105,16 @@ pub(super) fn decode<const R: usize>(
         Ok(Bytes::from_bytes_vec(take(&mut rest, len)?.to_vec()))
     };
     let (weights, optim, scheduler) = (blob()?, blob()?, blob()?);
-    if !rest.is_empty() {
-        return Err(invalid("trailing bytes after the checkpoint").into());
-    }
+    let gn = if rest.is_empty() {
+        None
+    } else {
+        let len = read_u64(&mut rest)? as usize;
+        let state = GaussNewtonState::from_bytes(take(&mut rest, len)?, device)?;
+        if !rest.is_empty() {
+            return Err(invalid("trailing bytes after the checkpoint").into());
+        }
+        Some(state)
+    };
 
     let mut model = model_cfg.init::<R>(device);
     model.load_from(&mut BurnpackStore::from_bytes(Some(weights)))?;
@@ -106,6 +123,7 @@ pub(super) fn decode<const R: usize>(
         model,
         optim: OptimizerRecord::from_bytes(optim)?,
         scheduler: LrSchedulerRecord::from_bytes(scheduler)?,
+        gn,
     })
 }
 

@@ -8,7 +8,9 @@
 //! - `model_weights.bpk`: the model;
 //! - `costs.json` ([`RunCosts`]): Poisson runs since Phase 5 T4;
 //! - `checkpoint.bin` ([`Checkpoint`]): the latest checkpoint, Poisson runs since Phase 9
-//!   T1, replaced every k epochs and after the last.
+//!   T1, replaced every k epochs and after the last;
+//! - `gn_steps.csv` ([`GnStepRecord`]): one row per Gauss–Newton step, Gauss–Newton runs
+//!   only (Phase 10 T3).
 //!
 //! [`RunDir`] writes these and reads them back. File names live only here. Runs written
 //! since Phase 3 open, including Learner runs from before Phase 4s T2, which lack
@@ -23,10 +25,12 @@
 mod checkpoint;
 mod costs;
 mod csv;
+mod gn_steps;
 mod plots;
 
 pub use checkpoint::{Checkpoint, CheckpointState};
 pub use costs::RunCosts;
+pub use gn_steps::{GnPasses, GnStepRecord};
 
 use std::error::Error;
 use std::io;
@@ -47,6 +51,7 @@ use crate::neural_operators::{
     },
     metrics::poisson::ERRORS_JSON,
     models::fno::{FNO, FNOConfig},
+    optim::gauss_newton::GaussNewtonState,
     training::config::TrainingConfig,
 };
 
@@ -54,6 +59,7 @@ const MODEL_CFG: &str = "model_cfg.json";
 const TRAIN_CFG: &str = "train_cfg.json";
 const DATA_CFG: &str = "data_cfg.json";
 const METRICS_CSV: &str = "metrics.csv";
+const GN_STEPS_CSV: &str = "gn_steps.csv";
 const PLOTS_PNG: &str = "plots.png";
 const X_NORMALIZER: &str = "x_normalizer.json";
 const Y_NORMALIZER: &str = "y_normalizer.json";
@@ -81,7 +87,8 @@ pub struct EpochMetrics {
     pub train_l2: f32,
     /// Mean test relative L² per sample.
     pub test_l2: f32,
-    /// Learning rate after the epoch's final step.
+    /// Learning rate after the epoch's final step. For a Gauss–Newton run (Phase 10 T3), which has no learning rate, the damping λ the
+    /// next step will use.
     pub current_lr: f64,
     /// Wall-clock seconds of the epoch, training and evaluation; `None` in `metrics.csv`
     /// files written before Phase 5 T4, which have no such column.
@@ -175,6 +182,44 @@ impl RunDir {
     /// ([`io::ErrorKind::InvalidData`]).
     pub fn truncate_metrics(&self, next_epoch: usize) -> io::Result<()> {
         csv::truncate_metrics_csv(self.path.join(METRICS_CSV), next_epoch)
+    }
+
+    /// Appends one Gauss–Newton step's row to `gn_steps.csv`, writing the header first if
+    /// the file is new: the file's only writer.
+    ///
+    /// # Errors
+    /// If the file can't be opened or written.
+    pub fn append_gn_step(&self, record: &GnStepRecord) -> io::Result<()> {
+        gn_steps::append_gn_step_row(self.path.join(GN_STEPS_CSV), record)
+    }
+
+    /// Drops the rows of `gn_steps.csv` for epochs `next_epoch` and later, as
+    /// [`truncate_metrics`](Self::truncate_metrics) does for `metrics.csv`; nothing to do
+    /// for a run without the file (an Adam run).
+    ///
+    /// # Errors
+    /// As [`truncate_metrics`](Self::truncate_metrics).
+    pub fn truncate_gn_steps(&self, next_epoch: usize) -> io::Result<()> {
+        let path = self.path.join(GN_STEPS_CSV);
+        if !path.exists() {
+            return Ok(());
+        }
+        // its first column is the epoch, as in metrics.csv
+        csv::truncate_metrics_csv(path, next_epoch)
+    }
+
+    /// The forward and backward passes summed over `gn_steps.csv`, and its row count (the
+    /// steps); `None` for a run without the file (an Adam run).
+    ///
+    /// # Errors
+    /// If the file can't be read, lacks the pass columns or has a field that doesn't
+    /// parse ([`io::ErrorKind::InvalidData`]).
+    pub fn gn_passes(&self) -> io::Result<Option<GnPasses>> {
+        let path = self.path.join(GN_STEPS_CSV);
+        if !path.exists() {
+            return Ok(None);
+        }
+        gn_steps::sum_passes(path).map(Some)
     }
 
     /// Draws `plots.png` (loss curves and learning rate) from `metrics`, titled with the
@@ -300,7 +345,8 @@ impl RunDir {
     }
 
     /// The run's files worth viewing beside its metrics, those present, sorted by name:
-    /// the three configs, `costs.json`, `errors.json` ([`ERRORS_JSON`]) and every `.png`
+    /// the three configs, `costs.json`, `errors.json` ([`ERRORS_JSON`]), `gn_steps.csv`
+    /// (Gauss–Newton runs) and every `.png`
     /// (`plots.png`, `prediction_<k>.png`). Not the weights, checkpoint, normalizers or
     /// `metrics.csv`, and no symbolic link, so nothing outside the directory is picked up.
     /// The MLflow exporter (Phase 8 T1) uploads these.
@@ -308,7 +354,14 @@ impl RunDir {
     /// # Errors
     /// If the directory can't be listed.
     pub fn artifacts(&self) -> io::Result<Vec<PathBuf>> {
-        let named = [MODEL_CFG, TRAIN_CFG, DATA_CFG, COSTS, ERRORS_JSON];
+        let named = [
+            MODEL_CFG,
+            TRAIN_CFG,
+            DATA_CFG,
+            COSTS,
+            ERRORS_JSON,
+            GN_STEPS_CSV,
+        ];
         let mut files = Vec::new();
         for entry in std::fs::read_dir(&self.path)? {
             let entry = entry?;
@@ -337,7 +390,23 @@ impl RunDir {
         optim: &ModuleOptimizer,
         scheduler: &ModuleLrScheduler,
     ) -> Result<(), Box<dyn Error>> {
-        let bytes = checkpoint::encode(state, model, optim.to_record(), scheduler.to_record())?;
+        self.save_checkpoint_gn(state, model, optim, scheduler, None)
+    }
+
+    /// [`save_checkpoint`](Self::save_checkpoint) with the Gauss–Newton state of a
+    /// Gauss–Newton run, if `gn` is given, as the checkpoint's optional fourth section.
+    ///
+    /// # Errors
+    /// As [`save_checkpoint`](Self::save_checkpoint).
+    pub fn save_checkpoint_gn<const R: usize>(
+        &self,
+        state: &CheckpointState,
+        model: &FNO<R>,
+        optim: &ModuleOptimizer,
+        scheduler: &ModuleLrScheduler,
+        gn: Option<&GaussNewtonState>,
+    ) -> Result<(), Box<dyn Error>> {
+        let bytes = checkpoint::encode(state, model, optim.to_record(), scheduler.to_record(), gn)?;
         let tmp = self.path.join(CHECKPOINT_TMP);
         let mut file = std::fs::File::create(&tmp)?;
         io::Write::write_all(&mut file, &bytes)?;
@@ -527,6 +596,8 @@ mod tests {
             num_params: 1_188_353,
             optimisation_steps: Some(500 * 50),
             resumes: Some(1),
+            forward_passes: Some(500 * 50),
+            backward_passes: Some(500 * 50),
         };
         run.save_costs(&costs).unwrap();
         // predict completes the file written by training
@@ -551,6 +622,7 @@ mod tests {
         let read = run.costs().unwrap().expect("costs were saved");
         assert_eq!(read.optimisation_steps, None);
         assert_eq!(read.resumes, None);
+        assert_eq!((read.forward_passes, read.backward_passes), (None, None));
 
         std::fs::write(run.path().join(COSTS), "{").unwrap();
         let msg = run.costs().expect_err("a broken costs.json").to_string();

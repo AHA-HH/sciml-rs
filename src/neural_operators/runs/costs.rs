@@ -51,4 +51,12 @@ pub struct RunCosts {
     /// sums every session's training up to its last checkpoint and the final session.
     /// `None` in files written before Phase 9 T1.
     pub resumes: Option<usize>,
+    /// Forward passes of training (Phase 10 T3): one per step for Adam; for Gauss–Newton
+    /// the optimiser's (each finite-difference J v counted as two) plus the one per step
+    /// that measures the batch's loss for `metrics.csv`. Evaluation is not counted.
+    /// `None` in files written before Phase 10 T3.
+    pub forward_passes: Option<usize>,
+    /// Backward passes of training (Phase 10 T3): one per step for Adam, the optimiser's
+    /// for Gauss–Newton. `None` in files written before Phase 10 T3.
+    pub backward_passes: Option<usize>,
 }

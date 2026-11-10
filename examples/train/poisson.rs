@@ -34,6 +34,14 @@
 //! TRAIN_DEVICES=0,1 cargo run --release --no-default-features --features cuda \
 //!     --example train_poisson -- 0 129 64
 //!
+//! `OPTIMIZER=gauss-newton` trains a new run with damped Gauss–Newton (Phase 10 T3) with
+//! the `GN_*` literals below instead of Adam, on one device, and the run name gains `_gn`;
+//! unset or `adam`, the run trains with Adam as before. `--resume` takes the optimiser from
+//! the run's saved config, not from `OPTIMIZER`. A Gauss–Newton run also writes
+//! `gn_steps.csv`, one row per step:
+//! OPTIMIZER=gauss-newton cargo run --release --no-default-features --features cuda \
+//!     --example train_poisson -- 0 129 64 42 100 0
+//!
 //! Built with `--features mlflow` and run with `MLFLOW_EXPERIMENT_NAME` set, the run is
 //! also logged live to MLflow (`MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5001`;
 //! Phase 8 T1): the configs as it starts, each epoch's metrics, and at the end the costs,
@@ -47,7 +55,8 @@
 //! Besides the configs, metrics, normalizers and weights, the run records `costs.json`
 //! (`RunCosts`, design §13.9): the dataset's generation time from its sidecars, the load,
 //! transfer and training times, host-to-device bytes, the parameter count, the
-//! optimisation steps, the resumes, backend, device and commit. `data_cfg.json` records n,
+//! optimisation steps, the forward and backward passes, the resumes, backend, device and
+//! commit. `data_cfg.json` records n,
 //! K, s, d, both split files with their generating commits and, with N, the subset's seed,
 //! population and index hash.
 //!
@@ -72,10 +81,12 @@ use sciml_rs::neural_operators::{
         },
     },
     models::fno::FNOConfig,
+    optim::gauss_newton::{GaussNewtonConfig, Preconditioner},
     runs::{Checkpoint, RunCosts, RunDir},
     training::{
-        config::TrainingConfig,
+        config::{OptimizerConfig, TrainingConfig},
         data_parallel::replicas,
+        gn::training_passes,
         trainer::{build_training_components, train_components},
     },
     utils::backend::{backend_features, git_commit},
@@ -106,6 +117,22 @@ const MIN_LR: f64 = 1e-5;
 const PADDING: usize = 4;
 /// Epochs between checkpoints; the last epoch is always checkpointed (Phase 9 P2).
 const CHECKPOINT_EVERY: usize = 25;
+
+// Gauss–Newton (`OPTIMIZER=gauss-newton`, Phase 10 T3); the other `GaussNewtonConfig`
+// settings keep their defaults
+/// Samples per Gauss–Newton step: gradient, curvature and ρ on one batch (G3: 20 or 200;
+/// T4's full batch is the subset's N). Replaces `BATCH_SIZE` for a Gauss–Newton run.
+const GN_BATCH_SIZE: usize = 20;
+/// The most CG iterations per step.
+const GN_CG_MAX_ITERS: usize = 50;
+/// The damping λ of the first step.
+const GN_LAMBDA_INIT: f64 = 1.0;
+/// Weight decay μ as a Tikhonov term, Adam's for parity (G5).
+const GN_WEIGHT_DECAY: f64 = 1e-4;
+/// The CG preconditioner (T4 picks between this and the Hutchinson diagonal).
+const GN_PRECONDITIONER: Preconditioner = Preconditioner::None;
+/// The adjoint check, every this many steps (`gn_steps.csv`'s `adjoint_error`).
+const GN_ADJOINT_CHECK_EVERY: usize = 10;
 
 /// The `i`-th command-line argument parsed as `T`, or `default` when it is absent.
 ///
@@ -146,6 +173,27 @@ fn train_devices() -> Vec<Device> {
     // cubecl implements the all_reduce data-parallel training needs on cuda only
     #[cfg(not(feature = "cuda"))]
     panic!("TRAIN_DEVICES={list} needs the cuda feature")
+}
+
+/// The optimiser `OPTIMIZER` asks for: `None` (Adam) when it is unset or `adam`, the
+/// `GN_*` literals for `gauss-newton`, with the probe seed `seed`.
+///
+/// # Panics
+/// For any other value.
+fn optimizer(seed: u64) -> Option<OptimizerConfig> {
+    match std::env::var("OPTIMIZER").as_deref() {
+        Err(_) | Ok("adam") => None,
+        Ok("gauss-newton") => Some(OptimizerConfig::GaussNewton(
+            GaussNewtonConfig::new()
+                .with_cg_max_iters(GN_CG_MAX_ITERS)
+                .with_lambda_init(GN_LAMBDA_INIT)
+                .with_weight_decay(GN_WEIGHT_DECAY)
+                .with_preconditioner(GN_PRECONDITIONER)
+                .with_adjoint_check_every(GN_ADJOINT_CHECK_EVERY)
+                .with_seed(seed),
+        )),
+        Ok(other) => panic!("OPTIMIZER must be adam or gauss-newton, got {other:?}"),
+    }
 }
 
 /// `datasets/poisson/` in the repository.
@@ -222,13 +270,16 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         padding: Some(padding),
     };
 
+    let optimizer = optimizer(seed);
+    let gn = optimizer.is_some();
     let train_cfg = TrainingConfig::new()
         .with_epochs(EPOCHS)
-        .with_batch_size(BATCH_SIZE)
+        .with_batch_size(if gn { GN_BATCH_SIZE } else { BATCH_SIZE })
         .with_learning_rate(LEARNING_RATE)
         .with_weight_decay(WEIGHT_DECAY)
         .with_min_lr(MIN_LR)
-        .with_seed(seed);
+        .with_seed(seed)
+        .with_optimizer(optimizer);
 
     // Stage 2 at s = n − 1 keeps its run name; other stages carry n, other s carry n and s,
     // then a subset its N and seed, and a seed other than the default is appended
@@ -246,7 +297,8 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
     } else {
         format!("_seed{seed}")
     };
-    let name = format!("poisson_fno{grid}_p{padding}{subset_tag}{seed_tag}");
+    let gn_tag = if gn { "_gn" } else { "" };
+    let name = format!("poisson_fno{grid}_p{padding}{subset_tag}{seed_tag}{gn_tag}");
     // Writes configs, metrics, checkpoints, normalizers and weights to
     // runs/<name>_<timestamp>/. Created before training: train_components appends each
     // epoch's row of metrics.csv to it
@@ -258,8 +310,8 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
 }
 
 /// Reopens the run at `dir` with its saved configs and checkpoint (on `device`), and
-/// truncates its `metrics.csv` to the checkpoint's epoch. The checkpoint counts this
-/// resume.
+/// truncates its `metrics.csv` (and `gn_steps.csv`) to the checkpoint's epoch. The
+/// checkpoint counts this resume.
 fn reopen(
     dir: &str,
     device: &Device,
@@ -281,6 +333,8 @@ fn reopen(
     ck.state.resumes += 1;
     run.truncate_metrics(ck.state.next_epoch)
         .unwrap_or_else(|e| panic!("could not truncate metrics.csv: {e}"));
+    run.truncate_gn_steps(ck.state.next_epoch)
+        .unwrap_or_else(|e| panic!("could not truncate gn_steps.csv: {e}"));
     println!(
         "device: {device:?}, resuming {dir} at epoch {} of {} (resume {})",
         ck.state.next_epoch, train_cfg.epochs, ck.state.resumes
@@ -304,6 +358,10 @@ fn main() {
             (run, model_cfg, train_cfg, dataset_cfg, None)
         }
     };
+    assert!(
+        train_cfg.gauss_newton().is_none() || devices.len() == 1,
+        "Gauss-Newton trains on one device: unset TRAIN_DEVICES"
+    );
     let set = stage(dataset_cfg.n).unwrap_or_else(|e| panic!("{e}"));
 
     let train_path = datasets().join(set.npz("train"));
@@ -378,6 +436,17 @@ fn main() {
         also,
     );
     let training_time_s = prior_time_s + train_start.elapsed().as_secs_f64();
+    let steps = train_cfg.total_steps(n_train);
+    // Adam: one forward and one backward per step; Gauss-Newton: from gn_steps.csv,
+    // every session's
+    let (forward_passes, backward_passes) = match train_cfg.gauss_newton() {
+        None => (steps, steps),
+        Some(_) => training_passes(
+            &run.gn_passes()
+                .expect("could not read gn_steps.csv")
+                .expect("a Gauss-Newton run writes gn_steps.csv"),
+        ),
+    };
 
     let costs = RunCosts {
         dataset_train_wall_time_s: Some(train_sidecar.wall_time_s),
@@ -396,8 +465,10 @@ fn main() {
         },
         git_commit: git_commit(),
         num_params: model.num_params(),
-        optimisation_steps: Some(train_cfg.total_steps(n_train)),
+        optimisation_steps: Some(steps),
         resumes: Some(resumes),
+        forward_passes: Some(forward_passes),
+        backward_passes: Some(backward_passes),
     };
 
     // every epoch's metrics, the earlier sessions' included
