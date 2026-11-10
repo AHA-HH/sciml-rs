@@ -44,8 +44,9 @@ pub struct RunCosts {
     pub git_commit: String,
     /// Trainable parameters of the model (Burn's `Module::num_params`).
     pub num_params: usize,
-    /// Optimisation steps taken, epochs × ⌈N / batch size⌉ (design §13.9); `None` in
-    /// files written before Phase 7 T1.
+    /// Optimisation steps taken (design §13.9): epochs × ⌈N / batch size⌉, or for a
+    /// Gauss–Newton run the steps in `gn_steps.csv`, fewer when a time budget stopped it
+    /// (Phase 10 T4); `None` in files written before Phase 7 T1.
     pub optimisation_steps: Option<usize>,
     /// Times training was resumed from a checkpoint (Phase 9 T1); `training_time_s` then
     /// sums every session's training up to its last checkpoint and the final session.

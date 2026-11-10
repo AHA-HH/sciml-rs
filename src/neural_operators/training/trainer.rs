@@ -243,7 +243,9 @@ fn epoch_line(m: &EpochMetrics) -> String {
 
 /// Runs epochs of [`train_epoch`] then [`evaluate`] up to `train_cfg.epochs`, calling
 /// `on_epoch` after each, and returns the trained model and the metrics of the epochs it
-/// ran.
+/// ran. With `train_cfg.time_budget_s`, it stops early after the first epoch that ends
+/// with the training time (this call's, plus the checkpoint's carried time) at or over the
+/// budget, and checkpoints that epoch as the last.
 ///
 /// `decoder`, on the training (autodiff) device, decodes the model output in both training
 /// and evaluation ([`FlatDecoder::inner`] for the latter); `None` for data in physical units.
@@ -345,8 +347,14 @@ fn run_loop<const R: usize, const RM1: usize>(
         .then(|| Peers::new(&model, &components.optim, decoder, &components.replicas));
     let carried_time_s = state.training_time_s;
     let start = Instant::now();
+    // a run resumed from the checkpoint its budget stopped it at has nothing left to train
+    let first_epoch = if state.next_epoch > 0 && train_cfg.budget_spent(carried_time_s) {
+        train_cfg.epochs
+    } else {
+        state.next_epoch
+    };
 
-    for epoch in state.next_epoch..train_cfg.epochs {
+    for epoch in first_epoch..train_cfg.epochs {
         let epoch_start = Instant::now();
 
         let (m, means) = match (components.gn.as_mut(), peers.as_mut()) {
@@ -397,21 +405,27 @@ fn run_loop<const R: usize, const RM1: usize>(
         on_epoch(&record, &model);
         metrics.push(record);
 
-        if let Some((run, every)) = checkpoints {
-            let next_epoch = epoch + 1;
-            if next_epoch % every == 0 || next_epoch == train_cfg.epochs {
-                state.next_epoch = next_epoch;
-                state.training_time_s = carried_time_s + start.elapsed().as_secs_f64();
-                if let Err(e) = run.save_checkpoint_gn(
-                    &state,
-                    &model,
-                    &components.optim,
-                    &components.scheduler,
-                    components.gn.as_ref().map(GaussNewton::state),
-                ) {
-                    panic!("could not save the checkpoint after epoch {epoch}: {e}");
-                }
+        let next_epoch = epoch + 1;
+        // one clock read: the stop decision and the checkpoint's time agree
+        let trained_s = carried_time_s + start.elapsed().as_secs_f64();
+        let last = next_epoch == train_cfg.epochs || train_cfg.budget_spent(trained_s);
+        if let Some((run, every)) = checkpoints
+            && (next_epoch % every == 0 || last)
+        {
+            state.next_epoch = next_epoch;
+            state.training_time_s = trained_s;
+            if let Err(e) = run.save_checkpoint_gn(
+                &state,
+                &model,
+                &components.optim,
+                &components.scheduler,
+                components.gn.as_ref().map(GaussNewton::state),
+            ) {
+                panic!("could not save the checkpoint after epoch {epoch}: {e}");
             }
+        }
+        if last {
+            break;
         }
     }
 
@@ -1407,6 +1421,65 @@ mod tests {
         let epochs = |m: &[EpochMetrics]| m.iter().map(|m| m.epoch).collect::<Vec<_>>();
         assert_eq!(epochs(&written), [0, 1, 2]);
         assert_eq!(metric_bits(&written), metric_bits(&metrics));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- Phase 10 T4: the wall-clock budget ---
+
+    /// A budget of 0 s stops after the first epoch and checkpoints it as the last; resumed
+    /// from that checkpoint the run trains nothing more. A budget that is never reached
+    /// trains every epoch.
+    #[test]
+    fn time_budget_stops_after_the_epoch_that_reaches_it() {
+        let root =
+            std::env::temp_dir().join(format!("sciml_rs_time_budget_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let device = Device::default().autodiff();
+        let cfg = |budget: f64| {
+            TrainingConfig::new()
+                .with_epochs(3)
+                .with_batch_size(2)
+                .with_test_batch_size(2)
+                .with_time_budget_s(Some(budget))
+        };
+        let build = |train_cfg: &TrainingConfig| {
+            build_training_components::<3, 2, _>(
+                &tiny_model_cfg(),
+                train_cfg,
+                tiny_dataset(5),
+                tiny_dataset(3),
+                &device,
+            )
+        };
+        let run = RunDir::create(&root, "budget").unwrap();
+        let stopped = cfg(0.0);
+        run.save_configs(&tiny_model_cfg(), &stopped, &stopped)
+            .unwrap();
+        let (_, metrics) = training_loop(
+            build(&stopped),
+            &stopped,
+            None,
+            &mut |_, _| {},
+            Some((&run, 10)),
+            None,
+        );
+        assert_eq!(metrics.len(), 1);
+        let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
+        assert_eq!(ck.state.next_epoch, 1);
+
+        let (_, resumed) = training_loop(
+            build(&stopped),
+            &stopped,
+            None,
+            &mut |_, _| {},
+            None,
+            Some(ck),
+        );
+        assert!(resumed.is_empty(), "{resumed:?}");
+
+        let ample = cfg(1e9);
+        let (_, all) = training_loop(build(&ample), &ample, None, &mut |_, _| {}, None, None);
+        assert_eq!(all.len(), 3);
         let _ = fs::remove_dir_all(&root);
     }
 

@@ -44,14 +44,26 @@ pub struct TrainingConfig {
     /// The optimiser; `None` (the default) means [`OptimizerConfig::Adam`]. An `Option`
     /// so that saved configs without this field (before Phase 10 T3) still load.
     pub optimizer: Option<OptimizerConfig>,
+    /// A wall-clock budget in seconds (Phase 10 T4, G4's equal wall-clock): training stops
+    /// after the first epoch that ends with the run's training time (earlier sessions'
+    /// included) at or over it, so it overshoots by at most one epoch; `epochs` stays the
+    /// cap. `None` (the default, and every config before Phase 10 T4) trains all `epochs`.
+    /// Adam's cosine schedule still spans `epochs`, so a budget cuts it short.
+    pub time_budget_s: Option<f64>,
 }
 
 impl TrainingConfig {
-    /// Optimisation steps a run takes on `n_train` samples: `epochs` × ⌈`n_train` /
-    /// `batch_size`⌉, since an epoch's last batch may be partial. The trainer's cosine
+    /// Optimisation steps a run of all `epochs` takes on `n_train` samples: `epochs` ×
+    /// ⌈`n_train` / `batch_size`⌉, since an epoch's last batch may be partial. The trainer's cosine
     /// schedule spans exactly these steps.
     pub fn total_steps(&self, n_train: usize) -> usize {
         self.epochs * n_train.div_ceil(self.batch_size)
+    }
+
+    /// Whether `trained_s` seconds of training have spent [`time_budget_s`](Self::time_budget_s);
+    /// always `false` without a budget.
+    pub fn budget_spent(&self, trained_s: f64) -> bool {
+        self.time_budget_s.is_some_and(|b| trained_s >= b)
     }
 
     /// The Gauss–Newton settings if this run trains with Gauss–Newton, else `None` (Adam).

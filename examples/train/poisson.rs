@@ -42,6 +42,15 @@
 //! OPTIMIZER=gauss-newton cargo run --release --no-default-features --features cuda \
 //!     --example train_poisson -- 0 129 64 42 100 0
 //!
+//! With Gauss–Newton, `GN_BATCH_SIZE` overrides the literal of that name (T4's full batch
+//! is the subset's N), and `TIME_BUDGET_S` stops the run after the first epoch that ends
+//! at or over that many seconds of training (`TrainingConfig::time_budget_s`; G4's equal
+//! wall-clock, `EPOCHS` staying the cap). Both are saved in `train_cfg.json`, so
+//! `--resume` keeps them. Phase 10 T4, against Phase 7's Adam run of N = 100, subset 0,
+//! seed 42 (`training_time_s` 132.5):
+//! OPTIMIZER=gauss-newton GN_BATCH_SIZE=100 TIME_BUDGET_S=132.5 cargo run --release \
+//!     --no-default-features --features cuda --example train_poisson -- 0 129 64 42 100 0
+//!
 //! Built with `--features mlflow` and run with `MLFLOW_EXPERIMENT_NAME` set, the run is
 //! also logged live to MLflow (`MLFLOW_TRACKING_URI`, default `http://127.0.0.1:5001`;
 //! Phase 8 T1): the configs as it starts, each epoch's metrics, and at the end the costs,
@@ -148,6 +157,21 @@ where
             .unwrap_or_else(|e| panic!("{name} argument must be an integer, got {arg:?}: {e}")),
         None => default,
     }
+}
+
+/// The environment variable `name` parsed as `T`, or `None` when it is unset.
+///
+/// # Panics
+/// If it is set and does not parse.
+fn env_var<T: FromStr>(name: &str) -> Option<T>
+where
+    T::Err: Display,
+{
+    let v = std::env::var(name).ok()?;
+    Some(
+        v.parse()
+            .unwrap_or_else(|e| panic!("{name} must be a number, got {v:?}: {e}")),
+    )
 }
 
 /// The training devices, autodiff: the cuda devices `TRAIN_DEVICES` lists (Phase 9 T2),
@@ -272,9 +296,27 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
 
     let optimizer = optimizer(seed);
     let gn = optimizer.is_some();
+    let time_budget_s = env_var::<f64>("TIME_BUDGET_S");
+    // Adam's cosine schedule spans EPOCHS, so a budget would cut it short
+    assert!(
+        gn || time_budget_s.is_none(),
+        "TIME_BUDGET_S is for OPTIMIZER=gauss-newton runs"
+    );
+    // NaN would never stop the run
+    assert!(
+        time_budget_s.is_none_or(|b| b.is_finite() && b > 0.0),
+        "TIME_BUDGET_S must be a positive number of seconds, got {time_budget_s:?}"
+    );
+    let batch_size = if gn {
+        env_var("GN_BATCH_SIZE").unwrap_or(GN_BATCH_SIZE)
+    } else {
+        BATCH_SIZE
+    };
+    assert!(batch_size > 0, "GN_BATCH_SIZE must be positive");
     let train_cfg = TrainingConfig::new()
         .with_epochs(EPOCHS)
-        .with_batch_size(if gn { GN_BATCH_SIZE } else { BATCH_SIZE })
+        .with_time_budget_s(time_budget_s)
+        .with_batch_size(batch_size)
         .with_learning_rate(LEARNING_RATE)
         .with_weight_decay(WEIGHT_DECAY)
         .with_min_lr(MIN_LR)
@@ -436,16 +478,22 @@ fn main() {
         also,
     );
     let training_time_s = prior_time_s + train_start.elapsed().as_secs_f64();
-    let steps = train_cfg.total_steps(n_train);
-    // Adam: one forward and one backward per step; Gauss-Newton: from gn_steps.csv,
-    // every session's
-    let (forward_passes, backward_passes) = match train_cfg.gauss_newton() {
-        None => (steps, steps),
-        Some(_) => training_passes(
-            &run.gn_passes()
+    // Adam: every planned step (it takes no budget), one forward and one backward each;
+    // Gauss-Newton: the steps taken, from gn_steps.csv, every session's (a budget may stop
+    // it before EPOCHS)
+    let (steps, forward_passes, backward_passes) = match train_cfg.gauss_newton() {
+        None => {
+            let steps = train_cfg.total_steps(n_train);
+            (steps, steps, steps)
+        }
+        Some(_) => {
+            let p = run
+                .gn_passes()
                 .expect("could not read gn_steps.csv")
-                .expect("a Gauss-Newton run writes gn_steps.csv"),
-        ),
+                .expect("a Gauss-Newton run writes gn_steps.csv");
+            let (forward, backward) = training_passes(&p);
+            (p.steps, forward, backward)
+        }
     };
 
     let costs = RunCosts {
