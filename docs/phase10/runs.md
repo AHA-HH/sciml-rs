@@ -9,8 +9,9 @@ on `main` (T1–T6, #98–#107); build once from the commit the runs cite.
 
 ```sh
 ssh cricket
-tmux new -s p10                      # every run below inside tmux
-cd ~/sciml-rs && git pull && git log --oneline -1   # the commit the runs cite
+tmux new -s p10 bash                 # every run below inside tmux, in bash (the helpers need it)
+cd ~/sciml-rs && git switch main && git pull --ff-only && git log --oneline -1
+# the commit the runs cite: it must contain #107 (git log --oneline | grep '#107')
 source ~/sciml-gpu.sh
 mkdir -p logs
 # datasets/poisson/ must hold stage 3 (n = 129): poisson_n129_K64_{train,test}.npz and sidecars
@@ -29,20 +30,23 @@ into the run's `costs.json`.
 TP="cargo run --release $CUDA --example train_poisson --"
 PP="cargo run --release $CUDA --example predict_poisson --"
 
-gpurun() {   # gpurun <tag> <command ...>; returns the command's status
+gpurun() {   # gpurun <tag> <command ...>; nonzero if the command failed
   local tag=$1; shift
   nvidia-smi > logs/$tag.gpu_before.txt          # the GPU unshared (Phase 9's rule)
-  nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i 0 -lms 500 \
-    > logs/$tag.mem &
-  local smi=$!
-  # stop the sampler on Ctrl-C too, or it keeps appending to logs/$tag.mem
-  trap "kill $smi 2>/dev/null" RETURN INT
-  set -o pipefail
-  "$@" 2>&1 | tee logs/$tag.log
-  local status=$?
-  set +o pipefail
+  # a subshell, so pipefail stays local; the sampler polls while the subshell lives, so
+  # it stops by itself after the run or a Ctrl-C (which also stops a loop of runs)
+  (
+    set -o pipefail
+    run=$(exec sh -c 'echo $PPID')     # this subshell's pid, in any bash version
+    while kill -0 $run 2>/dev/null; do
+      nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i 0
+      sleep 0.5
+    done > logs/$tag.mem &
+    "$@" 2>&1 | tee logs/$tag.log
+  )
+  local rc=$?
   nvidia-smi > logs/$tag.gpu_after.txt
-  if [ $status -ne 0 ]; then echo "FAILED ($status): see logs/$tag.log"; return $status; fi
+  if [ $rc -ne 0 ]; then echo "FAILED ($rc): see logs/$tag.log"; return $rc; fi
   echo "peak $(sort -n logs/$tag.mem | tail -1) MiB"
 }
 
@@ -64,14 +68,15 @@ checkout when its stage is done:
 ## 1. T3's acceptance (about 10 minutes)
 
 1. **cuda f64 (G7):**
-   `cargo test --release $CUDA --test gauss_newton_f64 -- --ignored f64_oracle_and_adjoint_on_cuda 2>&1 | tee logs/t3_f64.log`.
+   `cargo test --release $CUDA --test gauss_newton_f64 -- --ignored --nocapture f64_oracle_and_adjoint_on_cuda 2>&1 | tee logs/t3_f64.log`
+   (`--nocapture`: a passing test's printed errors are otherwise hidden).
    Record pass or fail and the printed errors. If it passes, T4's optional f64 GN run still
    needs code (`train_poisson` loads f32 only); decide then whether it is worth a task.
 2. **A short GN run** of stage 3, s = 64, N = 100, subset 0. `train_poisson` has no epoch
    override, so the brief's "2 epochs" is a 60 s budget instead (it stops after the first
    epoch that reaches it):
    `gpurun t3_gn env OPTIMIZER=gauss-newton TIME_BUDGET_S=60 $TP 0 129 64 42 100 0`,
-   then `$PP runs/<dir>`. Record `gn_steps.csv`'s first rows (ρ, λ, CG iterations,
+   then `setpeak runs/<dir> t3_gn` and `$PP runs/<dir>`. Record `gn_steps.csv`'s first rows (ρ, λ, CG iterations,
    `adjoint_error`) and `costs.json`.
 3. **The Adam check** (metrics against a Phase 7 run's, cuda round-off) is read from the
    first T5 Adam rerun (stage 3, seed 42) against Phase 7's
@@ -115,7 +120,7 @@ arms after seeing test errors.
 **Adam reruns first** (about 15 minutes each):
 
 ```sh
-for seed in 42 43 44; do gpurun t5_adam_$seed $TP 0 129 64 $seed; done
+for seed in 42 43 44; do gpurun t5_adam_$seed $TP 0 129 64 $seed || break; done
 ```
 
 `setpeak` and `$PP` each. Check: error 4 of each within Phase 7's 1.041e-2–1.095e-2 (G6).
@@ -134,10 +139,10 @@ Also the T3 Adam check: `runs/<adam42>/metrics.csv` against Phase 7's
 
 ```sh
 for seed in 42 43 44; do
-  gpurun t5_gn20_$seed    env OPTIMIZER=gauss-newton GN_PRECONDITIONER=none       TIME_BUDGET_S=$T $TP 0 129 64 $seed
-  gpurun t5_gn20d_$seed   env OPTIMIZER=gauss-newton GN_PRECONDITIONER=hutchinson TIME_BUDGET_S=$T $TP 0 129 64 $seed
-  gpurun t5_gn200_$seed   env OPTIMIZER=gauss-newton GN_BATCH_SIZE=200 GN_PRECONDITIONER=<P> TIME_BUDGET_S=$T $TP 0 129 64 $seed
-  gpurun t5_hybrid_$seed  env OPTIMIZER=hybrid GN_PRECONDITIONER=<P>              TIME_BUDGET_S=$T $TP 0 129 64 $seed
+  gpurun t5_gn20_$seed    env OPTIMIZER=gauss-newton GN_PRECONDITIONER=none       TIME_BUDGET_S=$T $TP 0 129 64 $seed || break
+  gpurun t5_gn20d_$seed   env OPTIMIZER=gauss-newton GN_PRECONDITIONER=hutchinson TIME_BUDGET_S=$T $TP 0 129 64 $seed || break
+  gpurun t5_gn200_$seed   env OPTIMIZER=gauss-newton GN_BATCH_SIZE=200 GN_PRECONDITIONER=<P> TIME_BUDGET_S=$T $TP 0 129 64 $seed || break
+  gpurun t5_hybrid_$seed  env OPTIMIZER=hybrid GN_PRECONDITIONER=<P>              TIME_BUDGET_S=$T $TP 0 129 64 $seed || break
 done
 ```
 
@@ -155,10 +160,12 @@ generalisation gap per arm. The T5 README row.
 ## 4. T6's conditioning (time not yet measured; the cut-down smoke took 6.5 min on flex)
 
 On the VM, three runs: one Adam seed (`<adam42>`), T5's best GN arm (its seed-42 run), and
-T4's GN run with `<P>` (N = 100, a second point). Try `datagen` for the Chebyshev κ column;
-if it does not build on the VM, drop it and the column reads "– (needs datagen)".
+T4's GN run with `<P>` (N = 100, a second point). Build with `datagen` first, outside the
+timed run, for the Chebyshev κ column; if it does not build on the VM (OpenBLAS, FFTW,
+libclang), drop `,datagen` below and the column reads "– (needs datagen)".
 
 ```sh
+cargo build --release $CUDA,datagen --example poisson_conditioning
 gpurun t6 cargo run --release $CUDA,datagen --example poisson_conditioning -- \
   docs/phase10/conditioning.md runs/<adam42> runs/<best_gn_42> runs/<t4_gn_P>
 ```
