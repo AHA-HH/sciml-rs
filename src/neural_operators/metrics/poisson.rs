@@ -421,7 +421,7 @@ fn rel_diff(a: f64, b: f64) -> f64 {
 
 /// Pearson correlation of ln a with ln b; NaN for fewer than two samples or a constant
 /// series.
-fn log_correlation(a: &[f64], b: &[f64]) -> f64 {
+pub fn log_correlation(a: &[f64], b: &[f64]) -> f64 {
     let (x, y): (Vec<f64>, Vec<f64>) = a.iter().zip(b).map(|(a, b)| (a.ln(), b.ln())).unzip();
     let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
     let (mx, my) = (mean(&x), mean(&y));

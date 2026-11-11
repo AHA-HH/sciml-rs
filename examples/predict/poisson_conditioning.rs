@@ -19,7 +19,10 @@
 //! 2. **Tangent kernel at s = [`KERNEL_S`].** For the first of those samples, the diagonal
 //!    of Kᵢ = JᵢJᵢᵀ in the orthonormal sine basis of the uniform grid, ‖Jᵢᵀ φ_kl‖² for
 //!    k, l = 1..s − 2 (one VJP each; the grid's boundary rows carry no sine), against
-//!    1/μ_kl.
+//!    1/μ_kl, and sorted by rank for comparison with Phase 6's POD eigenvalues of u.
+//!
+//! Every run must be a stage 3 run trained at s = 64, on the whole split of 1,000 or on
+//! Phase 7's subset 0 of 100, so all are measured on the same samples.
 //! 3. **PDE side.** κ of the uniform finite-difference Laplacian at each s (closed form)
 //!    and, built with `datagen`, of the Chebyshev collocation Laplacian at n = s + 1.
 //!
@@ -47,6 +50,7 @@ use sciml_rs::neural_operators::{
         loaders::poisson::{PoissonConfig, load_poisson_uniform, subset_indices},
         transforms::normalizers::{FlatDecoder, UnitGaussianNormalizer},
     },
+    metrics::poisson::log_correlation,
     models::fno::FNO,
     optim::gauss_newton::{ParamVec, adjoint_error, jvp, lanczos, params, vjp},
     runs::RunDir,
@@ -62,6 +66,12 @@ const KERNEL_S: usize = 64;
 const SAMPLES: usize = 100;
 /// The subset seed: subset 0 is T4's training set.
 const SUBSET_SEED: u64 = 0;
+/// The train split the subset is drawn from: stage 3's 1,000 samples (Phase 7).
+const POPULATION: usize = 1000;
+/// Stage 3, the runs' stage.
+const STAGE_N: usize = 129;
+/// Ranks of the sorted kernel diagonal tabulated beside Phase 6's POD eigenvalues of u.
+const POD_RANKS: usize = 12;
 /// Lanczos steps (the brief asks for at least 50).
 const LANCZOS_ITERS: usize = 60;
 /// Ritz values tabulated per (run, s).
@@ -120,10 +130,7 @@ fn sine_mode(s: usize, k: usize, l: usize) -> Vec<f32> {
 
 /// A Rademacher vector with `template`'s structure, from `seed`.
 fn rademacher(template: &ParamVec, seed: u64) -> ParamVec {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let z: Vec<f32> = (0..template.numel())
-        .map(|_| if rng.next_u32() & 1 == 0 { -1.0 } else { 1.0 })
-        .collect();
+    let z = rademacher_host(template.numel(), seed);
     template.from_flat_like(Tensor::from_floats(z.as_slice(), &template.device()))
 }
 
@@ -136,6 +143,14 @@ fn samples_at(run: &RunDir, s: usize) -> (OperatorDataset<f32>, UnitGaussianNorm
     let trained: PoissonConfig = run
         .data_config()
         .unwrap_or_else(|e| panic!("{}: data config: {e}", run.path().display()));
+    // every run is one operator on stage 3, trained at s = 64, measured on one sample set
+    assert!(
+        trained.n == STAGE_N && trained.s() == KERNEL_S,
+        "{}: trained at n = {}, s = {}; T6 measures stage 3 runs trained at s = {KERNEL_S}",
+        run.path().display(),
+        trained.n,
+        trained.s()
+    );
     let set = stage(trained.n).unwrap_or_else(|e| panic!("{e}"));
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
     let cfg = trained.clone().with_s(Some(s));
@@ -146,11 +161,21 @@ fn samples_at(run: &RunDir, s: usize) -> (OperatorDataset<f32>, UnitGaussianNorm
     )
     .unwrap_or_else(|e| panic!("could not load stage {} at s = {s}: {e}", trained.n));
     let rows: Vec<usize> = match &trained.subset {
-        None => subset_indices(train.len(), SAMPLES, SUBSET_SEED),
+        None => {
+            assert_eq!(
+                train.len(),
+                POPULATION,
+                "{}: subset {SUBSET_SEED} is drawn from the whole split of {POPULATION}",
+                run.path().display()
+            );
+            subset_indices(POPULATION, SAMPLES, SUBSET_SEED)
+        }
         // the loader already kept the subset's rows, in index order
         Some(sub) => {
             assert!(
-                sub.seed == SUBSET_SEED && trained.base.n_train == SAMPLES,
+                sub.seed == SUBSET_SEED
+                    && trained.base.n_train == SAMPLES
+                    && sub.population == POPULATION,
                 "{}: trained on subset {} of {}; T6 measures on subset {SUBSET_SEED} of {SAMPLES}",
                 run.path().display(),
                 sub.seed,
@@ -268,22 +293,6 @@ fn rademacher_host(m: usize, seed: u64) -> Vec<f32> {
         .collect()
 }
 
-/// The Pearson correlation of the logs of the pairs.
-fn log_correlation(pairs: &[(f64, f64)]) -> f64 {
-    let n = pairs.len() as f64;
-    let logs: Vec<(f64, f64)> = pairs.iter().map(|(a, b)| (a.ln(), b.ln())).collect();
-    let (ma, mb) = logs
-        .iter()
-        .fold((0.0, 0.0), |(x, y), (a, b)| (x + a / n, y + b / n));
-    let (mut sab, mut saa, mut sbb) = (0.0, 0.0, 0.0);
-    for (a, b) in &logs {
-        sab += (a - ma) * (b - mb);
-        saa += (a - ma).powi(2);
-        sbb += (b - mb).powi(2);
-    }
-    sab / (saa * sbb).sqrt()
-}
-
 fn sci(x: f64) -> String {
     format!("{x:.3e}")
 }
@@ -352,12 +361,12 @@ fn table(results: &[RunResult]) -> String {
                 .find(|(a, b, _)| (*a, *b) == (k, l))
                 .map_or(f64::NAN, |d| d.2)
         };
-        let pairs: Vec<(f64, f64)> = r
+        let (diag, inv_mu): (Vec<f64>, Vec<f64>) = r
             .kernel
             .diag
             .iter()
             .map(|(k, l, d)| (*d, 1.0 / mu(*k, *l)))
-            .collect();
+            .unzip();
         let cells: Vec<String> = modes
             .iter()
             .map(|&(k, l)| {
@@ -372,7 +381,7 @@ fn table(results: &[RunResult]) -> String {
             w,
             "| `{}` | {:.3} | {} |",
             r.name,
-            log_correlation(&pairs),
+            log_correlation(&diag, &inv_mu),
             cells.join(" | ")
         )
         .unwrap();
@@ -382,6 +391,42 @@ fn table(results: &[RunResult]) -> String {
         "\nEach cell: kernel diagonal / (1/μ_kl), both relative to (1,1)."
     )
     .unwrap();
+
+    writeln!(
+        w,
+        "\nThe kernel diagonal sorted descending, relative to its largest, at ranks \
+         1..{POD_RANKS}: compare with the leading POD eigenvalues of u at s = {KERNEL_S}, \
+         relative to the first (`docs/phase6/results.md`, \"Leading eigenvalues against the \
+         CGL fit\"), and with 1/μ_kl sorted the same way.\n"
+    )
+    .unwrap();
+    let names: Vec<String> = results.iter().map(|r| format!("`{}`", r.name)).collect();
+    writeln!(w, "| rank | 1/μ (sorted) | {} |", names.join(" | ")).unwrap();
+    writeln!(w, "|{}", " --- |".repeat(2 + results.len())).unwrap();
+    let descending = |mut v: Vec<f64>| {
+        v.sort_by(|a, b| b.total_cmp(a));
+        v
+    };
+    let inv_mu = descending(
+        (1..KERNEL_S - 1)
+            .flat_map(|k| (1..KERNEL_S - 1).map(move |l| 1.0 / mu(k, l)))
+            .collect(),
+    );
+    let sorted: Vec<Vec<f64>> = results
+        .iter()
+        .map(|r| descending(r.kernel.diag.iter().map(|x| x.2).collect()))
+        .collect();
+    for i in 0..POD_RANKS {
+        let cells: Vec<String> = sorted.iter().map(|d| sci(d[i] / d[0])).collect();
+        writeln!(
+            w,
+            "| {} | {} | {} |",
+            i + 1,
+            sci(inv_mu[i] / inv_mu[0]),
+            cells.join(" | ")
+        )
+        .unwrap();
+    }
 
     writeln!(w, "\n## PDE side: condition numbers\n").unwrap();
     writeln!(
@@ -501,13 +546,5 @@ mod tests {
         assert!((fd_kappa(3) - 1.0).abs() < 1e-12);
         let m = 126.0;
         assert!((fd_kappa(128) / (4.0 * (m + 1.0_f64).powi(2) / (PI * PI)) - 1.0).abs() < 1e-3);
-    }
-
-    #[test]
-    fn log_correlation_of_a_power_law_is_one() {
-        let pairs: Vec<(f64, f64)> = (1..20)
-            .map(|i| (i as f64, 3.0 * (i as f64).powf(-2.0)))
-            .collect();
-        assert!((log_correlation(&pairs) + 1.0).abs() < 1e-12);
     }
 }

@@ -227,8 +227,8 @@ pub fn cg(
 /// tridiagonal. The largest converge first, to the top of A's spectrum; reorthogonalising
 /// keeps a noisy or f32 operator from producing duplicate copies of them (ghosts), at the
 /// cost of storing every Lanczos vector (`iters` × [`ParamVec`]). Stops early, with fewer
-/// values, when the Krylov space is exhausted (the next vector's norm below 1e-10 of
-/// ‖A v₀‖ / ‖v₀‖ scale).
+/// values, when the Krylov space is exhausted (the next vector's norm below 1e-10 of the
+/// largest |αⱼ| so far, the Rayleigh quotients on the diagonal).
 ///
 /// `apply` computes A v, as for [`cg`]; it is called `iters` times at most.
 ///
@@ -250,6 +250,9 @@ pub fn lanczos(
         let alpha = basis[j].dot(&w);
         alphas.push(alpha);
         scale = scale.max(alpha.abs());
+        if j + 1 == iters {
+            break;
+        }
         // twice is enough (Kahan, "twice is enough"): the first pass leaves O(ε) residue
         for _ in 0..2 {
             for q in &basis {
@@ -257,7 +260,7 @@ pub fn lanczos(
             }
         }
         let beta = w.norm();
-        if j + 1 == iters || beta <= 1e-10 * scale {
+        if beta <= 1e-10 * scale {
             break;
         }
         betas.push(beta);
@@ -456,6 +459,10 @@ mod tests {
             (few[2] - 21.0).abs() < 0.5 && few[0] >= 0.5 - 1e-6,
             "{few:?}"
         );
+        // the Krylov space of an 8 × 8 matrix is exhausted after 8 steps: 12 asked, 8 given
+        let all = lanczos(operator(&a, 0.0, &t, &device), &v0, 12);
+        assert_eq!(all.len(), 8, "{all:?}");
+        assert!((all[7] - 21.0).abs() < 1e-3 * 21.0, "{all:?}");
     }
 
     #[test]
