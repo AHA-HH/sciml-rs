@@ -26,3 +26,12 @@ Other folders: `code-quality/` holds repository-wide reviews.
   decision table with their sign-offs; `progress.md` is the log, one entry per task;
   `tasks/<ID>.md` is each task's plan, written when it starts; `gates/<milestone>.md` is
   each milestone's close-out report.
+
+## Running an objective
+
+The files above are the whole state of an objective; nothing is tracked outside the
+repository. `/next-task` (`.claude/skills/next-task/`) reads the roadmap and the last
+progress entries, picks the next runnable task, writes its plan in `tasks/`, implements
+and verifies it, ticks the roadmap and logs it in the same pull request. `/milestone-gate`
+writes `gates/<milestone>.md` and closes the milestone on the author's sign-off. `/verify`
+runs the checks. The 2D objective has no `roadmap.md` and is outside this loop.
