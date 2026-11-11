@@ -18,6 +18,12 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   milestones L0–L5, tasks `CL<m>.<n>`, decisions D0–D8 in docs/laplace3d/roadmap.md; log
   docs/laplace3d/progress.md; each task's plan docs/laplace3d/tasks/<ID>.md. Constraint 1:
   every 2D output stays bit for bit identical.
+- Objective library (neural operators: `neuraloperator` 2.0.0 and beyond): proposal
+  docs/design/neural-operator-library.md (draft 0.1, 2026-11-11; D1, the 2.0.0 tag, signed
+  off), development wireframes in its §4; milestones M0–M4, tasks `CM<m>.<n>`, decisions
+  D0–D8 in docs/operators/roadmap.md; feature matrix docs/operators/feature-matrix.md; log
+  docs/operators/progress.md. Constraint 1: every existing FNO output stays bit for bit
+  identical. Python (fixtures from 2.0.0) stays outside CI.
 - Objective 2D (everything below; phases in docs/poisson2d/).
 - Current phase: Phase 10 (Gauss–Newton optimisation), planned 2026-11-09:
   docs/poisson2d/phase10/README.md, briefs T1–T6 (T5 a draft for its runs), design §13.17, decision 31,

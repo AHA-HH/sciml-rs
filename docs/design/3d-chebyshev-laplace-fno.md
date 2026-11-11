@@ -177,7 +177,8 @@ at 129 may serve a resolution study (D5).
 ## 8. Risks
 
 - **R1:** GPU memory or epoch time at s = 64 with modes 12³ too large; mitigations: modes
-  8³, smaller width, factorised spectral weights (D4).
+  8³, smaller width, factorised spectral weights (D4; the library objective's CM2.1,
+  `docs/operators/roadmap.md`).
 - **R2:** generalising the 2D pieces changes a 2D output (constraint 1); caught by the
   bit-identity tests.
 - **R3:** Burn backend bugs at rank 5 (the Metal cat and fusion bugs seen in 2D);

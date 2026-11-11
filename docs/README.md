@@ -11,6 +11,7 @@ objective with the number ("2D Phase 10 T3", "3D L2").
 | --- | --- | --- | --- |
 | 2D Poisson on a Chebyshev grid | [`design/2d-chebyshev-poisson-fno.md`](design/2d-chebyshev-poisson-fno.md) | [`poisson2d/`](poisson2d/): `phase0/` to `phase10/`, `phase4s/`, `optional/`; roadmap in the design's §10 | Phase 10 (Gauss–Newton) open: its VM runs |
 | 3D Poisson, then 3D Laplace | [`design/3d-chebyshev-laplace-fno.md`](design/3d-chebyshev-laplace-fno.md) (draft 0.1) | [`laplace3d/`](laplace3d/): `roadmap.md`, `progress.md`, later `tasks/` and `gates/` | proposal in draft, nothing signed off |
+| Neural operator library (`neuraloperator` 2.0.0 and beyond) | [`design/neural-operator-library.md`](design/neural-operator-library.md) (draft 0.1) | [`operators/`](operators/): `roadmap.md`, `progress.md`, `feature-matrix.md`, later `tasks/` and `gates/` | proposal in draft, D1 signed off |
 
 Other folders: `code-quality/` holds repository-wide reviews.
 
