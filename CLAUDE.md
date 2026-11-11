@@ -14,7 +14,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   `docs/design/`, one folder per objective. Phase and milestone numbers restart per
   objective, so name the objective with the number ("2D Phase 10 T3", "3D CL2.1").
 - Objective 3D (3D Poisson, then 3D Laplace): proposal
-  docs/design/3d-chebyshev-laplace-fno.md (draft 0.1, 2026-11-11, nothing signed off);
+  docs/design/3d-chebyshev-laplace-fno.md (draft 0.2, 2026-11-11, nothing signed off);
   milestones L0–L5, tasks `CL<m>.<n>`, decisions D0–D8 in docs/laplace3d/roadmap.md; log
   docs/laplace3d/progress.md; each task's plan docs/laplace3d/tasks/<ID>.md. Constraint 1:
   every 2D output stays bit for bit identical.
