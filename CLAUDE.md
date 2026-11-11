@@ -82,6 +82,14 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   to it, push it, and open or update its PR (a draft while VM runs, sign-offs or open
   questions are pending). Merging, pushing to `main`, force-pushing, rewriting history,
   deleting branches and closing PRs still need a yes in the current message.
+- `main` is protected on GitHub (2026-11-11): changes only by PR, the CI jobs
+  `run-tests`, `run-tests-datagen` and `style-checks` green, the branch up to date with
+  `main`; the rules bind admins, so no session can push to `main`. Merged branches are
+  deleted. `.claude/settings.json` denies pushing to `main`, force-pushing, deleting
+  remote branches, and `gh pr merge` / `gh pr close`: the author runs those (`! <command>`
+  in the prompt). Bring a stale PR branch up to date by merging `origin/main` into it,
+  never by rebasing. Branch from `origin/main` with `git switch --no-track -c`, never
+  checking out `main` (worktrees).
 - Default flow: make the change, run the checks, report exactly which ones ran and what
   they said, and leave the result uncommitted unless the current message asks for a
   commit. Never report an unrun check as passing; say plainly when something could not
@@ -99,10 +107,16 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
 - `/next-task`: the default loop. Use it whenever the user says "continue" or "next",
   names a roadmap ID (CL…, CM…) or an objective: it syncs the open task PRs, picks the next
   runnable task from the objective's roadmap, plans it (`tasks/<ID>.md`), implements it
-  tests first, verifies, logs (`progress.md`) and opens the PR.
+  tests first, verifies, reviews (the `reviewer` agent against the plan, and a
+  thermo-nuclear code quality review per task), logs (`progress.md`) and opens the PR. One
+  PR per task; a task over about 1,000 lines or three modules is split first.
 - `/verify`: the checks below for what a branch changed, with the objective's constraint 1.
   Run before calling anything done.
-- `/milestone-gate`: a milestone's gate report (`gates/<milestone>.md`) and close.
+- `/milestone-gate`: a milestone's gate report (`gates/<milestone>.md`), with a
+  thermo-nuclear review of the milestone's whole diff, and at an objective's last
+  milestone the thermo-nuclear repo review; then the close.
+- Thermo-nuclear reports are git-ignored, always in this checkout's `docs/code-quality/`
+  (also from worktrees); PR texts and gate reports carry their verdicts.
 
 ## Working rules
 - Run `cargo fmt` after every Rust edit, before the other checks or committing. CI
@@ -226,7 +240,9 @@ libfftw3, and OpenBLAS on Linux (Accelerate on macOS).
 GPU VM (2× A100, `ssh cricket`, repository at `~/sciml-rs`): `source ~/sciml-gpu.sh`
 before any `cargo` command. It activates the Spack environment in `env/vm-a100/` (NCCL
 built for a CUDA the driver supports, gnuplot), which the system NCCL is not. Long runs
-go in tmux with a `tee` log under `logs/`.
+go in tmux with a `tee` log under `logs/`. Runs of `/next-task` tasks each use a worktree
+of their own, `~/sciml-rs-wt/<id>` (`.claude/skills/next-task`, step 6), so parallel runs
+never share a checkout.
 
 ## Checks
 CI (GitHub Actions, `.github/workflows/run-tests.yml`, pushes and pull requests to `main`)

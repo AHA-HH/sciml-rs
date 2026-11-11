@@ -11,7 +11,8 @@ GitHub issue sync.
 ## Permissions
 
 As `/next-task`: invoking this skill is the request to create the branch
-`<objective>/<milestone>-gate` (lower case, e.g. `laplace3d/l0-gate`), commit to it, push it
+`<objective>/<milestone>-gate` (lower case, e.g. `laplace3d/l0-gate`; from `origin/main` with
+`git switch --no-track -c`, never checking out `main`, as `/next-task` step 4), commit to it, push it
 and open its PR. Merging and pushing to `main` need a yes in the current message. No Claude
 attribution in commits or PRs.
 
@@ -35,11 +36,28 @@ is still open, list it and stop.
   "FNO" line of each progress entry).
 - Measured numbers set against the proposal's expectations (for example its cost model),
   and the corrections they imply.
+- **Code quality across the milestone.** A fresh `general-purpose` subagent reads and
+  follows `~/.claude/skills/thermo-nuclear-code-quality-review/SKILL.md` over the
+  milestone's whole diff: the base is the `main` commit just before the milestone's first
+  task PR was merged (its merge commit's first parent). It looks for what only shows across
+  tasks (layer leaks built up over several PRs, near-duplicate helpers from different
+  tasks, a file grown past 1,000 lines in steps). Report, git-ignored, in the main
+  checkout (first entry of `git worktree list --porcelain`):
+  `docs/code-quality/thermo-nuclear-review-<YYYY-MM-DD>-<objective>-<milestone>-gate.md`.
+  The gate PR has no code, so its blockers and findings become questions for sign-off or
+  roadmap tasks, not fixes.
+- **The objective's last milestone only: the whole repository.** A fresh subagent reads and
+  follows `~/.claude/skills/thermo-nuclear-repo-review/SKILL.md` (user-invoked only, so
+  followed from its file; the author asked for it at the end of each design document,
+  2026-11-11), its report in the same folder. Its refactor roadmap is put to the author as
+  the objective's follow-ups or a next objective, not applied.
 
 ## 3. The report
 
 Write `docs/<objective>/gates/<milestone>.md`: the date; each gate condition with its
-evidence (PRs, reports, CI runs); what failed or remains; the measured numbers against the
+evidence (PRs, reports, CI runs); the code-quality verdicts (the milestone's and, at the
+last milestone, the repository's), with their blockers, top findings and local report
+paths; what failed or remains; the measured numbers against the
 proposal; proposed corrections to the proposal, as questions for sign-off rather than edits;
 recommendations for the next milestones; and a short retrospective on the loop itself (what
 to change in `/next-task`, `/verify` or the roadmap).
