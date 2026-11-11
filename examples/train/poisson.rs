@@ -6,7 +6,7 @@
 //! see "Backends" in the README).
 //!
 //! An optional first argument overrides `PADDING`, so the padding sweep of
-//! docs/phase3/T2-train-poisson.md needs no edits:
+//! docs/poisson2d/phase3/T2-train-poisson.md needs no edits:
 //! cargo run --release --example train_poisson -- 8
 //! An optional second argument picks the stage by n, one of `catalogue::STAGES`
 //! (design §5.3):

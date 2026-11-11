@@ -38,7 +38,7 @@ Not met:
 | `src/neural_operators/runs/mod.rs` | 385 → 395 | test extension only |
 | `src/neural_operators/data/loaders/darcy.rs` | 327 → 369 | +42, all prod; no test added |
 | `examples/predict/poisson.rs` | 279 → 285 | |
-| `docs/phase4s/README.md` | 234 → 234 | |
+| `docs/poisson2d/phase4s/README.md` | 234 → 234 | |
 | `examples/predict/poisson_plot.rs` | 189 → 196 | |
 | `src/neural_operators/data/loaders/common.rs` | 89 → 120 | `normalize_test_split`, `encode_split` |
 | `examples/predict/darcy_plot.rs` | 93 → 98 | |
@@ -180,7 +180,7 @@ Each step preserves behaviour and can be one commit on this branch. Step 1 clear
 ## Re-review after 1d8c86b
 
 - **Range:** `git diff phase4s/T17-y-train-physical...phase4s/T18-x-normalizer`, now two commits (`023b0bb`, `1d8c86b`). 10 files, +383 / −116.
-- **Fix commit:** `1d8c86b` changes `data/loaders/darcy.rs` (+74 / −27, of it +38 test) and the T18 line in `docs/phase4s/README.md`.
+- **Fix commit:** `1d8c86b` changes `data/loaders/darcy.rs` (+74 / −27, of it +38 test) and the T18 line in `docs/poisson2d/phase4s/README.md`.
 
 ### Verdict: APPROVE
 
@@ -205,7 +205,7 @@ None. The earlier one (duplicated validation, canonical home skipped) is cleared
 | File | Before → after |
 | --- | --- |
 | `src/neural_operators/data/loaders/darcy.rs` | 327 → 416 (was 369 at `023b0bb`; +47, of it 38 test) |
-| `docs/phase4s/README.md` | 234 → 234 |
+| `docs/poisson2d/phase4s/README.md` | 234 → 234 |
 
 The other files are unchanged since `023b0bb`; see the first table.
 

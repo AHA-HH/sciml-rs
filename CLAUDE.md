@@ -10,11 +10,20 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   normalisation, mode truncation and initialisation. Never change a convention in code;
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
+- Docs are organised by objective (`docs/README.md`, 2026-11-11): design documents in
+  `docs/design/`, one folder per objective. Phase and milestone numbers restart per
+  objective, so name the objective with the number ("2D Phase 10 T3", "3D CL2.1").
+- Objective 3D (3D Poisson, then 3D Laplace): proposal
+  docs/design/3d-chebyshev-laplace-fno.md (draft 0.1, 2026-11-11, nothing signed off);
+  milestones L0–L5, tasks `CL<m>.<n>`, decisions D0–D8 in docs/laplace3d/roadmap.md; log
+  docs/laplace3d/progress.md; each task's plan docs/laplace3d/tasks/<ID>.md. Constraint 1:
+  every 2D output stays bit for bit identical.
+- Objective 2D (everything below; phases in docs/poisson2d/).
 - Current phase: Phase 10 (Gauss–Newton optimisation), planned 2026-11-09:
-  docs/phase10/README.md, briefs T1–T6 (T5 a draft for its runs), design §13.17, decision 31,
+  docs/poisson2d/phase10/README.md, briefs T1–T6 (T5 a draft for its runs), design §13.17, decision 31,
   decisions G1–G8 chosen 2026-11-09. T1, the generic core, done (#98); T2, the
   `GaussNewton` optimiser, done (#102); T3, trainer integration, code done (#104); T4,
-  the validation gate, code done (#105); T5, the matrix, code done (#106); T6, conditioning, code done (#107); all code done, the VM runs remain, in the order of docs/phase10/runs.md (the run sheet). Order amended
+  the validation gate, code done (#105); T5, the matrix, code done (#106); T6, conditioning, code done (#107); all code done, the VM runs remain, in the order of docs/poisson2d/phase10/runs.md (the run sheet). Order amended
   2026-11-11 (decision 31): task code first, every VM run (T3's acceptance, T4's gate,
   T5, T6) at the end of the phase; T5's runs wait for T4's go. A model-agnostic,
   matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: the Burn fork
@@ -22,34 +31,34 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   waits neither for Phase 9 (now done) nor for the θ-map. Code is written on the Mac;
   T3's cuda f64 check and the runs (T4–T6) are on one A100 on the VM (no NCCL needed).
 - The θ-map is an optional, unnumbered phase since 2026-11-09 (decision 30):
-  docs/optional/README.md, design §13.18. T1, the θ-map model (brief
-  docs/optional/T1-theta-map.md approved, decisions P8–P17 chosen 2026-11-09); T2, the
+  docs/poisson2d/optional/README.md, design §13.18. T1, the θ-map model (brief
+  docs/poisson2d/optional/T1-theta-map.md approved, decisions P8–P17 chosen 2026-11-09); T2, the
   comparison against the Phase 5 baseline. It runs on the Mac, at any time; nothing waits
   for it. It was Phase 9 T5–T6 for part of 2026-11-09.
-- Phase 8 (experiment tracking) is done 2026-11-09: docs/phase8/README.md. T1 (#91):
+- Phase 8 (experiment tracking) is done 2026-11-09: docs/poisson2d/phase8/README.md. T1 (#91):
   MLflow export of run directories to a self-hosted server and opt-in live logging
   (MLflow replaced the W&B task). Its θ-map tasks T2–T3 are now the optional phase. Open
   items (mlflow CI steps, review leftovers, D6, the aliasing row) are in its README.
-- Phase 9 (HPC) is done 2026-11-10: docs/phase9/README.md. T1–T4, planned 2026-11-02, renumbered 2026-11-03
+- Phase 9 (HPC) is done 2026-11-10: docs/poisson2d/phase9/README.md. T1–T4, planned 2026-11-02, renumbered 2026-11-03
   and 2026-11-04: briefs T1–T4 (T1 checkpoint and resume, T2
   multi-GPU, T3 scaling, T4 flex run; three tasks closed at planning are in its "Closed
   at planning"). T1 done (#87); T2 done (code #88, VM acceptance 2026-11-09, criterion
-  P18; the pause of 2026-11-06 is lifted); T3 done (results docs/phase9/results.md:
+  P18; the pause of 2026-11-06 is lifted); T3 done (results docs/poisson2d/phase9/results.md:
   the step is host-bound, 2 GPUs 0.44× at s = 64); T4 done (flex, test L² 1.021e-2 ≤
   2e-2; decision 21 closed). T2 and T3 run on a
   2× A100 VM: code here, cuda checks and GPU runs there. Phases 5–7, the research programme (design §13.16), are
   done. Phase 7 (training-set size and sample efficiency) is done 2026-10-30:
-  docs/phase7/README.md, results docs/phase7/results.md; D7 (mean fine-grid error
+  docs/poisson2d/phase7/README.md, results docs/poisson2d/phase7/results.md; D7 (mean fine-grid error
   ≤ 2e-2) is met at N = 500 (decision 30, amendment of 2026-10-30). Phases 0–4 are done
-  (docs/phase0/README.md to docs/phase4/README.md), and so is Phase 4s (side phase,
-  repository health, docs/phase4s/README.md; design §10, decision 25), closed 2026-10-24
+  (docs/poisson2d/phase0/README.md to docs/poisson2d/phase4/README.md), and so is Phase 4s (side phase,
+  repository health, docs/poisson2d/phase4s/README.md; design §10, decision 25), closed 2026-10-24
   with re-review grade B (docs/code-quality/thermo-nuclear-repo-review-2026-10-24.md).
-  Phase 5 (grid-decoupled operator learning) is done 2026-10-29: docs/phase5/README.md,
-  results docs/phase5/results.md. Phase 6 (SVD/POD information content, beside Phase 5) is
-  done 2026-10-27: docs/phase6/README.md, results docs/phase6/results.md. Phase 8 (MLflow) is optional; Phase 9 (HPC: profiling, checkpointing,
+  Phase 5 (grid-decoupled operator learning) is done 2026-10-29: docs/poisson2d/phase5/README.md,
+  results docs/poisson2d/phase5/results.md. Phase 6 (SVD/POD information content, beside Phase 5) is
+  done 2026-10-27: docs/poisson2d/phase6/README.md, results docs/poisson2d/phase6/results.md. Phase 8 (MLflow) is optional; Phase 9 (HPC: profiling, checkpointing,
   multi-GPU) is a separate systems track. Their 4s prerequisites
   (T10/T12 for Phase 9 T1, T16 for the optional θ-map T1) are merged. Each phase gets its README and briefs when it
-  starts; 4s briefs are in docs/phase4s/T*.md.
+  starts; 4s briefs are in docs/poisson2d/phase4s/T*.md.
 - Background: docs/design/2d-chebyshev-poisson-fno.md (2D Poisson on a Chebyshev grid,
   RLST reference solver, FNO; signed off 2026-10-05, amended 2026-10-08 and 2026-10-09,
   decisions in its §12). CONVENTIONS.md wins on any conflict.
@@ -294,23 +303,23 @@ than trusting prose when checking how an API behaves.
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`
 - Phase 5 comparison table and plots from evaluated Poisson runs (mean and min–max over
   seeds per (padding, s); plots `<stem>_*.png` beside the table, skipped without gnuplot):
-  `cargo run --release --example poisson_matrix -- docs/phase5/results.md runs/<run_dir> ...`;
+  `cargo run --release --example poisson_matrix -- docs/poisson2d/phase5/results.md runs/<run_dir> ...`;
   with `--by-n` the Phase 7 table instead (runs at one (padding, s) and one backend,
   grouped by N, whole-split runs as N = 1000; D7 verdict, spread by seed, cost per fall in
-  error; plots against N): `poisson_matrix -- --by-n docs/phase7/results.md runs/<run_dir> ...`;
+  error; plots against N): `poisson_matrix -- --by-n docs/poisson2d/phase7/results.md runs/<run_dir> ...`;
   with `--by-optimizer` the Phase 10 table (runs at one (padding, s) and one backend,
   grouped by optimiser arm; plots of error 4 against time, updates and passes):
-  `poisson_matrix -- --by-optimizer docs/phase10/results.md runs/<run_dir> ...`
+  `poisson_matrix -- --by-optimizer docs/poisson2d/phase10/results.md runs/<run_dir> ...`
 - Conditioning of trained Poisson runs (Phase 10 T6: Ritz values of G + μI at s = 32, 64,
   128, the tangent kernel in the sine basis, the Laplacians' κ; `datagen` adds the
   Chebyshev κ): `cargo run --release --example poisson_conditioning --
-  docs/phase10/conditioning.md runs/<run_dir> ...`
+  docs/poisson2d/phase10/conditioning.md runs/<run_dir> ...`
 - Resolution study (errors 3 and 4 of a Poisson run on finer grids at the run's K, weights
   unchanged, normalisers refit on that n's `_train` split):
   `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> <n> [<n> ...]`
 - POD of the stage 3 f and u, on the CGL grid and the learning grids (Phase 6; tables to
   `<out.md>`, plots beside it):
-  `cargo run --release --features datagen --example poisson_pod -- docs/phase6/results.md`
+  `cargo run --release --features datagen --example poisson_pod -- docs/poisson2d/phase6/results.md`
 - Plot one Poisson test sample (f, u, û, û − u on the CGL nodes, on the run's stage; writes
   `prediction_<sample>.png`):
   `cargo run --release --example poisson_plot [--features metal] -- runs/<run_dir> [<sample>]`

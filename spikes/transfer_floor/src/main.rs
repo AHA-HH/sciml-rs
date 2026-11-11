@@ -1,4 +1,4 @@
-//! Phase 5 T1 (`docs/phase5/T1-transfer-floor.md`): the transfer-only error floor and the
+//! Phase 5 T1 (`docs/poisson2d/phase5/T1-transfer-floor.md`): the transfer-only error floor and the
 //! choice of restriction R, with no model in the loop.
 //!
 //! Usage: `cargo run --release -p transfer-floor-spike -- <dataset dir>`, where the

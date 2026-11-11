@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Repo | sciml-rs (`sciml_rs`), worktree `chiton` |
-| Branch | `phase4s/T5` (task brief: `docs/phase4s/T5-delete-grids.md`) |
+| Branch | `phase4s/T5` (task brief: `docs/poisson2d/phase4s/T5-delete-grids.md`) |
 | Base | `79f9c62` (`git merge-base HEAD main`, the tip of `main`) |
 | Date | 2026-10-16 |
 | Diff | 4 files, +41 / −381 (uncommitted working tree against base, including the staged deletion of `data/grids.rs`) |

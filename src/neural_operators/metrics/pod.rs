@@ -8,7 +8,7 @@
 //! point is scaled by √(wx_i wy_j), so the Euclidean SVD of the scaled matrix is the POD in
 //! that inner product, and σ_i² / (N − 1) estimate the covariance eigenvalues. The SVD is
 //! taken of the snapshot matrix itself, not of the N × N Gram matrix, which would square
-//! its dynamic range (docs/phase6/README.md).
+//! its dynamic range (docs/poisson2d/phase6/README.md).
 //!
 //! `gesvd`, not RLST's `svd` (`gesdd`): on the stage 3 solutions restricted to s = 16 and
 //! 32, macOS Accelerate's `dgesdd` returned singular values with Σ σ_i² up to 44 times the

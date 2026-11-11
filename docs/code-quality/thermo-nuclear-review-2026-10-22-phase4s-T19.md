@@ -40,7 +40,7 @@ Not met:
 | `src/neural_operators/data/loaders/darcy.rs` | 416 → 420 | allow |
 | `src/neural_operators/data/transforms/normalizers.rs` | 327 → 331 | allow |
 | `examples/predict/poisson.rs` | 280 → 103 | policy and records moved out |
-| `docs/phase4s/README.md` | 234 → 234 | Results rows |
+| `docs/poisson2d/phase4s/README.md` | 234 → 234 | Results rows |
 | `src/neural_operators/data/loaders/burgers.rs` | 189 → 193 | allow |
 | `src/neural_operators/metrics/stats.rs` | 71 → 75 | allow |
 | `src/lib.rs` | 69 → 68 | crate-wide allow deleted |
@@ -138,7 +138,7 @@ No threshold crossed. `loaders/poisson.rs` (924) keeps growing toward T22's spli
 
 **7.1 `files_round_trip` keeps its old `Value` assertions after the new byte check** (`dataset.rs:417` onward). Once the text equals the old writer's output byte for byte, the `v["split"]`, `v["n"]` and similar lookups that follow re-check a subset of the same thing. Keep the ones that state facts the oracle does not (e.g. that `K` is the K in effect), and drop the rest. Low value either way.
 
-**7.2 The README row says `poisson_resolution` calls `evaluate`** (`docs/phase4s/README.md:143`); it does not, by a documented deviation. The PR body explains why. Amend the row's wording when the Results are filled in, so the plan and the code agree.
+**7.2 The README row says `poisson_resolution` calls `evaluate`** (`docs/poisson2d/phase4s/README.md:143`); it does not, by a documented deviation. The PR body explains why. Amend the row's wording when the Results are filled in, so the plan and the code agree.
 
 ## Brief acceptance (T19)
 
@@ -207,7 +207,7 @@ New in this re-review:
 Carried over from the first review, still open:
 - **6.1** `metrics/poisson.rs:168`: `check_error3` writes `|a − b| / |b|` inline; use `rel_diff` (`:375`). One line.
 - **4.2** `metrics/poisson.rs:352`: `evaluate` calls `backend_features()` itself while taking `device` as an argument; pass both environment facts the same way.
-- **7.2** `docs/phase4s/README.md:143`: the T19 row still says `poisson_resolution` calls `evaluate`; it does not (documented deviation). Amend the row; it could also say `evaluate` returns `PoissonEvaluation`.
+- **7.2** `docs/poisson2d/phase4s/README.md:143`: the T19 row still says `poisson_resolution` calls `evaluate`; it does not (documented deviation). Amend the row; it could also say `evaluate` returns `PoissonEvaluation`.
 - **2.2** the seven per-file `#![allow(clippy::redundant_field_names)]`: a one-token fix in the pinned burn fork (`burn-derive/src/config/analyzer_struct.rs:196`) deletes them all. Own PR.
 - **4.3** `loaders/poisson.rs:116-122`: add "new fields in sorted position" to `SidecarRecord`'s doc. For T22.
 - **6.2** the fixture is `include_str!`ed from two test modules (`loaders/poisson.rs:450`, `metrics/poisson.rs:632`). For T22's catalogue module.

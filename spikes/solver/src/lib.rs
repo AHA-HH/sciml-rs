@@ -1,6 +1,6 @@
 //! Phase 0 T4 spike: reference solvers for −Δu = f on [−1, 1]², u = 0 on the boundary.
 //!
-//! Throwaway measurement code (see `docs/phase0/T4-solver-spike.md`). Phase 1 rewrites
+//! Throwaway measurement code (see `docs/poisson2d/phase0/T4-solver-spike.md`). Phase 1 rewrites
 //! what is kept, with its own tests.
 
 extern crate blas_src;

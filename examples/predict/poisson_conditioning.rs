@@ -1,8 +1,8 @@
-//! Phase 10 T6 (docs/phase10/T6-conditioning.md, design §13.17 "Conditioning", H10b):
+//! Phase 10 T6 (docs/poisson2d/phase10/T6-conditioning.md, design §13.17 "Conditioning", H10b):
 //! the Gauss–Newton curvature of trained Poisson FNOs across learning grids, the
 //! single-sample tangent kernel in the sine basis, and the PDE side's condition numbers.
 //!
-//! Run with: cargo run --release --example poisson_conditioning -- docs/phase10/conditioning.md runs/<run_dir> ...
+//! Run with: cargo run --release --example poisson_conditioning -- docs/poisson2d/phase10/conditioning.md runs/<run_dir> ...
 //! (`--no-default-features --features cuda` on the VM; add `datagen` for the Chebyshev
 //! collocation column of the PDE table).
 //!
@@ -396,7 +396,7 @@ fn table(results: &[RunResult]) -> String {
         w,
         "\nThe kernel diagonal sorted descending, relative to its largest, at ranks \
          1..{POD_RANKS}: compare with the leading POD eigenvalues of u at s = {KERNEL_S}, \
-         relative to the first (`docs/phase6/results.md`, \"Leading eigenvalues against the \
+         relative to the first (`docs/poisson2d/phase6/results.md`, \"Leading eigenvalues against the \
          CGL fit\"), and with 1/μ_kl sorted the same way.\n"
     )
     .unwrap();
