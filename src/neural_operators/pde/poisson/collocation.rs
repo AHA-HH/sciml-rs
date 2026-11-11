@@ -136,6 +136,18 @@ impl CollocationSolver {
     }
 }
 
+/// The n − 2 eigenvalues of the interior block of the Chebyshev D² on n CGL nodes, the
+/// 1D Dirichlet second derivative of solver A: real and negative. The 2D Laplacian's are the
+/// sums of two, so its condition number is the ratio of the largest |λ| to the smallest
+/// (Phase 10 T6, the PDE side of the conditioning comparison).
+///
+/// # Panics
+/// If `n < 3`, or as [`CollocationSolver::new`] for the eigendecomposition.
+pub fn interior_d2_eigenvalues(n: usize) -> Vec<f64> {
+    assert!(n >= 3, "interior_d2_eigenvalues: need n >= 3, got {n}");
+    real_eig(&interior_d2(n)).lam
+}
+
 /// Interior block of D², `[n − 2, n − 2]`.
 fn interior_d2(n: usize) -> Array2<f64> {
     diff2_matrix(n).slice(s![1..n - 1, 1..n - 1]).to_owned()
@@ -260,6 +272,26 @@ mod tests {
         ANISO, ANISO_T, EXP, Manufactured, POLY, SIN, exp_f, exp_u, rel_max, sample, sin_f, sin_u,
     };
     use rlst::Solve;
+
+    /// The interior D² eigenvalues are negative, the smallest |λ| that of −d²/dx² on
+    /// [−1, 1], (π/2)², and the largest grows like n⁴: κ rises 15–17× when n − 1 doubles.
+    #[test]
+    fn interior_d2_eigenvalues_match_the_continuous_lowest_and_grow_like_n4() {
+        let kappa = |n: usize| {
+            let lam = interior_d2_eigenvalues(n);
+            assert!(lam.iter().all(|&l| l < 0.0));
+            let (lo, hi) = lam.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), l| {
+                (lo.min(l.abs()), hi.max(l.abs()))
+            });
+            assert!(
+                (lo - std::f64::consts::PI.powi(2) / 4.0).abs() < 1e-8,
+                "{lo}"
+            );
+            hi / lo
+        };
+        let (k33, k65) = (kappa(33), kappa(65));
+        assert!((15.0..17.0).contains(&(k65 / k33)), "{k33} {k65}");
+    }
 
     /// Relative max and Clenshaw–Curtis relative L² errors of solver A on `m`.
     fn errors(nx: usize, ny: usize, m: &Manufactured) -> (f64, f64) {

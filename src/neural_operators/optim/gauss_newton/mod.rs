@@ -11,7 +11,8 @@
 //! - [`vjp`] (Jᵀu, one backward), [`jvp`] (J v, exact if the problem has it, else central
 //!   finite differences) and [`adjoint_error`], the runtime check of one against the other.
 //! - [`cg`]: preconditioned conjugate gradients on an operator given as a closure, with
-//!   the Lanczos estimates of its extreme eigenvalues.
+//!   the Lanczos estimates of its extreme eigenvalues; [`lanczos`] (T6), every Ritz value
+//!   with full reorthogonalisation.
 //! - [`GaussNewton`] (T2): one damped Gauss–Newton step on a [`LeastSquares`] problem,
 //!   with ρ, Levenberg–Marquardt damping, backtracking over CG's iterates, a warm start,
 //!   the [`hutchinson_diagonal`] preconditioner, the diagnostics of [`GnStep`], and its
@@ -26,7 +27,7 @@ mod products;
 mod state;
 mod step;
 
-pub use cg::{CgConfig, CgIterate, CgResult, CgStop, cg};
+pub use cg::{CgConfig, CgIterate, CgResult, CgStop, cg, lanczos};
 pub use param_vec::{ParamVec, params, with_params};
 pub use products::{LeastSquares, adjoint_error, default_rel_step, jvp, vjp};
 pub use state::GaussNewtonState;

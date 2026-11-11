@@ -14,7 +14,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   docs/phase10/README.md, briefs T1–T6 (T5–T6 drafts), design §13.17, decision 31,
   decisions G1–G8 chosen 2026-11-09. T1, the generic core, done (#98); T2, the
   `GaussNewton` optimiser, done (#102); T3, trainer integration, code done (#104); T4,
-  the validation gate, code done (#105); T5, the matrix, code in progress. Order amended
+  the validation gate, code done (#105); T5, the matrix, code done (#106); T6, conditioning, code in progress. Order amended
   2026-11-11 (decision 31): task code first, every VM run (T3's acceptance, T4's gate,
   T5, T6) at the end of the phase; T5's runs wait for T4's go. A model-agnostic,
   matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: the Burn fork
@@ -104,7 +104,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   CG, warm start, Martens' stop, Lanczos Ritz values); since T2 `GaussNewton` (`step`:
   one damped step, ρ on the same batch, backtracking over CG's iterates, λ from ρ;
   `GaussNewtonConfig`, `GnStep` diagnostics, `GaussNewtonState` (owned state, bytes for checkpoints))
-  and `hutchinson_diagonal` (the `Preconditioner::HutchinsonDiagonal`). Its FNO tests are in
+  and `hutchinson_diagonal` (the `Preconditioner::HutchinsonDiagonal`); since T6 `lanczos`
+  (every Ritz value, full reorthogonalisation). Its FNO tests are in
   `tests/gauss_newton_fno.rs` (helpers in `tests/gauss_newton_common/`), and the f64
   ones are `#[ignore]`d in `tests/gauss_newton_f64.rs` (flex's f64 rfft uses f32
   twiddles).
@@ -300,6 +301,10 @@ than trusting prose when checking how an API behaves.
   with `--by-optimizer` the Phase 10 table (runs at one (padding, s) and one backend,
   grouped by optimiser arm; plots of error 4 against time, updates and passes):
   `poisson_matrix -- --by-optimizer docs/phase10/results.md runs/<run_dir> ...`
+- Conditioning of trained Poisson runs (Phase 10 T6: Ritz values of G + μI at s = 32, 64,
+  128, the tangent kernel in the sine basis, the Laplacians' κ; `datagen` adds the
+  Chebyshev κ): `cargo run --release --example poisson_conditioning --
+  docs/phase10/conditioning.md runs/<run_dir> ...`
 - Resolution study (errors 3 and 4 of a Poisson run on finer grids at the run's K, weights
   unchanged, normalisers refit on that n's `_train` split):
   `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> <n> [<n> ...]`
