@@ -123,7 +123,8 @@ arms after seeing test errors.
 for seed in 42 43 44; do gpurun t5_adam_$seed $TP 0 129 64 $seed || break; done
 ```
 
-`setpeak` and `$PP` each. Check: error 4 of each within Phase 7's 1.041e-2–1.095e-2 (G6).
+`setpeak` and `$PP` each. Check: error 4 of each within 1.020e-2–1.117e-2 (G6: Phase 7's 1.041e-2–1.095e-2
+±2 %, amended 2026-11-11).
 **Stop if one is not**, and report before any GN arm. The budget is their mean
 `training_time_s`:
 

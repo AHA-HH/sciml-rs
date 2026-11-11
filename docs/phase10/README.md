@@ -105,7 +105,9 @@ amended by the author later the same day (below).
 - **G6, baseline arm: Adam rerun on the A100, three seeds (42, 43, 44)**, on the Phase 10
   commit, unchanged settings. It gives the time budget (G4) and peak memory, and its
   error 4 must fall within Phase 7's spread (a regression check of the unchanged Adam
-  path). Phase 7's runs, also on an A100, stay as context.
+  path), widened by ±2 % to 1.020e-2–1.117e-2 (amended 2026-11-11 by the author, decision 31:
+  the spread is over the same seeds, two on its edges, and cuda round-off differs across
+  commits). Phase 7's runs, also on an A100, stay as context.
 - **G7, hardware: cuda on one A100 (the VM) for every Phase 10 run**; flex for tests; metal
   optional for development. Whether f64 works end to end on cuda (FFTs included) is
   checked in T3; if it does, f64 finite differences are an option for T4.
@@ -213,7 +215,7 @@ Filled in as tasks merge. Phase 10 is done when every row has a value.
 
 - [ ] T1–T6 merged, or a task dropped with the reason recorded in design §12.
 - [x] G1–G8 chosen by the author and recorded in design §12 (2026-11-09).
-- [ ] The Adam reruns' error 4 within Phase 7's spread (G6).
+- [ ] The Adam reruns' error 4 within Phase 7's spread ±2 %, 1.020e-2–1.117e-2 (G6).
 - [ ] H10a and H10b answered in `docs/phase10/results.md`.
 - [ ] Every row of Results filled in.
 - [ ] The "Current phase" bullet in `CLAUDE.md` updated for what comes next.
