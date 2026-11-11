@@ -114,12 +114,19 @@ jobs:
       # the step timeout fails a dead mirror in minutes instead of hanging (2026-11-11: a
       # DNS outage held this step for 7-8 minutes before it failed). Not cached: OpenBLAS
       # sets up libblas.so through update-alternatives in its post-install script, which a
-      # restored package cache can miss.
+      # restored package cache can miss. An unreachable mirror makes `update` print only
+      # `Ign:` and exit 0, so `install` failed later; `--error-on=any` fails it at once, and
+      # the step falls back to kernel.org's mirror (2026-11-11: Ubuntu's archive, Azure
+      # mirror included, was down for hours).
       - name: Install OpenBLAS, FFTW and libclang
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: |
           APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
-          sudo apt-get $APT update
+          if ! timeout 120 sudo apt-get $APT update --error-on=any; then
+            echo "::warning::Ubuntu's apt mirror failed; using mirrors.edge.kernel.org"
+            sudo sed -i -E 's#^URIs: .*#URIs: https://mirrors.edge.kernel.org/ubuntu/#' /etc/apt/sources.list.d/ubuntu.sources
+            sudo apt-get $APT update --error-on=any
+          fi
           sudo apt-get $APT install -y libopenblas-dev libfftw3-dev pkg-config libclang-dev
 
       - name: Clippy (datagen)

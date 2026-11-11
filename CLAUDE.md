@@ -84,10 +84,12 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   deleting branches and closing PRs still need a yes in the current message.
 - `main` is protected on GitHub (2026-11-11): changes only by PR, the CI jobs
   `run-tests`, `run-tests-datagen` and `style-checks` green, the branch up to date with
-  `main`; the rules bind admins, so no session can push to `main`. Merged branches are
-  deleted. `.claude/settings.json` denies pushing to `main`, force-pushing, deleting
-  remote branches, and `gh pr merge` / `gh pr close`: the author runs those (`! <command>`
-  in the prompt). Bring a stale PR branch up to date by merging `origin/main` into it,
+  `main`. Merged branches are deleted. The rules do not bind admins, by the author's
+  choice: the author may merge past them with `gh pr merge --admin` (e.g. when an apt
+  mirror outage fails `run-tests-datagen` on a PR it cannot judge); never suggest
+  changing that. `.claude/settings.json` denies pushing to `main`, force-pushing,
+  deleting remote branches, and `gh pr merge` / `gh pr close`, so no session can merge or
+  push to `main`: the author runs those (`! <command>` in the prompt). Bring a stale PR branch up to date by merging `origin/main` into it,
   never by rebasing. Branch from `origin/main` with `git switch --no-track -c`, never
   checking out `main` (worktrees).
 - Default flow: make the change, run the checks, report exactly which ones ran and what
