@@ -30,7 +30,7 @@ solutions come from a Chebyshev collocation solver in this crate (behind the
 and predictions are mapped back to the Chebyshev nodes; that round trip adds at most
 about 2e-5. Evaluated on finer grids without retraining, the 65² model's error grows
 7× by n = 257 at padding 4 but only 1.4× without padding. Details and all five error
-measures are in [`docs/phase4/README.md`](docs/phase4/README.md); the design is
+measures are in [`docs/poisson2d/phase4/README.md`](docs/poisson2d/phase4/README.md); the design is
 [`docs/design/2d-chebyshev-poisson-fno.md`](docs/design/2d-chebyshev-poisson-fno.md).
 
 The spectral layers support any grid size (non-power-of-two FFTs go through

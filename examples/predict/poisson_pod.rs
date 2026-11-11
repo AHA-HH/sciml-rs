@@ -8,7 +8,7 @@
 //!
 //! Loads both splits' raw f and u with `load_poisson_cheb_field` and fits one
 //! `metrics::pod::Pod` per field on the train split only, with Clenshaw–Curtis weights on
-//! both axes (D5, docs/phase6/README.md); the test split is only projected. The
+//! both axes (D5, docs/poisson2d/phase6/README.md); the test split is only projected. The
 //! population covariance has eigenvalues λ_kl / S_K for f and λ_kl / (S_K μ_kl²) for u
 //! (k, l ≤ K), both decreasing in k² + l²; degenerate modes mix in the sample, so they are
 //! compared summed over each group of equal k² + l², and through the trace. On each

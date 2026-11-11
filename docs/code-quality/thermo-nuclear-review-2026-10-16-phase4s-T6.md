@@ -6,7 +6,7 @@
 - **Date:** 2026-10-16
 - **Diff:** 4 files, +20 / −121 (`tests/rlst_smoke.rs` deleted; `sparse.rs`, `poisson/mod.rs`,
   `CLAUDE.md` edited)
-- **Task brief:** `docs/phase4s/T6-sparse-test-only.md`
+- **Task brief:** `docs/poisson2d/phase4s/T6-sparse-test-only.md`
 
 ## Verdict: APPROVE
 

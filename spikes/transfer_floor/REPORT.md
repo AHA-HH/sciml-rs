@@ -1,6 +1,6 @@
 # T1 report: transfer floor and the choice of R
 
-Phase 5, task 1 (`docs/phase5/T1-transfer-floor.md`). Run on 2026-10-26.
+Phase 5, task 1 (`docs/poisson2d/phase5/T1-transfer-floor.md`). Run on 2026-10-26.
 
 ## Machine and reproduction
 

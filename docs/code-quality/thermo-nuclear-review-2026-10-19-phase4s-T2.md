@@ -7,7 +7,7 @@
 | Base | `0d71c3b` (merge-base with `main`) |
 | Date | 2026-10-19 |
 | Diff | 8 files, +143 / −78 |
-| Brief | `docs/phase4s/T2-learner-showcase.md` |
+| Brief | `docs/poisson2d/phase4s/T2-learner-showcase.md` |
 
 Checks run during the review: `cargo test --lib neural_operators::training` (12 passed),
 `cargo clippy --all-targets -- -D warnings` (clean), `cargo fmt -- --check` (clean). Not run:

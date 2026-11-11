@@ -1,6 +1,6 @@
 # T4 report: reference-solver spike
 
-Phase 0, task 4 (`docs/phase0/T4-solver-spike.md`). Run on 2026-10-07.
+Phase 0, task 4 (`docs/poisson2d/phase0/T4-solver-spike.md`). Run on 2026-10-07.
 
 ## Decisions
 

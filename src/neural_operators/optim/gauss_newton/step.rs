@@ -306,7 +306,7 @@ impl GaussNewton {
     /// iterate is better still and takes ρ from CG's final iterate: here the last iterate
     /// is kept whenever it lowers Φ (one forward when it does), and ρ judges the step
     /// actually taken. Martens' rules are recorded as an optional item for later
-    /// (`docs/optional/README.md`).
+    /// (`docs/poisson2d/optional/README.md`).
     ///
     /// `model` must be on an autodiff device with parameters that require gradients.
     ///

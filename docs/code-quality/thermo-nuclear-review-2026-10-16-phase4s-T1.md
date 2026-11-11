@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Repo | sciml-rs (`sciml_rs`), worktree `lusca` |
-| Branch | `phase4s/T1` (task brief: `docs/phase4s/T1-ci-manifest-hygiene.md`) |
+| Branch | `phase4s/T1` (task brief: `docs/poisson2d/phase4s/T1-ci-manifest-hygiene.md`) |
 | Base | `a0652eb` (`git merge-base HEAD main`, the tip of `main`) |
 | Date | 2026-10-16 |
 | Diff | 6 files, +46 / −110 (uncommitted working tree against base, including the staged deletion) |
@@ -70,7 +70,7 @@ burn-signal at `ddfa9af` does list both features (`crates/burn-signal/src/ops.rs
 - The workflow is the source.
 - CLAUDE.md "Checks" (`CLAUDE.md:94-108`) now copies all seven commands. The brief asks for
   this, and it's correct.
-- `docs/phase4s/README.md:67` still says "The CI five". With the chebyshev job included, CI
+- `docs/poisson2d/phase4s/README.md:67` still says "The CI five". With the chebyshev job included, CI
   runs seven commands. The five it means are those of `run-tests` and `style-checks`.
 
 T1 exists because these copies drifted apart, and this structure lets them drift again. The cheapest
@@ -78,7 +78,7 @@ fix is to stop restating the commands and point at the one owner.
 - **Remedy:** reword `README.md:67` to "The five commands of the `run-tests` and `style-checks`
   jobs (CLAUDE.md "Checks"), plus …". Better still, drop the restated block and refer to
   CLAUDE.md, so the workflow and CLAUDE.md are the only two copies.
-- **Scope:** this edits `docs/phase4s/README.md`, which the brief doesn't name. Say so in the PR
+- **Scope:** this edits `docs/poisson2d/phase4s/README.md`, which the brief doesn't name. Say so in the PR
   description, or leave it for T24 (docs pass).
 
 ### Tiers 5–6: file size, modularity
@@ -114,5 +114,5 @@ each other.
 2. **F3:** trim the `components:` lists. Verify with the YAML parse
    (`ruby -ryaml -e 'YAML.load_file(".github/workflows/run-tests.yml")'`) and with all three
    jobs green on the PR. This can only be checked on GitHub.
-3. **F2:** reword `docs/phase4s/README.md:67`, or defer it to T24 and say so in the PR. Verify
+3. **F2:** reword `docs/poisson2d/phase4s/README.md:67`, or defer it to T24 and say so in the PR. Verify
    with `git grep -n "CI five"`, which should return nothing.

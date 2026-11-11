@@ -618,7 +618,7 @@ only.
 | T3 | Transfer spike: barycentric and FH round-trip errors for n ∈ {33, 65, 129, 257} on smooth and GRF fields; choose d; compare s = n − 1 with s = n; confirm the GRF tail table and tolerance (§3.3) | spike, report | – (T2's dependency setup) |
 | T4 | Solver spike: A and C at n = 33..257, error and time; factorisation reuse | spike, report | T2 |
 
-- **Exit:** the checklist in `docs/phase0/README.md`; CONVENTIONS §12 merged at
+- **Exit:** the checklist in `docs/poisson2d/phase0/README.md`; CONVENTIONS §12 merged at
   `CONVENTION_VERSION` 1.
 - **Status (2026-10-08):** done. T2, T3, T4 and T1 merged; the design amended after
   Phase 0 (decision 10).
@@ -672,7 +672,7 @@ only.
 - **Goal:** the first end-to-end FNO run on Chebyshev data, with all five errors of §7.
 - **Needs:** Phase 2 done; stage 2 dataset (65²).
 - **Inputs from Phase 2:** error 2 on the stage 2 test split, max 7.8e-5 and mean 2.0e-5
-  (decision 14); the three gaps of decision 15. Plan: `docs/phase3/README.md`.
+  (decision 14); the three gaps of decision 15. Plan: `docs/poisson2d/phase3/README.md`.
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
@@ -695,7 +695,7 @@ only.
   (on HPC or transferred).
 - **Inputs from Phase 3:** the p = 0 run at 65² on metal (test relative L² 1.116e-2), its
   five errors and boundary verdict (ablation not warranted); the padding sweep and the
-  flex run carried over (decision 17). Plan: `docs/phase4/README.md` (decision 18).
+  flex run carried over (decision 17). Plan: `docs/poisson2d/phase4/README.md` (decision 18).
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
@@ -717,7 +717,7 @@ only.
 - **Goal:** make the repository easier to change before Phases 5 and 6 build on it. The
   phase answers no research question. Its tasks come from the whole-repository review at
   `c63eb32` (`docs/code-quality/thermo-nuclear-repo-review-2026-10-15.md`, grade C), and
-  it ends with a re-review. Plan: `docs/phase4s/README.md` (decision 25).
+  it ends with a re-review. Plan: `docs/poisson2d/phase4s/README.md` (decision 25).
 - **Needs:** Phase 4 done.
 - **Blocks:** only where code overlaps (decision 25):
   - Phase 5 T2 (checkpoint/resume) needs T10 (`RunDir`) and T12 (epoch observer).
@@ -739,7 +739,7 @@ only.
 | T17–T19 | ⚑ Normaliser contract (§10); ⚑ `x_normalizer.json`; typed sidecar and Poisson evaluation in the library, no blanket `#[allow]` | T13 / T10 / T8, T10 |
 | T20–T24 | `fno.rs` tests split; `SpectralConv` helpers; `loaders/poisson.rs` split and dataset catalogue; one strided take; documentation pass | T5, T9, T19; T24 last |
 
-- **Exit:** the checklist in `docs/phase4s/README.md`. Every task is merged, every ⚑
+- **Exit:** the checklist in `docs/poisson2d/phase4s/README.md`. Every task is merged, every ⚑
   decision is recorded, the example reruns reproduce their numbers, and the re-review
   grade is recorded.
 
@@ -829,7 +829,7 @@ Module names are proposals. New code lives under `src/neural_operators/chebyshev
   while a fine-grid solve supplies the reference, with transfer error and model error
   measured separately (§13.3). This fixes the spatial baseline for Phases 6 and 7.
 - **Needs:** Phase 4s done (it is); the stage 3 and 4 datasets (n = 129 and 257, K = 64).
-  Plan: `docs/phase5/README.md`.
+  Plan: `docs/poisson2d/phase5/README.md`.
 - **Absorbs:** old Phase 6 T1 (the baseline's padding) and T2 (several seeds, error 4
   against ‖u‖).
 
@@ -882,14 +882,14 @@ One task, done: exporting run directories to a self-hosted MLflow server, and op
 live logging during training (T1, #91). It needs only Phase 5 T4's run files (decision
 30, amendments of 2026-10-27, 2026-11-06 and 2026-11-09; MLflow replaced W&B). The θ-map,
 planned here as T2–T3 on 2026-11-06, moved to Phase 9 as T5–T6 on 2026-11-09, then the same day to the optional θ-map phase. §13.10.
-Plan: `docs/phase8/README.md`.
+Plan: `docs/poisson2d/phase8/README.md`.
 
 ### Phase 9: HPC (systems track)
 
 Old Phase 5: profiling, checkpoint and resume, data-parallel multi-GPU training, and its
 supplementary tasks (the flex run, decision 21; plot shading, decision 19; example smoke
 runs in CI). It can run at any time. No speedup it delivers enters a conclusion of
-Phases 5–7. §13.11. Plan: `docs/phase9/README.md` (decision 30, amendment of
+Phases 5–7. §13.11. Plan: `docs/poisson2d/phase9/README.md` (decision 30, amendment of
 2026-11-02; renumbered 2026-11-03).
 
 Closed at planning, 2026-11-02, without new work: profiling of the baseline (from
@@ -910,7 +910,7 @@ The θ-map was T5–T6 here for part of 2026-11-09, then moved the same day to t
 - **Status (2026-11-10):** done. T1–T4 merged (#87; #88 with the VM acceptance #99; #100;
   #101). Checkpoint and resume exact on flex; two A100s reproduce one (P18) but run at
   0.44× at s = 64, the step being host-bound; the §11 pipeline row met on flex (test
-  relative L² 1.021e-2), closing decision 21. Results: `docs/phase9/results.md`.
+  relative L² 1.021e-2), closing decision 21. Results: `docs/poisson2d/phase9/results.md`.
 
 ### Phase 10: Gauss–Newton optimisation
 
@@ -919,7 +919,7 @@ written against Burn's `Module` so that any differentiable neural operator can u
 validated first on the Phase 5 baseline (decision 31, 2026-11-09). Research, compared
 on one A100 against Adam on the same seeds, splits and test set; it does not block
 §13.16's completion. It does not wait for Phase 9 or the θ-map (G8, amended 2026-11-09).
-§13.17. Plan: `docs/phase10/README.md`.
+§13.17. Plan: `docs/poisson2d/phase10/README.md`.
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
@@ -935,7 +935,7 @@ on one A100 against Adam on the same seeds, splits and test set; it does not blo
 Option 2 of §6 with its own convention diff, compared against the Phase 5 baseline.
 Unnumbered and optional since 2026-11-09 (decision 30): old Phase 6 T3–T4, then Phase 8
 T2–T3, then Phase 9 T5–T6. It can run at any time after Phase 5, on the author's Mac,
-and no phase waits for it. §13.18. Plan: `docs/optional/README.md`.
+and no phase waits for it. §13.18. Plan: `docs/poisson2d/optional/README.md`.
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
@@ -1157,7 +1157,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       plan fixes the number before T1 runs (proposal: test relative L² ≤ 2e-2 at 65², against Darcy's 1.08e-2
       at 85²).
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-09.
-16. **Phase 3 planning (2026-10-09).** Plan: `docs/phase3/README.md`.
+16. **Phase 3 planning (2026-10-09).** Plan: `docs/poisson2d/phase3/README.md`.
     - **Three tasks instead of two.** §10's T2 mixed library code (the ungated
       Clenshaw–Curtis weights of decision 15) with evaluation. The library part becomes
       T1, which needs no dataset or training run and can proceed in parallel with
@@ -1202,7 +1202,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       error 2 came out identical, and re-ran p = 0 on metal with unchanged code: train /
       test relative L² 3.45e-3 / 1.116e-2 (was 3.47e-3 / 1.16e-2), still within the 2e-2
       threshold. T3 evaluates the new run, `runs/poisson_fno_p0_1791628852`
-      (`docs/phase3/README.md`, Results). Nothing else in this decision changes.
+      (`docs/poisson2d/phase3/README.md`, Results). Nothing else in this decision changes.
     - Amendment outcome: **accepted** by the author (AHA-HH), 2026-10-12.
     - **Amendment (2026-10-12): the padding sweep moves to Phase 4.** The sweep over
       p ∈ {4, 8, 16} is no longer part of the Phase 3 exit. Every one of these p makes
@@ -1222,7 +1222,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       - The §10 Phase 3 exit and the §11 pipeline row now read "on metal"; the text of
         decision 16 stays as recorded.
     - Amendment outcome: **accepted** by the author (AHA-HH), 2026-10-12.
-18. **Phase 4 planning (2026-10-12).** Plan: `docs/phase4/README.md`.
+18. **Phase 4 planning (2026-10-12).** Plan: `docs/poisson2d/phase4/README.md`.
     - **Four tasks instead of two.** The work carried over by decision 17 and the
       `poisson_plot` example agreed on 2026-10-12 come first: T1 `poisson_plot`, T2 the
       padding sweep p ∈ {4, 8, 16} and the flex run at 65². §10's T1 (129² on GPU) and
@@ -1316,7 +1316,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       Apple M2 Pro: 500 epochs, 3.75 h, test relative L² 1.021e-2 ≤ 2e-2, error 4
       1.0215e-2. The §11 pipeline row is met on flex, its backward pass included. Cuda
       on the same seed gives 1.0952e-2; the gap is the backends' different random
-      draws from one seed, not their arithmetic (`docs/phase9/results.md`, T4).
+      draws from one seed, not their arithmetic (`docs/poisson2d/phase9/results.md`, T4).
 22. **`poisson_plot` on every stage; the worst sample (2026-10-15).**
     - **What changes.** A small follow-up to Phase 4 T3, outside the T1–T4 briefs, as the
       cells fix (#29) was to T1. `poisson_plot` was hard-wired to stage 2 (n = 65), so it
@@ -1347,7 +1347,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       (p = 4, K = 64) has 1.079e-2 at 129 and 2.593e-2 at 257 (2.4×). Error 4 equals
       error 3 to about four digits throughout, and error 2 is at most 2.0e-5, so the
       growth comes from the model, not from the transfers. Figures:
-      `docs/phase4/README.md` Results.
+      `docs/poisson2d/phase4/README.md` Results.
     - **Against the design.** §7 specifies the study but states no expected outcome. The
       FNO's usual premise, that it learns an operator between function spaces, would put
       the error roughly flat across resolutions. That holds here only at each model's
@@ -1429,7 +1429,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       The `chebyshev` feature also splits a module that is mostly ungated. Phase 5's
       checkpointing and Phase 6's new model would build on exactly these surfaces.
     - **What.** A side phase, numbered 4s so Phases 5 and 6 keep their numbers. It has 24
-      tasks (plus one optional) in six groups, planned in `docs/phase4s/README.md` with the
+      tasks (plus one optional) in six groups, planned in `docs/poisson2d/phase4s/README.md` with the
       review's finding IDs per task.
     - **Order against Phases 5 and 6.** Phase 4s goes first, but blocks only where code
       overlaps: Phase 5 T2 waits for T10 and T12, and Phase 6 T3 waits for T16. Phase 5 T1
@@ -1449,7 +1449,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
 
       No `CONVENTION_VERSION` bump is expected.
     - Outcome: **proposed** 2026-10-15; accepted when the author approves
-      `docs/phase4s/README.md`.
+      `docs/poisson2d/phase4s/README.md`.
 26. **Phase 4s T14: the datasets are kept (2026-10-22).**
     - **What changes.** The generator moves to the ungated Chebyshev stack: the
       closed-form nodes −cos(πj/(n − 1)), computed as a sine, `clencurt` and
@@ -1464,7 +1464,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       anyway, so regenerating here would be wasted work. The acceptance check is that
       every existing stage loads with `load_poisson_uniform` and `load_poisson_cheb`,
       and that stage 1 (n = 33), generated into a scratch directory, matches the stored
-      sidecar's label check and error 2 to about 1e-15 (`docs/phase4s/README.md`
+      sidecar's label check and error 2 to about 1e-15 (`docs/poisson2d/phase4s/README.md`
       Results).
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-22.
 27. **Phase 4s T15 declined; the feature renamed `datagen` (2026-10-22).**
@@ -1559,7 +1559,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
     - **Open choices.** D1–D8 (§13.15) are decided when the Phase 5, 6 or 7 plan or brief
       that needs them is approved, and each is recorded here as an amendment.
     - Outcome: **accepted** by the author (AHA-HH), 2026-10-26.
-    - **Amendment, Phase 5 planning (2026-10-26).** Plan: `docs/phase5/README.md`, with
+    - **Amendment, Phase 5 planning (2026-10-26).** Plan: `docs/poisson2d/phase5/README.md`, with
       briefs T1–T7. Chosen by the author:
       - D2: m = min(12, s/2) per axis (8, 12, 12, 12 at s = 16, 32, 64, 128). **No
         mode-control arm**, so bandwidth and grid size stay confounded at s = 16 (§13.14).
@@ -1592,7 +1592,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       independent of the θ-map, needs only Phase 5 T4's run files, and can run at any
       time after Phase 5 T4. The run directories remain the record of every result.
       Added by the author (AHA-HH), 2026-10-27.
-    - **Amendment, Phase 6 planning (2026-10-27).** Plan: `docs/phase6/README.md`, with
+    - **Amendment, Phase 6 planning (2026-10-27).** Plan: `docs/poisson2d/phase6/README.md`, with
       briefs T1–T2. Phase 6 runs beside Phase 5. Chosen by the author:
       - D5: CC-weighted inner product on the 129 CGL grid (rows of the centred snapshot
         matrix scaled by √(w_i w_j)); equal weights on the uniform learning grids, scaled
@@ -1614,9 +1614,9 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       on every fit. T1's CGL results agree between the two to 1e-15. No result contradicts
       §13.4: u's ranks (2 / 6 / 17) are unchanged on every learning grid, and f's 99% and
       99.9% ranks fall below s = 64, capped by the (s − 2)² interior points
-      (docs/phase6/README.md, Results). Recorded by the author (AHA-HH), 2026-10-27.
+      (docs/poisson2d/phase6/README.md, Results). Recorded by the author (AHA-HH), 2026-10-27.
     - **Amendment, Phase 5 close-out (2026-10-29).** Phase 5 T1–T7 done
-      (`docs/phase5/README.md`, Results; `docs/phase5/results.md`).
+      (`docs/poisson2d/phase5/README.md`, Results; `docs/poisson2d/phase5/results.md`).
       - **The Phase 7 baseline is s = 64,** by the rule fixed before T5: the s = 128
         main-arm mean error 4 is 1.065e-2 over 5 seeds, and s = 64 is within 10% of it
         (1.080e-2, +1.4%) while s = 32 is not (1.329e-2, +24.8%). Baseline: stage 3 data
@@ -1641,7 +1641,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
         1.68–1.69 s from s = 16 to 64 and 2.45 s at s = 128, so below s = 128 a fixed
         per-epoch cost dominates. Costs hold for this device only (§13.14).
       - Recorded by the author (AHA-HH), 2026-10-29.
-    - **Amendment, Phase 7 planning (2026-10-29).** Plan: `docs/phase7/README.md`, with
+    - **Amendment, Phase 7 planning (2026-10-29).** Plan: `docs/poisson2d/phase7/README.md`, with
       briefs T1–T3. Chosen by the author, before any Phase 7 run:
       - D6: fixed epochs, 500 for every N, as in Phase 5, each run reporting its
         optimisation steps (500 × ⌈N / 20⌉). This departs from the recommendation (a
@@ -1658,7 +1658,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
         per epoch.
       - Recorded by the author (AHA-HH), 2026-10-29.
     - **Amendment, Phase 7 close-out (2026-10-30).** Phase 7 T1–T3 done
-      (`docs/phase7/README.md`, Results; `docs/phase7/results.md`), 45 new runs plus the
+      (`docs/poisson2d/phase7/README.md`, Results; `docs/poisson2d/phase7/results.md`), 45 new runs plus the
       three Phase 5 s = 64 runs at N = 1000.
       - **D7 is met at N = 500,** in the mean: error 4 1.969e-2 [1.909e-2–2.058e-2] over
         9 runs, with 3 of 9 runs over 2e-2. N = 250 misses (3.623e-2); N = 1000 meets it
@@ -1673,7 +1673,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
         of the 45 runs shared the GPU with an unidentified process; their times are
         flagged and left out of those figures (§13.14: costs are per device).
       - Recorded by the author (AHA-HH), 2026-10-30.
-    - **Amendment, Phase 9 planning (2026-11-02).** Plan: `docs/phase9/README.md`, with
+    - **Amendment, Phase 9 planning (2026-11-02).** Plan: `docs/poisson2d/phase9/README.md`, with
       briefs T1–T7 (§10 Phase 9, §13.11). What changes from the old Phase 5 rows:
       - **Profiling target:** the Phase 5 baseline (s = 64, p = 0), not the 129² p = 4
         run; the Bluestein cost at p > 0 is already measured (decisions 17, 20) and
@@ -1706,7 +1706,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       - Recorded by the author (AHA-HH), 2026-11-02.
     - **Amendment, Phase 9 renumbering (2026-11-03).** The tasks closed at planning
       (profiling, old T1; CI smoke runs, old T5; plot shading, old T7) are removed from
-      the task list, their findings kept in `docs/phase9/README.md` ("Closed at
+      the task list, their findings kept in `docs/poisson2d/phase9/README.md` ("Closed at
       planning"). The rest are numbered in the order they can run: T1 checkpoint and
       resume (old T2), T2 the flex run (old T6, after T1 by the author's choice), T3
       multi-GPU, T4 scaling. Earlier amendments keep the old numbers. Recorded by the
@@ -1733,7 +1733,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       built for a newer CUDA than its driver). The fix is an NCCL built for the driver's
       CUDA, through a Spack environment on the VM. Phase 9 is paused until the VM is
       back; T3 and T4 not started. Recorded by the author (AHA-HH), 2026-11-06.
-    - **Amendment, Phase 8 planning (2026-11-06).** Plan: `docs/phase8/README.md`, with
+    - **Amendment, Phase 8 planning (2026-11-06).** Plan: `docs/poisson2d/phase8/README.md`, with
       brief T1. Chosen by the author:
       - Q1: the tracker is **MLflow**, not W&B; the W&B export task (amendment of
         2026-10-27) is dropped. MLflow's tracking REST API is documented and the server
@@ -1765,7 +1765,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       joins Phase 9 as **T5 (model and convention diff) and T6 (comparison against the
       Phase 5 baseline)**, after the HPC tasks T1–T4. Phase 8 closes with T1 (MLflow
       export and live logging, #91) as its only task. The draft brief moves from
-      `docs/phase8/T2-theta-map.md` to `docs/phase9/T5-theta-map.md`, its open decisions
+      `docs/poisson2d/phase8/T2-theta-map.md` to `docs/poisson2d/phase9/T5-theta-map.md`, its open decisions
       renumbered Q8–Q17 → P8–P17 (Phase 9's P1–P7 are taken). T5–T6 are research, not
       systems work: the rule that no Phase 9 speedup enters a conclusion of Phases 5–7
       applies to T1–T4. T5 runs on the author's Mac and does not wait for the VM, so the
@@ -1780,11 +1780,11 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       (P16), Metal for acceptance if parity passes, else flex (P17). Chosen by the author
       (AHA-HH), 2026-11-09.
     - **Amendment, θ-map moved to an optional phase (2026-11-09).** The θ-map leaves
-      Phase 9 and becomes its own **optional, unnumbered phase** (`docs/optional/`), with
+      Phase 9 and becomes its own **optional, unnumbered phase** (`docs/poisson2d/optional/`), with
       **T1 (model and convention diff, was Phase 9 T5) and T2 (comparison against the
       Phase 5 baseline, was Phase 9 T6)**. It is a research question (option 2 of §6),
       not systems work, so it does not belong in Phase 9, and no phase waits for it. The
-      brief moves from `docs/phase9/T5-theta-map.md` to `docs/optional/T1-theta-map.md`,
+      brief moves from `docs/poisson2d/phase9/T5-theta-map.md` to `docs/poisson2d/optional/T1-theta-map.md`,
       unchanged in substance; P8–P17 keep their names and choices. Phase 9 is T1–T4 again.
       Where earlier text says Phase 9 T5–T6 for the θ-map, read the optional phase's
       T1–T2. Decided by the author (AHA-HH), 2026-11-09.
@@ -1798,7 +1798,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       1.0952e-2 (−1.0%), inside 1.041e-2–1.127e-2. Phase 9's T3 runs next on the VM, T4
       stays last. Chosen by the author (AHA-HH), 2026-11-09.
 
-31. **Phase 10: Gauss–Newton optimisation (2026-11-09).** Plan: `docs/phase10/README.md`;
+31. **Phase 10: Gauss–Newton optimisation (2026-11-09).** Plan: `docs/poisson2d/phase10/README.md`;
     specification §13.17.
     - **What.** A second-order optimiser for the existing operator-output least-squares
       problem: matrix-free Levenberg–Marquardt Gauss–Newton with truncated preconditioned
@@ -1849,7 +1849,7 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
 
 Added by decision 30 (2026-10-26). This section specifies Phases 5–9, and since decision
 31 (2026-11-09) Phase 10 (§13.17) and the optional θ-map phase (§13.18). Every number quoted
-here is a measurement already recorded in §12 or in `docs/phase4/README.md`. Everything
+here is a measurement already recorded in §12 or in `docs/poisson2d/phase4/README.md`. Everything
 else is a hypothesis or a future experiment, and is labelled as one.
 
 ### 13.1 Question
@@ -2255,7 +2255,7 @@ record: MLflow is a view of them, and no Results row cites MLflow alone.
 ### 13.11 Phase 9: HPC (systems track)
 
 Separate from Phases 5–7 and runnable at any time. Plan and briefs:
-`docs/phase9/README.md` (amended 2026-11-02, decision 30):
+`docs/poisson2d/phase9/README.md` (amended 2026-11-02, decision 30):
 - data-parallel model replicas, one per GPU, in a hand-written step beside
   `train_epoch` (not the Learner's `MultiDevice` or DDP strategy): each batch of 20 split
   across devices, so the effective batch and the schedule are unchanged (T2);
@@ -2384,7 +2384,7 @@ phase's measurements beyond the baseline that Phase 5 hands on.
 
 ### 13.17 Phase 10: Gauss–Newton optimisation
 
-Added by decision 31 (2026-11-09). Plan and briefs: `docs/phase10/README.md`.
+Added by decision 31 (2026-11-09). Plan and briefs: `docs/poisson2d/phase10/README.md`.
 
 **The loss today.** For a batch of B samples with targets uᵢ ∈ ℝᴹ (physical units,
 M = s² points of the uniform learning grid) and decoded predictions
@@ -2459,8 +2459,8 @@ convention diff (T1), compared at 65², 129² and across resolutions on the same
 test sets (T2). Its baseline is the Phase 5 baseline (decision 24's gate: fixed padding,
 several seeds). It is research, so T2 compares error and cost on one device of one kind,
 like Phases 5–7. It does not block the completion of Phases 5–7, and no phase waits for
-it. T1 runs on the author's Mac and does not need the VM. Plan: `docs/optional/README.md`;
-brief `docs/optional/T1-theta-map.md` (P8–P17 chosen 2026-11-09).
+it. T1 runs on the author's Mac and does not need the VM. Plan: `docs/poisson2d/optional/README.md`;
+brief `docs/poisson2d/optional/T1-theta-map.md` (P8–P17 chosen 2026-11-09).
 
 
 ## References

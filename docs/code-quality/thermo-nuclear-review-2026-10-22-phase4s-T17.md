@@ -40,7 +40,7 @@ None.
 | `src/neural_operators/data/loaders/darcy.rs` | 327 → 327 | |
 | `src/neural_operators/data/transforms/normalizers.rs` | 318 → 327 | `FlatDecoder::inner` |
 | `src/neural_operators/training/step.rs` | 239 → 244 | |
-| `docs/phase4s/README.md` | 234 → 234 | |
+| `docs/poisson2d/phase4s/README.md` | 234 → 234 | |
 | `src/neural_operators/training/learner.rs` | 187 → 187 | |
 | `examples/predict/burgers_resolution.rs` | 102 → 102 | |
 | `src/neural_operators/data/loaders/common.rs` | 90 → 89 | |
@@ -98,8 +98,8 @@ None. `trainer.rs` is at 763 lines, about 430 of them tests. Taking 2.1 brings i
 
 ### 6. Modularity
 
-**6.1 The acceptance evidence that decision 28 cites does not exist in the cited place, and is worded more strongly than measured** (`docs/design/2d-chebyshev-poisson-fno.md:1326-1329`, `docs/phase4s/README.md:219-220`).
-- Decision 28 says the check includes "a short `train_darcy` run whose train-loss curve matches the old one to about 1e-6 relative (`docs/phase4s/README.md` Results)". The README Results table has no such entry. Its two "unchanged after" rows (`:219`, `:220`) still list only T10, T11 and T13, although the PR body shows `predict_darcy` and `predict_poisson` unchanged on this branch.
+**6.1 The acceptance evidence that decision 28 cites does not exist in the cited place, and is worded more strongly than measured** (`docs/design/2d-chebyshev-poisson-fno.md:1326-1329`, `docs/poisson2d/phase4s/README.md:219-220`).
+- Decision 28 says the check includes "a short `train_darcy` run whose train-loss curve matches the old one to about 1e-6 relative (`docs/poisson2d/phase4s/README.md` Results)". The README Results table has no such entry. Its two "unchanged after" rows (`:219`, `:220`) still list only T10, T11 and T13, although the PR body shows `predict_darcy` and `predict_poisson` unchanged on this branch.
 - The PR body's own `train_darcy` table meets 1e-6 at epoch 0 only. Epochs 1–2 are at 1.5e-5 to 1.0e-4 relative. The explanation (round-off compounding over about 750 Adam steps per epoch) is plausible. However, main's run-to-run spread was not measured, so "matches to about 1e-6" is not what was shown.
 - **Fix (docs only):**
   - Add T17 to the README rows at `:219` and `:220` (the same numbers as before, with T17 named).

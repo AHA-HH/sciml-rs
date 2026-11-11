@@ -259,7 +259,7 @@ mod tests {
         let f: Vec<f64> = spectrum.iter().map(|m| m.f).collect();
         let u: Vec<f64> = spectrum.iter().map(|m| m.u).collect();
         assert!((f.iter().sum::<f64>() - 4.0).abs() <= 1e-12);
-        // docs/phase6/README.md: trace 4.998e-2, leading values 1.035 and 4.25e-2
+        // docs/poisson2d/phase6/README.md: trace 4.998e-2, leading values 1.035 and 4.25e-2
         assert!((u.iter().sum::<f64>() - 4.998e-2).abs() <= 5e-6);
         assert!((f[0] - 1.035).abs() <= 5e-4 && (u[0] - 4.25e-2).abs() <= 5e-5);
         let ranks = |v: &[f64]| [0.9, 0.99, 0.999].map(|x| energy_rank_of(v, x));

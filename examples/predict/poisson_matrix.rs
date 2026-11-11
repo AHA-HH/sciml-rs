@@ -1,8 +1,8 @@
-//! Builds the Phase 5 comparison table (docs/phase5/T6-evaluate.md), or with `--by-n` the
-//! Phase 7 one (docs/phase7/T3-error-vs-n.md), and their plots from evaluated Poisson runs.
+//! Builds the Phase 5 comparison table (docs/poisson2d/phase5/T6-evaluate.md), or with `--by-n` the
+//! Phase 7 one (docs/poisson2d/phase7/T3-error-vs-n.md), and their plots from evaluated Poisson runs.
 //!
-//! Run with: cargo run --release --example poisson_matrix -- docs/phase5/results.md runs/<run_dir> ...
-//! or: cargo run --release --example poisson_matrix -- --by-n docs/phase7/results.md runs/<run_dir> ...
+//! Run with: cargo run --release --example poisson_matrix -- docs/poisson2d/phase5/results.md runs/<run_dir> ...
+//! or: cargo run --release --example poisson_matrix -- --by-n docs/poisson2d/phase7/results.md runs/<run_dir> ...
 //!
 //! Every run must have been evaluated by `predict_poisson` first (its `errors.json`, with
 //! the run's s). Reads each run's configs (s, padding, seed), `metrics.csv` (final train /
@@ -34,7 +34,7 @@
 //! training time and the peak memory recorded; then one row per run. Plots: error 4 against
 //! training time, updates and passes (forward + backward), `<stem>_error_vs_time.png`,
 //! `<stem>_error_vs_updates.png` and `<stem>_error_vs_passes.png`:
-//! cargo run --release --example poisson_matrix -- --by-optimizer docs/phase10/results.md runs/<run_dir> ...
+//! cargo run --release --example poisson_matrix -- --by-optimizer docs/poisson2d/phase10/results.md runs/<run_dir> ...
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;

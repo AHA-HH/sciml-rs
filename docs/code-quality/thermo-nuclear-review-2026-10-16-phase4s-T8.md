@@ -5,7 +5,7 @@
 - **Base:** `79f9c62` (merge-base with `main`)
 - **Date:** 2026-10-16
 - **Diff:** 12 files, +366 / −195 (prod +86, test +85)
-- **Scope:** Phase 4s T8, "one owner for the shared Chebyshev pieces" (`docs/phase4s/T8-chebyshev-shared-pieces.md`)
+- **Scope:** Phase 4s T8, "one owner for the shared Chebyshev pieces" (`docs/poisson2d/phase4s/T8-chebyshev-shared-pieces.md`)
 
 ## Status after fixes (2026-10-16)
 
@@ -22,7 +22,7 @@
   - This departs from the T8 brief, which listed the method. A version taking `u_uni`
     would have carried an unchecked contract (`u_uni == to_uniform(u)`).
   - T14 gives the generator the same two-line expression.
-- **2.1: deferred to T22.** It is added to `docs/phase4s/T22-poisson-loader-split.md` as
+- **2.1: deferred to T22.** It is added to `docs/poisson2d/phase4s/T22-poisson-loader-split.md` as
   optional deliverable 6.
 - **4.2: not done.** The CGL loader still accepts n = 3. Changing that changes what it
   accepts, which is out of scope here.

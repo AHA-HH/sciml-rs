@@ -1,6 +1,6 @@
 # T3 report: grid transfers and the GRF tail
 
-Phase 0, task 3 (`docs/phase0/T3-transfer-spike.md`). Run on 2026-10-06.
+Phase 0, task 3 (`docs/poisson2d/phase0/T3-transfer-spike.md`). Run on 2026-10-06.
 
 ## Machine and reproduction
 
