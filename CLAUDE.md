@@ -260,6 +260,10 @@ cargo clippy --no-deps --features datagen --all-targets -- -D warnings
 cargo test --features datagen
 ```
 CI compiles the examples but never runs them (they need `datasets/` and `runs/`).
+A `changes` job runs first: a pull request that touches none of `src/`, `examples/`,
+`tests/`, `benches/`, `spikes/`, `Cargo.toml`, `Cargo.lock`, `.cargo/`, the workflows or
+`docs/CONVENTIONS.md` skips the three jobs, which then report success (pushes to `main`
+always run them). The apt step retries and times out after 4 minutes.
 Before finishing any task, also run `cargo clippy --all-targets -- -D warnings`. Keep
 clippy clean without blanket `#[allow]`s. For backend-sensitive changes, also run the
 relevant tests with `--features metal` and say whether it was run.
