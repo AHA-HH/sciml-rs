@@ -1,6 +1,6 @@
 # Phase 10: Gauss–Newton optimisation
 
-As of 2026-11-11: **started.** T1 (the generic core) done (#98); T2 (the optimiser) done (#102); T3 (trainer integration) code done (#104); T4 (validation gate) code done (#105); T5 (the matrix) code in review. Every VM run (T3's acceptance, T4's gate, T5's matrix, T6) comes at the end of the phase (order amended 2026-11-11, below). Plan and briefs T1–T6 written 2026-11-09;
+As of 2026-11-11: **started.** T1 (the generic core) done (#98); T2 (the optimiser) done (#102); T3 (trainer integration) code done (#104); T4 (validation gate) code done (#105); T5 (the matrix) code done (#106); T6 (conditioning) code in review. Every VM run (T3's acceptance, T4's gate, T5's matrix, T6) comes at the end of the phase (order amended 2026-11-11, below). Plan and briefs T1–T6 written 2026-11-09;
 decisions G1–G8 chosen by the author the same day (below). It can start now: G8, amended
 2026-11-09, has it wait neither for Phase 9 nor for the θ-map (now an optional phase).
 Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 10, §13.17, decision
@@ -126,10 +126,11 @@ amended by the author later the same day (below).
 | T3 | [T3-trainer.md](T3-trainer.md) | Trainer integration: optimiser choice in `TrainingConfig`, the FNO residual adapter, `gn_steps.csv`, forward-equivalent passes in `costs.json`, GN state in checkpoints, `OPTIMIZER` in `train_poisson`; the CONVENTIONS §11 note | T2 |
 | T4 | [T4-validation-gate.md](T4-validation-gate.md) | The smallest viable experiment: full-batch GN at N = 100 against Phase 7's Adam run at equal wall-clock; go / no-go for T5 | T3; Phase 7's runs; the VM |
 | T5 | [T5-matrix.md](T5-matrix.md) | The N = 1000 matrix (Adam reruns and four GN arms, 3 seeds) and `docs/phase10/results.md` | T3 for its code; T4 (go) for its runs |
-| T6 | [T6-conditioning.md](T6-conditioning.md) | PDE against neural-operator conditioning: curvature spectra across s, the single-sample tangent kernel in the sine basis | T4; beside T5 |
+| T6 | [T6-conditioning.md](T6-conditioning.md) | PDE against neural-operator conditioning: curvature spectra across s, the single-sample tangent kernel in the sine basis, in `docs/phase10/conditioning.md` | T3 for its code; T4 (go) for its runs, beside or after T5 |
 
 Task numbers are execution order (design §10); T6 needs only T4 and may run beside T5.
-T5's and T6's briefs are drafts, refined when T4 merges. One task per branch and PR:
+T5's brief is a draft for its runs, refined when T4's go is recorded; T6's was refined
+2026-11-11. One task per branch and PR:
 `phase10/T<k>-<name>`. Each task is worked from its brief alone, plus its "Read first".
 
 ## Experiment matrix (T5)
@@ -182,6 +183,9 @@ and `costs.json` (training time, steps, forward-equivalent passes, peak memory).
   branch in `training_loop`. The Adam path is not edited. T5: `TrainingConfig.adam_epochs`
   (the Hybrid arm's Adam epochs before Gauss–Newton).
 - `runs/` (T3): `gn_steps.csv`, the checkpoint's GN section, the new `costs.json` fields.
+- `optim/gauss_newton/` (T6): `lanczos`, every Ritz value with full reorthogonalisation.
+  `pde/poisson/collocation` (T6, `datagen`): `interior_d2_eigenvalues`.
+- `examples/predict/poisson_conditioning.rs` (T6): the conditioning measurements.
 - `tracking/` (T3): `gn_steps.csv` among the exported artifacts.
 - `examples/train/poisson.rs` (T3), `examples/predict/poisson_matrix.rs` (T5): optimiser
   selection, grouping by optimiser.

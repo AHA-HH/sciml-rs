@@ -59,6 +59,12 @@ name = "poisson_resolution"
 path = "examples/predict/poisson_resolution.rs"
 
 [[example]]
+name = "poisson_conditioning"
+path = "examples/predict/poisson_conditioning.rs"
+# its unit tests run under `cargo test`
+test = true
+
+[[example]]
 name = "poisson_matrix"
 path = "examples/predict/poisson_matrix.rs"
 # its unit tests run under `cargo test` (phase 7 T3)

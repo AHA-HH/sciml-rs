@@ -221,6 +221,56 @@ pub fn cg(
     }
 }
 
+/// The Ritz values of a symmetric positive (semi-)definite A on the Krylov space of `v0`,
+/// ascending: `iters` steps of Lanczos with full reorthogonalisation (each new vector is
+/// orthogonalised twice against every earlier one), then the eigenvalues of the
+/// tridiagonal. The largest converge first, to the top of A's spectrum; reorthogonalising
+/// keeps a noisy or f32 operator from producing duplicate copies of them (ghosts), at the
+/// cost of storing every Lanczos vector (`iters` × [`ParamVec`]). Stops early, with fewer
+/// values, when the Krylov space is exhausted (the next vector's norm below 1e-10 of the
+/// largest |αⱼ| so far, the Rayleigh quotients on the diagonal).
+///
+/// `apply` computes A v, as for [`cg`]; it is called `iters` times at most.
+///
+/// # Panics
+/// If `iters` is 0 or `v0` is zero.
+pub fn lanczos(
+    mut apply: impl FnMut(&ParamVec) -> ParamVec,
+    v0: &ParamVec,
+    iters: usize,
+) -> Vec<f64> {
+    assert!(iters > 0, "lanczos: iters must be positive");
+    let norm = v0.norm();
+    assert!(norm > 0.0, "lanczos: v0 must be nonzero");
+    let mut basis = vec![v0.scale(1.0 / norm)];
+    let (mut alphas, mut betas) = (Vec::new(), Vec::new());
+    let mut scale = 0.0_f64;
+    for j in 0..iters {
+        let mut w = apply(&basis[j]);
+        let alpha = basis[j].dot(&w);
+        alphas.push(alpha);
+        scale = scale.max(alpha.abs());
+        if j + 1 == iters {
+            break;
+        }
+        // twice is enough (Kahan, "twice is enough"): the first pass leaves O(ε) residue
+        for _ in 0..2 {
+            for q in &basis {
+                w = w.axpy(-q.dot(&w), q);
+            }
+        }
+        let beta = w.norm();
+        if beta <= 1e-10 * scale {
+            break;
+        }
+        betas.push(beta);
+        basis.push(w.scale(1.0 / beta));
+    }
+    (0..alphas.len())
+        .map(|i| tridiagonal_eigenvalue(&alphas, &betas, i))
+        .collect()
+}
+
 /// The smallest and largest eigenvalues of the Lanczos tridiagonal of k CG steps:
 /// diagonal 1/α₁ and 1/αⱼ + βⱼ₋₁/αⱼ₋₁ (j ≥ 2), off-diagonal √βⱼ / αⱼ. `betas` holds
 /// k − 1 values.
@@ -388,6 +438,31 @@ mod tests {
             progress_tol: 0.0,
             ..CgConfig::default()
         }
+    }
+
+    /// Lanczos on the 8 × 8 matrix of known eigenvalues: 8 steps recover all of them,
+    /// with no duplicates; 3 steps give the largest first and stay inside the spectrum.
+    #[test]
+    fn lanczos_recovers_the_known_spectrum() {
+        let device = Device::default();
+        let (a, t) = (matrix(), template(&device));
+        let v0 = vector(&t, &[1.0; 8], &device);
+        let ritz = lanczos(operator(&a, 0.0, &t, &device), &v0, 8);
+        assert_eq!(ritz.len(), 8);
+        for (r, e) in ritz.iter().zip(EIGENVALUES) {
+            assert!((r - e).abs() < 1e-3 * e, "{ritz:?}");
+        }
+        let few = lanczos(operator(&a, 0.0, &t, &device), &v0, 3);
+        assert_eq!(few.len(), 3);
+        assert!(few.windows(2).all(|w| w[0] <= w[1]));
+        assert!(
+            (few[2] - 21.0).abs() < 0.5 && few[0] >= 0.5 - 1e-6,
+            "{few:?}"
+        );
+        // the Krylov space of an 8 × 8 matrix is exhausted after 8 steps: 12 asked, 8 given
+        let all = lanczos(operator(&a, 0.0, &t, &device), &v0, 12);
+        assert_eq!(all.len(), 8, "{all:?}");
+        assert!((all[7] - 21.0).abs() < 1e-3 * 21.0, "{all:?}");
     }
 
     #[test]
