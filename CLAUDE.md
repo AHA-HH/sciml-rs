@@ -82,6 +82,16 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   to it, push it, and open or update its PR (a draft while VM runs, sign-offs or open
   questions are pending). Merging, pushing to `main`, force-pushing, rewriting history,
   deleting branches and closing PRs still need a yes in the current message.
+- Default flow: make the change, run the checks, report exactly which ones ran and what
+  they said, and leave the result uncommitted unless the current message asks for a
+  commit. Never report an unrun check as passing; say plainly when something could not
+  run (no GPU backend, no dataset, no gnuplot).
+- One task per branch and PR; stay inside the modules the task names.
+- Task numbers within a phase are execution order, from Phase 1 on (design §10). Phase 0
+  keeps its signed-off numbers and runs T2, then T3 and T4, then T1.
+- Keep changes targeted: no drive-by reformatting or refactors.
+- When listing tasks (status reports, summaries of a phase), order them by completion,
+  earliest first; tasks still open follow, in execution order.
 
 ## Skills
 Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3d`,
@@ -93,16 +103,6 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
 - `/verify`: the checks below for what a branch changed, with the objective's constraint 1.
   Run before calling anything done.
 - `/milestone-gate`: a milestone's gate report (`gates/<milestone>.md`) and close.
-- Default flow: make the change, run the checks, report exactly which ones ran and what
-  they said, and leave the result uncommitted unless the current message asks for a
-  commit. Never report an unrun check as passing; say plainly when something could not
-  run (no GPU backend, no dataset, no gnuplot).
-- One task per branch and PR; stay inside the modules the task names.
-- Task numbers within a phase are execution order, from Phase 1 on (design §10). Phase 0
-  keeps its signed-off numbers and runs T2, then T3 and T4, then T1.
-- Keep changes targeted: no drive-by reformatting or refactors.
-- When listing tasks (status reports, summaries of a phase), order them by completion,
-  earliest first; tasks still open follow, in execution order.
 
 ## Working rules
 - Run `cargo fmt` after every Rust edit, before the other checks or committing. CI
