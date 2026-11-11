@@ -50,14 +50,37 @@ pub struct TrainingConfig {
     /// cap. `None` (the default, and every config before Phase 10 T4) trains all `epochs`.
     /// Adam's cosine schedule still spans `epochs`, so a budget cuts it short.
     pub time_budget_s: Option<f64>,
+    /// With Gauss–Newton, the first `adam_epochs` epochs train with Adam instead, its cosine
+    /// schedule spanning those epochs' steps, and Gauss–Newton trains the rest: the Hybrid
+    /// arm (Phase 10 T5). `None` (the default, and every config before Phase 10 T5) trains
+    /// every epoch with the run's optimiser.
+    pub adam_epochs: Option<usize>,
 }
 
 impl TrainingConfig {
     /// Optimisation steps a run of all `epochs` takes on `n_train` samples: `epochs` ×
     /// ⌈`n_train` / `batch_size`⌉, since an epoch's last batch may be partial. The trainer's cosine
-    /// schedule spans exactly these steps.
+    /// schedule spans exactly these steps, but in a hybrid run ([`schedule_steps`](Self::schedule_steps)).
     pub fn total_steps(&self, n_train: usize) -> usize {
-        self.epochs * n_train.div_ceil(self.batch_size)
+        self.epochs * self.steps_per_epoch(n_train)
+    }
+
+    /// Steps of one epoch on `n_train` samples: ⌈`n_train` / `batch_size`⌉, the last batch
+    /// possibly partial.
+    pub fn steps_per_epoch(&self, n_train: usize) -> usize {
+        n_train.div_ceil(self.batch_size)
+    }
+
+    /// Steps the Adam cosine schedule spans on `n_train` samples: [`total_steps`](Self::total_steps),
+    /// or a hybrid run's `adam_epochs` × ⌈`n_train` / `batch_size`⌉.
+    pub fn schedule_steps(&self, n_train: usize) -> usize {
+        self.adam_epochs.unwrap_or(self.epochs) * self.steps_per_epoch(n_train)
+    }
+
+    /// Whether epoch `epoch` (from 0) of a Gauss–Newton run trains with Adam: a hybrid run's
+    /// first [`adam_epochs`](Self::adam_epochs).
+    pub fn adam_epoch(&self, epoch: usize) -> bool {
+        self.adam_epochs.is_some_and(|a| epoch < a)
     }
 
     /// Whether `trained_s` seconds of training have spent [`time_budget_s`](Self::time_budget_s);
@@ -85,6 +108,12 @@ mod tests {
         assert_eq!(cfg.total_steps(25), 1000);
         assert_eq!(cfg.total_steps(1000), 25_000);
         assert_eq!(cfg.total_steps(20), 500);
+        assert_eq!(cfg.schedule_steps(1000), 25_000);
+        let hybrid = cfg.with_adam_epochs(Some(250));
+        assert_eq!(hybrid.schedule_steps(1000), 12_500);
+        assert_eq!(hybrid.total_steps(1000), 25_000);
+        assert!(hybrid.adam_epoch(249) && !hybrid.adam_epoch(250));
+        assert!(!TrainingConfig::new().adam_epoch(0));
     }
 
     /// A `train_cfg.json` as runs wrote it before Phase 10 T3 loads as Adam; a

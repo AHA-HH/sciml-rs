@@ -13,7 +13,10 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
 - Current phase: Phase 10 (Gauss–Newton optimisation), planned 2026-11-09:
   docs/phase10/README.md, briefs T1–T6 (T5–T6 drafts), design §13.17, decision 31,
   decisions G1–G8 chosen 2026-11-09. T1, the generic core, done (#98); T2, the
-  `GaussNewton` optimiser, done (#102); next is T3, trainer integration. A model-agnostic,
+  `GaussNewton` optimiser, done (#102); T3, trainer integration, code done (#104); T4,
+  the validation gate, code done (#105); T5, the matrix, code in progress. Order amended
+  2026-11-11 (decision 31): task code first, every VM run (T3's acceptance, T4's gate,
+  T5, T6) at the end of the phase; T5's runs wait for T4's go. A model-agnostic,
   matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: the Burn fork
   has reverse mode only), validated on the Phase 5 baseline. G8, amended 2026-11-09: it
   waits neither for Phase 9 (now done) nor for the θ-map. Code is written on the Mac;
@@ -87,7 +90,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   since Accelerate's `gesdd` returned wrong singular values), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
   (`backend_features`, `git_commit`).
 - `training/`: `config` (`TrainingConfig`; since Phase 10 T3 `optimizer`, an
-  `OptimizerConfig`, `None` meaning Adam), `step` (`flatten_pair`, `forward_loss`,
+  `OptimizerConfig`, `None` meaning Adam; since T5 `adam_epochs`, the Hybrid arm's Adam
+  epochs before Gauss–Newton), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
   `training_loop` with its `EpochObserver`, `train_fno`), `gn` (Phase 10 T3:
   `FnoResidual`, the FNO's Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
@@ -266,7 +270,9 @@ than trusting prose when checking how an API behaves.
   last; `train_poisson -- --resume runs/<run_dir>` continues an interrupted run from its
   checkpoint with the run's saved configs (Phase 9 T1). `OPTIMIZER=gauss-newton` trains a new run with
   Gauss–Newton (the `GN_*` literals; one device; run name `_gn`; writes `gn_steps.csv`;
-  Phase 10 T3)
+  Phase 10 T3). `OPTIMIZER=hybrid` trains `HYBRID_ADAM_EPOCHS` with Adam, then
+  Gauss–Newton (run name `_hybrid`); `GN_PRECONDITIONER=none|hutchinson` picks the
+  preconditioner (Phase 10 T5)
 - Export run directories to a local MLflow server (Phase 8 T1; server: `mlflow server
   --host 127.0.0.1 --port 5001 --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db
   --artifacts-destination $HOME/mlflow/artifacts`, see `README.md`):
@@ -290,7 +296,10 @@ than trusting prose when checking how an API behaves.
   `cargo run --release --example poisson_matrix -- docs/phase5/results.md runs/<run_dir> ...`;
   with `--by-n` the Phase 7 table instead (runs at one (padding, s) and one backend,
   grouped by N, whole-split runs as N = 1000; D7 verdict, spread by seed, cost per fall in
-  error; plots against N): `poisson_matrix -- --by-n docs/phase7/results.md runs/<run_dir> ...`
+  error; plots against N): `poisson_matrix -- --by-n docs/phase7/results.md runs/<run_dir> ...`;
+  with `--by-optimizer` the Phase 10 table (runs at one (padding, s) and one backend,
+  grouped by optimiser arm; plots of error 4 against time, updates and passes):
+  `poisson_matrix -- --by-optimizer docs/phase10/results.md runs/<run_dir> ...`
 - Resolution study (errors 3 and 4 of a Poisson run on finer grids at the run's K, weights
   unchanged, normalisers refit on that n's `_train` split):
   `cargo run --release --example poisson_resolution [--features metal] -- runs/<run_dir> <n> [<n> ...]`

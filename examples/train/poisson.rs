@@ -42,6 +42,14 @@
 //! OPTIMIZER=gauss-newton cargo run --release --no-default-features --features cuda \
 //!     --example train_poisson -- 0 129 64 42 100 0
 //!
+//! `OPTIMIZER=hybrid` (Phase 10 T5's Hybrid arm) is Gauss–Newton whose first
+//! `HYBRID_ADAM_EPOCHS` epochs train with Adam (`TrainingConfig::adam_epochs`), the
+//! cosine schedule spanning those epochs; the run name gains `_hybrid`. Everything below
+//! for Gauss–Newton applies to it too.
+//!
+//! `GN_PRECONDITIONER=hutchinson` picks the Hutchinson diagonal (`GN_HUTCHINSON_PROBES`
+//! probes) over `GN_PRECONDITIONER`'s literal, `none` keeps it (T4's choice, T5's GN20-D).
+//!
 //! With Gauss–Newton, `GN_BATCH_SIZE` overrides the literal of that name (T4's full batch
 //! is the subset's N), and `TIME_BUDGET_S` stops the run after the first epoch that ends
 //! at or over that many seconds of training (`TrainingConfig::time_budget_s`; G4's equal
@@ -138,8 +146,15 @@ const GN_CG_MAX_ITERS: usize = 50;
 const GN_LAMBDA_INIT: f64 = 1.0;
 /// Weight decay μ as a Tikhonov term, Adam's for parity (G5).
 const GN_WEIGHT_DECAY: f64 = 1e-4;
-/// The CG preconditioner (T4 picks between this and the Hutchinson diagonal).
+/// The CG preconditioner (T4 picks between this and the Hutchinson diagonal);
+/// `GN_PRECONDITIONER` overrides it.
 const GN_PRECONDITIONER: Preconditioner = Preconditioner::None;
+/// Probes per Hutchinson estimate (`GN_PRECONDITIONER=hutchinson`), re-estimated every
+/// `GaussNewtonConfig::precond_every` steps.
+const GN_HUTCHINSON_PROBES: usize = 10;
+/// A hybrid run's Adam epochs: half of `EPOCHS`, so half of the Adam reruns' training time
+/// (the budget, G4) at the same batch, since an Adam epoch costs the same in either run.
+const HYBRID_ADAM_EPOCHS: usize = EPOCHS / 2;
 /// The adjoint check, every this many steps (`gn_steps.csv`'s `adjoint_error`).
 const GN_ADJOINT_CHECK_EVERY: usize = 10;
 
@@ -199,25 +214,35 @@ fn train_devices() -> Vec<Device> {
     panic!("TRAIN_DEVICES={list} needs the cuda feature")
 }
 
-/// The optimiser `OPTIMIZER` asks for: `None` (Adam) when it is unset or `adam`, the
-/// `GN_*` literals for `gauss-newton`, with the probe seed `seed`.
+/// The optimiser `OPTIMIZER` asks for and a hybrid run's Adam epochs: `(None, None)`
+/// (Adam) when it is unset or `adam`, the `GN_*` literals for `gauss-newton`, and those
+/// with `HYBRID_ADAM_EPOCHS` for `hybrid`; the probe seed is `seed`.
 ///
 /// # Panics
-/// For any other value.
-fn optimizer(seed: u64) -> Option<OptimizerConfig> {
-    match std::env::var("OPTIMIZER").as_deref() {
-        Err(_) | Ok("adam") => None,
-        Ok("gauss-newton") => Some(OptimizerConfig::GaussNewton(
-            GaussNewtonConfig::new()
-                .with_cg_max_iters(GN_CG_MAX_ITERS)
-                .with_lambda_init(GN_LAMBDA_INIT)
-                .with_weight_decay(GN_WEIGHT_DECAY)
-                .with_preconditioner(GN_PRECONDITIONER)
-                .with_adjoint_check_every(GN_ADJOINT_CHECK_EVERY)
-                .with_seed(seed),
-        )),
-        Ok(other) => panic!("OPTIMIZER must be adam or gauss-newton, got {other:?}"),
-    }
+/// For any other value, or any `GN_PRECONDITIONER` but `none` and `hutchinson`.
+fn optimizer(seed: u64) -> (Option<OptimizerConfig>, Option<usize>) {
+    let adam_epochs = match std::env::var("OPTIMIZER").as_deref() {
+        Err(_) | Ok("adam") => return (None, None),
+        Ok("gauss-newton") => None,
+        Ok("hybrid") => Some(HYBRID_ADAM_EPOCHS),
+        Ok(other) => panic!("OPTIMIZER must be adam, gauss-newton or hybrid, got {other:?}"),
+    };
+    let preconditioner = match std::env::var("GN_PRECONDITIONER").as_deref() {
+        Err(_) => GN_PRECONDITIONER,
+        Ok("none") => Preconditioner::None,
+        Ok("hutchinson") => Preconditioner::HutchinsonDiagonal {
+            probes: GN_HUTCHINSON_PROBES,
+        },
+        Ok(other) => panic!("GN_PRECONDITIONER must be none or hutchinson, got {other:?}"),
+    };
+    let gn = GaussNewtonConfig::new()
+        .with_cg_max_iters(GN_CG_MAX_ITERS)
+        .with_lambda_init(GN_LAMBDA_INIT)
+        .with_weight_decay(GN_WEIGHT_DECAY)
+        .with_preconditioner(preconditioner)
+        .with_adjoint_check_every(GN_ADJOINT_CHECK_EVERY)
+        .with_seed(seed);
+    (Some(OptimizerConfig::GaussNewton(gn)), adam_epochs)
 }
 
 /// `datasets/poisson/` in the repository.
@@ -294,7 +319,7 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         padding: Some(padding),
     };
 
-    let optimizer = optimizer(seed);
+    let (optimizer, adam_epochs) = optimizer(seed);
     let gn = optimizer.is_some();
     let time_budget_s = env_var::<f64>("TIME_BUDGET_S");
     // Adam's cosine schedule spans EPOCHS, so a budget would cut it short
@@ -313,6 +338,12 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         BATCH_SIZE
     };
     assert!(batch_size > 0, "GN_BATCH_SIZE must be positive");
+    // the Adam half must match the Adam reruns' steps for HYBRID_ADAM_EPOCHS to be half
+    // their time
+    assert!(
+        adam_epochs.is_none() || batch_size == BATCH_SIZE,
+        "OPTIMIZER=hybrid trains at BATCH_SIZE = {BATCH_SIZE}, got GN_BATCH_SIZE = {batch_size}"
+    );
     let train_cfg = TrainingConfig::new()
         .with_epochs(EPOCHS)
         .with_time_budget_s(time_budget_s)
@@ -321,7 +352,8 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         .with_weight_decay(WEIGHT_DECAY)
         .with_min_lr(MIN_LR)
         .with_seed(seed)
-        .with_optimizer(optimizer);
+        .with_optimizer(optimizer)
+        .with_adam_epochs(adam_epochs);
 
     // Stage 2 at s = n − 1 keeps its run name; other stages carry n, other s carry n and s,
     // then a subset its N and seed, and a seed other than the default is appended
@@ -339,7 +371,11 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
     } else {
         format!("_seed{seed}")
     };
-    let gn_tag = if gn { "_gn" } else { "" };
+    let gn_tag = match (gn, adam_epochs) {
+        (_, Some(_)) => "_hybrid",
+        (true, None) => "_gn",
+        (false, None) => "",
+    };
     let name = format!("poisson_fno{grid}_p{padding}{subset_tag}{seed_tag}{gn_tag}");
     // Writes configs, metrics, checkpoints, normalizers and weights to
     // runs/<name>_<timestamp>/. Created before training: train_components appends each
@@ -480,19 +516,25 @@ fn main() {
     let training_time_s = prior_time_s + train_start.elapsed().as_secs_f64();
     // Adam: every planned step (it takes no budget), one forward and one backward each;
     // Gauss-Newton: the steps taken, from gn_steps.csv, every session's (a budget may stop
-    // it before EPOCHS)
+    // it before EPOCHS), plus a hybrid run's Adam steps, from the epochs metrics.csv holds
     let (steps, forward_passes, backward_passes) = match train_cfg.gauss_newton() {
         None => {
             let steps = train_cfg.total_steps(n_train);
             (steps, steps, steps)
         }
         Some(_) => {
-            let p = run
-                .gn_passes()
-                .expect("could not read gn_steps.csv")
-                .expect("a Gauss-Newton run writes gn_steps.csv");
-            let (forward, backward) = training_passes(&p);
-            (p.steps, forward, backward)
+            let epochs = run.metrics().expect("could not read metrics.csv").len();
+            let adam_epochs = (0..epochs).filter(|&e| train_cfg.adam_epoch(e)).count();
+            let adam = adam_epochs * train_cfg.steps_per_epoch(n_train);
+            let p = run.gn_passes().expect("could not read gn_steps.csv");
+            // a hybrid run stopped by its budget within the Adam epochs has no GN steps
+            assert!(
+                p.is_some() || adam > 0,
+                "a Gauss-Newton run writes gn_steps.csv"
+            );
+            let (forward, backward) = p.as_ref().map_or((0, 0), training_passes);
+            let gn_steps = p.map_or(0, |p| p.steps);
+            (gn_steps + adam, forward + adam, backward + adam)
         }
     };
 

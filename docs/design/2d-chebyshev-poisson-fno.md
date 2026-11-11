@@ -1828,6 +1828,13 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       neither Phase 9 (the NCCL fix) nor the θ-map, which became an optional phase the
       same day (decision 30). Phase 10 needs one A100 per run, not NCCL. G7 is unchanged:
       its runs (T4–T6) are on the VM. Decided by the author (AHA-HH), 2026-11-09.
+    - **Amendment, order (2026-11-11).** task code ahead of its runs. T5's code (the Hybrid arm's Adam-then-GN switch,
+      `TrainingConfig::adam_epochs`; `OPTIMIZER=hybrid` and `GN_PRECONDITIONER` in
+      `train_poisson`; `poisson_matrix --by-optimizer`) is written before T4's go. Every
+      VM run comes at the end of the phase, in task order (T3's acceptance, T4's gate,
+      T5's matrix, T6's measurements); T5's runs still wait for T4's go, and a gate
+      failure on JVP noise still inserts the exact-JVP task before them (G2). Decided by
+      the author (AHA-HH), 2026-11-11.
     - **Unchanged.** The Adam path, its settings and every existing run and result;
       CONVENTIONS (T3 adds the GN residual to §11, which does not bump the version); the
       model, data, transfers and metrics. Phases 5–7's completion does not wait for
