@@ -9,6 +9,7 @@ template:
 - Tests:
 - Checks: ran …; pending …
 - Decisions: none, or D… signed off; questions for sign-off …
+- Review: plan review (blocking items fixed); code quality APPROVE or BLOCKED → APPROVE (rounds, blockers fixed, findings left as follow-ups)
 - 2D: unchanged bit for bit (how shown), or not touched
 - Follow-ups:
 ```

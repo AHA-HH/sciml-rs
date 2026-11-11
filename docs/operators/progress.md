@@ -9,6 +9,7 @@ template:
 - Tests:
 - Checks: ran …; pending …
 - Decisions: none, or D… signed off; questions for sign-off …
+- Review: plan review (blocking items fixed); code quality APPROVE or BLOCKED → APPROVE (rounds, blockers fixed, findings left as follow-ups)
 - FNO: unchanged bit for bit (how shown), or not touched
 - Matrix: rows set
 - Follow-ups:

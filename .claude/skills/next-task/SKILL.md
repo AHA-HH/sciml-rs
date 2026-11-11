@@ -44,7 +44,13 @@ question, the objective with the earliest blocking dependency for the others fir
   is an unfinished task, so resume it where its plan (`docs/<objective>/tasks/<ID>.md`) and
   the commits show it stopped; on any other branch stop and ask (never stash or discard
   work).
-- Otherwise `git switch main` and `git pull --ff-only`.
+- Otherwise work from `origin/main` and never check out `main` itself: another worktree
+  may have it checked out, and Git allows a branch in one worktree only. New branches start
+  from `origin/main` (step 4).
+
+`main` is protected on GitHub (a PR, the three CI jobs green, the branch up to date with
+`main`; the rules bind admins too), and `.claude/settings.json` denies pushing to `main`,
+force-pushing, deleting remote branches and merging or closing PRs.
 
 ## 1. Sync the open task PRs
 
@@ -61,13 +67,19 @@ the branches `<objective>/*` of every objective with a roadmap. For each, in roa
    `gh api repos/{owner}/{repo}/pulls/<n>/comments`): addressing them is this run's task,
    in the same way.
 3. **Draft waiting for VM runs** (its plan's "Pending runs"): check each on the VM
-   (`ssh cricket 'tmux ls; tail -n 20 ~/sciml-rs/logs/<log>'`). Finished: fetch the output
-   (`scp`), write the results into the task's report, check the acceptance again, update
-   the plan and the progress entry, push, and if nothing else is pending `gh pr ready <n>`.
-   Still running: note it and go on.
+   (`ssh cricket 'tmux ls; tail -n 20 ~/sciml-rs/logs/<id>.log'`). Finished: fetch the
+   output (`scp`), copy the run directories from the run's worktree to `~/sciml-rs/runs/`,
+   remove that worktree (`git -C ~/sciml-rs worktree remove ~/sciml-rs-wt/<id>`, the one
+   step 6 made, nothing else), write the results into the task's report, check the
+   acceptance again, update the plan and the progress entry, push, and if nothing else is
+   pending `gh pr ready <n>`. Still running: note it and go on.
 4. **Draft waiting for a sign-off**: if the roadmap's decision table or the author's message
    now has the answer, record it (step 2's wording) on that branch, push and mark it ready.
-5. **Ready and green**: it waits for the author's merge.
+5. **Behind `main`** (`gh pr view <n> --json mergeStateStatus` is `BEHIND` or `DIRTY`):
+   merging requires the branch up to date, so bring it up to date: on its branch
+   `git merge origin/main`, resolve any conflict (ask if a resolution is not mechanical),
+   `/verify`, push. Never rebase or force-push a PR branch.
+6. **Ready and green**: it waits for the author's merge.
 
 Merged PRs need no bookkeeping: their roadmap tick and progress entry were part of them. If
 item 1 or 2 applied, that was this run's task: stop at step 10 after it.
@@ -147,9 +159,10 @@ Otherwise go on without asking.
 
 ## 4. Branch
 
-`git switch -c <objective>/<id>` from `main`, the ID lower-cased with dots as dashes
-(`laplace3d/cl1-2`, `operators/cm1-3a`). Commit the plan, and any decision or split, as
-`docs(<objective>): <ID> plan`.
+`git fetch origin && git switch --no-track -c <objective>/<id> origin/main`, the ID
+lower-cased with dots as dashes (`laplace3d/cl1-2`, `operators/cm1-3a`). `--no-track` keeps
+the branch from tracking `origin/main`, so its first push (step 9) sets its own upstream.
+Commit the plan, and any decision or split, as `docs(<objective>): <ID> plan`.
 
 ## 5. Implement
 
@@ -170,19 +183,54 @@ Otherwise go on without asking.
 ## 6. Verify
 
 Run `/verify` with this task's plan. VM runs: say what the run is and how long it takes,
-and wait for the author's go; then on the VM, in tmux with a `tee` log under `logs/`
-(`ssh cricket`, `cd ~/sciml-rs`, `git fetch && git switch <branch> && git pull`,
-`source ~/sciml-gpu.sh`). A run that has not finished when the rest is done goes under
+and wait for the author's go. Each run gets a worktree of its own on the VM, so runs of
+different tasks never share a checkout (`ssh cricket`):
+
+```sh
+cd ~/sciml-rs && git fetch origin
+git worktree add --detach ~/sciml-rs-wt/<id> origin/<branch>
+cd ~/sciml-rs-wt/<id>
+# datasets/ holds only its README in git: link the dataset files and folders into it
+find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
+source ~/sciml-gpu.sh
+export CARGO_TARGET_DIR=~/sciml-rs-target/<objective>          # one build cache per objective
+tmux new -d -s <id> "<command> 2>&1 | tee ~/sciml-rs/logs/<id>.log"
+```
+
+Run directories land in the worktree's `runs/`; step 1 copies them to `~/sciml-rs/runs/`
+before it removes the worktree. A run that has not finished when the rest is done goes under
 "Pending runs" with its command, tmux session, log path and what it decides. Never report
 an unrun check as passing.
 
 ## 7. Self-review
 
-Give the `reviewer` agent the plan file, the roadmap line, the proposal's §1.4, §2 and the
-sections the plan cites, and the branch name and its base commit, not your summary. It
-checks that every acceptance item has a test or a recorded run that shows it, that the
-change stays in scope, that constraint 1 holds, and the rules of root `CLAUDE.md`. Fix what
-blocks; list the rest in the PR text.
+Two independent reviews, launched together, each given files and refs, not your summary.
+Docs-only tasks skip the second.
+
+1. **Against the plan.** Give the `reviewer` agent the plan file, the roadmap line, the
+   proposal's §1.4, §2 and the sections the plan cites, and the branch name and its base
+   commit. It checks that every acceptance item has a test or a recorded run that shows it,
+   that the change stays in scope, that constraint 1 holds, and the rules of root
+   `CLAUDE.md`.
+2. **Code quality (thermo-nuclear).** A fresh `general-purpose` subagent, told to read and
+   follow `~/.claude/skills/thermo-nuclear-code-quality-review/SKILL.md` with the base
+   `git merge-base HEAD origin/main` (the skill is user-invoked only, so it is followed
+   from its file; the author asked for it in this loop, 2026-11-11). It writes its report
+   not in this worktree but in the main checkout's git-ignored folder, so the reports stay
+   in one place and survive the worktree's removal:
+   `<main checkout>/docs/code-quality/thermo-nuclear-review-<YYYY-MM-DD>-<objective>-<id>.md`,
+   the main checkout being the first entry of `git worktree list --porcelain`.
+
+Then:
+- **Plan review:** fix what blocks; list the rest in the PR text.
+- **BLOCKED:** fix each presumptive blocker in this task and run the code-quality review
+  again (report suffix `-r2`, `-r3`). A blocker whose fix goes beyond the task's scope (a
+  restructuring of code the task does not own) is a question for the author, and the PR
+  stays a draft until it is answered.
+- **APPROVE with findings:** fix those that fit the task; each of the rest becomes a
+  roadmap follow-up (step 8) or a line in the PR text, never silently dropped.
+
+The reports are not committed, so the PR text carries their outcome (step 9).
 
 ## 8. Record
 
@@ -206,6 +254,8 @@ branch's head. Write `target/pr-<id>.md` (ignored by git): the title
 `<objective> <ID>: <title>`; a summary; the acceptance items, each with the test or run
 behind it, ticked; the checks with their commands and results; the pending runs; the
 questions for sign-off, numbered; the effect on the protected outputs (constraint 1); the
+reviews (the plan review's outcome; the code-quality verdict of each round, its blockers and
+how each was resolved, the findings left as follow-ups, and the local report path); the
 files and modules touched. `gh pr create --base main --title "…" --body-file
 target/pr-<id>.md`, with `--draft` while a run is pending or a sign-off or open question
 blocks. An existing PR is updated with `gh pr edit <n> --body-file …`.

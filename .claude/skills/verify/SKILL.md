@@ -37,8 +37,9 @@ cargo doc --no-deps
   `cargo test --features metal --test gpu_parity`. Say whether each ran.
 - **`mlflow` code** (`tracking/`): `cargo clippy --no-deps --features mlflow --all-targets
   -- -D warnings` and `cargo test --features mlflow`.
-- **cuda-only paths**: on the VM (`ssh cricket`, `source ~/sciml-gpu.sh`), the tests the
-  plan names with `--no-default-features --features cuda`; pending until they have run.
+- **cuda-only paths**: on the VM, in the task's own worktree (`/next-task` step 6), the
+  tests the plan names with `--no-default-features --features cuda`; pending until they
+  have run.
 - **Spikes**: their own tests (`cargo test -p <spike>` for workspace members, else in the
   spike's directory), reported apart.
 - **`Cargo.toml` or `Cargo.lock`**: `cargo tree -e normal` shows no unexpected new
