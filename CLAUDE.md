@@ -90,6 +90,16 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   in the prompt). Bring a stale PR branch up to date by merging `origin/main` into it,
   never by rebasing. Branch from `origin/main` with `git switch --no-track -c`, never
   checking out `main` (worktrees).
+- Default flow: make the change, run the checks, report exactly which ones ran and what
+  they said, and leave the result uncommitted unless the current message asks for a
+  commit. Never report an unrun check as passing; say plainly when something could not
+  run (no GPU backend, no dataset, no gnuplot).
+- One task per branch and PR; stay inside the modules the task names.
+- Task numbers within a phase are execution order, from Phase 1 on (design §10). Phase 0
+  keeps its signed-off numbers and runs T2, then T3 and T4, then T1.
+- Keep changes targeted: no drive-by reformatting or refactors.
+- When listing tasks (status reports, summaries of a phase), order them by completion,
+  earliest first; tasks still open follow, in execution order.
 
 ## Skills
 Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3d`,
@@ -107,16 +117,6 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   milestone the thermo-nuclear repo review; then the close.
 - Thermo-nuclear reports are git-ignored, always in this checkout's `docs/code-quality/`
   (also from worktrees); PR texts and gate reports carry their verdicts.
-- Default flow: make the change, run the checks, report exactly which ones ran and what
-  they said, and leave the result uncommitted unless the current message asks for a
-  commit. Never report an unrun check as passing; say plainly when something could not
-  run (no GPU backend, no dataset, no gnuplot).
-- One task per branch and PR; stay inside the modules the task names.
-- Task numbers within a phase are execution order, from Phase 1 on (design §10). Phase 0
-  keeps its signed-off numbers and runs T2, then T3 and T4, then T1.
-- Keep changes targeted: no drive-by reformatting or refactors.
-- When listing tasks (status reports, summaries of a phase), order them by completion,
-  earliest first; tasks still open follow, in execution order.
 
 ## Working rules
 - Run `cargo fmt` after every Rust edit, before the other checks or committing. CI
