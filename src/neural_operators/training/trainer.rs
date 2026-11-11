@@ -132,7 +132,7 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
     pub model: FNO<R>,
     /// Adam with weight decay.
     pub optim: ModuleOptimizer,
-    /// Cosine annealing over [`TrainingConfig::total_steps`] steps, stepped once per batch.
+    /// Cosine annealing over [`TrainingConfig::schedule_steps`] steps, stepped once per batch.
     pub scheduler: ModuleLrScheduler,
     /// Shuffled training batches on the autodiff device.
     pub train_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
@@ -191,7 +191,7 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
 
     let scheduler = CosineAnnealingLrSchedulerConfig::new(
         train_cfg.learning_rate,
-        train_cfg.total_steps(n_train),
+        train_cfg.schedule_steps(n_train),
     )
     .with_min_lr(train_cfg.min_lr)
     .init()
@@ -267,7 +267,9 @@ fn epoch_line(m: &EpochMetrics) -> String {
 /// bit.
 ///
 /// With `components.gn`, each epoch is [`train_epoch_gn`] instead (Phase 10 T3), and the
-/// checkpoints carry the Gauss–Newton state; `resume` must then hold one.
+/// checkpoints carry the Gauss–Newton state; `resume` must then hold one. A hybrid run's
+/// first `train_cfg.adam_epochs` epochs are [`train_epoch`] (Phase 10 T5), its checkpoints
+/// carrying both optimisers' states.
 ///
 /// With `components.replicas`, each epoch is data-parallel
 /// ([`data_parallel`](crate::neural_operators::training::data_parallel)): the replicas
@@ -284,7 +286,8 @@ fn epoch_line(m: &EpochMetrics) -> String {
 ///
 /// As [`train_epoch`] and [`evaluate`]; if `k` is 0; if a checkpoint cannot be written;
 /// for Gauss–Newton with replicas (data-parallel Gauss–Newton is out of scope), or a
-/// `resume` whose optimiser state does not match the components'.
+/// `resume` whose optimiser state does not match the components'; for `adam_epochs`
+/// without Gauss–Newton, or above `epochs`.
 pub fn training_loop<const R: usize, const RM1: usize>(
     components: TrainingComponents<R, RM1>,
     train_cfg: &TrainingConfig,
@@ -318,6 +321,12 @@ fn run_loop<const R: usize, const RM1: usize>(
     assert!(
         components.gn.is_none() || components.replicas.is_empty(),
         "Gauss-Newton trains on one device: data-parallel Gauss-Newton is out of scope"
+    );
+    assert!(
+        train_cfg
+            .adam_epochs
+            .is_none_or(|a| components.gn.is_some() && a <= train_cfg.epochs),
+        "adam_epochs needs Gauss-Newton and at most `epochs` epochs"
     );
     // evaluation tensors live on the inner device (model.valid())
     let eval_decoder = decoder.map(FlatDecoder::inner);
@@ -357,7 +366,11 @@ fn run_loop<const R: usize, const RM1: usize>(
     for epoch in first_epoch..train_cfg.epochs {
         let epoch_start = Instant::now();
 
-        let (m, means) = match (components.gn.as_mut(), peers.as_mut()) {
+        let gn = components
+            .gn
+            .as_mut()
+            .filter(|_| !train_cfg.adam_epoch(epoch));
+        let (m, means) = match (gn, peers.as_mut()) {
             (Some(gn), None) => train_epoch_gn(
                 model,
                 &components.train_loader,
@@ -1009,14 +1022,51 @@ mod tests {
     /// does, bit for bit on flex.
     #[test]
     fn gauss_newton_smoke_run_resumes_exactly() {
-        use crate::neural_operators::{
-            optim::gauss_newton::GaussNewtonConfig, training::config::OptimizerConfig,
-        };
-        let dir = std::env::temp_dir().join(format!("sciml_rs_gn_smoke_{}", std::process::id()));
+        let (_, rows, _) = gn_smoke_run_resumes_exactly(None, "gn_smoke");
+        assert_eq!(rows.len(), 7, "a header and six steps");
+    }
+
+    /// A hybrid run (Phase 10 T5) trains its first `adam_epochs` with Adam, as an Adam run of
+    /// that many epochs does, then Gauss-Newton; killed in its first Gauss-Newton epoch
+    /// and resumed from the Adam epoch's checkpoint, it ends as the uninterrupted run does.
+    #[test]
+    fn hybrid_smoke_run_switches_and_resumes_exactly() {
+        let (metrics, rows, init) = gn_smoke_run_resumes_exactly(Some(1), "hybrid_smoke");
+        // two Gauss-Newton epochs of two steps, labelled with epochs 1 and 2
+        assert_eq!(rows.len(), 5, "a header and four steps");
+        assert!(rows[1..].iter().all(|r| !r.starts_with("0,")), "{rows:?}");
+
+        // epoch 0 is an Adam run of one epoch, from the same initial model
+        let dir = std::env::temp_dir().join(format!("sciml_rs_hybrid_adam_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let train_path = write_poisson_split(&dir, "train.npz", POISSON_N_TRAIN, 0.0);
-        let test_path = write_poisson_split(&dir, "test.npz", POISSON_N_TEST, 0.5);
+        let (train_path, test_path, cfg, model_cfg) = gn_smoke_fixture(&dir);
+        let adam_cfg = TrainingConfig::new()
+            .with_epochs(1)
+            .with_batch_size(2)
+            .with_test_batch_size(2);
+        let (train, test, normalizers) =
+            load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
+        let device = Device::default().autodiff();
+        let mut adam =
+            build_training_components::<4, 3, _>(&model_cfg, &adam_cfg, train, test, &device);
+        adam.model = init;
+        let (_, adam) = train_built(
+            adam,
+            Some(&normalizers.y),
+            &adam_cfg,
+            &device,
+            &mut |_, _| {},
+        );
+        assert_same_metrics(&metrics[..1], &adam);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `train_poisson_smoke`'s fixture in `dir`: the train and test files, the data config and
+    /// the tiny model's config.
+    fn gn_smoke_fixture(dir: &Path) -> (PathBuf, PathBuf, PoissonConfig, FNOConfig) {
+        let train_path = write_poisson_split(dir, "train.npz", POISSON_N_TRAIN, 0.0);
+        let test_path = write_poisson_split(dir, "test.npz", POISSON_N_TEST, 0.5);
         let cfg = PoissonConfig::new(
             DatasetConfig {
                 n_train: POISSON_N_TRAIN,
@@ -1027,6 +1077,24 @@ mod tests {
         let model_cfg = FNOConfig::new(vec![2, 2], 1, 1)
             .with_hidden_channels(4)
             .with_n_layers(2);
+        (train_path, test_path, cfg, model_cfg)
+    }
+
+    /// A 3-epoch Gauss-Newton run (hybrid with `adam_epochs`) of `train_poisson_smoke`'s
+    /// fixture, uninterrupted and killed in epoch 1 then resumed from epoch 0's checkpoint:
+    /// both must agree, bit for bit on flex. Returns the uninterrupted run's metrics, its
+    /// `gn_steps.csv` lines without the wall times, and its initial model.
+    fn gn_smoke_run_resumes_exactly(
+        adam_epochs: Option<usize>,
+        tag: &str,
+    ) -> (Vec<EpochMetrics>, Vec<String>, FNO<4>) {
+        use crate::neural_operators::{
+            optim::gauss_newton::GaussNewtonConfig, training::config::OptimizerConfig,
+        };
+        let dir = std::env::temp_dir().join(format!("sciml_rs_{tag}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let (train_path, test_path, cfg, model_cfg) = gn_smoke_fixture(&dir);
         let gn = GaussNewtonConfig::new()
             .with_cg_max_iters(5)
             .with_adjoint_check_every(2);
@@ -1034,7 +1102,8 @@ mod tests {
             .with_epochs(3)
             .with_batch_size(2)
             .with_test_batch_size(2)
-            .with_optimizer(Some(OptimizerConfig::GaussNewton(gn)));
+            .with_optimizer(Some(OptimizerConfig::GaussNewton(gn)))
+            .with_adam_epochs(adam_epochs);
         let device = Device::default().autodiff();
         let (_, _, normalizers) =
             load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
@@ -1044,8 +1113,9 @@ mod tests {
             build_training_components::<4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
         };
         let whole = build();
+        let init = whole.model.clone();
         let mut first = build();
-        first.model = whole.model.clone();
+        first.model = init.clone();
 
         let straight = RunDir::create(&dir, "gn_straight").unwrap();
         straight.save_configs(&model_cfg, &train_cfg, &cfg).unwrap();
@@ -1064,17 +1134,18 @@ mod tests {
             assert!(m.train_l2.is_finite() && m.test_l2.is_finite(), "{m:?}");
             assert!(m.current_lr > 0.0, "the damping λ is reported: {m:?}");
         }
-        // 3 epochs of 2 batches, one step each
+        // the Gauss-Newton epochs, 2 batches each, one step each
+        let steps = 2 * (3 - adam_epochs.unwrap_or(0));
         let passes = straight.gn_passes().unwrap().unwrap();
-        assert_eq!(passes.steps, 6);
+        assert_eq!(passes.steps, steps);
         assert!(passes.backward >= passes.steps, "{passes:?}");
         // one metrics forward per step on top of the optimiser's
         assert_eq!(
             crate::neural_operators::training::gn::training_passes(&passes),
-            (passes.forward + 6, passes.backward)
+            (passes.forward + steps, passes.backward)
         );
         let ck = straight.checkpoint::<4>(&device).unwrap().unwrap();
-        assert_eq!(ck.gn.expect("Gauss-Newton state").step, 6);
+        assert_eq!(ck.gn.expect("Gauss-Newton state").step as usize, steps);
 
         let run = RunDir::create(&dir, "gn_resumed").unwrap();
         run.save_configs(&model_cfg, &train_cfg, &cfg).unwrap();
@@ -1122,11 +1193,12 @@ mod tests {
                 .collect()
         };
         let (resumed_rows, straight_rows) = (rows(&run), rows(&straight));
-        assert_eq!(resumed_rows.len(), 7, "a header and six steps");
+        assert_eq!(resumed_rows.len(), straight_rows.len());
         if exact_backend() {
             assert_eq!(resumed_rows, straight_rows);
         }
         let _ = fs::remove_dir_all(&dir);
+        (metrics, straight_rows, init)
     }
 
     /// Data-parallel Gauss-Newton is out of scope: replicas with Gauss-Newton panic.

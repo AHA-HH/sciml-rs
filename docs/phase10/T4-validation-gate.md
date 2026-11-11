@@ -49,4 +49,5 @@ No code change expected. If any is needed, all of `CLAUDE.md`'s checks for it.
 ## Do not
 - Tune the GN defaults on the test set: any change is chosen on train-set behaviour
   (Φ, ρ, CG) and stated.
-- Start T5 before the go is recorded.
+- Start T5's runs before the go is recorded (its code may come first: order amended by the
+  author 2026-11-11, decision 31).

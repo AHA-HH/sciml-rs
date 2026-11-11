@@ -26,6 +26,15 @@
 //! the extra training time and samples per fall in mean error 4 between successive N.
 //! Plots: error 4 against N (per run, mean, min–max band and the D7 line) and training
 //! time against N, `<stem>_error_vs_n.png` and `<stem>_time_vs_n.png`.
+//!
+//! With `--by-optimizer` (Phase 10 T5) the runs must share one (padding, s) and one backend,
+//! and are grouped by optimiser arm ([`optimizer_arm`]: Adam, GN<batch>, Hybrid, with `-D`
+//! for the Hutchinson diagonal). Per arm, the mean and min–max over its runs of errors 3
+//! and 4, the final losses and their gap, updates, epochs, forward and backward passes,
+//! training time and the peak memory recorded; then one row per run. Plots: error 4 against
+//! training time, updates and passes (forward + backward), `<stem>_error_vs_time.png`,
+//! `<stem>_error_vs_updates.png` and `<stem>_error_vs_passes.png`:
+//! cargo run --release --example poisson_matrix -- --by-optimizer docs/phase10/results.md runs/<run_dir> ...
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -36,7 +45,9 @@ use gnuplot::{AutoOption::Fix, AxesCommon, Caption, Figure, FillAlpha, PointSymb
 use sciml_rs::neural_operators::{
     data::loaders::poisson::PoissonConfig,
     metrics::poisson::{ERRORS_JSON, PoissonErrorsRecord},
+    optim::gauss_newton::Preconditioner,
     runs::{EpochMetrics, RunCosts, RunDir},
+    training::config::TrainingConfig,
 };
 
 /// The learning grid of the error 4 against ‖u‖ scatter: the coupled grid at n = 129.
@@ -62,8 +73,13 @@ struct Run {
     /// The subset seed; `None` for a run on the whole split.
     subset_seed: Option<u64>,
     seed: u64,
-    /// Optimisation steps, `TrainingConfig::total_steps(n)`.
+    /// Optimisation steps: `costs.json`'s `optimisation_steps` (the steps taken), or
+    /// `TrainingConfig::total_steps(n)` for a run before Phase 7 T1.
     steps: usize,
+    /// The optimiser arm, [`optimizer_arm`].
+    optimizer: String,
+    /// Epochs trained, the rows of `metrics.csv`.
+    epochs: usize,
     last: EpochMetrics,
     /// Median time per epoch over the epochs after the first (which includes warm-up);
     /// `None` for a run before Phase 5 T4 or with a single epoch.
@@ -90,6 +106,7 @@ impl Run {
             .training_config()
             .unwrap_or_else(|e| fail("training config", &e));
         let (n, subset_seed) = sample_size(&data);
+        let costs = run.costs().unwrap_or_else(|e| fail("costs.json", &e));
         let metrics = run.metrics().unwrap_or_else(|e| fail("metrics.csv", &e));
         let mut times: Vec<f64> = metrics
             .iter()
@@ -115,14 +132,19 @@ impl Run {
             n,
             subset_seed,
             seed: train_cfg.seed,
-            steps: train_cfg.total_steps(n),
+            steps: costs
+                .as_ref()
+                .and_then(|c| c.optimisation_steps)
+                .unwrap_or_else(|| train_cfg.total_steps(n)),
+            optimizer: optimizer_arm(&train_cfg),
+            epochs: metrics.len(),
             last: metrics
                 .last()
                 .cloned()
                 .unwrap_or_else(|| fail("metrics.csv", &"no epochs")),
             epoch_time_s: (!times.is_empty()).then(|| times[times.len() / 2]),
             errors,
-            costs: run.costs().unwrap_or_else(|e| fail("costs.json", &e)),
+            costs,
         }
     }
 
@@ -132,6 +154,23 @@ impl Run {
         } else {
             format!("padding (p = {})", self.padding)
         }
+    }
+}
+
+/// A run's optimiser arm (Phase 10, the README's experiment matrix): `Adam`; `GN<batch>`
+/// for Gauss–Newton; `Hybrid` for Adam then Gauss–Newton; Gauss–Newton arms with the
+/// Hutchinson diagonal gain `-D`.
+fn optimizer_arm(cfg: &TrainingConfig) -> String {
+    let Some(gn) = cfg.gauss_newton() else {
+        return "Adam".into();
+    };
+    let base = match cfg.adam_epochs {
+        Some(_) => "Hybrid".to_string(),
+        None => format!("GN{}", cfg.batch_size),
+    };
+    match gn.preconditioner {
+        Preconditioner::None => base,
+        Preconditioner::HutchinsonDiagonal { .. } => format!("{base}-D"),
     }
 }
 
@@ -767,16 +806,18 @@ fn plots_by_n(out: &Path, sizes: &[Size]) -> Result<Vec<PathBuf>, String> {
     Ok(written)
 }
 
-/// The Phase 7 output (`--by-n`): every run at one (padding, s) and one backend, grouped
-/// by N.
-fn by_n(out: &Path, runs: &[Run]) {
+/// Checks that `runs` share one (padding, s) and one backend, for the `flag` mode.
+///
+/// # Panics
+/// If they do not.
+fn assert_one_grid_and_backend(runs: &[Run], flag: &str) {
     let grids: BTreeMap<(usize, usize), usize> = runs.iter().fold(BTreeMap::new(), |mut m, r| {
         *m.entry((r.padding, r.s)).or_default() += 1;
         m
     });
     assert!(
         grids.len() == 1,
-        "--by-n compares one (padding, s); got runs at (p, s) = {:?}",
+        "{flag} compares one (padding, s); got runs at (p, s) = {:?}",
         grids.keys().collect::<Vec<_>>()
     );
     // costs compare only within one backend (design §13.14); a run without costs.json
@@ -789,8 +830,14 @@ fn by_n(out: &Path, runs: &[Run]) {
     backends.dedup();
     assert!(
         backends.len() == 1,
-        "--by-n compares costs on one backend; got runs on {backends:?} (None: no costs.json)"
+        "{flag} compares costs on one backend; got runs on {backends:?} (None: no costs.json)"
     );
+}
+
+/// The Phase 7 output (`--by-n`): every run at one (padding, s) and one backend, grouped
+/// by N.
+fn by_n(out: &Path, runs: &[Run]) {
+    assert_one_grid_and_backend(runs, "--by-n");
     let mut groups: BTreeMap<usize, Vec<&Run>> = BTreeMap::new();
     for r in runs {
         groups.entry(r.n).or_default().push(r);
@@ -801,6 +848,187 @@ fn by_n(out: &Path, runs: &[Run]) {
         table_by_n(&sizes),
         format!("{} runs, {} sizes", runs.len(), sizes.len()),
         || plots_by_n(out, &sizes),
+    );
+}
+
+/// Mean [min–max] over `runs` of `f`, skipping runs where it is `None`.
+fn spread_of(runs: &[&Run], f: impl Fn(&Run) -> Option<f64>, fmt: fn(f64) -> String) -> String {
+    spread(&runs.iter().filter_map(|r| f(r)).collect::<Vec<_>>(), fmt)
+}
+
+fn count(x: f64) -> String {
+    format!("{x:.0}")
+}
+
+/// A run's forward and backward passes from `costs.json`, summed; `None` before Phase 10 T3.
+fn passes(r: &Run) -> Option<f64> {
+    let c = r.costs.as_ref()?;
+    Some((c.forward_passes? + c.backward_passes?) as f64)
+}
+
+/// The final test L² minus the final train L²: the generalisation gap.
+fn gap(r: &Run) -> f64 {
+    f64::from(r.last.test_l2) - f64::from(r.last.train_l2)
+}
+
+/// The Phase 10 table: one row per optimiser arm, then one row per run.
+fn table_by_optimizer(arms: &BTreeMap<String, Vec<&Run>>) -> String {
+    let mut md = String::new();
+    let w = &mut md;
+    let all: Vec<&Run> = arms.values().flatten().copied().collect();
+    writeln!(w, "# Phase 10 results\n").unwrap();
+    writeln!(
+        w,
+        "Generated by `poisson_matrix --by-optimizer` from {} runs at s = {}, p = {}, N = {}, \
+         each evaluated by `predict_poisson` on the same 200 test samples (n = 129 CGL nodes). \
+         Arms: Adam; GN<batch>, Gauss–Newton at that batch; Hybrid, Adam then Gauss–Newton; \
+         `-D` the Hutchinson-diagonal preconditioner. Error 3 is the coarse error on the \
+         learning grid, error 4 the fine-grid error on the CGL grid (design §13.3); the gap \
+         is the final test L² minus the final train L². Updates are optimisation steps taken; \
+         passes are forward and backward passes (`costs.json`). Times are wall-clock \
+         seconds.\n",
+        all.len(),
+        all[0].s,
+        all[0].padding,
+        all[0].n,
+    )
+    .unwrap();
+
+    writeln!(w, "## Per arm\n").unwrap();
+    writeln!(w, "Mean [min–max] over the runs of each arm.\n").unwrap();
+    writeln!(
+        w,
+        "| arm | runs | seeds | error 3 (coarse) | error 4 (fine) | final train L² | final test L² | gap | updates | epochs | forward passes | backward passes | training time | peak memory |"
+    )
+    .unwrap();
+    writeln!(w, "|{}", " --- |".repeat(14)).unwrap();
+    for (arm, runs) in arms {
+        let distinct = |f: fn(&Run) -> String| {
+            let mut v: Vec<String> = runs.iter().map(|r| f(r)).collect();
+            v.sort_unstable();
+            v.dedup();
+            v.join(", ")
+        };
+        let cost = |f: fn(&RunCosts) -> Option<usize>| {
+            spread_of(
+                runs,
+                |r| r.costs.as_ref().and_then(f).map(|x| x as f64),
+                count,
+            )
+        };
+        writeln!(
+            w,
+            "| {arm} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            runs.len(),
+            distinct(|r| r.seed.to_string()),
+            spread_of(runs, |r| Some(r.errors.error3.mean), sci),
+            spread_of(runs, |r| Some(r.errors.error4.mean), sci),
+            spread_of(runs, |r| Some(f64::from(r.last.train_l2)), sci),
+            spread_of(runs, |r| Some(f64::from(r.last.test_l2)), sci),
+            spread_of(runs, |r| Some(gap(r)), sci),
+            spread_of(runs, |r| Some(r.steps as f64), count),
+            spread_of(runs, |r| Some(r.epochs as f64), count),
+            cost(|c| c.forward_passes),
+            cost(|c| c.backward_passes),
+            spread_of(runs, |r| r.costs.as_ref().map(|c| c.training_time_s), secs),
+            distinct(|r| r
+                .costs
+                .as_ref()
+                .map_or("–".into(), |c| c.peak_gpu_memory.clone())),
+        )
+        .unwrap();
+    }
+
+    writeln!(w, "\n## Per run\n").unwrap();
+    writeln!(
+        w,
+        "| run | arm | seed | updates | epochs | final train L² | final test L² | error 3 mean | error 4 mean / max | passes | training time |"
+    )
+    .unwrap();
+    writeln!(w, "|{}", " --- |".repeat(11)).unwrap();
+    for r in &all {
+        writeln!(
+            w,
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} / {} | {} | {} |",
+            r.name,
+            r.optimizer,
+            r.seed,
+            r.steps,
+            r.epochs,
+            sci(f64::from(r.last.train_l2)),
+            sci(f64::from(r.last.test_l2)),
+            sci(r.errors.error3.mean),
+            sci(r.errors.error4.mean),
+            sci(r.errors.error4.max),
+            opt(passes(r), count),
+            opt(r.costs.as_ref().map(|c| c.training_time_s), secs),
+        )
+        .unwrap();
+    }
+    md
+}
+
+/// Draws the three Phase 10 plots beside `out`, error 4 per run against training time,
+/// updates and passes, one series per arm; returns the files written.
+fn plots_by_optimizer(
+    out: &Path,
+    arms: &BTreeMap<String, Vec<&Run>>,
+) -> Result<Vec<PathBuf>, String> {
+    let stem = out.file_stem().unwrap_or_default().to_string_lossy();
+    let mut written = Vec::new();
+    type Axis = (&'static str, &'static str, fn(&Run) -> Option<f64>);
+    let axes: [Axis; 3] = [
+        ("time", "training time (s)", |r| {
+            r.costs.as_ref().map(|c| c.training_time_s)
+        }),
+        ("updates", "updates (optimisation steps)", |r| {
+            Some(r.steps as f64)
+        }),
+        ("passes", "forward + backward passes", passes),
+    ];
+    for (name, label, x_of) in axes {
+        let mut fig = Figure::new();
+        let ax = fig
+            .axes2d()
+            .set_title(&format!("Fine-grid error (error 4) against {label}"), &[])
+            .set_x_label(label, &[])
+            .set_y_label("relative L² on the CGL grid", &[])
+            .set_x_log(Some(10.0))
+            .set_y_log(Some(10.0));
+        for (arm, runs) in arms {
+            let (x, y): (Vec<f64>, Vec<f64>) = runs
+                .iter()
+                .filter_map(|r| x_of(r).map(|x| (x, r.errors.error4.mean)))
+                .unzip();
+            // gnuplot rejects an empty series (runs before Phase 10 T3 have no passes)
+            if !x.is_empty() {
+                ax.points(&x, &y, &[Caption(arm), PointSymbol('O')]);
+            }
+        }
+        let file = out.with_file_name(format!("{stem}_error_vs_{name}.png"));
+        fig.save_to_png(&file, 1000, 700)
+            .map_err(|e| format!("{e} (is gnuplot installed?)"))?;
+        written.push(file);
+    }
+    Ok(written)
+}
+
+/// The Phase 10 output (`--by-optimizer`): every run at one (padding, s) and one backend,
+/// grouped by optimiser arm, each arm's runs by seed.
+fn by_optimizer(out: &Path, runs: &[Run]) {
+    assert_one_grid_and_backend(runs, "--by-optimizer");
+    let mut arms: BTreeMap<String, Vec<&Run>> = BTreeMap::new();
+    for r in runs {
+        arms.entry(r.optimizer.clone()).or_default().push(r);
+    }
+    for arm in arms.values_mut() {
+        arm.sort_by_key(|r| r.seed);
+    }
+    emit(
+        out,
+        table_by_optimizer(&arms),
+        format!("{} runs, {} arms", runs.len(), arms.len()),
+        || plots_by_optimizer(out, &arms),
     );
 }
 
@@ -817,13 +1045,15 @@ fn emit(out: &Path, md: String, what: String, draw: impl FnOnce() -> Result<Vec<
 
 fn main() {
     let mut args = std::env::args().skip(1).peekable();
-    let usage = "usage: poisson_matrix [--by-n] <out.md> <run_dir> ...";
-    let by_size = args.next_if(|a| a == "--by-n").is_some();
+    let usage = "usage: poisson_matrix [--by-n | --by-optimizer] <out.md> <run_dir> ...";
+    let mode = args.next_if(|a| a == "--by-n" || a == "--by-optimizer");
     let out = PathBuf::from(args.next().expect(usage));
     let runs: Vec<Run> = args.map(|d| Run::load(Path::new(&d))).collect();
     assert!(!runs.is_empty(), "{usage}");
-    if by_size {
-        return by_n(&out, &runs);
+    match mode.as_deref() {
+        Some("--by-n") => return by_n(&out, &runs),
+        Some(_) => return by_optimizer(&out, &runs),
+        None => {}
     }
 
     let mut cells: BTreeMap<(usize, usize), Vec<&Run>> = BTreeMap::new();
@@ -907,5 +1137,39 @@ mod tests {
         assert!(steps[1].fall < 0.0);
         assert_eq!(steps[1].extra_time, None);
         assert!(steps_between(&sizes[..1]).is_empty());
+    }
+
+    #[test]
+    fn optimizer_arms() {
+        use sciml_rs::neural_operators::{
+            optim::gauss_newton::GaussNewtonConfig, training::config::OptimizerConfig,
+        };
+        let gn = |p| {
+            Some(OptimizerConfig::GaussNewton(
+                GaussNewtonConfig::new().with_preconditioner(p),
+            ))
+        };
+        let d = Preconditioner::HutchinsonDiagonal { probes: 10 };
+        let cfg = TrainingConfig::new();
+        assert_eq!(optimizer_arm(&cfg), "Adam");
+        let gn20 = cfg.clone().with_optimizer(gn(Preconditioner::None));
+        assert_eq!(optimizer_arm(&gn20), "GN20");
+        assert_eq!(
+            optimizer_arm(&gn20.clone().with_optimizer(gn(d.clone()))),
+            "GN20-D"
+        );
+        let gn200 = gn20
+            .clone()
+            .with_batch_size(200)
+            .with_optimizer(gn(d.clone()));
+        assert_eq!(optimizer_arm(&gn200), "GN200-D");
+        assert_eq!(optimizer_arm(&gn20.with_adam_epochs(Some(250))), "Hybrid");
+        // the arms sort as the README's matrix lists them
+        let arms: std::collections::BTreeSet<&str> =
+            ["Hybrid", "GN200", "GN20-D", "GN20", "Adam"].into();
+        assert_eq!(
+            arms.into_iter().collect::<Vec<_>>(),
+            ["Adam", "GN20", "GN20-D", "GN200", "Hybrid"]
+        );
     }
 }

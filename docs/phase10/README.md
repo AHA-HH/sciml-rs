@@ -1,6 +1,6 @@
 # Phase 10: Gauss–Newton optimisation
 
-As of 2026-11-10: **started.** T1 (the generic core) done (#98); T2 (the optimiser) done (#102); T3 (trainer integration) code in review, its VM acceptance (one A100) still to run. Plan and briefs T1–T6 written 2026-11-09;
+As of 2026-11-11: **started.** T1 (the generic core) done (#98); T2 (the optimiser) done (#102); T3 (trainer integration) code done (#104); T4 (validation gate) code done (#105); T5 (the matrix) code in review. Every VM run (T3's acceptance, T4's gate, T5's matrix, T6) comes at the end of the phase (order amended 2026-11-11, below). Plan and briefs T1–T6 written 2026-11-09;
 decisions G1–G8 chosen by the author the same day (below). It can start now: G8, amended
 2026-11-09, has it wait neither for Phase 9 nor for the θ-map (now an optional phase).
 Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 10, §13.17, decision
@@ -114,6 +114,8 @@ amended by the author later the same day (below).
   not gate it, and the θ-map became an optional phase that nothing waits for. G7 still
   puts its runs (T4–T6) on the VM. (At planning, superseded: Phase 10 started after
   Phase 9, once the NCCL fix and the θ-map, then Phase 9 T5–T6, were done.)
+- **Order, amended 2026-11-11 by the author:** task code ahead of its runs. T5's code (the Hybrid arm's Adam-then-GN switch, `TrainingConfig::adam_epochs`; `OPTIMIZER=hybrid` and `GN_PRECONDITIONER` in `train_poisson`; `poisson_matrix --by-optimizer`) is written before T4's go. Every VM run comes at the end of the phase, in task order (T3's acceptance, T4's gate, T5's matrix, T6's measurements); T5's runs still wait for T4's go, and a gate failure on JVP noise still inserts the exact-JVP task before them (G2). Decided by the author (AHA-HH), 2026-11-11.
+  Recorded in design §12, decision 31.
 
 ## Tasks
 
@@ -123,7 +125,7 @@ amended by the author later the same day (below).
 | T2 | [T2-gauss-newton.md](T2-gauss-newton.md) | `GaussNewton`: Levenberg–Marquardt damping, ρ, warm start, Hutchinson-diagonal preconditioner, per-step diagnostics | T1 |
 | T3 | [T3-trainer.md](T3-trainer.md) | Trainer integration: optimiser choice in `TrainingConfig`, the FNO residual adapter, `gn_steps.csv`, forward-equivalent passes in `costs.json`, GN state in checkpoints, `OPTIMIZER` in `train_poisson`; the CONVENTIONS §11 note | T2 |
 | T4 | [T4-validation-gate.md](T4-validation-gate.md) | The smallest viable experiment: full-batch GN at N = 100 against Phase 7's Adam run at equal wall-clock; go / no-go for T5 | T3; Phase 7's runs; the VM |
-| T5 | [T5-matrix.md](T5-matrix.md) | The N = 1000 matrix (Adam reruns and four GN arms, 3 seeds) and `docs/phase10/results.md` | T4 (go) |
+| T5 | [T5-matrix.md](T5-matrix.md) | The N = 1000 matrix (Adam reruns and four GN arms, 3 seeds) and `docs/phase10/results.md` | T3 for its code; T4 (go) for its runs |
 | T6 | [T6-conditioning.md](T6-conditioning.md) | PDE against neural-operator conditioning: curvature spectra across s, the single-sample tangent kernel in the sine basis | T4; beside T5 |
 
 Task numbers are execution order (design §10); T6 needs only T4 and may run beside T5.
@@ -177,7 +179,8 @@ and `costs.json` (training time, steps, forward-equivalent passes, peak memory).
 - `optim/gauss_newton/` (new, T1–T2): the generic core. Imports nothing from `models/`
   or `training/`.
 - `training/` (T3): `TrainingConfig.optimizer`, the FNO adapter, `train_epoch_gn`, the
-  branch in `training_loop`. The Adam path is not edited.
+  branch in `training_loop`. The Adam path is not edited. T5: `TrainingConfig.adam_epochs`
+  (the Hybrid arm's Adam epochs before Gauss–Newton).
 - `runs/` (T3): `gn_steps.csv`, the checkpoint's GN section, the new `costs.json` fields.
 - `tracking/` (T3): `gn_steps.csv` among the exported artifacts.
 - `examples/train/poisson.rs` (T3), `examples/predict/poisson_matrix.rs` (T5): optimiser
