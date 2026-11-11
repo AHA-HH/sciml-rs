@@ -1,6 +1,6 @@
 # Phase 10: Gauss–Newton optimisation
 
-As of 2026-11-11: **started.** T1 (the generic core) done (#98); T2 (the optimiser) done (#102); T3 (trainer integration) code done (#104); T4 (validation gate) code done (#105); T5 (the matrix) code done (#106); T6 (conditioning) code in review. Every VM run (T3's acceptance, T4's gate, T5's matrix, T6) comes at the end of the phase (order amended 2026-11-11, below). Plan and briefs T1–T6 written 2026-11-09;
+As of 2026-11-11: **started.** T1 (the generic core) done (#98); T2 (the optimiser) done (#102); T3 (trainer integration) code done (#104); T4 (validation gate) code done (#105); T5 (the matrix) code done (#106); T6 (conditioning) code done (#107). **All code done; the VM runs remain**, in the order of [runs.md](runs.md) (order amended 2026-11-11, below). Plan and briefs T1–T6 written 2026-11-09;
 decisions G1–G8 chosen by the author the same day (below). It can start now: G8, amended
 2026-11-09, has it wait neither for Phase 9 nor for the θ-map (now an optional phase).
 Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 10, §13.17, decision
@@ -127,6 +127,9 @@ amended by the author later the same day (below).
 | T4 | [T4-validation-gate.md](T4-validation-gate.md) | The smallest viable experiment: full-batch GN at N = 100 against Phase 7's Adam run at equal wall-clock; go / no-go for T5 | T3; Phase 7's runs; the VM |
 | T5 | [T5-matrix.md](T5-matrix.md) | The N = 1000 matrix (Adam reruns and four GN arms, 3 seeds) and `docs/phase10/results.md` | T3 for its code; T4 (go) for its runs |
 | T6 | [T6-conditioning.md](T6-conditioning.md) | PDE against neural-operator conditioning: curvature spectra across s, the single-sample tangent kernel in the sine basis, in `docs/phase10/conditioning.md` | T3 for its code; T4 (go) for its runs, beside or after T5 |
+
+**Runs:** [runs.md](runs.md), the run sheet: every VM run of T3–T6 in order, with its
+commands and decision points.
 
 Task numbers are execution order (design §10); T6 needs only T4 and may run beside T5.
 T5's brief is a draft for its runs, refined when T4's go is recorded; T6's was refined
