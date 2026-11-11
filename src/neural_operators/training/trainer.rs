@@ -158,7 +158,8 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
 ///
 /// # Panics
 ///
-/// If either dataset is empty, or if `model_cfg.modes.len() + 2 != R` (`FNOConfig::init`).
+/// If either dataset is empty, if `model_cfg.modes.len() + 2 != R` (`FNOConfig::init`), or
+/// if `train_cfg.adam_epochs` is set without Gauss–Newton or outside 1..`epochs`.
 pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>(
     model_cfg: &FNOConfig,
     train_cfg: &TrainingConfig,
@@ -170,6 +171,14 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
     assert!(
         n_train > 0 && n_test > 0,
         "training needs non-empty datasets, got {n_train} train / {n_test} test samples"
+    );
+
+    // a hybrid run trains both optimisers; 0 would also leave the cosine with no steps
+    assert!(
+        train_cfg.adam_epochs.is_none_or(|a| {
+            train_cfg.gauss_newton().is_some() && 0 < a && a < train_cfg.epochs
+        }),
+        "adam_epochs needs Gauss-Newton and 0 < adam_epochs < epochs"
     );
 
     device.seed(train_cfg.seed);
@@ -286,8 +295,7 @@ fn epoch_line(m: &EpochMetrics) -> String {
 ///
 /// As [`train_epoch`] and [`evaluate`]; if `k` is 0; if a checkpoint cannot be written;
 /// for Gauss–Newton with replicas (data-parallel Gauss–Newton is out of scope), or a
-/// `resume` whose optimiser state does not match the components'; for `adam_epochs`
-/// without Gauss–Newton, or above `epochs`.
+/// `resume` whose optimiser state does not match the components'.
 pub fn training_loop<const R: usize, const RM1: usize>(
     components: TrainingComponents<R, RM1>,
     train_cfg: &TrainingConfig,
@@ -321,12 +329,6 @@ fn run_loop<const R: usize, const RM1: usize>(
     assert!(
         components.gn.is_none() || components.replicas.is_empty(),
         "Gauss-Newton trains on one device: data-parallel Gauss-Newton is out of scope"
-    );
-    assert!(
-        train_cfg
-            .adam_epochs
-            .is_none_or(|a| components.gn.is_some() && a <= train_cfg.epochs),
-        "adam_epochs needs Gauss-Newton and at most `epochs` epochs"
     );
     // evaluation tensors live on the inner device (model.valid())
     let eval_decoder = decoder.map(FlatDecoder::inner);
@@ -1215,6 +1217,26 @@ mod tests {
         let device = Device::default().autodiff();
         let c = parallel_components(&train_cfg, &device, std::slice::from_ref(&device));
         let _ = training_loop(c, &train_cfg, None, &mut |_, _| {}, None, None);
+    }
+
+    /// A hybrid run must train both optimisers: `adam_epochs` equal to `epochs` panics.
+    #[test]
+    #[should_panic(expected = "0 < adam_epochs < epochs")]
+    fn hybrid_without_gauss_newton_epochs_panics() {
+        use crate::neural_operators::{
+            optim::gauss_newton::GaussNewtonConfig, training::config::OptimizerConfig,
+        };
+        let cfg = TrainingConfig::new()
+            .with_epochs(2)
+            .with_optimizer(Some(OptimizerConfig::GaussNewton(GaussNewtonConfig::new())))
+            .with_adam_epochs(Some(2));
+        let _ = build_training_components::<3, 2, _>(
+            &tiny_model_cfg(),
+            &cfg,
+            tiny_dataset(5),
+            tiny_dataset(3),
+            &Device::default().autodiff(),
+        );
     }
 
     // --- Phase 9 T1: checkpoint and resume ---

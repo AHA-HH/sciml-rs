@@ -62,13 +62,19 @@ impl TrainingConfig {
     /// ⌈`n_train` / `batch_size`⌉, since an epoch's last batch may be partial. The trainer's cosine
     /// schedule spans exactly these steps, but in a hybrid run ([`schedule_steps`](Self::schedule_steps)).
     pub fn total_steps(&self, n_train: usize) -> usize {
-        self.epochs * n_train.div_ceil(self.batch_size)
+        self.epochs * self.steps_per_epoch(n_train)
+    }
+
+    /// Steps of one epoch on `n_train` samples: ⌈`n_train` / `batch_size`⌉, the last batch
+    /// possibly partial.
+    pub fn steps_per_epoch(&self, n_train: usize) -> usize {
+        n_train.div_ceil(self.batch_size)
     }
 
     /// Steps the Adam cosine schedule spans on `n_train` samples: [`total_steps`](Self::total_steps),
     /// or a hybrid run's `adam_epochs` × ⌈`n_train` / `batch_size`⌉.
     pub fn schedule_steps(&self, n_train: usize) -> usize {
-        self.adam_epochs.unwrap_or(self.epochs) * n_train.div_ceil(self.batch_size)
+        self.adam_epochs.unwrap_or(self.epochs) * self.steps_per_epoch(n_train)
     }
 
     /// Whether epoch `epoch` (from 0) of a Gauss–Newton run trains with Adam: a hybrid run's

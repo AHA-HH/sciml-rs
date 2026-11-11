@@ -1017,6 +1017,13 @@ fn plots_by_optimizer(
 /// grouped by optimiser arm, each arm's runs by seed.
 fn by_optimizer(out: &Path, runs: &[Run]) {
     assert_one_grid_and_backend(runs, "--by-optimizer");
+    let mut sizes: Vec<usize> = runs.iter().map(|r| r.n).collect();
+    sizes.sort_unstable();
+    sizes.dedup();
+    assert!(
+        sizes.len() == 1,
+        "--by-optimizer compares one training-set size N; got N = {sizes:?}"
+    );
     let mut arms: BTreeMap<String, Vec<&Run>> = BTreeMap::new();
     for r in runs {
         arms.entry(r.optimizer.clone()).or_default().push(r);

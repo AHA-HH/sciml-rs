@@ -338,6 +338,12 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         BATCH_SIZE
     };
     assert!(batch_size > 0, "GN_BATCH_SIZE must be positive");
+    // the Adam half must match the Adam reruns' steps for HYBRID_ADAM_EPOCHS to be half
+    // their time
+    assert!(
+        adam_epochs.is_none() || batch_size == BATCH_SIZE,
+        "OPTIMIZER=hybrid trains at BATCH_SIZE = {BATCH_SIZE}, got GN_BATCH_SIZE = {batch_size}"
+    );
     let train_cfg = TrainingConfig::new()
         .with_epochs(EPOCHS)
         .with_time_budget_s(time_budget_s)
@@ -519,7 +525,7 @@ fn main() {
         Some(_) => {
             let epochs = run.metrics().expect("could not read metrics.csv").len();
             let adam_epochs = (0..epochs).filter(|&e| train_cfg.adam_epoch(e)).count();
-            let adam = adam_epochs * n_train.div_ceil(train_cfg.batch_size);
+            let adam = adam_epochs * train_cfg.steps_per_epoch(n_train);
             let p = run.gn_passes().expect("could not read gn_steps.csv");
             // a hybrid run stopped by its budget within the Adam epochs has no GN steps
             assert!(
