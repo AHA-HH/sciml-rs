@@ -77,6 +77,22 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   commit, push, delete, publish or open a PR covers the message it appears in and
   nothing after it; ask again, even when the next action looks like an obvious
   continuation.
+- Exception for `/next-task` and `/milestone-gate` (`.claude/skills/`, the author,
+  2026-11-11): invoking one is a request to create its branch (`<objective>/<id>`), commit
+  to it, push it, and open or update its PR (a draft while VM runs, sign-offs or open
+  questions are pending). Merging, pushing to `main`, force-pushing, rewriting history,
+  deleting branches and closing PRs still need a yes in the current message.
+
+## Skills
+Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3d`,
+`operators`; the docs are the whole state, no GitHub issues):
+- `/next-task`: the default loop. Use it whenever the user says "continue" or "next",
+  names a roadmap ID (CL…, CM…) or an objective: it syncs the open task PRs, picks the next
+  runnable task from the objective's roadmap, plans it (`tasks/<ID>.md`), implements it
+  tests first, verifies, logs (`progress.md`) and opens the PR.
+- `/verify`: the checks below for what a branch changed, with the objective's constraint 1.
+  Run before calling anything done.
+- `/milestone-gate`: a milestone's gate report (`gates/<milestone>.md`) and close.
 - Default flow: make the change, run the checks, report exactly which ones ran and what
   they said, and leave the result uncommitted unless the current message asks for a
   commit. Never report an unrun check as passing; say plainly when something could not

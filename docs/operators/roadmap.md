@@ -15,7 +15,9 @@ Status: **planning.** Draft 0.1 written 2026-11-11; D0 open, so no task is runna
 - A task is **runnable** when it is open, has no branch or open PR, and everything in its
   *Needs* is done: tasks ticked on `main`, decisions signed off below. Every task also
   needs **D0**.
-- Tasks are taken in the order of this file unless the author names one.
+- `/next-task` (`.claude/skills/next-task`) takes the first runnable task in the order of
+  this file unless the author names one; `/milestone-gate` closes a milestone by writing
+  its gate report and changing its `**Gate:**` line to `**Gate (closed <YYYY-MM-DD>):**`.
 - A task too big for one reviewable PR is split here into lettered sub-tasks (CM1.3a,
   CM1.3b) before it starts.
 - Task IDs are `CM<milestone>.<n>`; milestones are M0–M4. In prose elsewhere, name the
