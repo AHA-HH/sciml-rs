@@ -42,7 +42,8 @@ OPTIMIZER=hybrid GN_PRECONDITIONER=<T4> TIME_BUDGET_S=<t> cargo run ... -- 0 129
 ```
 
 The Adam reruns run first: their mean training time is the GN budget (G4), and their
-error 4 must fall within Phase 7's 1.041e-2–1.095e-2 (G6). If one does not, stop and
+error 4 must fall within Phase 7's 1.041e-2–1.095e-2 widened by ±2 %, 1.020e-2–1.117e-2 (G6, amended
+2026-11-11). If one does not, stop and
 report before the GN arms.
 
 ## Deliverables

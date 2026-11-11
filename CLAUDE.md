@@ -11,10 +11,10 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   propose the change in the PR description and bump `CONVENTION_VERSION` there.
 - Cite conventions in doc comments as `CONVENTIONS §n`.
 - Current phase: Phase 10 (Gauss–Newton optimisation), planned 2026-11-09:
-  docs/phase10/README.md, briefs T1–T6 (T5–T6 drafts), design §13.17, decision 31,
+  docs/phase10/README.md, briefs T1–T6 (T5 a draft for its runs), design §13.17, decision 31,
   decisions G1–G8 chosen 2026-11-09. T1, the generic core, done (#98); T2, the
   `GaussNewton` optimiser, done (#102); T3, trainer integration, code done (#104); T4,
-  the validation gate, code done (#105); T5, the matrix, code done (#106); T6, conditioning, code in progress. Order amended
+  the validation gate, code done (#105); T5, the matrix, code done (#106); T6, conditioning, code done (#107); all code done, the VM runs remain, in the order of docs/phase10/runs.md (the run sheet). Order amended
   2026-11-11 (decision 31): task code first, every VM run (T3's acceptance, T4's gate,
   T5, T6) at the end of the phase; T5's runs wait for T4's go. A model-agnostic,
   matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: the Burn fork

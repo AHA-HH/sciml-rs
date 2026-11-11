@@ -1,6 +1,6 @@
 # Phase 10: Gauss–Newton optimisation
 
-As of 2026-11-11: **started.** T1 (the generic core) done (#98); T2 (the optimiser) done (#102); T3 (trainer integration) code done (#104); T4 (validation gate) code done (#105); T5 (the matrix) code done (#106); T6 (conditioning) code in review. Every VM run (T3's acceptance, T4's gate, T5's matrix, T6) comes at the end of the phase (order amended 2026-11-11, below). Plan and briefs T1–T6 written 2026-11-09;
+As of 2026-11-11: **started.** T1 (the generic core) done (#98); T2 (the optimiser) done (#102); T3 (trainer integration) code done (#104); T4 (validation gate) code done (#105); T5 (the matrix) code done (#106); T6 (conditioning) code done (#107). **All code done; the VM runs remain**, in the order of [runs.md](runs.md) (order amended 2026-11-11, below). Plan and briefs T1–T6 written 2026-11-09;
 decisions G1–G8 chosen by the author the same day (below). It can start now: G8, amended
 2026-11-09, has it wait neither for Phase 9 nor for the θ-map (now an optional phase).
 Design: `docs/design/2d-chebyshev-poisson-fno.md` (§10 Phase 10, §13.17, decision
@@ -105,7 +105,9 @@ amended by the author later the same day (below).
 - **G6, baseline arm: Adam rerun on the A100, three seeds (42, 43, 44)**, on the Phase 10
   commit, unchanged settings. It gives the time budget (G4) and peak memory, and its
   error 4 must fall within Phase 7's spread (a regression check of the unchanged Adam
-  path). Phase 7's runs, also on an A100, stay as context.
+  path), widened by ±2 % to 1.020e-2–1.117e-2 (amended 2026-11-11 by the author, decision 31:
+  the spread is over the same seeds, two on its edges, and cuda round-off differs across
+  commits). Phase 7's runs, also on an A100, stay as context.
 - **G7, hardware: cuda on one A100 (the VM) for every Phase 10 run**; flex for tests; metal
   optional for development. Whether f64 works end to end on cuda (FFTs included) is
   checked in T3; if it does, f64 finite differences are an option for T4.
@@ -127,6 +129,9 @@ amended by the author later the same day (below).
 | T4 | [T4-validation-gate.md](T4-validation-gate.md) | The smallest viable experiment: full-batch GN at N = 100 against Phase 7's Adam run at equal wall-clock; go / no-go for T5 | T3; Phase 7's runs; the VM |
 | T5 | [T5-matrix.md](T5-matrix.md) | The N = 1000 matrix (Adam reruns and four GN arms, 3 seeds) and `docs/phase10/results.md` | T3 for its code; T4 (go) for its runs |
 | T6 | [T6-conditioning.md](T6-conditioning.md) | PDE against neural-operator conditioning: curvature spectra across s, the single-sample tangent kernel in the sine basis, in `docs/phase10/conditioning.md` | T3 for its code; T4 (go) for its runs, beside or after T5 |
+
+**Runs:** [runs.md](runs.md), the run sheet: every VM run of T3–T6 in order, with its
+commands and decision points.
 
 Task numbers are execution order (design §10); T6 needs only T4 and may run beside T5.
 T5's brief is a draft for its runs, refined when T4's go is recorded; T6's was refined
@@ -210,7 +215,7 @@ Filled in as tasks merge. Phase 10 is done when every row has a value.
 
 - [ ] T1–T6 merged, or a task dropped with the reason recorded in design §12.
 - [x] G1–G8 chosen by the author and recorded in design §12 (2026-11-09).
-- [ ] The Adam reruns' error 4 within Phase 7's spread (G6).
+- [ ] The Adam reruns' error 4 within Phase 7's spread ±2 %, 1.020e-2–1.117e-2 (G6).
 - [ ] H10a and H10b answered in `docs/phase10/results.md`.
 - [ ] Every row of Results filled in.
 - [ ] The "Current phase" bullet in `CLAUDE.md` updated for what comes next.

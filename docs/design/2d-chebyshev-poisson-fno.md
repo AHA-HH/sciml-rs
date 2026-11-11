@@ -1835,6 +1835,11 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       T5's matrix, T6's measurements); T5's runs still wait for T4's go, and a gate
       failure on JVP noise still inserts the exact-JVP task before them (G2). Decided by
       the author (AHA-HH), 2026-11-11.
+    - **Amendment, G6 (2026-11-11).** The Adam reruns' regression check allows ±2 % on Phase
+      7's spread: each rerun's error 4 must lie in 1.020e-2–1.117e-2 (1.041e-2 × 0.98 to
+      1.095e-2 × 1.02). Phase 7's min–max is over the same three seeds, two of which sit on
+      its edges, and cuda results are not bit-reproducible across commits, so the unwidened
+      band could stop T5 on round-off alone. Decided by the author (AHA-HH), 2026-11-11.
     - **Unchanged.** The Adam path, its settings and every existing run and result;
       CONVENTIONS (T3 adds the GN residual to §11, which does not bump the version); the
       model, data, transfers and metrics. Phases 5–7's completion does not wait for
