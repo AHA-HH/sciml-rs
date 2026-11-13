@@ -43,7 +43,7 @@ cargo doc --no-deps
 - **Spikes**: their own tests (`cargo test -p <spike>` for workspace members, else in the
   spike's directory), reported apart.
 - **`Cargo.toml` or `Cargo.lock`**: `cargo tree -e normal` shows no unexpected new
-  dependency; the Burn fork pin unchanged unless the plan says so.
+  dependency; the Burn pin unchanged unless the plan says so.
 - **Docs**: every relative Markdown link in the changed files resolves.
 - **Exact test filters** need the full module path; check the "running N tests" line, as a
   short path runs 0 tests and still reports `ok`.

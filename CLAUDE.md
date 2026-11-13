@@ -32,8 +32,8 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   the validation gate, code done (#105); T5, the matrix, code done (#106); T6, conditioning, code done (#107); all code done, the VM runs remain, in the order of docs/poisson2d/phase10/runs.md (the run sheet). Order amended
   2026-11-11 (decision 31): task code first, every VM run (T3's acceptance, T4's gate,
   T5, T6) at the end of the phase; T5's runs wait for T4's go. A model-agnostic,
-  matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: the Burn fork
-  has reverse mode only), validated on the Phase 5 baseline. G8, amended 2026-11-09: it
+  matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: Burn has
+  reverse mode only), validated on the Phase 5 baseline. G8, amended 2026-11-09: it
   waits neither for Phase 9 (now done) nor for the θ-map. Code is written on the Mac;
   T3's cuda f64 check and the runs (T4–T6) are on one A100 on the VM (no NCCL needed).
 - The θ-map is an optional, unnumbered phase since 2026-11-09 (decision 30):
@@ -271,16 +271,18 @@ clippy clean without blanket `#[allow]`s. For backend-sensitive changes, also ru
 relevant tests with `--features metal` and say whether it was run.
 
 GPU parity, for backend-sensitive changes: `cargo test --features metal --test gpu_parity`.
-Its GPU `repro_*` tests are `#[ignore]`d while the Burn bugs remain; `-- --ignored` shows
-them failing.
+Its GPU `repro_*` tests (the Burn fusion bugs of the old fork, fixed in 0.23.0-pre.2) run
+as regression tests.
 
 An exact test filter needs the full module path:
 `cargo test neural_operators::models::fno::tests::<group>::<name> -- --exact`. A shorter path runs
 0 tests and still reports `ok`; check the "running N tests" line.
 
 ## Burn
-- Burn is a fork pinned in `Cargo.toml` (`[workspace.dependencies]`): `ax1s-x1zz/burn` at rev `ddfa9af`, features
-  `autodiff, signal, store, train`. docs.rs describes upstream, not this.
+- Burn is pinned exactly in `Cargo.toml` (`[workspace.dependencies]`): `burn = "=0.23.0-pre.2"`
+  from crates.io, a pre-release, features `autodiff, signal, store, train`. It replaced the
+  fork `ax1s-x1zz/burn` at `ddfa9af` on 2026-11-13 (the fork's Bluestein FFT is upstream
+  #5757); every 2D Phase 1–10 result was measured on the fork.
 - `signal` provides `rfft`, `irfft` and a forward `cfft` but no inverse complex FFT;
   `utils/fft.rs::icfft_full_spectrum` supplies it. Non-power-of-two lengths go through
   Bluestein, so any grid size works.
@@ -299,8 +301,8 @@ An exact test filter needs the full module path:
 ## Navigating the code
 Prefer LSP tools (go-to-definition, find-references) over `grep` for symbols. Use `grep`
 for comments, CI YAML and `Cargo.toml`. Burn's sources are in
-`~/.cargo/git/checkouts/burn-*/ddfa9af/` (FFTs: `crates/burn-signal/src/functions/fft.rs`);
-other checkouts there are different revisions. Read the implementation and tests rather
+`~/.cargo/registry/src/*/burn-*-0.23.0-pre.2/` (FFTs: `burn-signal-0.23.0-pre.2/src/functions/fft.rs`);
+other versions there are not the pin. Read the implementation and tests rather
 than trusting prose when checking how an API behaves.
 
 ## Commands

@@ -1,15 +1,14 @@
 //! GPU parity regression tests: the Burn fusion bugs reported in `upstream/burn/` and the
 //! 2D replay check at the Poisson trainer's configuration.
 //!
-//! - The GPU `repro_*` tests reproduce the Burn bugs at the pinned rev, so on a fused
-//!   backend that has them they fail (that is the finding). They are `#[ignore]`d until
-//!   the fork is fixed; `-- --ignored` runs them.
+//! - The GPU `repro_*` tests reproduce the Burn bugs found on the fork `ddfa9af`; Burn
+//!   0.23.0-pre.2 fixes all three on Metal, so they now run as regression tests.
 //! - Their `*_flex` twins run the same bodies on Flex, against the same fixed values and
 //!   naive f64 DFT. They are not behind a GPU feature, so CI runs them.
 //! - `replay_2d_poisson` compares the GPU against Flex and must pass before trusting a
 //!   GPU padding sweep.
 //!
-//! Run with `cargo test [--release] --features metal --test gpu_parity [-- --ignored]`
+//! Run with `cargo test [--release] --features metal --test gpu_parity`
 //! (or `--features cuda`). Only those two features have a GPU here: with `wgpu` alone, only
 //! the Flex twins compile. The exploratory diagnostics behind the bug reports are in
 //! `spikes/metal_diag/`.
@@ -26,7 +25,7 @@ fn gpu() -> Device {
 /// The GPU under test: Metal when the `metal` feature is on and `cuda` is not.
 #[cfg(all(feature = "metal", not(feature = "cuda")))]
 fn gpu() -> Device {
-    Device::metal(Default::default())
+    Device::metal()
 }
 
 #[cfg(any(feature = "metal", feature = "cuda"))]
@@ -86,7 +85,6 @@ fn cfft_bluestein(device: &Device) {
 /// [`fused_cat_broadcast`] on the GPU.
 #[cfg(any(feature = "metal", feature = "cuda"))]
 #[test]
-#[ignore = "Burn fusion bug at the pinned rev: upstream/burn/cfft-kernel/README.md"]
 fn repro_fused_cat_broadcast() {
     fused_cat_broadcast(&gpu());
 }
@@ -94,7 +92,6 @@ fn repro_fused_cat_broadcast() {
 /// [`cfft_bluestein`] on the GPU.
 #[cfg(any(feature = "metal", feature = "cuda"))]
 #[test]
-#[ignore = "Burn fusion bug at the pinned rev: upstream/burn/cfft-kernel/README.md"]
 fn repro_cfft_bluestein() {
     cfft_bluestein(&gpu());
 }
@@ -114,7 +111,6 @@ fn repro_cfft_bluestein_flex() {
 /// Bug-report repro 2, as published.
 #[cfg(any(feature = "metal", feature = "cuda"))]
 #[test]
-#[ignore = "Burn fusion bug at the pinned rev: upstream/burn/fused-cat-reused-at-new-shape/README.md"]
 fn repro_fused_cat_reused_at_new_shape() {
     fn chain(x: Tensor<3>) -> Tensor<3> {
         let [b, n, _] = x.dims();

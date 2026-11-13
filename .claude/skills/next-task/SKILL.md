@@ -151,7 +151,7 @@ Stop and ask, with the plan, before going on if the plan:
   output; for `operators`: any existing FNO output) without a bit-identity test planned;
 - changes `docs/CONVENTIONS.md` (only as a proposal for sign-off, with the
   `CONVENTION_VERSION` bump);
-- adds or moves a dependency or a pin (the Burn fork above all), or Python outside
+- adds or moves a dependency or a pin (the Burn pin above all), or Python outside
   `tools/parity/`;
 - departs from the roadmap's *Done when*, the proposal or a signed-off decision.
 

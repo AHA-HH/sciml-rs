@@ -18,7 +18,7 @@
 //!   the [`hutchinson_diagonal`] preconditioner, the diagnostics of [`GnStep`], and its
 //!   state as a [`GaussNewtonState`] for checkpoints.
 //!
-//! The pinned Burn fork has first-order reverse-mode autodiff only, so J v cannot come
+//! The pinned Burn has first-order reverse-mode autodiff only, so J v cannot come
 //! from Burn (phase README, "Facts verified"). Nothing here imports the FNO or the trainer.
 
 mod cg;
