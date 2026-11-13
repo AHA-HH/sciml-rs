@@ -1,0 +1,6 @@
+# CubeK kernel defaults, read by Burn 0.23's cuda matmuls from the working directory up.
+# TF32 rounds f32 matmul inputs to 10 mantissa bits: on an A100 it raised the GPU/Flex
+# difference of tests/gpu_parity.rs's replay_2d_poisson from 3.6e-6 (Burn fork) to 1.6e-4,
+# and Gauss–Newton's finite-difference J v and ratio test need full f32. Off, 1.4e-6.
+[matmul]
+allow_tf32 = false

@@ -24,9 +24,9 @@
 //!   the weights after each step; the cost is one Adam state per device. Evaluation and
 //!   checkpoints use the first replica.
 //!
-//! Collectives: cubecl implements `all_reduce` on cuda only (NCCL); flex, metal and wgpu
-//! panic. Replicas that all name one device (tests of this logic on flex) are summed on
-//! that device without a collective.
+//! Collectives: Burn's `Tensor::all_reduce` runs natively on cuda (NCCL) and is emulated
+//! with device transfers on the other backends. Replicas that all name one device (tests
+//! of this logic on flex) are summed on that device without a collective.
 
 use burn::{
     data::dataloader::DataLoader,
@@ -36,7 +36,7 @@ use burn::{
         lr_scheduler::module_lr_scheduler::{ModuleLearningRate, ModuleLrScheduler},
     },
     prelude::*,
-    tensor::distributed::{ReduceOperation, all_reduce},
+    tensor::distributed::ReduceOperation,
 };
 use std::{iter::once, ops::Range, sync::Arc};
 
@@ -193,16 +193,11 @@ impl ModuleVisitor for SumGrads<'_> {
 /// The sum of `shards` (one per device of `devices`) on every device.
 fn sum_across<const D: usize>(shards: Vec<Tensor<D>>, devices: &[Device]) -> Vec<Tensor<D>> {
     if devices.iter().all(|d| *d == devices[0]) {
-        // one device standing in for several: no collective (NCCL refuses a repeated device)
+        // one device standing in for several: no collective, so the sum keeps its order
         let sum = shards.into_iter().reduce(|a, b| a + b).expect("no devices");
         return vec![sum; devices.len()];
     }
-    // every device's collective is issued before any is waited on
-    let pending: Vec<_> = shards
-        .into_iter()
-        .map(|t| all_reduce(t, ReduceOperation::Sum, devices.to_vec()))
-        .collect();
-    pending.into_iter().map(|c| c.resolve()).collect()
+    Tensor::all_reduce(shards, ReduceOperation::Sum)
 }
 
 /// The shards' gradients for one batch per device (`batches[d]` on device d, all the same
@@ -239,8 +234,7 @@ fn summed_grads<const R: usize, const RM1: usize>(
 ///
 /// # Panics
 ///
-/// As [`train_epoch`](super::trainer::train_epoch); if a collective is not supported on
-/// the devices (any backend but cuda, unless all replicas share one device).
+/// As [`train_epoch`](super::trainer::train_epoch).
 pub(crate) fn train_epoch_parallel<const R: usize, const RM1: usize>(
     mut model: FNO<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,

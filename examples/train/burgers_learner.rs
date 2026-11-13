@@ -105,7 +105,7 @@ fn main() {
     let result = SupervisedTraining::new(run.path(), c.train_loader, c.test_loader)
         .metric_train_numeric(LossMetric::new())
         .metric_valid_numeric(LossMetric::new())
-        .metric_train_numeric(LearningRateMetric::new())
+        .metrics(LearningRateMetric::new())
         .num_epochs(train_cfg.epochs)
         .summary()
         .launch(Learner::new(c.model, c.optim, c.scheduler));

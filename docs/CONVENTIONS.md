@@ -96,7 +96,7 @@ one-sided `F.pad(x, [0, p, 0, p])`).
 
 ## 4. Fourier transforms and normalisation
 
-NumPy's `norm="backward"`: forward unscaled, inverse scaled by 1/N (Burn fork,
+NumPy's `norm="backward"`: forward unscaled, inverse scaled by 1/N (Burn,
 `burn-signal/src/functions/fft.rs`):
 
 ```math
