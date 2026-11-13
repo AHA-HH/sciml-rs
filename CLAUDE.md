@@ -283,6 +283,11 @@ An exact test filter needs the full module path:
   from crates.io, a pre-release, features `autodiff, signal, store, train`. It replaced the
   fork `ax1s-x1zz/burn` at `ddfa9af` on 2026-11-13 (the fork's Bluestein FFT is upstream
   #5757); every 2D Phase 1–10 result was measured on the fork.
+- `cubek.toml` (repository root) sets `[matmul] allow_tf32 = false`: Burn 0.23's cuda matmuls
+  default to TF32, which made the GPU 50× less accurate than Flex in `replay_2d_poisson`
+  (1.6e-4; 1.4e-6 with it off). It is found by walking up from the working directory, so
+  run from the repository. cuda f64 matmuls are unsupported in this release (every cubek
+  kernel declines f64), so f64 on cuda still fails, now in the matmul rather than the FFT.
 - `signal` provides `rfft`, `irfft` and a forward `cfft` but no inverse complex FFT;
   `utils/fft.rs::icfft_full_spectrum` supplies it. Non-power-of-two lengths go through
   Bluestein, so any grid size works.
