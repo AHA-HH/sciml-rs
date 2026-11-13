@@ -49,6 +49,9 @@
 //!
 //! `GN_PRECONDITIONER=hutchinson` picks the Hutchinson diagonal (`GN_HUTCHINSON_PROBES`
 //! probes) over `GN_PRECONDITIONER`'s literal, `none` keeps it (T4's choice, T5's GN20-D).
+//! `GN_WEIGHT_DECAY` and `GN_CG_MAX_ITERS` override the literals of those names (Phase 10
+//! follow-ups: μ = 0, a higher CG cap). `WEIGHT_DECAY` overrides Adam's literal of that
+//! name (Phase 10 follow-up: Adam at μ = 0, the control for GN at μ = 0).
 //!
 //! With Gauss–Newton, `GN_BATCH_SIZE` overrides the literal of that name (T4's full batch
 //! is the subset's N), and `TIME_BUDGET_S` stops the run after the first epoch that ends
@@ -218,8 +221,11 @@ fn train_devices() -> Vec<Device> {
 /// (Adam) when it is unset or `adam`, the `GN_*` literals for `gauss-newton`, and those
 /// with `HYBRID_ADAM_EPOCHS` for `hybrid`; the probe seed is `seed`.
 ///
+/// `GN_WEIGHT_DECAY` and `GN_CG_MAX_ITERS` override those literals.
+///
 /// # Panics
-/// For any other value, or any `GN_PRECONDITIONER` but `none` and `hutchinson`.
+/// For any other value, any `GN_PRECONDITIONER` but `none` and `hutchinson`, a
+/// `GN_WEIGHT_DECAY` that is negative or not finite, or a `GN_CG_MAX_ITERS` of 0.
 fn optimizer(seed: u64) -> (Option<OptimizerConfig>, Option<usize>) {
     let adam_epochs = match std::env::var("OPTIMIZER").as_deref() {
         Err(_) | Ok("adam") => return (None, None),
@@ -235,10 +241,17 @@ fn optimizer(seed: u64) -> (Option<OptimizerConfig>, Option<usize>) {
         },
         Ok(other) => panic!("GN_PRECONDITIONER must be none or hutchinson, got {other:?}"),
     };
+    let cg_max_iters = env_var("GN_CG_MAX_ITERS").unwrap_or(GN_CG_MAX_ITERS);
+    assert!(cg_max_iters > 0, "GN_CG_MAX_ITERS must be positive");
+    let weight_decay = env_var("GN_WEIGHT_DECAY").unwrap_or(GN_WEIGHT_DECAY);
+    assert!(
+        weight_decay.is_finite() && weight_decay >= 0.0,
+        "GN_WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
+    );
     let gn = GaussNewtonConfig::new()
-        .with_cg_max_iters(GN_CG_MAX_ITERS)
+        .with_cg_max_iters(cg_max_iters)
         .with_lambda_init(GN_LAMBDA_INIT)
-        .with_weight_decay(GN_WEIGHT_DECAY)
+        .with_weight_decay(weight_decay)
         .with_preconditioner(preconditioner)
         .with_adjoint_check_every(GN_ADJOINT_CHECK_EVERY)
         .with_seed(seed);
@@ -344,12 +357,17 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         adam_epochs.is_none() || batch_size == BATCH_SIZE,
         "OPTIMIZER=hybrid trains at BATCH_SIZE = {BATCH_SIZE}, got GN_BATCH_SIZE = {batch_size}"
     );
+    let weight_decay = env_var("WEIGHT_DECAY").unwrap_or(WEIGHT_DECAY);
+    assert!(
+        weight_decay.is_finite() && weight_decay >= 0.0,
+        "WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
+    );
     let train_cfg = TrainingConfig::new()
         .with_epochs(EPOCHS)
         .with_time_budget_s(time_budget_s)
         .with_batch_size(batch_size)
         .with_learning_rate(LEARNING_RATE)
-        .with_weight_decay(WEIGHT_DECAY)
+        .with_weight_decay(weight_decay)
         .with_min_lr(MIN_LR)
         .with_seed(seed)
         .with_optimizer(optimizer)

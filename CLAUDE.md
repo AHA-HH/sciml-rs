@@ -326,7 +326,8 @@ than trusting prose when checking how an API behaves.
   Gauss–Newton (the `GN_*` literals; one device; run name `_gn`; writes `gn_steps.csv`;
   Phase 10 T3). `OPTIMIZER=hybrid` trains `HYBRID_ADAM_EPOCHS` with Adam, then
   Gauss–Newton (run name `_hybrid`); `GN_PRECONDITIONER=none|hutchinson` picks the
-  preconditioner (Phase 10 T5)
+  preconditioner (Phase 10 T5); `GN_WEIGHT_DECAY`, `GN_CG_MAX_ITERS` and Adam's `WEIGHT_DECAY` override
+  those literals (Phase 10 follow-ups)
 - Export run directories to a local MLflow server (Phase 8 T1; server: `mlflow server
   --host 127.0.0.1 --port 5001 --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db
   --artifacts-destination $HOME/mlflow/artifacts`, see `README.md`):
