@@ -1,5 +1,9 @@
 # Fused `cat` ignores broadcasting on the vector axis (wrong `cfft` results on Metal)
 
+**Status:** fixed in Burn 0.23.0-pre.2: `repro_cfft_bluestein` and `repro_fused_cat_broadcast` in `tests/gpu_parity.rs` pass on Metal
+(Apple M2 Pro) and cuda (A100), 2026-11-13, and run un-ignored since PR #119. The report
+below describes the fork `ddfa9af`.
+
 ## Summary
 
 On the Metal backend, an elementwise op that broadcasts the output of `Tensor::cat`

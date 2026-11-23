@@ -1,5 +1,9 @@
 # Fused `cat` chain gives wrong values when replayed at a new shape (Metal)
 
+**Status:** fixed in Burn 0.23.0-pre.2: `repro_fused_cat_reused_at_new_shape` in `tests/gpu_parity.rs` pass on Metal
+(Apple M2 Pro) and cuda (A100), 2026-11-13, and run un-ignored since PR #119. The report
+below describes the fork `ddfa9af`.
+
 ## Summary
 
 On the Metal backend, with fusion enabled (the default), a short chain of ops that
