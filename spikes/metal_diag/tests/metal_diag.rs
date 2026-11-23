@@ -24,7 +24,7 @@ fn gpu() -> Device {
 /// The GPU under test: CUDA when the `cuda` feature is on, otherwise Metal.
 #[cfg(not(feature = "cuda"))]
 fn gpu() -> Device {
-    Device::metal(Default::default())
+    Device::metal()
 }
 
 fn v<const R: usize>(t: Tensor<R>) -> Vec<f32> {
