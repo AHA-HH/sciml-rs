@@ -26,3 +26,14 @@ template:
 - FNO: not touched.
 - Matrix: seeded, unverified (CM0.1).
 - Follow-ups: review the draft; D0; then CM0.1 and CM0.2.
+
+## 2026-11-24: D0
+- Done: D0 signed off by the author: draft 0.1 of `docs/design/neural-operator-library.md`
+  as the plan of record.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D0 signed off 2026-11-24.
+- FNO: not touched.
+- Matrix: unchanged.
+- Follow-ups: CM0.1 and CM0.2 (no Rust, can run beside the 3D tasks); CM0.3 before the
+  optimisers tasks that change `training/`.

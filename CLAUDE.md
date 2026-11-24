@@ -19,9 +19,9 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   docs/laplace3d/progress.md; each task's plan docs/laplace3d/tasks/<ID>.md. Constraint 1:
   every 2D output stays bit for bit identical.
 - Objective library (neural operators: `neuraloperator` 2.0.0 and beyond): proposal
-  docs/design/neural-operator-library.md (draft 0.1, 2026-11-11; D1, the 2.0.0 tag, signed
-  off), development wireframes in its §4; milestones M0–M4, tasks `CM<m>.<n>`, decisions
-  D0–D8 in docs/operators/roadmap.md; feature matrix docs/operators/feature-matrix.md; log
+  docs/design/neural-operator-library.md (draft 0.1, 2026-11-11; D0, the draft as the
+  plan, signed off 2026-11-24, and D1, the 2.0.0 tag), development wireframes in its §4;
+  milestones M0–M4, tasks `CM<m>.<n>`, decisions D0–D8 in docs/operators/roadmap.md; feature matrix docs/operators/feature-matrix.md; log
   docs/operators/progress.md. Constraint 1: every existing FNO output stays bit for bit
   identical. Python (fixtures from 2.0.0) stays outside CI.
 - Objective optimisers (L-BFGS and SOAP against Adam and Gauss–Newton, 2D then 3D):

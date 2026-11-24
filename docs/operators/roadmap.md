@@ -7,7 +7,9 @@ each task's plan is `docs/operators/tasks/<ID>.md`, written when it starts; each
 milestone's gate report is `docs/operators/gates/<milestone>.md`; the feature matrix is
 `docs/operators/feature-matrix.md`.
 
-Status: **planning.** Draft 0.1 written 2026-11-11; D0 open, so no task is runnable.
+Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 (draft 0.1 as
+the plan of record); next CM0.1 and CM0.2. CM0.3 lands before the optimisers tasks that
+change `training/`.
 
 ## How to read this file
 
@@ -36,7 +38,7 @@ The proposal's Section 12. Recorded when the author takes them:
 
 | ID | Decision | Proposal's recommendation | Prepared by | Needed by | Status |
 | --- | --- | --- | --- | --- | --- |
-| D0 | Draft 0.1 of the proposal as the plan of record | after review | – | every task | open |
+| D0 | Draft 0.1 of the proposal as the plan of record | after review | – | every task | signed off 2026-11-24: draft 0.1 as the plan of record |
 | D1 | Reference version | `neuraloperator` 2.0.0 | – | CM0.1 | signed off 2026-11-11: "its neuraloperator and the major release 2.0.0" |
 | D2 | Where the Python side lives | `tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/` | – | CM0.2 | open |
 | D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | open |
