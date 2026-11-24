@@ -64,3 +64,26 @@ template:
 - Matrix: every row set.
 - Follow-ups: owners for the "–" rows (datasets, transforms, utilities): no roadmap line
   until the author answers the PR's question 2.
+
+## 2026-11-24: CM0.2 Pinned Python environment and fixture generator
+- Done: `tools/parity/`, a uv project (Python 3.12, `uv.lock`) pinning `neuraloperator`
+  2.0.0 (PyPI wheel, its Python code identical to the tag's), torch 2.9.0, tensorly 0.9.0,
+  tensorly-torch 0.5.0, torch-harmonics 0.7.4 (the tag's `doc` pin), numpy 2.3.4;
+  `generate.py` writes 2.0.0's `FNO` (defaults but sizes) as `.npz` (input, output,
+  `param.<name>`, complex as a trailing (re, im) axis) with a `.json` sidecar:
+  `fno1d` (P = 3,529) and `fno2d` (P = 7,129), each in f32 and f64, 28–103 kB.
+- Tests: the generator asserts P ≤ 10⁴, size ≤ 1 MB and f32/f64-only arrays, and reloads
+  each file into a zeroed fresh model, reproducing the output bit for bit; `--check`
+  regenerates and compares arrays and sidecars bit for bit (passes).
+- Checks: ran `uv sync --locked`, `generate.py`, `generate.py --check`, the wheel-against-tag
+  diff; the reviewer ran `cargo fmt --check`, clippy (default, `--all-targets`,
+  `datagen`), `cargo test`, `cargo test --features datagen`, `cargo doc` (all pass); metal
+  not run (no Rust changed).
+- Decisions: D8 (fixture size) signed off 2026-11-24 as recommended (P ≲ 10⁴, under about
+  1 MB per fixture).
+- Review: plan review PASS (advisories fixed: round trip from zeroed weights, strict load,
+  sidecars in `--check`); code quality APPROVE with findings (F1–F3 fixed; F4, F5 left in
+  the PR text).
+- FNO: not touched (no Rust changed).
+- Matrix: no rows (environment only).
+- Follow-ups: CM0.5 reads these fixtures (the CM0.5 line).
