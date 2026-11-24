@@ -110,7 +110,8 @@ template:
 - Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
   `--features datagen --all-targets`), `cargo test` (305 lib + integration, all pass),
   `cargo test --features datagen` (379 lib, all pass), `cargo doc --no-deps` (no
-  warnings), `cargo test --features metal --test gpu_parity` (9 pass); the main-against-
+  warnings), `cargo test --features metal --test gpu_parity` (9 pass) and `--features metal --lib`
+  (305 pass; built at 851b6e4, later commits change only tests and docs); the main-against-
   branch `cmp` (twice, and independently by the plan reviewer). No hunk inside any
   existing test module; `tests/` only gains the new file.
 - Decisions: D4 signed off 2026-11-24. Question for the author in the PR: does moving a
