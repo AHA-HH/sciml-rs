@@ -9,8 +9,11 @@ the signatures with Python's `ast` and checked against the source.
 *Source* is the path under `neuralop/` at 2.0.0. *Status*: **have** (output parity shown),
 **partial** (exists, parity not shown or options missing), **missing**, **not planned**
 (outside proposal §1.2). *Task* is the roadmap task that sets the row; "–" means none yet.
-"Exported" means importable from the package's `__init__.py`; other items are imported by
-module path. No row is **have**: no parity has been shown yet.
+"Exported" means importable from `neuralop` itself or from its subpackage's `__init__.py`
+(`neuralop.models`, `neuralop.losses`, `neuralop.training`, `neuralop.data.datasets`); other
+items are imported by module path. From `neuralop` itself: `FNO`, `TFNO`, `get_model`,
+`Trainer`, `LpLoss`, `H1Loss`, `BurgersEqnLoss`, `ICLoss`, `WeightedSumLoss`, `Aggregator`,
+`Relobralo`, `SoftAdapt`, `FourierDiff`, `non_uniform_fd`, `FiniteDiff`. No row is **have**: no parity has been shown yet.
 
 ## Models
 
@@ -23,13 +26,13 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | `FNO` (exported) | `models/fno.py` | `FNO<R>`, Li et al.'s architecture: linear lifting, ReLU, 1×1 convolution skip, projection through 128 channels, corner weights without bias, `backward` FFT, one-sided padding. 2.0.0's defaults differ: GELU, channel-MLP lifting and projection (ratio 2), a channel MLP per block (expansion 0.5, soft-gating skip), centred `SpectralConv` with bias and `forward` FFT, complex-normal init, symmetric padding | partial | CM1.5 |
 | `TFNO` (exported; `FNO` with `factorization="Tucker"`, `rank=0.1`) | `models/fno.py` | – | missing | CM2.1 |
 | `partialclass` (helper: a subclass with new defaults) | `models/fno.py` | – | not planned (Python idiom) | – |
-| `SFNO` (`FNO` with `factorization="dense"`, `conv_module=SphericalConv`; imported only with torch_harmonics) | `models/sfno.py` | – | missing | CM3.2 |
-| `UNO` | `models/uno.py` | – | missing | CM2.2 |
-| `LocalNO` (imported only with torch_harmonics) | `models/local_no.py` | – | missing | CM2.3 |
-| `UQNO` (wraps a base and a residual model; returns solution and quantile) | `models/uqno.py` | – | missing | CM2.6 |
-| `GINO` | `models/gino.py` | – | missing | CM3.4 |
-| `FNOGNO` | `models/fnogno.py` | – | missing | CM3.4 |
-| `CODANO` | `models/codano.py` | – | missing | CM3.5 |
+| `SFNO` (exported, only with torch_harmonics; `FNO` with `factorization="dense"`, `conv_module=SphericalConv`) | `models/sfno.py` | – | missing | CM3.2 |
+| `UNO` (exported) | `models/uno.py` | – | missing | CM2.2 |
+| `LocalNO` (exported only with torch_harmonics; the module itself imports without it) | `models/local_no.py` | – | missing | CM2.3 |
+| `UQNO` (exported; wraps a base and a residual model; returns solution and quantile) | `models/uqno.py` | – | missing | CM2.6 |
+| `GINO` (exported) | `models/gino.py` | – | missing | CM3.4 |
+| `FNOGNO` (exported) | `models/fnogno.py` | – | missing | CM3.4 |
+| `CODANO` (exported) | `models/codano.py` | – | missing | CM3.5 |
 | `BaseModel` (registry, saves init arguments) | `models/base_model.py` | – | missing | CM0.3, CM0.4 |
 | `get_model` (exported), `available_models` | `models/base_model.py` | – | missing | CM0.4 |
 
@@ -39,7 +42,7 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | --- | --- | --- | --- | --- |
 | `SpectralConv` (legacy: corner weights, `fft_norm="backward"`, `incremental_n_modes`, `joint_factorization`), `SpectralConv1d`, `SpectralConv2d`, `SpectralConv3d`, `SubConv`, `get_contract_fun` | `layers/legacy_spectral_convolution.py` | `SpectralConv<R>`: corner weights, `backward`, dense only, no bias, Li et al.'s uniform init (`SpectralInit` also offers normal and symmetric uniform) | partial | CM1.1 |
 | `SpectralConv` (centred weights after `fftshift`, `fft_norm="forward"`, `max_n_modes`, separable, dense / Tucker / CP / TT, bias, `init_std="auto"` = √(2 / (in + out)), complex normal), `get_contract_fun` | `layers/spectral_convolution.py` | – | missing | CM1.2, CM2.1 |
-| `BaseSpectralConv` (abstract base) | `layers/base_spectral_conv.py` | – | missing (internal) | CM1.2 |
+| `BaseSpectralConv` (base class) | `layers/base_spectral_conv.py` | – | missing (internal) | CM1.2 |
 | `einsum_complexhalf`, `einsum_complexhalf_two_input` (half-precision complex einsum) | `layers/einsum_utils.py` | – | missing (internal) | CM1.7 |
 | `SphericalConv`, `SHT`, `get_contract_fun` | `layers/spherical_convolution.py` | – | missing | CM3.1, CM3.2 |
 
@@ -51,10 +54,10 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | `ChannelMLP`, `LinearChannelMLP` | `layers/channel_mlp.py` | – | missing | CM1.3 |
 | `skip_connection` (`identity`, `linear`, `soft-gating`), `SoftGating`, `Flattened1dConv` | `layers/skip_connections.py` | linear 1×1 (`Conv1d`) | partial | CM1.3 |
 | `InstanceNorm`, `BatchNorm`, `AdaIN` (group norm is torch's `nn.GroupNorm`) | `layers/normalization_layers.py` | – | missing | CM1.3 |
-| `GridEmbeddingND` (FNO's default `positional_embedding="grid"`), `GridEmbedding2D`, `regular_grid_nd`, `regular_grid_2d`, `Embedding` (abstract base) | `layers/embeddings.py` | grid channels built by the model on [0, 1] (CONVENTIONS §2) | partial | CM1.4 |
+| `GridEmbeddingND` (FNO's default `positional_embedding="grid"`), `GridEmbedding2D`, `regular_grid_nd`, `regular_grid_2d`, `Embedding` (abstract base) | `layers/embeddings.py` | grid channels built by the model, j/(s − 1) on [0, 1] with the endpoint (CONVENTIONS §2); 2.0.0's `regular_grid_nd` is j/s on [0, 1) without it | partial | CM1.4 |
 | `SinusoidalEmbedding` (`transformer` or `nerf`), `RotaryEmbedding2D`, `rotate_half`, `apply_rotary_pos_emb` | `layers/embeddings.py` | – | missing | CM1.4 |
 | `DomainPadding` (symmetric, fraction of the resolution) | `layers/padding.py` | `FNOConfig::padding`: p zero cells appended at the end of each axis (CONVENTIONS §3) | partial | CM1.5 |
-| `resample`, `iterative_resample` (Fourier interpolation) | `layers/resample.py` | – | missing | CM1.5, CM2.2 |
+| `resample`, `iterative_resample` (`resample`: linear in 1D, bicubic in 2D, Fourier for 3 or more axes; `iterative_resample` Fourier) | `layers/resample.py` | – | missing | CM1.5, CM2.2 |
 | `ComplexValued`, `apply_complex`, `CGELU`, `ctanh` (`complex_data`) | `layers/complex.py` | – | missing | CM1.5 |
 
 ## Layers: other operators' parts
@@ -78,9 +81,9 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `LpLoss` (exported; `d`, `p`, `measure`, quadrature weights, `reduction` `sum` or `mean`, `abs`, `rel`) | `losses/data_losses.py` | `LpLoss`: relative, integer p, `Reduction` `Mean`, `Sum`, `None`; no measure or quadrature (CONVENTIONS §11) | partial | CM1.6 |
+| `LpLoss` (exported; `d`, `p`, `measure`, quadrature weights, `reduction` `sum` or `mean`, `abs`, `rel`) | `losses/data_losses.py` | `LpLoss`: `abs` (fixed uniform-mesh weight Π h_a^(1/p), h_a = 1/(s_a − 1)) and `rel`, integer p, `Reduction` `Mean`, `Sum`, `None`; no `measure` option or `quadrature` argument (CONVENTIONS §11) | partial | CM1.6 |
 | `H1Loss` (exported), `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss` | `losses/data_losses.py` | – | missing | CM1.6 |
-| `WeightedSumLoss` (exported), `FieldwiseAggregatorLoss`, `Aggregator` (exported), `SoftAdapt` (exported), `Relobralo` (exported) | `losses/meta_losses.py` | – | missing | CM1.6 |
+| `WeightedSumLoss` (exported), `FieldwiseAggregatorLoss` (exported), `Aggregator` (exported), `SoftAdapt` (exported), `Relobralo` (exported) | `losses/meta_losses.py` | – | missing | CM1.6 |
 | `FiniteDiff` (exported), `central_diff_1d`, `central_diff_2d`, `central_diff_3d` | `losses/differentiation.py` | – | missing | CM1.6 |
 | `FourierDiff` (exported; optional Fourier continuation) | `losses/differentiation.py` | – | missing | CM1.6 |
 | `non_uniform_fd` (exported), `get_non_uniform_fd_weights` | `losses/differentiation.py` | Chebyshev `diff_matrix`, `diff2_matrix` (`datagen`): a different, spectral method | missing | CM1.6 |
@@ -90,7 +93,7 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `Trainer` (exported; `train` with optimizer, scheduler, regularizer, training and eval losses, `save_every`, `save_best`, `resume_from_dir`, `max_autoregressive_steps`; `mixed_precision`, `eval_interval`, `use_distributed`, `wandb_log`) | `training/trainer.py` | `train_fno`, `training_loop`, `EpochObserver`: Adam with a cosine schedule, per-epoch evaluation, checkpoints every 25 epochs and resume, MLflow logging, data-parallel multi-GPU | partial | CM0.3 |
+| `Trainer` (exported; `train` with optimizer, scheduler, regularizer, training and eval losses, `save_every`, `save_best`, `resume_from_dir`, `max_autoregressive_steps`; `mixed_precision`, `eval_interval`, `use_distributed`, `wandb_log`) | `training/trainer.py` | `train_fno`, `training_loop`, `EpochObserver`: Adam with a cosine schedule, or Gauss–Newton / Hybrid (`OptimizerConfig`), per-epoch evaluation, checkpoints every 25 epochs and resume, MLflow logging, data-parallel multi-GPU | partial | CM0.3 |
 | `save_training_state`, `load_training_state` (exported) | `training/training_state.py` | `RunDir::save_checkpoint`, `checkpoint` | partial | CM0.3 |
 | `IncrementalFNOTrainer` (exported; incremental modes by gradient or loss gap) | `training/incremental.py` | – | missing | CM1.7 |
 | `MultigridPatching2D`, `make_patches` | `training/patching.py` | – | missing | CM1.7 |
@@ -103,12 +106,12 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `DarcyDataset`, `load_darcy_flow_small` (exported), `load_darcy_pt` (`.pt` files from Zenodo record 12784353) | `data/datasets/darcy.py` | Darcy loader for Li et al.'s `.mat` files: same problem, different files | partial | CM1.5 |
+| `DarcyDataset` (exported), `load_darcy_flow_small` (exported), `load_darcy_pt` (`.pt` files from Zenodo record 12784353) | `data/datasets/darcy.py` | Darcy loader for Li et al.'s `.mat` files: same problem, different files | partial | CM1.5 |
 | `Burgers1dTimeDataset` (exported; space-time), `Burgers1dTimeDataProcessor`, `load_mini_burgers_1dtime` (exported) | `data/datasets/burgers.py` | Burgers loader for Li et al.'s `.mat` files: u(·, 0) → u(·, 1), a different task | missing | CM1.5 |
-| `NavierStokesDataset`, `load_navier_stokes_pt` (exported) | `data/datasets/navier_stokes.py` | – | missing | – |
+| `NavierStokesDataset` (exported), `load_navier_stokes_pt` (exported) | `data/datasets/navier_stokes.py` | – | missing | – |
 | `NonlinearPoissonDataset`, `load_nonlinear_poisson_pt`, `PoissonGINODataProcessor`, `generate_latent_queries`, `generate_output_queries`, `source` | `data/datasets/nonlinear_poisson.py` | – (the crate's Poisson is linear, on a Chebyshev grid) | missing | – |
 | `SphericalSWEDataset`, `load_spherical_swe` (exported with torch_harmonics) | `data/datasets/spherical_swe.py` | – | missing | – |
-| `CarCFDDataset`, `load_mini_car` (exported), `MeshDataModule` (exported) | `data/datasets/car_cfd_dataset.py`, `data/datasets/mesh_datamodule.py` | – | missing | – |
+| `CarCFDDataset` (exported), `load_mini_car` (exported), `MeshDataModule` (exported) | `data/datasets/car_cfd_dataset.py`, `data/datasets/mesh_datamodule.py` | – | missing | – |
 | `TheWellDataset`, `ActiveMatterDataset`, `MHD64Dataset` (exported with the_well) | `data/datasets/the_well_dataset.py` | – | missing | – |
 | `PTDataset` (exported) | `data/datasets/pt_dataset.py` | – (`.mat` and `.npz` readers) | missing | – |
 | `H5pyDataset` | `data/datasets/hdf5_dataset.py` | – | missing | – |
@@ -122,7 +125,7 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
 | `UnitGaussianNormalizer` (`eps=1e-07`, `dim`, `mask`), `Normalizer`, `DictUnitGaussianNormalizer` | `data/transforms/normalizers.py` | `UnitGaussianNormalizer` (CONVENTIONS §10) | partial | – |
-| `DataProcessor` (base), `DefaultDataProcessor` (normalise in, decode out) | `data/transforms/data_processors.py` | `normalize_split_pair`, `FlatDecoder` | partial | – |
+| `DataProcessor` (base), `DefaultDataProcessor` (normalise in, decode out) | `data/transforms/data_processors.py` | `Normalizers`, `FlatDecoder` (loader-internal `normalize_split_pair`) | partial | – |
 | `IncrementalDataProcessor` (incremental resolution) | `data/transforms/data_processors.py` | – | missing | CM1.7 |
 | `MGPatchingDataProcessor` | `data/transforms/data_processors.py` | – | missing | CM1.7 |
 | `Transform`, `CompositeTransform`, `DictTransform` | `data/transforms/base_transforms.py` | – | missing | – |
@@ -136,10 +139,10 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | `mpu.comm` (`init`, world, rank and group queries, `disable_logging`) | `mpu/comm.py` | – (data parallel only) | not planned | – |
 | `mpu.helpers` (`pad_helper`, `truncate_helper`, `split_tensor_along_dim`, `get_memory_format`) | `mpu/helpers.py` | – | not planned | – |
 | `mpu.mappings` (copy, reduce, scatter, gather across the model-parallel group) | `mpu/mappings.py` | – | not planned | – |
-| `count_model_params`, `count_tensor_params` | `utils.py` | – (Burn's `num_params`) | missing | – |
+| `count_model_params`, `count_tensor_params` | `utils.py` | Burn's `Module::num_params`, recorded in `costs.json` | partial | – |
 | `spectrum_2d` | `utils.py` | – | missing | – |
 | `validate_scaling_factor` (internal) | `utils.py` | – | missing (internal) | CM1.5 |
-| `compute_rank`, `compute_stable_rank`, `compute_explained_variance` | `utils.py` | POD energy (`metrics::pod`, `cumulative_energy`, `energy_rank_of`) | partial | – |
+| `compute_rank`, `compute_stable_rank`, `compute_explained_variance` | `utils.py` | POD energy (`metrics::pod`, behind `datagen`: `cumulative_energy`, `energy_rank_of`), a different method | partial | – |
 | `wandb_login`, `set_wandb_api_key`, `get_wandb_api_key`, `get_project_root` | `utils.py` | MLflow export and live logging instead | not planned | – |
 
 ## Beyond 2.0.0 (this crate only)
@@ -150,7 +153,7 @@ per-run directories, MLflow export and live logging, bit-identity and GPU parity
 ## Appendix: options and defaults at 2.0.0
 
 Each public class's `__init__` or function's signature, `self` dropped, defaults as
-written in the source. Generated with `ast` from the tag; `F` is
+written in the source (quotes normalised by `ast.unparse`). Generated with `ast` from the tag; `F` is
 `torch.nn.functional`.
 
 ### `data/datasets/burgers.py`
@@ -443,7 +446,7 @@ written in the source. Generated with `ast` from the tag; `F` is
 ### `models/fno.py`
 
 - `FNO(n_modes, in_channels, out_channels, hidden_channels, n_layers=4, lifting_channel_ratio=2, projection_channel_ratio=2, positional_embedding='grid', non_linearity=F.gelu, norm=None, complex_data=False, use_channel_mlp=True, channel_mlp_dropout=0, channel_mlp_expansion=0.5, channel_mlp_skip='soft-gating', fno_skip='linear', resolution_scaling_factor=None, domain_padding=None, fno_block_precision='full', stabilizer=None, max_n_modes=None, factorization=None, rank=1.0, fixed_rank_modes=False, implementation='factorized', decomposition_kwargs=None, separable=False, preactivation=False, conv_module=SpectralConv)`
-- `partialclass(new_name, *args, **kwargs)`
+- `partialclass(new_name, cls, *args, **kwargs)`
 - `TFNO(*args, **kwargs)`
 
 ### `models/fnogno.py`
@@ -457,6 +460,10 @@ written in the source. Generated with `ast` from the tag; `F` is
 ### `models/local_no.py`
 
 - `LocalNO(n_modes, in_channels, out_channels, hidden_channels, default_in_shape, n_layers=4, disco_layers=True, disco_kernel_shape=[2, 4], radius_cutoff=None, domain_length=[2, 2], disco_groups=1, disco_bias=True, diff_layers=True, conv_padding_mode='periodic', fin_diff_kernel_size=3, mix_derivatives=True, lifting_channel_ratio=2, projection_channel_ratio=2, positional_embedding='grid', non_linearity=F.gelu, norm=None, complex_data=False, use_channel_mlp=False, channel_mlp_dropout=0, channel_mlp_expansion=0.5, channel_mlp_skip='soft-gating', local_no_skip='linear', resolution_scaling_factor=None, domain_padding=None, local_no_block_precision='full', stabilizer=None, max_n_modes=None, factorization=None, rank=1.0, fixed_rank_modes=False, implementation='factorized', decomposition_kwargs=dict(), separable=False, preactivation=False, conv_module=SpectralConv)`
+
+### `models/sfno.py`
+
+- `SFNO = partialclass("SFNO", FNO, factorization="dense", conv_module=SphericalConv)` (FNO's signature with those defaults)
 
 ### `models/uno.py`
 
@@ -518,7 +525,7 @@ written in the source. Generated with `ast` from the tag; `F` is
 
 ### `training/trainer.py`
 
-- `Trainer(model, n_epochs, wandb_log=False, device='cpu', mixed_precision=False, data_processor=None, eval_interval=1, log_output=False, use_distributed=False, verbose=False)`
+- `Trainer(*, model, n_epochs, wandb_log=False, device='cpu', mixed_precision=False, data_processor=None, eval_interval=1, log_output=False, use_distributed=False, verbose=False)`
 
 ### `training/training_state.py`
 
