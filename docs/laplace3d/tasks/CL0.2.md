@@ -24,7 +24,11 @@ Proposal §8 R3: "Burn backend bugs at rank 5 (the Metal cat and fusion bugs see
 
 ## Changes
 `tests/gpu_parity.rs` only, three new GPU tests (behind `metal` or `cuda`, as the existing
-GPU tests), each comparing the GPU to Flex on the same weights and inputs:
+GPU tests), each comparing the GPU to Flex on the same weights and inputs. After the
+code-quality review (round 1), `replay_2d_poisson`'s body moved into a rank-generic
+`replay<R>` that both replays call; the 2D schedule, input, loss and tolerance are
+unchanged (the 2D test computes the same values: its per-call errors at padding 4, 8 and
+16 are identical before and after on Metal).
 
 1. `grid_3d`: `FNO<5>` with `n_layers = 0` (lifting, grid channels, permutes and
    projection only, so the grid is isolated), evaluated at a sequence of non-cubic shapes,
@@ -33,7 +37,9 @@ GPU tests), each comparing the GPU to Flex on the same weights and inputs:
    shows.
 2. `spectral_conv_3d`: `SpectralConv<5>` alone, forward and the input gradient of
    mean(y²) through backward, at [2, 3, 14, 13, 12] (non-powers of two: Bluestein on both
-   cfft axes), [2, 3, 16, 16, 16], then the first shape again; modes [6, 6, 6].
+   cfft axes), [2, 3, 16, 16, 16], the first shape again, then [2, 3, 13, 12, 14], whose
+   rfft half-width is even (8; the 2D cfft bug appeared only at even trailing widths, a
+   point of the plan review); modes [6, 6, 6].
 3. `replay_3d_poisson`: `replay_2d_poisson`'s schedule at rank 5. `FNO<5>`, width 32,
    4 layers, modes [6, 6, 6], `SymmetricUniform`, padding 0 and 4 (0 keeps 16³, a power of
    two; 4 gives 24³, which goes through Bluestein); train
@@ -48,8 +54,9 @@ patterns at rank 5, which do not depend on size; CL0.1 measures the sizes.
 Each case against Flex, the trusted path (its rank-5 grid is pinned by
 `grid_controls_3d`, its rank-5 spectral layer by `forward_3d_matches_numpy_reference`):
 relative L² error ≤ 1e-5 (the 2D replay's tolerance) over the whole output, and for
-`grid_3d` also max |GPU − Flex| / max |Flex| ≤ 1e-5, so a few zeroed entries cannot hide
-in an L² norm.
+`grid_3d` and `spectral_conv_3d` also max |GPU − Flex| / max |Flex| ≤ 1e-5, so a few
+zeroed entries cannot hide in an L² norm. The replays print the max-entry error but
+assert L² only, so the 2D gate keeps its criterion.
 
 ## Checks
 `/verify`; `cargo test --release --features metal --test gpu_parity` (all cases, the 2D
@@ -60,8 +67,8 @@ None. The cuda run of these cases is left for a later VM session (a follow-up, n
 condition of this task: the roadmap names metal).
 
 ## Constraints and risks
-- Constraint 1: tests only; no 2D code or 2D test changes, so every 2D output is unchanged
-  by construction.
+- Constraint 1: tests only; no 2D code changes, so every 2D output is unchanged by
+  construction. The 2D replay test is restructured, not changed in what it checks.
 - Risk: Metal at rank 5 differs from Flex by more than 1e-5 without a bug (deeper FFT
   chains in f32). If so, the error is reported with its size and the tolerance is a
   question for the author, not raised silently.
