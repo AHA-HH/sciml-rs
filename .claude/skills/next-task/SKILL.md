@@ -48,8 +48,8 @@ question, the objective with the earliest blocking dependency for the others fir
   may have it checked out, and Git allows a branch in one worktree only. New branches start
   from `origin/main` (step 4).
 
-`main` is protected on GitHub (a PR, the three CI jobs green, the branch up to date with
-`main`; the rules bind admins too), and `.claude/settings.json` denies pushing to `main`,
+`main` is protected on GitHub (a PR and the three CI jobs green; the branch need not be up
+to date with `main` since 2026-11-24, only free of conflicts; the rules do not bind admins), and `.claude/settings.json` denies pushing to `main`,
 force-pushing, deleting remote branches and merging or closing PRs.
 
 ## 1. Sync the open task PRs
@@ -75,8 +75,8 @@ the branches `<objective>/*` of every objective with a roadmap. For each, in roa
    pending `gh pr ready <n>`. Still running: note it and go on.
 4. **Draft waiting for a sign-off**: if the roadmap's decision table or the author's message
    now has the answer, record it (step 2's wording) on that branch, push and mark it ready.
-5. **Behind `main`** (`gh pr view <n> --json mergeStateStatus` is `BEHIND` or `DIRTY`):
-   merging requires the branch up to date, so bring it up to date: on its branch
+5. **Conflicting with `main`** (`gh pr view <n> --json mergeStateStatus` is `DIRTY`; `BEHIND`
+   alone needs nothing, since merging no longer requires the branch up to date): on its branch
    `git merge origin/main`, resolve any conflict (ask if a resolution is not mechanical),
    `/verify`, push. Never rebase or force-push a PR branch.
 6. **Ready and green**: it waits for the author's merge.
