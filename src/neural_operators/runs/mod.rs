@@ -28,7 +28,7 @@ mod csv;
 mod gn_steps;
 mod plots;
 
-pub use checkpoint::{Checkpoint, CheckpointState};
+pub use checkpoint::{Checkpoint, CheckpointState, OperatorCheckpoint};
 pub use costs::RunCosts;
 pub use gn_steps::{GnPasses, GnStepRecord};
 
@@ -39,6 +39,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use burn::{
     config::Config,
+    module::Module,
     optim::{ModuleOptimizer, lr_scheduler::module_lr_scheduler::ModuleLrScheduler},
     store::{BurnpackStore, ModuleSnapshot},
     tensor::Device,
@@ -50,7 +51,10 @@ use crate::neural_operators::{
         transforms::normalizers::{NormalizerRecord, UnitGaussianNormalizer},
     },
     metrics::poisson::ERRORS_JSON,
-    models::fno::{FNO, FNOConfig},
+    models::{
+        fno::{FNO, FNOConfig},
+        operator::Operator,
+    },
     optim::gauss_newton::GaussNewtonState,
     training::config::TrainingConfig,
 };
@@ -247,22 +251,30 @@ impl RunDir {
     ///
     /// # Errors
     /// If the file can't be written.
-    pub fn save_weights<const R: usize>(&self, model: &FNO<R>) -> Result<(), Box<dyn Error>> {
+    pub fn save_weights(&self, model: &impl Module) -> Result<(), Box<dyn Error>> {
         model.save_into(&mut BurnpackStore::from_file(self.path.join(WEIGHTS_STEM)))?;
         Ok(())
     }
 
-    /// Loads the run's model: the architecture from `model_cfg.json`, the weights from
-    /// `model_weights.bpk`, on `device`. Pass a plain (non-autodiff) device for inference,
-    /// so forward passes record no backward graph.
+    /// Loads the run's model, an `M`: the architecture from `model_cfg.json` (as
+    /// `M::Config`), the weights from `model_weights.bpk`, on `device`. Pass a plain
+    /// (non-autodiff) device for inference, so forward passes record no backward graph.
     ///
     /// # Errors
-    /// If `model_cfg.json` can't be read or parsed, or `model_weights.bpk` can't be read
-    /// or doesn't fit the architecture.
-    pub fn load_fno<const R: usize>(&self, device: &Device) -> Result<FNO<R>, Box<dyn Error>> {
-        let mut model = self.model_config()?.init::<R>(device);
+    /// If `model_cfg.json` can't be read or parsed as `M::Config`, or `model_weights.bpk`
+    /// can't be read or doesn't fit the architecture.
+    pub fn load_model<M: Operator>(&self, device: &Device) -> Result<M, Box<dyn Error>> {
+        let mut model = M::init(&self.load_config(MODEL_CFG)?, device);
         model.load_from(&mut BurnpackStore::from_file(self.path.join(WEIGHTS_STEM)))?;
         Ok(model)
+    }
+
+    /// [`load_model`](Self::load_model) for the FNO.
+    ///
+    /// # Errors
+    /// As [`load_model`](Self::load_model).
+    pub fn load_fno<const R: usize>(&self, device: &Device) -> Result<FNO<R>, Box<dyn Error>> {
+        self.load_model(device)
     }
 
     /// The model's architecture, from `model_cfg.json`.
@@ -383,10 +395,10 @@ impl RunDir {
     ///
     /// # Errors
     /// If the model or a record can't be serialised, or the file can't be written.
-    pub fn save_checkpoint<const R: usize>(
+    pub fn save_checkpoint(
         &self,
         state: &CheckpointState,
-        model: &FNO<R>,
+        model: &impl Module,
         optim: &ModuleOptimizer,
         scheduler: &ModuleLrScheduler,
     ) -> Result<(), Box<dyn Error>> {
@@ -398,10 +410,10 @@ impl RunDir {
     ///
     /// # Errors
     /// As [`save_checkpoint`](Self::save_checkpoint).
-    pub fn save_checkpoint_gn<const R: usize>(
+    pub fn save_checkpoint_gn(
         &self,
         state: &CheckpointState,
-        model: &FNO<R>,
+        model: &impl Module,
         optim: &ModuleOptimizer,
         scheduler: &ModuleLrScheduler,
         gn: Option<&GaussNewtonState>,
@@ -415,25 +427,36 @@ impl RunDir {
         Ok(())
     }
 
-    /// The run's checkpoint, with the model built from `model_cfg.json` on `device`, or
-    /// `None` for a run without `checkpoint.bin`. Pass the training (autodiff) device to
-    /// resume.
+    /// The run's checkpoint, with the model, an `M`, built from `model_cfg.json` on
+    /// `device`, or `None` for a run without `checkpoint.bin`. Pass the training
+    /// (autodiff) device to resume.
     ///
     /// # Errors
     /// If `checkpoint.bin` exists but can't be read, is truncated or malformed, or
     /// doesn't fit the architecture in `model_cfg.json`.
-    pub fn checkpoint<const R: usize>(
+    pub fn checkpoint_of<M: Operator>(
         &self,
         device: &Device,
-    ) -> Result<Option<Checkpoint<R>>, Box<dyn Error>> {
+    ) -> Result<Option<OperatorCheckpoint<M>>, Box<dyn Error>> {
         let path = self.path.join(CHECKPOINT);
         if !path.exists() {
             return Ok(None);
         }
         let bytes = std::fs::read(&path)?;
-        checkpoint::decode(&bytes, &self.model_config()?, device)
+        checkpoint::decode(&bytes, &self.load_config(MODEL_CFG)?, device)
             .map(Some)
             .map_err(|e| format!("{}: {e}", path.display()).into())
+    }
+
+    /// [`checkpoint_of`](Self::checkpoint_of) for the FNO.
+    ///
+    /// # Errors
+    /// As [`checkpoint_of`](Self::checkpoint_of).
+    pub fn checkpoint<const R: usize>(
+        &self,
+        device: &Device,
+    ) -> Result<Option<Checkpoint<R>>, Box<dyn Error>> {
+        self.checkpoint_of(device)
     }
 }
 

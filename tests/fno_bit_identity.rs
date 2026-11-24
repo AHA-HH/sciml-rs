@@ -5,6 +5,8 @@
 //! file on a `main` worktree and on the branch and `cmp`s the dumps: the trusted path is
 //! `main`'s code. Here the test only checks that every case runs and is deterministic
 //! within the process (flex's bits need not agree across machines, so no golden values).
+//! Ignored by default (about 4 minutes in a debug build): run it with
+//! `cargo test --release --test fno_bit_identity -- --ignored`.
 //! Files are compared by what they hold, not their bytes: Burnpack records each
 //! parameter's random `ParamId`, so even `main` never writes the same bytes twice. Wall
 //! times (`epoch_time_s`, the checkpoint's `training_time_s`) are left out.
@@ -181,6 +183,7 @@ fn gauss_newton_epoch() -> Vec<u8> {
 }
 
 #[test]
+#[ignore = "the bit-identity dump /verify compares against main (CM0.3); run in release"]
 fn fno_outputs_dumped_and_deterministic() {
     for (case, f) in [
         ("forward", fixed_forward as fn() -> Vec<u8>),
