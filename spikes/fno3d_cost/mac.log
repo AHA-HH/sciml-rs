@@ -1,0 +1,120 @@
+== metal 32 8 4 40 20
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 32 modes 8 batch 4 n_train 40 n_test 20 params 16785953
+epoch 0 train_s 8.373 test_s 0.547 train_l2 1.0003 test_l2 1.0001 epoch_s_at_1000_200 214.8
+epoch 1 train_s 2.243 test_s 0.422 train_l2 1.0000 test_l2 1.0001 epoch_s_at_1000_200 60.3
+           833766312  peak memory footprint
+exit 0
+== metal 32 8 8 40 20
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 32 modes 8 batch 8 n_train 40 n_test 20 params 16785953
+epoch 0 train_s 48.137 test_s 0.745 train_l2 1.0004 test_l2 1.0004 epoch_s_at_1000_200 1210.9
+epoch 1 train_s 2.173 test_s 0.406 train_l2 1.0001 test_l2 1.0003 epoch_s_at_1000_200 58.4
+          3462153248  peak memory footprint
+exit 0
+== metal 32 8 20 40 20
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 32 modes 8 batch 20 n_train 40 n_test 20 params 16785953
+epoch 0 train_s 63.120 test_s 0.469 train_l2 1.0006 test_l2 1.0001 epoch_s_at_1000_200 1582.7
+epoch 1 train_s 2.174 test_s 0.411 train_l2 1.0001 test_l2 1.0005 epoch_s_at_1000_200 58.5
+          4449174728  peak memory footprint
+exit 0
+== metal 32 12 4 40 20
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 32 modes 12 batch 4 n_train 40 n_test 20 params 56631841
+epoch 0 train_s 8.079 test_s 0.522 train_l2 1.0003 test_l2 1.0001 epoch_s_at_1000_200 207.2
+epoch 1 train_s 2.446 test_s 0.446 train_l2 1.0000 test_l2 1.0001 epoch_s_at_1000_200 65.6
+          1516553152  peak memory footprint
+exit 0
+== metal 32 12 8 40 20
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 32 modes 12 batch 8 n_train 40 n_test 20 params 56631841
+epoch 0 train_s 7.559 test_s 0.833 train_l2 1.0004 test_l2 1.0004 epoch_s_at_1000_200 197.3
+epoch 1 train_s 2.329 test_s 0.431 train_l2 1.0001 test_l2 1.0003 epoch_s_at_1000_200 62.5
+          1847985088  peak memory footprint
+exit 0
+== metal 32 12 20 40 20
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 32 modes 12 batch 20 n_train 40 n_test 20 params 56631841
+epoch 0 train_s 6.961 test_s 0.464 train_l2 1.0006 test_l2 1.0001 epoch_s_at_1000_200 178.7
+epoch 1 train_s 2.246 test_s 0.421 train_l2 1.0000 test_l2 1.0006 epoch_s_at_1000_200 60.4
+          3183199240  peak memory footprint
+exit 0
+== metal 64 8 1 8 4
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 64 modes 8 batch 1 n_train 8 n_test 4 params 16785953
+epoch 0 train_s 68.906 test_s 0.635 train_l2 1.0002 test_l2 1.0002 epoch_s_at_1000_200 8645.0
+epoch 1 train_s 2.896 test_s 0.491 train_l2 1.0001 test_l2 1.0000 epoch_s_at_1000_200 386.5
+          2644821144  peak memory footprint
+exit 0
+== metal 64 8 2 8 4
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 64 modes 8 batch 2 n_train 8 n_test 4 params 16785953
+epoch 0 train_s 90.897 test_s 0.552 train_l2 1.0004 test_l2 1.0006 epoch_s_at_1000_200 11389.8
+epoch 1 train_s 2.814 test_s 0.524 train_l2 1.0002 test_l2 1.0001 epoch_s_at_1000_200 377.9
+          2258027768  peak memory footprint
+exit 0
+== metal 64 8 4 8 4
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 64 modes 8 batch 4 n_train 8 n_test 4 params 16785953
+epoch 0 train_s 76.511 test_s 0.585 train_l2 1.0006 test_l2 1.0001 epoch_s_at_1000_200 9593.1
+epoch 1 train_s 2.829 test_s 0.530 train_l2 1.0002 test_l2 1.0006 epoch_s_at_1000_200 380.1
+          3378398384  peak memory footprint
+exit 0
+== metal 64 12 1 8 4
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 64 modes 12 batch 1 n_train 8 n_test 4 params 56631841
+epoch 0 train_s 8.179 test_s 0.649 train_l2 1.0002 test_l2 1.0002 epoch_s_at_1000_200 1054.9
+epoch 1 train_s 3.140 test_s 0.524 train_l2 1.0001 test_l2 1.0000 epoch_s_at_1000_200 418.7
+          1771029488  peak memory footprint
+exit 0
+== metal 64 12 2 8 4
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 64 modes 12 batch 2 n_train 8 n_test 4 params 56631841
+epoch 0 train_s 8.672 test_s 0.626 train_l2 1.0004 test_l2 1.0006 epoch_s_at_1000_200 1115.2
+epoch 1 train_s 2.894 test_s 0.531 train_l2 1.0002 test_l2 1.0001 epoch_s_at_1000_200 388.3
+          2705294296  peak memory footprint
+exit 0
+== metal 64 12 4 8 4
+device Device<Autodiff { device: Cube(Metal(DefaultDevice)), checkpointing: Disabled }> s 64 modes 12 batch 4 n_train 8 n_test 4 params 56631841
+epoch 0 train_s 7.918 test_s 0.594 train_l2 1.0006 test_l2 1.0001 epoch_s_at_1000_200 1019.5
+epoch 1 train_s 2.890 test_s 0.540 train_l2 1.0002 test_l2 1.0006 epoch_s_at_1000_200 388.2
+          3779216296  peak memory footprint
+exit 0
+== flex 32 8 2 8 4
+device Device<Autodiff { device: Flex(Cpu), checkpointing: Disabled }> s 32 modes 8 batch 2 n_train 8 n_test 4 params 16785953
+epoch 0 train_s 4.478 test_s 0.773 train_l2 1.0066 test_l2 1.0000 epoch_s_at_1000_200 598.5
+epoch 1 train_s 4.437 test_s 0.752 train_l2 1.0012 test_l2 1.0027 epoch_s_at_1000_200 592.2
+           672154656  peak memory footprint
+exit 0
+== flex 32 8 4 8 4
+device Device<Autodiff { device: Flex(Cpu), checkpointing: Disabled }> s 32 modes 8 batch 4 n_train 8 n_test 4 params 16785953
+epoch 0 train_s 4.116 test_s 0.731 train_l2 1.0113 test_l2 1.0032 epoch_s_at_1000_200 551.1
+epoch 1 train_s 4.111 test_s 0.726 train_l2 1.0019 test_l2 1.0000 epoch_s_at_1000_200 550.1
+           823002264  peak memory footprint
+exit 0
+== flex 32 12 2 8 4
+device Device<Autodiff { device: Flex(Cpu), checkpointing: Disabled }> s 32 modes 12 batch 2 n_train 8 n_test 4 params 56631841
+epoch 0 train_s 5.041 test_s 0.847 train_l2 1.0067 test_l2 1.0000 epoch_s_at_1000_200 672.4
+epoch 1 train_s 4.907 test_s 0.852 train_l2 1.0011 test_l2 1.0027 epoch_s_at_1000_200 655.9
+          1289586248  peak memory footprint
+exit 0
+== flex 32 12 4 8 4
+device Device<Autodiff { device: Flex(Cpu), checkpointing: Disabled }> s 32 modes 12 batch 4 n_train 8 n_test 4 params 56631841
+epoch 0 train_s 4.622 test_s 0.793 train_l2 1.0113 test_l2 1.0032 epoch_s_at_1000_200 617.4
+epoch 1 train_s 4.537 test_s 0.795 train_l2 1.0018 test_l2 1.0000 epoch_s_at_1000_200 606.9
+          1590003608  peak memory footprint
+exit 0
+== flex 64 8 1 4 2
+device Device<Autodiff { device: Flex(Cpu), checkpointing: Disabled }> s 64 modes 8 batch 1 n_train 4 n_test 2 params 16785953
+epoch 0 train_s 11.780 test_s 1.815 train_l2 1.0072 test_l2 1.0000 epoch_s_at_1000_200 3126.5
+epoch 1 train_s 11.978 test_s 1.867 train_l2 1.0012 test_l2 1.0028 epoch_s_at_1000_200 3181.2
+          1182909904  peak memory footprint
+exit 0
+== flex 64 8 2 4 2
+device Device<Autodiff { device: Flex(Cpu), checkpointing: Disabled }> s 64 modes 8 batch 2 n_train 4 n_test 2 params 16785953
+epoch 0 train_s 11.330 test_s 1.683 train_l2 1.0120 test_l2 1.0036 epoch_s_at_1000_200 3000.9
+epoch 1 train_s 11.176 test_s 1.618 train_l2 1.0023 test_l2 1.0000 epoch_s_at_1000_200 2955.8
+          2375682280  peak memory footprint
+exit 0
+== flex 64 12 1 4 2
+device Device<Autodiff { device: Flex(Cpu), checkpointing: Disabled }> s 64 modes 12 batch 1 n_train 4 n_test 2 params 56631841
+epoch 0 train_s 12.333 test_s 1.944 train_l2 1.0072 test_l2 1.0000 epoch_s_at_1000_200 3277.7
+epoch 1 train_s 12.357 test_s 1.923 train_l2 1.0012 test_l2 1.0028 epoch_s_at_1000_200 3281.6
+          1930020976  peak memory footprint
+exit 0
+== flex 64 12 2 4 2
+device Device<Autodiff { device: Flex(Cpu), checkpointing: Disabled }> s 64 modes 12 batch 2 n_train 4 n_test 2 params 56631841
+epoch 0 train_s 11.369 test_s 1.645 train_l2 1.0120 test_l2 1.0036 epoch_s_at_1000_200 3006.6
+epoch 1 train_s 11.511 test_s 1.658 train_l2 1.0023 test_l2 1.0000 epoch_s_at_1000_200 3043.7
+          3082374096  peak memory footprint
+exit 0

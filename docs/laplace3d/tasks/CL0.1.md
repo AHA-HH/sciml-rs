@@ -40,7 +40,10 @@ size and batch) and D5 (stages, sizes, names, storage) on evidence.
   - binary `zip64_roundtrip -- <path>`: writes f and u `[1000, 65, 65, 65]` f64 (the
     n = 65 train split of D5, 4.39 GB) with `NpzWriter::new` exactly as `write_split` does,
     reads both back with `NpzFileReader`, and checks every value.
-  - `REPORT.md`: machine, commands, raw output.
+  - `run.sh` (one run per config line, peak memory read outside the process), the config
+    lists `metal.cfg`, `flex.cfg`, `cuda.cfg`, and `mac.log` (the Mac output verbatim).
+    The machine, commands and method are in the results file rather than a spike
+    `REPORT.md`.
 - Peak memory is read outside the binary: `/usr/bin/time -l` ("peak memory footprint",
   which counts Metal buffers on Apple silicon) on the Mac; `nvidia-smi` per-process
   sampling on the VM. Activation memory per sample is the slope of peak memory between two
@@ -78,7 +81,23 @@ the table.
   (stated in the table).
 
 ## Pending runs
-(filled in step 6)
+- **cuda matrix and zip64 on the VM** (not run: this session has no ssh; awaiting the
+  author's go). tmux session `cl0-1`, log `~/sciml-rs/logs/cl0-1.log`, worktree
+  `~/sciml-rs-wt/cl0-1`, about one hour. Decides the cuda column, batch 20 at s = 64 (D4)
+  and the zip64 check on Linux. Commands:
+  ```sh
+  ssh cricket
+  cd ~/sciml-rs && git fetch origin
+  git worktree add --detach ~/sciml-rs-wt/cl0-1 origin/laplace3d/cl0-1
+  cd ~/sciml-rs-wt/cl0-1
+  source ~/sciml-gpu.sh
+  export CARGO_TARGET_DIR=~/sciml-rs-target/laplace3d
+  cargo build --release -p fno3d-cost-spike --features cuda
+  tmux new -d -s cl0-1 "($CARGO_TARGET_DIR/release/zip64_roundtrip ~/sciml-rs-wt/cl0-1/zip64.npz; CUDA_VISIBLE_DEVICES=0 bash spikes/fno3d_cost/run.sh cuda $CARGO_TARGET_DIR/release/fno3d_cost < spikes/fno3d_cost/cuda.cfg) 2>&1 | tee ~/sciml-rs/logs/cl0-1.log"
+  ```
+  No datasets are needed, so the dataset links of the skill's step 6 are skipped.
 
 ## Open questions
-(filled when they arise)
+- D4 and D5 as proposed in `docs/laplace3d/results/cl0-1.md` (author's sign-off).
+- metal's peak footprint is contaminated by autotune and is not used for D4; the cuda
+  reading replaces it. Accept flex's slope as the activation figure until then?
