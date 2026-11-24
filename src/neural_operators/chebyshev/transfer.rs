@@ -13,7 +13,10 @@
 //! arguments so the tests can vary them. Nodes and weights are closed forms, so this
 //! module needs only ndarray and is built without the `datagen` feature (decision 13).
 
-use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, Axis};
+use ndarray::{
+    Array, Array1, Array2, Array3, ArrayD, ArrayView, ArrayView1, ArrayView2, ArrayView3,
+    ArrayViewD, Axis, Dimension, Ix2, IxDyn, RemoveAxis,
+};
 use std::f64::consts::PI;
 
 use super::check_n;
@@ -177,6 +180,66 @@ pub fn apply(tx: ArrayView2<f64>, ty: ArrayView2<f64>, f: ArrayView2<f64>) -> Ar
     tx.dot(&f).dot(&ty.t())
 }
 
+/// Apply one 1D transfer along each axis of a field of any rank (CONVENTIONS §12): along
+/// x, then y, then z for an 'ijk' field.
+///
+/// `f: [n_0, …, n_{r−1}]` is stored with axis a the a-th coordinate; `ts[a]: [m_a, n_a]`
+/// acts on axis a. Returns `[m_0, …, m_{r−1}]`, the same rank and layout. Rank 2 is
+/// [`apply`] itself, so 2D outputs are bit for bit those of [`apply`] (design D1, D2).
+/// Otherwise `ts[0]` is applied as one matrix product on `f` read as `[n_0, rest]`, then
+/// the remaining transfers on each slice along axis 0, so a rank-3 field's (y, z) step is
+/// [`apply`] too.
+///
+/// # Panics
+/// If `ts.len()` is not the rank of `f` (at least 1), or `ts[a]` has not `n_a` columns.
+pub fn apply_nd<D: Dimension>(ts: &[ArrayView2<f64>], f: ArrayView<f64, D>) -> Array<f64, D> {
+    assert!(
+        ts.len() == f.ndim() && !ts.is_empty(),
+        "apply_nd: one transfer per axis, got {} for rank {}",
+        ts.len(),
+        f.ndim()
+    );
+    for (a, (t, &n)) in ts.iter().zip(f.shape()).enumerate() {
+        assert_eq!(t.ncols(), n, "apply_nd: ts[{a}] must have {n} columns");
+    }
+    apply_dyn(ts, f.into_dyn())
+        .into_dimensionality()
+        .expect("apply_dyn keeps the rank")
+}
+
+/// [`apply_nd`] on a dynamic-rank view whose shape the caller has checked.
+fn apply_dyn(ts: &[ArrayView2<f64>], f: ArrayViewD<f64>) -> ArrayD<f64> {
+    if let [tx, ty] = ts {
+        let f = f.into_dimensionality::<Ix2>().expect("rank 2");
+        return apply(*tx, *ty, f).into_dyn();
+    }
+    let (t0, rest) = ts.split_first().expect("rank >= 1");
+    let shape = f.shape().to_vec();
+    let cols: usize = shape[1..].iter().product();
+    let f = f.as_standard_layout();
+    let flat = f
+        .view()
+        .into_shape_with_order((shape[0], cols))
+        .expect("standard layout");
+    let mut out_shape = shape;
+    out_shape[0] = t0.nrows();
+    let along_0 = t0
+        .dot(&flat)
+        .into_shape_with_order(IxDyn(&out_shape))
+        .expect("standard layout");
+    if rest.is_empty() {
+        return along_0;
+    }
+    for (a, t) in rest.iter().enumerate() {
+        out_shape[a + 1] = t.nrows();
+    }
+    let mut out = ArrayD::zeros(out_shape);
+    for (mut dst, src) in out.outer_iter_mut().zip(along_0.outer_iter()) {
+        dst.assign(&apply_dyn(rest, src));
+    }
+    out
+}
+
 /// The production transfer pair for the n × n CGL grid (CONVENTIONS §12): the restriction
 /// R = T_cu ([`cheb_to_uniform`]) and the prolongation P = T_uc ([`uniform_to_cheb`]) of
 /// degree [`TRANSFER_DEGREE`], between the CGL nodes and the uniform learning grid of s
@@ -280,6 +343,44 @@ impl Transfers {
     /// If `g` is not `[s, s]`.
     pub fn to_cheb(&self, g: ArrayView2<f64>) -> Array2<f64> {
         apply(self.t_uc.view(), self.t_uc.view(), g)
+    }
+
+    /// `f: [n, …, n]` on the CGL grid, of any rank, transferred to the uniform grid with
+    /// T_cu along every axis ([`apply_nd`]; CONVENTIONS §12): `[s, …, s]`. Rank 2 equals
+    /// [`Transfers::to_uniform`] bit for bit.
+    ///
+    /// # Panics
+    /// If an axis of `f` has not n points, or `f` has rank 0.
+    pub fn to_uniform_nd<D: Dimension>(&self, f: ArrayView<f64, D>) -> Array<f64, D> {
+        apply_nd(&vec![self.t_cu.view(); f.ndim()], f)
+    }
+
+    /// Every sample of `f: [N, n, …, n]` (axis 0 the samples) transferred with
+    /// [`Transfers::to_uniform_nd`]: `[N, s, …, s]`. Rank 3 equals
+    /// [`Transfers::to_uniform_all`] bit for bit.
+    ///
+    /// # Panics
+    /// If an axis of `f` other than the first has not n points, or `f` has rank below 2.
+    pub fn to_uniform_all_nd<D: RemoveAxis>(&self, f: ArrayView<f64, D>) -> Array<f64, D> {
+        let mut shape = f.raw_dim();
+        for a in 1..shape.ndim() {
+            shape[a] = self.s();
+        }
+        let mut out = Array::zeros(shape);
+        for (mut dst, src) in out.axis_iter_mut(Axis(0)).zip(f.axis_iter(Axis(0))) {
+            dst.assign(&self.to_uniform_nd(src));
+        }
+        out
+    }
+
+    /// `g: [s, …, s]` on the uniform grid, of any rank, transferred to the CGL grid with
+    /// T_uc along every axis ([`apply_nd`]; CONVENTIONS §12): `[n, …, n]`. Rank 2 equals
+    /// [`Transfers::to_cheb`] bit for bit.
+    ///
+    /// # Panics
+    /// If an axis of `g` has not s points, or `g` has rank 0.
+    pub fn to_cheb_nd<D: Dimension>(&self, g: ArrayView<f64, D>) -> Array<f64, D> {
+        apply_nd(&vec![self.t_uc.view(); g.ndim()], g)
     }
 }
 
@@ -527,6 +628,173 @@ mod tests {
     #[should_panic(expected = "Transfers::with_s: n must be >= 4")]
     fn transfers_with_s_panic_below_min_n() {
         Transfers::with_s(3, 32);
+    }
+
+    /// f sampled on the tensor grid xs × ys × zs, stored 'ijk' (CONVENTIONS §12).
+    fn sample3(
+        xs: &Array1<f64>,
+        ys: &Array1<f64>,
+        zs: &Array1<f64>,
+        f: impl Fn(f64, f64, f64) -> f64,
+    ) -> Array3<f64> {
+        Array3::from_shape_fn((xs.len(), ys.len(), zs.len()), |(i, j, k)| {
+            f(xs[i], ys[j], zs[k])
+        })
+    }
+
+    fn max_abs3(a: &Array3<f64>) -> f64 {
+        a.iter().fold(0.0_f64, |e, v| e.max(v.abs()))
+    }
+
+    // 'ijk' layout both ways on a non-cubic grid: a linear field no axis swap preserves.
+    #[test]
+    fn apply_nd_preserves_ijk_layout() {
+        let (n, s) = ([9, 17, 5], [8, 12, 4]);
+        let c: Vec<_> = n.iter().map(|&k| nodes(k)).collect();
+        let u: Vec<_> = s.iter().map(|&k| uniform_nodes(k)).collect();
+        let f = |x: f64, y: f64, z: f64| x + 10.0 * y + 100.0 * z;
+
+        let t_cu: Vec<_> = (0..3).map(|a| cheb_to_uniform(n[a], s[a])).collect();
+        let views: Vec<_> = t_cu.iter().map(|t| t.view()).collect();
+        let got = apply_nd(&views, sample3(&c[0], &c[1], &c[2], f).view());
+        assert_eq!(got.dim(), (8, 12, 4));
+        let err = max_abs3(&(&got - &sample3(&u[0], &u[1], &u[2], f)));
+        assert!(err <= 1e-12, "cheb -> uniform: {err:e}");
+
+        let t_uc: Vec<_> = (0..3)
+            .map(|a| uniform_to_cheb(s[a], n[a], TRANSFER_DEGREE))
+            .collect();
+        let views: Vec<_> = t_uc.iter().map(|t| t.view()).collect();
+        let got = apply_nd(&views, sample3(&u[0], &u[1], &u[2], f).view());
+        assert_eq!(got.dim(), (9, 17, 5));
+        let err = max_abs3(&(&got - &sample3(&c[0], &c[1], &c[2], f)));
+        assert!(err <= 1e-12, "uniform -> cheb: {err:e}");
+    }
+
+    // T(g ⊗ h ⊗ k) = (Tx g) ⊗ (Ty h) ⊗ (Tz k): each axis gets its own 1D matrix.
+    #[test]
+    fn apply_nd_on_separable_field_is_tensor_of_1d() {
+        let (n, s) = ([9, 17, 13], [6, 10, 7]);
+        let c: Vec<_> = n.iter().map(|&k| nodes(k)).collect();
+        let g = [
+            c[0].mapv(|x| (2.0 * x).sin() + 1.5),
+            c[1].mapv(f64::exp),
+            c[2].mapv(|z| 1.0 / (2.0 + z)),
+        ];
+        let t: Vec<_> = (0..3).map(|a| cheb_to_uniform(n[a], s[a])).collect();
+        let f = Array3::from_shape_fn((n[0], n[1], n[2]), |(i, j, k)| g[0][i] * g[1][j] * g[2][k]);
+        let views: Vec<_> = t.iter().map(|m| m.view()).collect();
+        let got = apply_nd(&views, f.view());
+        let h: Vec<_> = (0..3).map(|a| t[a].dot(&g[a])).collect();
+        let want =
+            Array3::from_shape_fn((s[0], s[1], s[2]), |(i, j, k)| h[0][i] * h[1][j] * h[2][k]);
+        let err = max_abs3(&(&got - &want)) / max_abs3(&want);
+        assert!(err <= 1e-14, "{err:e}");
+    }
+
+    // T_cu is exact below degree n and FH of degree 2 reproduces degree 2, so the round
+    // trip returns a field of degree ≤ 2 per axis to round-off.
+    #[test]
+    fn transfers_round_trip_3d_exact_on_quadratics() {
+        let n = 17;
+        let t = Transfers::new(n);
+        let c = nodes(n);
+        let f = |x: f64, y: f64, z: f64| (x + 2.0 * y - z).powi(2) + x * y * z - 0.5;
+        let u = sample3(&c, &c, &c, f);
+        let on_uniform = t.to_uniform_nd(u.view());
+        assert_eq!(on_uniform.dim(), (n - 1, n - 1, n - 1));
+        let back = t.to_cheb_nd(on_uniform.view());
+        let err = max_abs3(&(&back - &u));
+        assert!(err <= 1e-12, "{err:e}");
+    }
+
+    #[test]
+    fn restriction_exact_on_resolved_mode_3d() {
+        let n = 65;
+        let mode = |x: f64, y: f64, z: f64| {
+            (3.0 * PI * (x + 1.0) / 2.0).sin() * (PI * (y + 1.0)).sin() * (z + 1.0) / 2.0
+        };
+        let c = nodes(n);
+        for s in [16, 32] {
+            let t = Transfers::with_s(n, s);
+            let u = uniform_nodes(s);
+            let got = t.to_uniform_nd(sample3(&c, &c, &c, mode).view());
+            let err = max_abs3(&(&got - &sample3(&u, &u, &u, mode)));
+            assert!(err <= 1e-12, "s={s}: {err:e}");
+        }
+    }
+
+    #[test]
+    fn to_uniform_all_nd_matches_per_sample() {
+        let n = 9;
+        let t = Transfers::with_s(n, 6);
+        let f = ndarray::Array4::from_shape_fn((3, n, n, n), |(m, i, j, k)| {
+            ((m + 1) as f64 * (i as f64 - 2.0 * j as f64 + 0.5 * k as f64)).sin()
+        });
+        let all = t.to_uniform_all_nd(f.view());
+        assert_eq!(all.dim(), (3, 6, 6, 6));
+        for (got, src) in all.outer_iter().zip(f.outer_iter()) {
+            assert_eq!(got, t.to_uniform_nd(src));
+        }
+    }
+
+    // D2: rank 2 is routed to the 2D code, so every output is bit for bit the old one.
+    #[test]
+    fn rank_two_is_bit_identical_to_2d() {
+        let (n, s) = (17, 12);
+        let t = Transfers::with_s(n, s);
+        let (cx, cy) = (nodes(n), nodes(9));
+        let rect = sample(&cx, &cy, bubble_exp);
+        let (tx, ty) = (cheb_to_uniform(n, s), cheb_to_uniform(9, 5));
+        assert_eq!(
+            apply_nd(&[tx.view(), ty.view()], rect.view()),
+            apply(tx.view(), ty.view(), rect.view())
+        );
+        let square = sample(&cx, &cx, bubble_exp);
+        let on_uniform = t.to_uniform(square.view());
+        for f in [square.view(), square.t()] {
+            assert_eq!(t.to_uniform_nd(f), t.to_uniform(f));
+        }
+        assert_eq!(
+            t.to_cheb_nd(on_uniform.view()),
+            t.to_cheb(on_uniform.view())
+        );
+        let batch = Array3::from_shape_fn((4, n, n), |(m, i, j)| square[[i, j]] * (m as f64 + 0.5));
+        assert_eq!(
+            t.to_uniform_all_nd(batch.view()),
+            t.to_uniform_all(batch.view())
+        );
+    }
+
+    #[test]
+    fn apply_nd_rank_one_is_matrix_vector() {
+        let t = cheb_to_uniform(9, 5);
+        let f = nodes(9).mapv(f64::exp);
+        // a [n, 1] matrix product, so equal to the matrix-vector product to round-off
+        let err = (&apply_nd(&[t.view()], f.view()) - &t.dot(&f))
+            .iter()
+            .fold(0.0_f64, |e, v| e.max(v.abs()));
+        assert!(err <= 1e-15, "{err:e}");
+    }
+
+    #[test]
+    #[should_panic(expected = "apply_nd: one transfer per axis")]
+    fn apply_nd_panics_on_transfer_count() {
+        let t = cheb_to_uniform(5, 4);
+        apply_nd(
+            &[t.view(), t.view()],
+            Array3::<f64>::zeros((5, 5, 5)).view(),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "apply_nd: ts[2] must have 5 columns")]
+    fn apply_nd_panics_on_axis_mismatch() {
+        let (t, u) = (cheb_to_uniform(5, 4), cheb_to_uniform(6, 4));
+        apply_nd(
+            &[t.view(), t.view(), u.view()],
+            Array3::<f64>::zeros((5, 5, 5)).view(),
+        );
     }
 
     #[test]

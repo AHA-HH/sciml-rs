@@ -9,7 +9,9 @@
 //!   `cheb_to_uniform`, `uniform_to_cheb`, `apply`, and the production pair `Transfers`
 //!   with its degree `TRANSFER_DEGREE`), and the closed-form Clenshaw–Curtis weights with
 //!   the norm and relative L² error built from them (`clencurt`, `cc_norm_sq`,
-//!   `cc_rel_l2_error`, `cc_rel_l2_error_weighted`). They depend on ndarray alone, so training and
+//!   `cc_rel_l2_error`, `cc_rel_l2_error_weighted`). Each 2D function has a sibling for
+//!   any rank (`apply_nd`, `Transfers::to_uniform_nd` and the like, `cc_norm_sq_nd`, …;
+//!   3D CL1.2) that routes rank 2 to it unchanged. They depend on ndarray alone, so training and
 //!   evaluation on Chebyshev data need no RLST, BLAS or FFTW (design §12, decisions 13
 //!   and 15).
 //! - Behind the `datagen` feature: D and D² (`diff_matrix`, `diff2_matrix`), the only
@@ -30,11 +32,15 @@ mod points;
 mod quadrature;
 mod transfer;
 
-pub use clencurt::{cc_norm_sq, cc_rel_l2_error, cc_rel_l2_error_weighted, clencurt};
+pub use clencurt::{
+    cc_norm_sq, cc_norm_sq_nd, cc_rel_l2_error, cc_rel_l2_error_nd, cc_rel_l2_error_weighted,
+    cc_rel_l2_error_weighted_nd, clencurt,
+};
 #[cfg(feature = "datagen")]
 pub use differentiation::{diff_matrix, diff2_matrix};
 pub use transfer::{
-    TRANSFER_DEGREE, Transfers, apply, cheb_to_uniform, nodes, uniform_nodes, uniform_to_cheb,
+    TRANSFER_DEGREE, Transfers, apply, apply_nd, cheb_to_uniform, nodes, uniform_nodes,
+    uniform_to_cheb,
 };
 
 /// Panic with a uniform message when a 1D grid has fewer than two nodes.
