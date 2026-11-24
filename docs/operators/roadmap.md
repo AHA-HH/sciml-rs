@@ -40,7 +40,7 @@ The proposal's Section 12. Recorded when the author takes them:
 | --- | --- | --- | --- | --- | --- |
 | D0 | Draft 0.1 of the proposal as the plan of record | after review | – | every task | signed off 2026-11-24: draft 0.1 as the plan of record |
 | D1 | Reference version | `neuraloperator` 2.0.0 | – | CM0.1 | signed off 2026-11-11: "its neuraloperator and the major release 2.0.0" |
-| D2 | Where the Python side lives | `tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/` | – | CM0.2 | open |
+| D2 | Where the Python side lives | `tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/` | – | CM0.2 | signed off 2026-11-24: as recommended (`tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/`) |
 | D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | open |
 | D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | open |
 | D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | open |
