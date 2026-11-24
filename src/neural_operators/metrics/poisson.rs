@@ -35,7 +35,7 @@ use crate::neural_operators::chebyshev::{
 use crate::neural_operators::data::loaders::poisson::SidecarRecord;
 use crate::neural_operators::runs::EpochMetrics;
 use burn::config::Config;
-use ndarray::{Array1, Array2, ArrayView2, ArrayView3, Axis};
+use ndarray::{Array1, Array2, ArrayView, ArrayView2, ArrayView3, Axis, RemoveAxis};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -139,6 +139,31 @@ pub fn poisson_errors(
         errors.boundary_rel_rms.push(rms);
     }
     errors
+}
+
+/// [`poisson_errors`] for fields of any rank r ≥ 2: axis 0 the samples, the rest the
+/// spatial axes, stored 'ij' or 'ijk' (CONVENTIONS §12).
+///
+/// - `pred`: decoded predictions on the uniform learning grid, `[N, s, …, s]`.
+/// - `u`: the raw solutions on the CGL grid, `[N, n, …, n]`, of the same rank.
+/// - `transfers`: the run's R and P, applied along every axis.
+///
+/// Rank 3 arrays (2D fields) are [`poisson_errors`] itself, bit for bit (design D1, D2).
+/// Otherwise the errors are those of the module docs with tensor Clenshaw–Curtis weights
+/// over every axis, and error 5 sums the 2r faces of ∂Ω, each with the tensor weights of
+/// its r − 1 coordinates, so a node on an edge or corner is counted once per face that
+/// holds it. The relative boundary RMS normalises by the total face area r · 2^r against
+/// the volume 2^r: in 3D √(∯ û² dS / 24) / √(∭ u² dV / 8) (CONVENTIONS §12).
+///
+/// # Panics
+/// If `u` has fewer than two spatial axes, `pred` and `u` differ in rank or sample count,
+/// or an axis is not the transfers' s (for `pred`) or n (for `u`).
+pub fn poisson_errors_nd<D: RemoveAxis>(
+    pred: ArrayView<f64, D>,
+    u: ArrayView<f64, D>,
+    transfers: &Transfers,
+) -> PoissonErrors {
+    todo!()
 }
 
 /// Tolerance of [`check_error3`], relative: the run's test_l2 is f32.
@@ -519,13 +544,25 @@ fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> 
     (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
 }
 
+/// Error 5 for one sample of any rank r ≥ 2: `(max ratio, relative boundary RMS)` of
+/// `u_hat: [n, …, n]` against `u: [n, …, n]`, both on the CGL grid, with Clenshaw–Curtis
+/// weights `w: [n]` on every axis (see [`poisson_errors_nd`]).
+fn boundary_errors_nd<D: RemoveAxis>(
+    u_hat: ArrayView<f64, D>,
+    u: ArrayView<f64, D>,
+    w: &Array1<f64>,
+) -> (f64, f64) {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::neural_operators::chebyshev::nodes;
+    use crate::neural_operators::chebyshev::{cheb_to_uniform, uniform_to_cheb};
     use crate::neural_operators::losses::data_losses::{LpLoss, Reduction};
     use burn::prelude::*;
-    use ndarray::Array3;
+    use ndarray::{Array3, Array4};
 
     /// `count` smooth fields on the n × n CGL grid that vanish on ∂Ω; sample k is scaled
     /// and shifted so the samples differ.
@@ -884,5 +921,289 @@ mod tests {
         let check = check_error3(last, 0.25 * (1.0 + 2e-5));
         assert!(!check.passed, "{check}");
         assert!(check.to_string().ends_with("FAILED"));
+    }
+
+    // ---- any rank (3D CL1.3) ----
+
+    /// Deterministic noise in [−1, 1) for a 3D sample, a hash of the index.
+    fn noise3(k: usize, i: usize, j: usize, l: usize) -> f64 {
+        let t = (k as f64 * 3.17 + i as f64 * 12.9898 + j as f64 * 78.233 + l as f64 * 37.719)
+            .sin()
+            * 43758.5453;
+        2.0 * (t - t.floor()) - 1.0
+    }
+
+    /// `count` smooth 3D fields on the n³ CGL grid that vanish on ∂Ω, stored 'ijk'.
+    fn vanishing_u3(count: usize, n: usize) -> Array4<f64> {
+        let x = nodes(n);
+        Array4::from_shape_fn((count, n, n, n), |(k, i, j, l)| {
+            let (a, b, c) = (x[i], x[j], x[l]);
+            (1.0 + k as f64)
+                * (1.0 - a * a)
+                * (1.0 - b * b)
+                * (1.0 - c * c)
+                * (a + 0.3 * k as f64).exp()
+                * b.cos()
+                * (1.0 + 0.5 * c)
+        })
+    }
+
+    /// Σ_abc t[i, a] t[j, b] t[l, c] g[a, b, c]: the 1D transfer `t` along each axis,
+    /// summed term by term.
+    fn transfer3_direct(t: &Array2<f64>, g: ArrayView3<f64>) -> Array3<f64> {
+        let (m, k) = t.dim();
+        Array3::from_shape_fn((m, m, m), |(i, j, l)| {
+            let mut sum = 0.0;
+            for a in 0..k {
+                for b in 0..k {
+                    for c in 0..k {
+                        sum += t[[i, a]] * t[[j, b]] * t[[l, c]] * g[[a, b, c]];
+                    }
+                }
+            }
+            sum
+        })
+    }
+
+    fn assert_rel(got: f64, want: f64, tol: f64, what: &str) {
+        assert!(
+            (got - want).abs() <= tol * want.abs(),
+            "{what}: {got:e} vs {want:e}"
+        );
+    }
+
+    #[test]
+    fn nd_errors_match_direct_computation() {
+        let (count, n) = (2, 9);
+        // a boundary that does not vanish, so error 5 has both terms
+        let u = vanishing_u3(count, n)
+            + Array4::from_shape_fn((count, n, n, n), |(k, i, j, l)| 0.1 * noise3(k, i, j, l));
+        let w = clencurt(n);
+        for s in [n - 1, 5] {
+            let transfers = Transfers::with_s(n, s);
+            let pred = transfers.to_uniform_all_nd(u.view())
+                + Array4::from_shape_fn((count, s, s, s), |(k, i, j, l)| {
+                    0.05 * noise3(k + 7, i, j, l)
+                });
+            let e = poisson_errors_nd(pred.view(), u.view(), &transfers);
+
+            let r = cheb_to_uniform(n, s);
+            let p = uniform_to_cheb(s, n, TRANSFER_DEGREE);
+            for k in 0..count {
+                let ui = u.index_axis(Axis(0), k);
+                let ru = transfer3_direct(&r, ui);
+                let round_trip = transfer3_direct(&p, ru.view());
+                let u_hat = transfer3_direct(&p, pred.index_axis(Axis(0), k));
+
+                // Σ_ijl w_i w_j w_l v², term by term
+                let cc = |v: &dyn Fn(usize, usize, usize) -> f64| {
+                    let mut sum = 0.0;
+                    for i in 0..n {
+                        for j in 0..n {
+                            for l in 0..n {
+                                sum += w[i] * w[j] * w[l] * v(i, j, l).powi(2);
+                            }
+                        }
+                    }
+                    sum
+                };
+                let u_sq = cc(&|i, j, l| ui[[i, j, l]]);
+                let e2 = (cc(&|i, j, l| round_trip[[i, j, l]] - ui[[i, j, l]]) / u_sq).sqrt();
+                let e4 = (cc(&|i, j, l| u_hat[[i, j, l]] - ui[[i, j, l]]) / u_sq).sqrt();
+                let pk = pred.index_axis(Axis(0), k);
+                let num: f64 = pk.iter().zip(&ru).map(|(a, b)| (a - b).powi(2)).sum();
+                let den: f64 = ru.iter().map(|b| b * b).sum();
+                let e3 = (num / den).sqrt();
+
+                // the six faces, one by one; edge and corner nodes once per face
+                let last = n - 1;
+                let (mut surface, mut max_face) = (0.0, 0.0_f64);
+                for a in 0..n {
+                    for b in 0..n {
+                        for v in [
+                            u_hat[[0, a, b]],
+                            u_hat[[last, a, b]],
+                            u_hat[[a, 0, b]],
+                            u_hat[[a, last, b]],
+                            u_hat[[a, b, 0]],
+                            u_hat[[a, b, last]],
+                        ] {
+                            surface += w[a] * w[b] * v * v;
+                            max_face = max_face.max(v.abs());
+                        }
+                    }
+                }
+                let max_u = ui.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+                let rms = (surface / 24.0).sqrt() / (u_sq / 8.0).sqrt();
+
+                let tol = 1e-13;
+                assert_rel(e.transfer[k], e2, tol, "error 2");
+                assert_rel(e.model[k], e3, tol, "error 3");
+                assert_rel(e.total[k], e4, tol, "error 4");
+                assert_rel(e.u_norm[k], u_sq.sqrt(), tol, "||u||");
+                assert_rel(e.boundary_max_ratio[k], max_face / max_u, tol, "max ratio");
+                assert_rel(e.boundary_rel_rms[k], rms, tol, "boundary RMS");
+            }
+        }
+    }
+
+    // the floor identity of design §13.3 in 3D: a prediction equal to R u has error 3 = 0
+    // and error 4 = error 2
+    #[test]
+    fn nd_exact_prediction_has_only_transfer_error() {
+        let n = 11;
+        let u = vanishing_u3(3, n);
+        for s in [n - 1, 6] {
+            let transfers = Transfers::with_s(n, s);
+            let pred = transfers.to_uniform_all_nd(u.view());
+            let e = poisson_errors_nd(pred.view(), u.view(), &transfers);
+            assert_exact_prediction(&e, s);
+        }
+    }
+
+    #[test]
+    fn nd_boundary_offset_is_measured() {
+        // u_k = c_k (1 − x²)(1 − y²)(1 − z²): max |u_k| = c_k at the origin (a CGL node for
+        // odd n), and ∭ u_k² dV = c_k² (16/15)³, exact in Clenshaw–Curtis (degree 4 per
+        // axis ≤ n − 1)
+        let n = 9;
+        let c = 0.037;
+        let x = nodes(n);
+        let u = Array4::from_shape_fn((2, n, n, n), |(k, i, j, l)| {
+            (1.0 + k as f64) * (1.0 - x[i] * x[i]) * (1.0 - x[j] * x[j]) * (1.0 - x[l] * x[l])
+        });
+        let transfers = Transfers::new(n);
+        let pred = transfers.to_uniform_all_nd(u.view()) + c;
+        let e = poisson_errors_nd(pred.view(), u.view(), &transfers);
+        for k in 0..2 {
+            let scale = 1.0 + k as f64;
+            // û = c on ∂Ω (T_uc reproduces constants, both grids share the endpoints), so
+            // ∯ û² dS = 24 c² with each edge and corner node weighted by every face it is
+            // on, and the RMS is c over √(∭ u² dV / 8)
+            let ratio = c / scale;
+            let rms = c / (scale * (16.0_f64 / 15.0).powf(1.5) / 8.0_f64.sqrt());
+            assert_rel(e.boundary_max_ratio[k], ratio, 1e-12, "ratio");
+            assert_rel(e.boundary_rel_rms[k], rms, 1e-12, "rms");
+        }
+    }
+
+    #[test]
+    fn nd_u_norm_is_the_cc_norm() {
+        // u = (1 − x²)(1 − y²)(1 − z²): ∭ u² dV = (16/15)³, exact in Clenshaw–Curtis
+        let n = 9;
+        let x = nodes(n);
+        let u = Array4::from_shape_fn((1, n, n, n), |(_, i, j, l)| {
+            (1.0 - x[i] * x[i]) * (1.0 - x[j] * x[j]) * (1.0 - x[l] * x[l])
+        });
+        let transfers = Transfers::with_s(n, 4);
+        let pred = transfers.to_uniform_all_nd(u.view());
+        let e = poisson_errors_nd(pred.view(), u.view(), &transfers);
+        assert_rel(e.u_norm[0], (16.0_f64 / 15.0).powf(1.5), 1e-14, "||u||");
+    }
+
+    // the generic face code against the trusted 2D path (four edges, 8 against 4)
+    #[test]
+    fn nd_boundary_at_rank_two_matches_2d() {
+        let n = 17;
+        let w = clencurt(n);
+        let u = vanishing_u(2, n);
+        for k in 0..2 {
+            let ui = u.index_axis(Axis(0), k);
+            let u_hat = Array2::from_shape_fn((n, n), |(i, j)| ui[[i, j]] + 0.02 * noise(k, i, j));
+            let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
+            let (ratio_nd, rms_nd) = boundary_errors_nd(u_hat.view(), ui, &w);
+            assert_rel(ratio_nd, ratio, 1e-14, "ratio");
+            assert_rel(rms_nd, rms, 1e-14, "rms");
+        }
+    }
+
+    /// The bits of every vector of `e`, to compare two results exactly.
+    fn bits(e: &PoissonErrors) -> Vec<Vec<u64>> {
+        [
+            &e.transfer,
+            &e.model,
+            &e.total,
+            &e.u_norm,
+            &e.boundary_max_ratio,
+            &e.boundary_rel_rms,
+        ]
+        .iter()
+        .map(|v| v.iter().map(|x| x.to_bits()).collect())
+        .collect()
+    }
+
+    // D2: 2D fields through poisson_errors_nd are poisson_errors bit for bit, at s = n − 1
+    // and a coarser s, in standard layout, transposed, and through IxDyn
+    #[test]
+    fn nd_rank_two_is_bit_identical_to_2d() {
+        let (count, n) = (3, 17);
+        let u = vanishing_u(count, n)
+            + Array3::from_shape_fn((count, n, n), |(k, i, j)| 0.01 * noise(k + 5, i, j));
+        for s in [n - 1, 8] {
+            let transfers = Transfers::with_s(n, s);
+            let pred = transfers.to_uniform_all(u.view())
+                + Array3::from_shape_fn((count, s, s), |(k, i, j)| 0.05 * noise(k, i, j));
+            let old = bits(&poisson_errors(pred.view(), u.view(), &transfers));
+            assert_eq!(
+                bits(&poisson_errors_nd(pred.view(), u.view(), &transfers)),
+                old
+            );
+            assert_eq!(
+                bits(&poisson_errors_nd(
+                    pred.view().into_dyn(),
+                    u.view().into_dyn(),
+                    &transfers
+                )),
+                old
+            );
+            let (pt, ut) = (
+                pred.view().permuted_axes([0, 2, 1]),
+                u.view().permuted_axes([0, 2, 1]),
+            );
+            assert_eq!(
+                bits(&poisson_errors_nd(pt, ut, &transfers)),
+                bits(&poisson_errors(pt, ut, &transfers))
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "pred has 2 samples but u has 3")]
+    fn nd_sample_count_mismatch_panics() {
+        let u = vanishing_u3(3, 9);
+        let pred = Array4::<f64>::zeros((2, 8, 8, 8));
+        poisson_errors_nd(pred.view(), u.view(), &Transfers::new(9));
+    }
+
+    #[test]
+    #[should_panic(expected = "pred has rank 3 but u has rank 4")]
+    fn nd_rank_mismatch_panics() {
+        let u = vanishing_u3(1, 9).into_dyn();
+        let pred = Array3::<f64>::zeros((1, 8, 8)).into_dyn();
+        poisson_errors_nd(pred.view(), u.view(), &Transfers::new(9));
+    }
+
+    #[test]
+    #[should_panic(expected = "on the transfers' grids (s, n) = (8, 9)")]
+    fn nd_non_cubic_pred_panics() {
+        let u = vanishing_u3(1, 9);
+        let pred = Array4::<f64>::zeros((1, 8, 8, 7));
+        poisson_errors_nd(pred.view(), u.view(), &Transfers::new(9));
+    }
+
+    #[test]
+    #[should_panic(expected = "on the transfers' grids (s, n) = (4, 9)")]
+    fn nd_wrong_grid_panics() {
+        let u = vanishing_u3(1, 9);
+        let pred = Array4::<f64>::zeros((1, 8, 8, 8));
+        poisson_errors_nd(pred.view(), u.view(), &Transfers::with_s(9, 4));
+    }
+
+    #[test]
+    #[should_panic(expected = "at least two spatial axes")]
+    fn nd_one_spatial_axis_panics() {
+        let u = Array2::<f64>::zeros((1, 9));
+        let pred = Array2::<f64>::zeros((1, 8));
+        poisson_errors_nd(pred.view(), u.view(), &Transfers::new(9));
     }
 }
