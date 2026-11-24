@@ -6,9 +6,10 @@ proposal differ, the proposal wins. Progress is logged in `docs/laplace3d/progre
 each task's plan is `docs/laplace3d/tasks/<ID>.md`, written when it starts; each
 milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 
-Status: **planning.** Draft 0.1 written 2026-11-11 and reviewed the same day; draft 0.2
-(2026-11-11) answers the review. D0–D3 signed off 2026-11-11 (on #117); next CL0.1,
-then CL0.2 and CL1.1, runnable once #117 is merged.
+Status: **L0.** Draft 0.1 written 2026-11-11 and reviewed the same day; draft 0.2
+(2026-11-11) answers the review. D0–D3 signed off 2026-11-11 (on #117). 2026-11-24: CL0.1
+in a draft PR, its Mac measurements and the zip64 result in, the cuda run pending and D4,
+D5 proposed (`docs/laplace3d/results/cl0-1.md`); next CL0.2 and CL1.1.
 
 ## How to read this file
 

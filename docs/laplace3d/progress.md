@@ -41,3 +41,20 @@ template:
 - Review: the review of 0.1 is the input; 0.2 not yet reviewed by the author.
 - 2D: not touched.
 - Follow-ups: D0 on draft 0.2; then CL0.1 (the zip64 check added to it), CL0.2, CL1.1.
+
+## 2026-11-24: CL0.1 Rank-5 FNO cost
+- Done: spike `spikes/fno3d_cost/` (a non-default workspace member): `fno3d_cost` times
+  real `train_epoch` and `evaluate` epochs of `FNO<5>` on synthetic data, `run.sh` reads
+  peak memory outside the process; `zip64_roundtrip`. Results
+  `docs/laplace3d/results/cl0-1.md`: on the Mac (flex, metal) time per epoch at s = 32 and
+  64, modes 8³ and 12³; activation memory per sample 0.15 GB (s = 32) and 1.15–1.19 GB
+  (s = 64) on flex, under §7's 0.25 and 1.6–2 GB; a 4.09 GiB npz round trip passes bit for
+  bit with the writer and reader as they are.
+- Tests: `param_counts_match_section_7` (16 785 953 and 56 631 841, exact); the zip64
+  round trip checks every value.
+- Checks: ran fmt, the four clippy runs, `cargo test`, `cargo doc`, the spike's tests and
+  clippy (with metal), `cargo tree`; pending the cuda matrix and the zip64 check on the VM.
+- Decisions: D4 and D5 proposed (results file), not signed off.
+- Review: see the PR.
+- 2D: not touched (no change under `src/`, `examples/`, `tests/`).
+- Follow-ups: the VM run, then the tick; D4 and D5 from the author.
