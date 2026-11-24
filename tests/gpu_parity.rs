@@ -7,6 +7,9 @@
 //!   naive f64 DFT. They are not behind a GPU feature, so CI runs them.
 //! - `replay_2d_poisson` compares the GPU against Flex and must pass before trusting a
 //!   GPU padding sweep.
+//! - `grid_3d`, `spectral_conv_3d` and `replay_3d_poisson` (3D CL0.2) check the rank-5
+//!   grid channels, spectral layer and FNO against Flex the same way, before 3D trains on
+//!   a GPU.
 //!
 //! Run with `cargo test [--release] --features metal --test gpu_parity`
 //! (or `--features cuda`). Only those two features have a GPU here: with `wgpu` alone, only
@@ -241,4 +244,172 @@ fn replay_2d_poisson() {
     }
     println!("worst gpu/flex rel err: {worst:.2e}");
     assert!(worst <= 1e-5, "GPU differs from Flex: {worst:e}");
+}
+
+/// The 2D replay's deterministic input pattern, at any shape.
+#[cfg(any(feature = "metal", feature = "cuda"))]
+fn wave<const R: usize>(dims: [usize; R], device: &Device) -> Tensor<R> {
+    let vals: Vec<f32> = (0..dims.iter().product::<usize>())
+        .map(|i| ((i as f32) * 0.0137).sin() + 0.3 * ((i as f32) * 0.0031).cos())
+        .collect();
+    Tensor::<R>::from_data(TensorData::new(vals, dims), device)
+}
+
+/// `[L, dL/dx..]` for L = mean(forward(x)²); `x` must be on an autodiff device.
+#[cfg(any(feature = "metal", feature = "cuda"))]
+fn loss_and_grad<const R: usize>(
+    forward: impl Fn(Tensor<R>) -> Tensor<R>,
+    x: Tensor<R>,
+) -> Vec<f32> {
+    let x = x.require_grad();
+    let loss = forward(x.clone()).powf_scalar(2.0).mean();
+    let g = loss.backward();
+    let gx = x.grad(&g).unwrap();
+    let mut out = v(loss.inner());
+    out.extend(v(gx));
+    out
+}
+
+/// max |a − b| / max |b|: unlike [`rel`], a few wrong entries cannot hide in the norm.
+#[cfg(any(feature = "metal", feature = "cuda"))]
+fn max_rel(a: &[f32], b: &[f32]) -> f32 {
+    assert_eq!(a.len(), b.len());
+    let num = a
+        .iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0, f32::max);
+    let den = b.iter().map(|y| y.abs()).fold(0.0, f32::max);
+    num / den.max(1e-30)
+}
+
+/// 3D grid channels (CL0.2): `FNO<5>` with no Fourier layers, so the output is the
+/// lifting of (input, grid), the permutes and the projection only, evaluated on the GPU
+/// and on Flex at three non-cubic shapes, the first repeated after the second (the 2D
+/// cat-after-permute and fused-cat-at-new-shape bugs). Flex's rank-5 grid is pinned by
+/// `grid_controls_3d`.
+#[cfg(any(feature = "metal", feature = "cuda"))]
+#[test]
+fn grid_3d() {
+    use burn::module::Module;
+    use sciml_rs::neural_operators::models::fno::FNOConfig;
+    let (m, f) = (gpu(), Device::flex());
+    f.seed(5);
+    let model_f = FNOConfig::new(vec![2, 2, 2], 1, 1)
+        .with_hidden_channels(32)
+        .with_n_layers(0)
+        .init::<5>(&f);
+    let model_m = model_f.clone().to_device(&m);
+    for (call, dims) in [[2, 6, 5, 4, 1], [3, 4, 7, 5, 1], [2, 6, 5, 4, 1]]
+        .into_iter()
+        .enumerate()
+    {
+        let want = v(model_f.forward(wave(dims, &f)));
+        let got = v(model_m.forward(wave(dims, &m)));
+        let (e, e_max) = (rel(&got, &want), max_rel(&got, &want));
+        println!("{call}: {dims:?} rel {e:.1e}, max rel {e_max:.1e}");
+        assert!(
+            e <= 1e-5 && e_max <= 1e-5,
+            "call {call} {dims:?}: GPU grid differs from Flex (rel {e:e}, max rel {e_max:e})"
+        );
+    }
+}
+
+/// 3D spectral layer (CL0.2): `SpectralConv<5>` alone, forward and the input gradient
+/// of mean(y²), on the GPU against Flex. [2, 3, 14, 13, 12] takes Bluestein on both
+/// cfft axes (the 2D cfft stride bug); it is repeated after a power-of-two shape.
+#[cfg(any(feature = "metal", feature = "cuda"))]
+#[test]
+fn spectral_conv_3d() {
+    use burn::module::Module;
+    use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
+    let (m, f) = (gpu(), Device::flex());
+    let (fa, ma) = (f.clone().autodiff(), m.clone().autodiff());
+    f.seed(5);
+    let conv_f = SpectralConv::<5>::new(&f, 3, 3, &[6, 6, 6]);
+    let conv_m = conv_f.clone().to_device(&m);
+    let (conv_fa, conv_ma) = (conv_f.clone().to_device(&fa), conv_f.clone().to_device(&ma));
+    let mut worst = 0.0f32;
+    for (call, dims) in [[2, 3, 14, 13, 12], [2, 3, 16, 16, 16], [2, 3, 14, 13, 12]]
+        .into_iter()
+        .enumerate()
+    {
+        let e_fwd = rel(
+            &v(conv_m.forward(wave(dims, &m))),
+            &v(conv_f.forward(wave(dims, &f))),
+        );
+        let e_bwd = rel(
+            &loss_and_grad(|x| conv_ma.forward(x), wave(dims, &ma)),
+            &loss_and_grad(|x| conv_fa.forward(x), wave(dims, &fa)),
+        );
+        println!("{call}: {dims:?} forward {e_fwd:.1e}, loss + grad {e_bwd:.1e}");
+        worst = worst.max(e_fwd).max(e_bwd);
+    }
+    assert!(
+        worst <= 1e-5,
+        "GPU SpectralConv<5> differs from Flex: {worst:e}"
+    );
+}
+
+/// 3D replay check (CL0.2): [`replay_2d_poisson`]'s schedule at rank 5, `FNO<5>` of
+/// width 32 and 4 layers at s = 16 (modes 6³), padding 0 and 4, with an evaluation at the
+/// non-cubic [2, 14, 13, 12, 1] in the middle (a resolution change). Every GPU call is
+/// compared to Flex (forward output, and loss + input gradient through backward).
+#[cfg(any(feature = "metal", feature = "cuda"))]
+#[test]
+fn replay_3d_poisson() {
+    use burn::module::Module;
+    use sciml_rs::neural_operators::layers::spectral_convolution::SpectralInit;
+    use sciml_rs::neural_operators::models::fno::FNOConfig;
+    let (m, f) = (gpu(), Device::flex());
+    let (fa, ma) = (f.clone().autodiff(), m.clone().autodiff());
+    let cube = |b: usize| [b, 16, 16, 16, 1];
+    let schedule = [
+        (Call::Train, cube(20)),
+        (Call::Train, cube(20)),
+        (Call::Train, cube(7)),
+        (Call::Eval, cube(20)),
+        (Call::Eval, cube(3)),
+        (Call::Eval, [2, 14, 13, 12, 1]),
+        (Call::Train, cube(20)),
+        (Call::Train, cube(7)),
+        (Call::Eval, cube(20)),
+    ];
+    let mut worst = 0.0f32;
+    for p in [0, 4] {
+        f.seed(5);
+        let model_f = FNOConfig::new(vec![6, 6, 6], 1, 1)
+            .with_hidden_channels(32)
+            .with_n_layers(4)
+            .with_padding(Some(p))
+            .with_spectral_init(Some(SpectralInit::SymmetricUniform))
+            .init::<5>(&f);
+        let model_m = model_f.clone().to_device(&m);
+        let (model_fa, model_ma) = (
+            model_f.clone().to_device(&fa),
+            model_f.clone().to_device(&ma),
+        );
+        // Flex references, once per (kind, shape).
+        let mut refs = std::collections::HashMap::<(Call, [usize; 5]), Vec<f32>>::new();
+        let mut line = Vec::new();
+        for (call, &(kind, dims)) in schedule.iter().enumerate() {
+            let want = refs.entry((kind, dims)).or_insert_with(|| match kind {
+                Call::Eval => v(model_f.forward(wave(dims, &f))),
+                Call::Train => loss_and_grad(|x| model_fa.forward(x), wave(dims, &fa)),
+            });
+            let got = match kind {
+                Call::Eval => v(model_m.forward(wave(dims, &m))),
+                Call::Train => loss_and_grad(|x| model_ma.forward(x), wave(dims, &ma)),
+            };
+            let e = rel(&got, want);
+            worst = worst.max(e);
+            line.push(format!(
+                "{call}:{kind}{dims:?}={e:.1e}{}",
+                if e > 1e-5 { "!" } else { "" }
+            ));
+        }
+        println!("p={p} {}", line.join(" "));
+    }
+    println!("worst gpu/flex rel err: {worst:.2e}");
+    assert!(worst <= 1e-5, "GPU differs from Flex at rank 5: {worst:e}");
 }
