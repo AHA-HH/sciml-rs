@@ -26,3 +26,24 @@ template:
 - FNO: not touched.
 - Matrix: seeded, unverified (CM0.1).
 - Follow-ups: review the draft; D0; then CM0.1 and CM0.2.
+
+## 2026-11-24: CM0.1 Feature matrix at 2.0.0
+- Done: `feature-matrix.md` read from the source of tag 2.0.0 (`b307030`): every public
+  top-level class and function of `neuralop/` (tests excluded) in a table row with its
+  source path, the sciml-rs counterpart, a status and a task; an appendix of 186
+  signatures with defaults, extracted with `ast`. New against the seed: `data/transforms`,
+  `mpu`, `utils.py`, `BatchNorm`, the equation-loss classes, the differentiation APIs, the
+  registry's contents (UNO and CODANO are not in `get_model`). Corrected: 2.0.0's Burgers
+  dataset is space-time, so not the crate's Burgers task (missing, not partial).
+- Tests: an independent agent re-read its own clone of the tag and checked every row and
+  signature: 183 of 185 signatures exact, one item missing from the appendix, an
+  inconsistent "exported" rule, two wrong parentheticals and three thin sciml-rs cells;
+  all fixed, then re-checked (see the PR).
+- Checks: docs only; no Rust check applies, CI's `changes` filter skips its jobs.
+- Decisions: none taken; questions for sign-off in the PR (scope of the not-planned rows,
+  owners for the rows without a task, proposal §3 and CM1.3 corrections).
+- Review: plan review (see the PR); code-quality review skipped (docs only).
+- FNO: not touched.
+- Matrix: every row set.
+- Follow-ups: owners for the "–" rows (datasets, transforms, utilities) once the author
+  answers the PR's questions.
