@@ -55,11 +55,12 @@ the feature matrix is verified.
   (every public model, layer, loss, training feature and dataset, with its options and
   defaults). *Done when:* every row has a status and a source path, checked by an agent
   independent of the writer. *Needs:* D1.
-- [ ] **CM0.2 Pinned Python environment and fixture generator.** `tools/parity/`:
+- [x] **CM0.2 Pinned Python environment and fixture generator.** `tools/parity/`:
   `neuraloperator` 2.0.0 with torch, tensorly, tltorch and torch_harmonics pinned in a
   lock file; a generator writing weights, input and output of a named configuration to
   `.npz`. *Done when:* a 1D and a 2D FNO fixture written, sizes within D8. *Needs:* D2,
-  D8.
+  D8. Plan `docs/operators/tasks/CM0.2.md`; environment and generator `tools/parity/`
+  (README); fixtures `tests/fixtures/parity/fno{1d,2d}_{f32,f64}`. D8 asked in its PR.
 - [ ] **CM0.3 The operator trait and a generic stack.** Proposal §6.1: trainer, evaluate,
   `predict_host`, checkpoints, the epoch observer, the run directory's weights and the
   Gauss–Newton residual generic over the trait; `FNO<R>` implements it. *Done when:* every
