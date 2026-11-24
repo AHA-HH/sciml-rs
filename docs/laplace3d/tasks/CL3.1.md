@@ -30,35 +30,42 @@ forcing and solution coefficients and their separable evaluation on a 3D tensor 
 `rand_chacha-0.10.0/src/chacha.rs` (`set_stream`).
 
 ## Changes
-`src/neural_operators/pde/poisson/grf.rs` only (behind `datagen`, as the module is). New
-public items, named with a `_3d` suffix beside the 2D ones; no existing item changes:
-- `ALPHA_3D = 3.0` (D3; τ is the shared `TAU`), `S_INF_3D` (computed once, recomputed by
-  a test), `STREAM_3D = 3` and `RNG_3D` (the sidecar string).
-- `mu_3d`, `lambda_3d`, `s_k_3d`, `eps_k_3d`.
-- `draw_xi_3d(seed) -> [K_MAX, K_MAX, K_MAX]`: `ChaCha8Rng::seed_from_u64(seed)` with
+A new module `src/neural_operators/pde/poisson/grf3d.rs` beside `grf.rs` (behind
+`datagen`, as `pde/` is), registered in `pde/poisson/mod.rs`. In `grf.rs` only the private
+`sine_basis` becomes `pub(super)`; no 2D item's code changes. (First written as `_3d`
+items inside `grf.rs`; moved to their own module after the code-quality review, finding
+F1.) Public items:
+- `ALPHA = 3.0` (D3; τ is `grf::TAU`, K_MAX `grf::K_MAX`), `S_INF` (computed once,
+  recomputed by a test), `STREAM = 3` and `RNG` (the sidecar string).
+- `mu`, `lambda`, `s_k`, `eps_k`.
+- `draw_xi(seed) -> [K_MAX, K_MAX, K_MAX]`: `ChaCha8Rng::seed_from_u64(seed)` with
   `set_stream(STREAM_3D)`. The 2D draws (and Phase 7's subsets) use stream 0, so a 3D seed
   never repeats a 2D sample's normals, while seeds keep the 2D numbering
   (`base_seed + i`).
-- `forcing_coeffs_3d`, `solution_coeffs_3d`, `evaluate_3d` (for each k, the 2D product
+- `forcing_coeffs`, `solution_coeffs`, `evaluate` (for each k, the 2D product
   S_y C_k S_zᵀ, then S_x over the stacked results: three mode products).
 Conventions: none changed; output stored 'ijk' (CONVENTIONS §12, version 3).
 
 ## Tests that prove it
-In `grf.rs`'s `mod tests` (datagen):
+In `grf3d.rs`'s `mod tests` (datagen):
 1. `evaluate_3d_matches_direct_sum` (above).
-2. `eps_k_3d_matches_design_table` (above), including S_∞ recomputed by the cube sum to
-   m = 160 plus the integral tail bound outside radius m + ½, relative to `S_INF_3D`.
+2. `eps_k_3d_matches_design_table` (above), including S_∞ recomputed from the cube sums to
+   m = 40, 80 and 160 with their (m + ½)⁻³ tail extrapolated (proposal §3.3; the two
+   extrapolations agree to 1e-6), relative to `S_INF` to 1e-6. Cube sums stand in for the
+   proposal's lattice shells: the same terms, summed in another order. (A sphere tail
+   bound, as in the 2D test, was tried first: it leaves an uncertainty of 9e-6 in ε, as
+   large as ε_64, so it could not confirm the table.)
 3. `draws_3d_are_nested` (c at K = 8 equals the leading block of c at K = 16 times
    √(S_16/S_8)) and `stream_3d_differs_from_2d` (same seed, different normals; the
    3D stream is reproducible).
 4. `mean_square_3d_is_one` (Parseval, 1/8 per mode, within 4 s.e.).
 5. `field_and_solution_3d_vanish_on_boundary` (all six faces, ≤ 1e-14 × scale).
-6. `solution_3d_solves_poisson`: −Δ of the u series equals f, checked through the
-   coefficients against a second-difference stencil of `evaluate_3d` at one interior
-   point is weaker than needed, so instead −Δ is applied to each sine product exactly:
-   μ_3d(k, l, m) · u_klm = c_klm to 1e-15 relative (the closed form).
+6. `solution_3d_solves_poisson`: the 7-point stencil of `evaluate_3d` of u (h = 1e-3) at
+   interior points equals f to 1e-4 × max |f| (O(h²) truncation), which checks μ_klm.
 7. `k_above_k_max_panics_3d`.
-Constraint 1: no 2D item changes, so the 2D suite (`cargo test --features datagen`, whose
+8. `draw_order_is_row_major` (ξ against a hand-built stream at three indices) and
+   `rng_pins_match_2d` (the sidecar strings name the same pins), from the reviews.
+Constraint 1: no 2D item's code changes, so the 2D suite (`cargo test --features datagen`, whose
 2D GRF and dataset tests are unchanged) is the bit-identity check.
 
 ## Checks
