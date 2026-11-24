@@ -1,8 +1,8 @@
 //! Batched inference with a saved run's model.
 //!
 //! `runs::RunDir::load_model` (`load_fno` for the FNO) rebuilds the model on any device;
-//! [`predict_host`] runs any [`GridOperator`] over a host batch of inputs of any rank and returns the outputs on the host as f64, ready
-//! for decoding and the errors.
+//! [`predict_host`] runs any [`GridOperator`] over a host batch of inputs of any rank and
+//! returns the outputs on the host as f64, ready for decoding and the errors.
 
 use burn::tensor::{Device, Tensor, TensorData};
 use ndarray::{ArrayD, ArrayViewD, Axis, IxDyn, Slice};

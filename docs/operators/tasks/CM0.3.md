@@ -168,14 +168,17 @@ CM3.3 an extension rather than a rewrite.
   2. *one Phase 5 epoch:* `build_training_components::<4, 3, _>` and `train_components`
      (the path `train_fno` and `train_poisson` take) with `train_poisson`'s Adam settings
      and `epochs = 1`, a checkpoint after the epoch, on a deterministic synthetic 2D split
-     at s = 64 (20 training samples, one batch), into a temporary `RunDir`: the epoch's
+     at s = 64 (30 training samples: two batches, the second partial), into a temporary `RunDir`: the epoch's
      metrics minus `epoch_time_s`; the trained, reloaded (`load_fno`) and checkpointed
      (`checkpoint::<4>`) parameters; the checkpoint's epoch counters; `predict_host` of the
      reloaded models. The files are compared by what they hold, not their bytes: Burnpack
      records each parameter's random `ParamId`, so even `main` never writes the same
      bytes twice (found while writing the test).
   3. *one Gauss–Newton epoch:* the same with Gauss–Newton (CG capped at 5, the adjoint
-     check every step) on a tiny model, through the same checkpoint (`save_checkpoint_gn`).
+     check every step) on a tiny model, through the same checkpoint (`save_checkpoint_gn`),
+     plus the checkpoint's Gauss–Newton state (λ, step count, CG warm start; its fields,
+     since `GaussNewtonState::to_bytes` also records `ParamId`s). Not covered: the Hybrid
+     arm, the Hutchinson preconditioner and `gn_steps.csv`'s rows (plan review advisory).
   `/verify` runs it on a detached `origin/main` worktree (the file copied in) and on the
   branch, then `cmp`s each `.bin`. Trusted path: `main`'s code. Tolerance: none (bytes).
   The test is `#[ignore]`d (about 4 minutes in a debug build) and run in release by

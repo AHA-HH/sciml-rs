@@ -146,6 +146,15 @@ fn one_epoch(
     let ck = run.checkpoint::<4>(&plain).unwrap().unwrap();
     let resumed = ck.model;
     let state = [ck.state.next_epoch, ck.state.resumes].map(|v| v as u64);
+    // its fields, not `to_bytes`, which records the random `ParamId`s
+    let gn_state = ck.gn.map_or_else(Vec::new, |g| {
+        let mut b = g.lambda.to_le_bytes().to_vec();
+        b.extend(g.step.to_le_bytes());
+        if let Some(w) = &g.warm_start {
+            b.extend(tensor_bytes(w.to_flat()));
+        }
+        b
+    });
     let predict = |m: &FNO<4>| {
         let p = predict_host::<4>(m, inputs.view(), 1, &plain);
         f32_bytes(&p.iter().map(|&v| v as f32).collect::<Vec<_>>())
@@ -156,6 +165,7 @@ fn one_epoch(
         param_bytes(&loaded),
         param_bytes(&resumed),
         state.iter().flat_map(|v| v.to_le_bytes()).collect(),
+        gn_state,
         predict(&loaded),
         predict(&resumed),
     ];
@@ -164,8 +174,8 @@ fn one_epoch(
 }
 
 /// One Phase 5 epoch: the baseline model and `train_poisson`'s Adam settings (batch 20,
-/// lr 1e-3, weight decay 1e-4, min lr 1e-5, seed 42), on 20 training samples (one batch)
-/// at s = 64, its cosine schedule spanning 500 epochs as the baseline's does.
+/// lr 1e-3, weight decay 1e-4, min lr 1e-5, seed 42), on 30 training samples at s = 64:
+/// two batches, the second partial, so two scheduler steps and the epoch's accumulation.
 fn phase5_epoch() -> Vec<u8> {
     let train_cfg = TrainingConfig::new()
         .with_epochs(1)
@@ -174,11 +184,11 @@ fn phase5_epoch() -> Vec<u8> {
         .with_weight_decay(1e-4)
         .with_min_lr(1e-5)
         .with_seed(42);
-    one_epoch("phase5_epoch", &phase5_model(), &train_cfg, 64, (20, 4))
+    one_epoch("phase5_epoch", &phase5_model(), &train_cfg, 64, (30, 4))
 }
 
 /// One Gauss–Newton epoch (Phase 10 T3) on a tiny model: two steps of batch 2, CG capped
-/// at 5 iterations, the adjoint check on.
+/// at 5 iterations, the adjoint check on; the checkpoint's Gauss–Newton state is dumped.
 fn gauss_newton_epoch() -> Vec<u8> {
     let model_cfg = FNOConfig::new(vec![2, 2], 1, 1)
         .with_hidden_channels(4)
