@@ -157,6 +157,14 @@ pub struct CollocationSolver3d {
     inv_denom: Array3<f64>,
 }
 
+impl std::fmt::Debug for CollocationSolver3d {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CollocationSolver3d")
+            .field("shape", &self.shape)
+            .finish_non_exhaustive()
+    }
+}
+
 impl CollocationSolver3d {
     /// Builds the solver for an `[n_x, n_y, n_z]` CGL grid: eigendecomposes the interior
     /// block of [`diff2_matrix`] along each axis, O(n³) once.
@@ -270,9 +278,9 @@ fn real_eig(d: &Array2<f64>) -> RealEig {
     // left vectors are needed for V⁻¹ in any case.
     let (lam, v, u) = to_dyn(d.view())
         .eig(EigMode::BothEigenvectors)
-        .expect("CollocationSolver::new: eig of the interior D² failed");
-    let v = v.expect("CollocationSolver::new: eig returned no right eigenvectors");
-    let u = u.expect("CollocationSolver::new: eig returned no left eigenvectors");
+        .expect("real_eig: eig of the interior D² failed");
+    let v = v.expect("real_eig: eig returned no right eigenvectors");
+    let u = u.expect("real_eig: eig returned no left eigenvectors");
     let scale = (0..m).fold(0.0_f64, |a, i| a.max(lam[[i]].norm()));
     let mut im_lam = 0.0_f64;
     let mut im_vec = 0.0_f64;
@@ -309,14 +317,14 @@ impl RealEig {
     fn checked(self) -> Self {
         assert!(
             self.im_lam <= IMAG_TOL && self.im_vec <= IMAG_TOL,
-            "CollocationSolver::new: complex eigenpairs of the interior D² \
+            "real_eig: complex eigenpairs of the interior D² \
              (max |Im λ| / max |λ| = {:e}, max |Im v|, |Im u| = {:e})",
             self.im_lam,
             self.im_vec
         );
         assert!(
             self.min_biorth >= BIORTH_TOL,
-            "CollocationSolver::new: ill-conditioned eigenvalue of the interior D² \
+            "real_eig: ill-conditioned eigenvalue of the interior D² \
              (min |u_jᵀ v_j| = {:e})",
             self.min_biorth
         );
@@ -356,10 +364,13 @@ fn transpose(a: &DynArray<f64, 2>) -> DynArray<f64, 2> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::chebyshev::cc_rel_l2_error;
+    use crate::neural_operators::chebyshev::{cc_rel_l2_error, cc_rel_l2_error_nd, nodes};
+    use crate::neural_operators::pde::poisson::grf3d;
     use crate::neural_operators::pde::poisson::manufactured::{
-        ANISO, ANISO_T, EXP, Manufactured, POLY, SIN, exp_f, exp_u, rel_max, sample, sin_f, sin_u,
+        ANISO, ANISO_T, ANISO3, EXP, EXP3, MODES3, Manufactured, Manufactured3, POLY, SIN, SIN3,
+        exp_f, exp_u, rel_max, sample, sample3, sin_f, sin_u,
     };
+    use ndarray::{Array, Dimension};
     use rlst::Solve;
 
     /// The interior D² eigenvalues are negative, the smallest |λ| that of −d²/dx² on
@@ -466,7 +477,7 @@ mod tests {
     }
 
     /// max |a| over the entries.
-    fn max_abs(a: &Array2<f64>) -> f64 {
+    fn max_abs<D: Dimension>(a: &Array<f64, D>) -> f64 {
         a.iter().fold(0.0_f64, |m, v| m.max(v.abs()))
     }
 
@@ -593,67 +604,12 @@ mod tests {
 
     // ---- A3, the 3D solver (3D proposal §5) ----
 
-    use crate::neural_operators::chebyshev::{apply_nd, cc_rel_l2_error_nd, nodes};
-    use crate::neural_operators::pde::poisson::grf3d;
-    use ndarray::{Array3, ArrayView2};
-    use std::f64::consts::PI;
-
-    type Field3 = fn(f64, f64, f64) -> f64;
-
-    /// A 3D manufactured pair: u and f = −Δu.
-    struct Manufactured3 {
-        name: &'static str,
-        u: Field3,
-        f: Field3,
-    }
-
-    const SIN3: Manufactured3 = Manufactured3 {
-        name: "sin πx sin πy sin πz",
-        u: |x, y, z| (PI * x).sin() * (PI * y).sin() * (PI * z).sin(),
-        f: |x, y, z| 3.0 * PI * PI * (PI * x).sin() * (PI * y).sin() * (PI * z).sin(),
-    };
-    const MODES3: Manufactured3 = Manufactured3 {
-        name: "sin πx sin 2πy sin 3πz",
-        u: |x, y, z| (PI * x).sin() * (2.0 * PI * y).sin() * (3.0 * PI * z).sin(),
-        f: |x, y, z| 14.0 * PI * PI * (PI * x).sin() * (2.0 * PI * y).sin() * (3.0 * PI * z).sin(),
-    };
-    /// Neither a polynomial nor a sine product: u = (1 − x²) eˣ (1 − y²)(1 − z²).
-    const EXP3: Manufactured3 = Manufactured3 {
-        name: "(1−x²)eˣ(1−y²)(1−z²)",
-        u: |x, y, z| (1.0 - x * x) * x.exp() * (1.0 - y * y) * (1.0 - z * z),
-        f: |x, y, z| {
-            let (bx, by, bz) = (1.0 - x * x, 1.0 - y * y, 1.0 - z * z);
-            x.exp() * ((x * x + 4.0 * x + 1.0) * by * bz + 2.0 * bx * (by + bz))
-        },
-    };
-    /// Exact along x at any n ≥ 3; resolved along y by 17 nodes, along z only by 33.
-    const ANISO3: Manufactured3 = Manufactured3 {
-        name: "(1−x²) sin πy sin 3πz",
-        u: |x, y, z| (1.0 - x * x) * (PI * y).sin() * (3.0 * PI * z).sin(),
-        f: |x, y, z| (PI * y).sin() * (3.0 * PI * z).sin() * (2.0 + 10.0 * PI * PI * (1.0 - x * x)),
-    };
-
-    /// `g` on the `[nx, ny, nz]` CGL grid, 'ijk'.
-    fn sample3(nx: usize, ny: usize, nz: usize, g: Field3) -> Array3<f64> {
-        let (x, y, z) = (nodes(nx), nodes(ny), nodes(nz));
-        Array3::from_shape_fn((nx, ny, nz), |(i, j, k)| g(x[i], y[j], z[k]))
-    }
-
-    /// max |a − b| / max |b|, rank 3.
-    fn rel_max3(a: &Array3<f64>, b: &Array3<f64>) -> f64 {
-        let err = a
-            .iter()
-            .zip(b)
-            .fold(0.0_f64, |m, (p, q)| m.max((p - q).abs()));
-        err / b.iter().fold(0.0_f64, |m, q| m.max(q.abs()))
-    }
-
     /// Relative max and 3D Clenshaw–Curtis relative L² errors of A3 on `m`.
     fn errors3(nx: usize, ny: usize, nz: usize, m: &Manufactured3) -> (f64, f64) {
         let u = CollocationSolver3d::new(nx, ny, nz).solve_full(sample3(nx, ny, nz, m.f).view());
         let exact = sample3(nx, ny, nz, m.u);
         (
-            rel_max3(&u, &exact),
+            rel_max(&u, &exact),
             cc_rel_l2_error_nd(u.view(), exact.view()),
         )
     }
@@ -674,7 +630,7 @@ mod tests {
             }
         }
         // Spectral decay: n = 9 → 17 gains at least two orders of magnitude.
-        for m in [&SIN3, &EXP3] {
+        for m in [&SIN3, &MODES3, &EXP3] {
             let (e9, _) = errors3(9, 9, 9, m);
             let (e17, _) = errors3(17, 17, 17, m);
             assert!(e17 * 100.0 <= e9, "{}: {e9:e} at 9, {e17:e} at 17", m.name);
@@ -696,7 +652,7 @@ mod tests {
             );
             let u = CollocationSolver3d::new(n, n, n).solve_full(f.view());
             let (e_max, e_l2) = (
-                rel_max3(&u, &exact),
+                rel_max(&u, &exact),
                 cc_rel_l2_error_nd(u.view(), exact.view()),
             );
             println!("GRF K = {k:2}, n = {n}, seed {seed}: max {e_max:.1e}, L² {e_l2:.1e}");
@@ -726,9 +682,8 @@ mod tests {
                 let lap = ops
                     .iter()
                     .fold(Array3::zeros(u.dim()), |acc, t| acc + apply_nd(t, u.view()));
-                let max = |a: &Array3<f64>| a.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
                 let r = -lap - &f;
-                let e = max(&r) / (3.0 * norm_inf(&d) * max(&u) + max(&f));
+                let e = max_abs(&r) / (3.0 * norm_inf(&d) * max_abs(&u) + max_abs(&f));
                 println!("{:24} n = {n:2}: scaled residual {e:.1e}", m.name);
                 assert!(e <= 1e-14, "{} at n = {n}: {e:e}", m.name);
             }
