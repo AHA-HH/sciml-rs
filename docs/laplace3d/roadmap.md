@@ -6,9 +6,9 @@ proposal differ, the proposal wins. Progress is logged in `docs/laplace3d/progre
 each task's plan is `docs/laplace3d/tasks/<ID>.md`, written when it starts; each
 milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 
-Status: **planning.** Draft 0.1 written 2026-11-11 and reviewed the same day; draft 0.2
-(2026-11-11) answers the review. D0–D3 signed off 2026-11-11 (on #117); next CL0.1,
-then CL0.2 and CL1.1, runnable once #117 is merged.
+Status: **L0 and L1 in progress.** Draft 0.2 is the plan of record (D0–D3 signed off
+2026-11-11). 2026-11-24: CL0.2 done (rank-5 parity on metal, no Burn bug found); CL0.1
+and CL1.1 in review; next CL1.2 once CL1.1 is merged.
 
 ## How to read this file
 
@@ -56,9 +56,11 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
   parameter counts and activation memory against §7; the zip64 result; D4 (with the batch)
   and D5 proposed. *Needs:* –.
   *Machines:* the VM (cuda). *Sign-off:* D4, D5.
-- [ ] **CL0.2 Rank-5 backend parity.** `tests/gpu_parity.rs` cases for the 3D spectral
+- [x] **CL0.2 Rank-5 backend parity.** `tests/gpu_parity.rs` cases for the 3D spectral
   layer and the 3D grid channels on metal (the 2D cat and fusion bugs). *Done when:* the
   cases pass, or fail with a recorded Burn bug and a workaround. *Needs:* –.
+  Report: `docs/laplace3d/tasks/CL0.2.md` and `progress.md` (2026-11-24); all pass on
+  metal, worst rank-5 error 1.5e-6 against 1e-5.
 
 ## L1: Conventions and N-D shared pieces
 
@@ -106,7 +108,8 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
   when it starts if it exceeds it. *Needs:* CL0.2, CL1.3, CL3.3, D4.
 - [ ] **CL4.2 3D baseline.** Training at n = 65 over seeds. *Done when:* the results table
   with errors 2–5 against the 3D floor, and 2D Phase 5 at the same s as context (the
-  input families differ, proposal §3.3).
+  input families differ, proposal §3.3). Before its first cuda run, CL0.2's cases run on
+  cuda: `cargo test --release --no-default-features --features cuda --test gpu_parity`.
   *Needs:* CL4.1, D8. *Machines:* the VM.
 
 ## L5: 3D Laplace
