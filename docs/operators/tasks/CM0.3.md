@@ -130,7 +130,7 @@ forward. Proposal §12 recommends against ("no trait objects").
 **Recommendation:** A. It is the proposal's, it costs the same as B now, and it leaves
 CM3.3 an extension rather than a rewrite.
 
-## Changes (under A; revised if D4 differs)
+## Changes (option A, signed off)
 
 - `models/operator.rs` (new): `Operator`, `GridOperator<R>` with its blanket impl;
   `impl Operator for FNO<R>` (in `models/fno/mod.rs` or `operator.rs`). `models/mod.rs`
@@ -213,4 +213,4 @@ None.
 
 ## Open questions
 
-- D4 (above), for the author.
+- D4: signed off 2026-11-24 by the author, option A as recommended.
