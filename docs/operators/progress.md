@@ -79,10 +79,11 @@ template:
   diff; the reviewer ran `cargo fmt --check`, clippy (default, `--all-targets`,
   `datagen`), `cargo test`, `cargo test --features datagen`, `cargo doc` (all pass); metal
   not run (no Rust changed).
-- Decisions: D8 (fixture size) asked in the PR, with these sizes.
+- Decisions: D8 (fixture size) signed off 2026-11-24 as recommended (P ≲ 10⁴, under about
+  1 MB per fixture).
 - Review: plan review PASS (advisories fixed: round trip from zeroed weights, strict load,
   sidecars in `--check`); code quality APPROVE with findings (F1–F3 fixed; F4, F5 left in
   the PR text).
 - FNO: not touched (no Rust changed).
 - Matrix: no rows (environment only).
-- Follow-ups: D8's sign-off; then CM0.5 reads these fixtures (the CM0.5 line).
+- Follow-ups: CM0.5 reads these fixtures (the CM0.5 line).

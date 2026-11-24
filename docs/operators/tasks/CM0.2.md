@@ -15,7 +15,7 @@ configuration.
 ## Acceptance (roadmap *Done when*, verbatim, and the proposal's matching text)
 - Roadmap: "a 1D and a 2D FNO fixture written, sizes within D8."
 - D8 (proposal §12, recommendation): "tiny models only (P ≲ 10⁴), so fixtures stay under
-  about 1 MB each." Not yet signed off: CM0.2 prepares it and asks it in the PR.
+  about 1 MB each." Signed off 2026-11-24 as recommended.
 - §5: fixtures are "weights, input, output written by 2.0.0 on the CPU in f32 and f64".
 - D2 (signed off 2026-11-24): `tools/parity/`, outside CI, with a lock file; fixtures in
   `tests/fixtures/parity/`.
@@ -81,4 +81,5 @@ None.
 None.
 
 ## Open questions
-- D8 (fixture size) for sign-off in the PR, with the sizes measured here.
+- D8 (fixture size): signed off 2026-11-24 as recommended (P ≲ 10⁴, under about 1 MB per
+  fixture); the fixtures are at most P = 7,129 and 103 kB.
