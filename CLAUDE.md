@@ -25,17 +25,17 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   docs/operators/progress.md. Constraint 1: every existing FNO output stays bit for bit
   identical. Python (fixtures from 2.0.0) stays outside CI.
 - Objective 2D (everything below; phases in docs/poisson2d/).
-- Current phase: Phase 10 (Gauss–Newton optimisation), planned 2026-11-09:
-  docs/poisson2d/phase10/README.md, briefs T1–T6 (T5 a draft for its runs), design §13.17, decision 31,
-  decisions G1–G8 chosen 2026-11-09. T1, the generic core, done (#98); T2, the
-  `GaussNewton` optimiser, done (#102); T3, trainer integration, code done (#104); T4,
-  the validation gate, code done (#105); T5, the matrix, code done (#106); T6, conditioning, code done (#107); all code done, the VM runs remain, in the order of docs/poisson2d/phase10/runs.md (the run sheet). Order amended
-  2026-11-11 (decision 31): task code first, every VM run (T3's acceptance, T4's gate,
-  T5, T6) at the end of the phase; T5's runs wait for T4's go. A model-agnostic,
-  matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: Burn has
-  reverse mode only), validated on the Phase 5 baseline. G8, amended 2026-11-09: it
-  waits neither for Phase 9 (now done) nor for the θ-map. Code is written on the Mac;
-  T3's cuda f64 check and the runs (T4–T6) are on one A100 on the VM (no NCCL needed).
+- Current phase: none planned after Phase 10. Candidates: an optimiser comparison
+  (L-BFGS, SOAP; more GN seeds at μ = 0 and a long Adam run, post-Phase 10) and the 3D
+  objective.
+- Phase 10 (Gauss–Newton optimisation) is done 2026-11-24: docs/poisson2d/phase10/README.md,
+  results docs/poisson2d/phase10/results.md (H10a) and conditioning.md (H10b), design
+  §13.17, decision 31 (G1–G8). T1–T6 merged (#98, #102, #104–#107), follow-up overrides
+  #118; T3's cuda f64 check blocked upstream, f64 not needed. A model-agnostic,
+  matrix-free Levenberg–Marquardt Gauss–Newton (finite-difference JVPs: Burn has reverse
+  mode only). At G5's μ = 1e-4 Adam wins at equal wall-clock; without weight decay GN is
+  ahead on average (3 seeds, one not) and reaches 3.03e-3 in 6.3× the time. All its runs
+  are on the Burn fork, before #119.
 - The θ-map is an optional, unnumbered phase since 2026-11-09 (decision 30):
   docs/poisson2d/optional/README.md, design §13.18. T1, the θ-map model (brief
   docs/poisson2d/optional/T1-theta-map.md approved, decisions P8–P17 chosen 2026-11-09); T2, the

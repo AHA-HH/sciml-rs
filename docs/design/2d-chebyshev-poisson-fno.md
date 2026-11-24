@@ -930,6 +930,14 @@ on one A100 against Adam on the same seeds, splits and test set; it does not blo
 | T5 | The N = 1000 matrix: Adam reruns and four GN arms, 3 seeds; results | T4 |
 | T6 | PDE against neural-operator conditioning across s | T4 |
 
+- **Status (2026-11-24):** done. T1–T6 merged (#98, #102, #104–#107), follow-up overrides
+  #118; T3's cuda f64 check blocked upstream (decision 31). At G5's μ = 1e-4 Adam wins at
+  equal A100 wall-clock (error 4 1.061e-2 against 2.16e-2 for the best GN arm); without
+  weight decay GN's mean is lower at equal time (9.06e-3, 3 seeds, one above Adam's
+  range) and reaches 3.03e-3 in 6.3× the time. A GN update costs about 100 Adam updates
+  in passes. H10a partly confirmed; H10b confirmed for the curvature's convergence in s.
+  Results: `docs/poisson2d/phase10/results.md`, `docs/poisson2d/phase10/conditioning.md`.
+
 ### Optional phase: the θ-map
 
 Option 2 of §6 with its own convention diff, compared against the Phase 5 baseline.
@@ -1844,6 +1852,20 @@ Signed off by the author (AHA-HH) on 2026-10-05, in a Claude Code session.
       CONVENTIONS (T3 adds the GN residual to §11, which does not bump the version); the
       model, data, transfers and metrics. Phases 5–7's completion does not wait for
       Phase 10.
+    - **Amendment, T3's cuda f64 check (2026-11-24).** Recorded as blocked upstream, not
+      passed: on the fork every f64 FFT on cuda ran as an f32 kernel (cubek #677, fixed
+      upstream), and on Burn 0.23.0-pre.2 (#119) every f64 matmul on cuda panics in
+      cubek-matmul's autotune; flex's f64 FFT uses f32 twiddles
+      (`upstream/cubek/f64-matmul-declined-on-cuda/`, `upstream/burn/flex-f64-fft-f32-twiddles/`).
+      f64 is not needed: this work targets 5–7 significant digits, which f32 gives, and
+      every Phase 10 run is f32. Decided by the author (AHA-HH), 2026-11-24.
+    - **Finding on G5 (2026-11-24).** Weight decay μ = 1e-4 as a Tikhonov term is what
+      held Gauss–Newton back: at μ = 1e-4 no GN run got below error 4 2.0e-2 in up to
+      5,400 s, while at μ = 0 GN200-D reached 9.06e-3 at equal time (mean of 3 seeds) and
+      3.03e-3 with CG cap 150 in 5,400 s; Adam at μ = 0 overfits (1.539e-2). G5 stands as
+      the setting of the matrix; the follow-ups used the overrides of #118. More GN seeds
+      at μ = 0 and an Adam run at the 5,400 s budget are post-Phase 10 work.
+      `docs/poisson2d/phase10/results.md`. Recorded 2026-11-24.
 
 ## 13. Research programme after Phase 4s
 
