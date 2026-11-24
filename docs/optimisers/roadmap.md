@@ -79,8 +79,9 @@ weight decay accounts for.
 - [ ] **CO1.1 The reference recipe.** `OptimizerConfig::AdamW` (Burn's `AdamWConfig`, ε
   1e-8), `TrainingConfig.lr_schedule` (`None` = today's cosine; a step variant halving every
   k epochs), an `FNOConfig` GELU option and a squared relative-L² option for the Adam path (both off by default), `OPTIMIZER=adamw`, `WEIGHT_DECAY` and the subsample rate as variables of
-  `train_burgers`, and `costs.json` for Burgers runs; the data split checked against Li et
-  al.'s `fourier_1d.py` and the epoch count confirmed. *Done when:* the O1 tests of proposal
+  `train_burgers` with n_train = 1,000 (1,024 today), and `costs.json` for Burgers runs;
+  s = 128 and the 1,000/100 split checked against Lu et al. 2022 and PETScML's scripts;
+  Burn's `StepLrSchedulerConfig` reused for the step schedule. *Done when:* the O1 tests of proposal
   §9 pass (the parameter count 549,569, AdamW at weight decay 0 equal to Adam at 0 under the
   same schedule, the step schedule's halvings); A1 on seed 42 on flex or metal against
   0.0014; constraint 1 shown (`train_burgers` and `train_darcy` with nothing set unchanged
@@ -130,7 +131,8 @@ piloted.
 - [ ] **CO3.3 The SOAP arm and pilot.** `OptimizerConfig::Soap`, `OPTIMIZER=soap`; resume
   exact; then the pilot of D6 on seed 42 at the equal-time budget. *Done when:* a flex smoke
   run and its resume, constraint 1 shown, the pilot table, D6 proposed. *Needs:* CO3.2,
-  CO0.1, D7, D13. *Machines:* the VM. *Sign-off:* D6.
+  CO0.1, D7, D13, the library objective's CM0.3 (`training/` changes are serial; not at
+  once with CO1.1, CO1.2 or CO2.1). *Machines:* the VM. *Sign-off:* D6.
 
 ## O4: The 2D comparison
 

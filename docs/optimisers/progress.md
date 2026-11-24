@@ -39,3 +39,13 @@ template:
 - Adam and Gauss–Newton: not touched.
 - Follow-ups: the author's review of draft 0.2; D0, D2, D10–D12; then CO0.1, CO0.2 and CO3.1
   at once, CO3.2 after CO3.1, and CO1.1 after CM0.3 (CO1.1 before CO2.1).
+
+## 2026-11-24: Draft 0.2 corrections
+- Done: draft 0.2 checked by an independent agent against PETScML (arXiv 2403.12188), the
+  code and Burn 0.23; nine corrections applied (proposal Appendix A, "Draft 0.2,
+  corrections").
+- Tests: none.
+- Checks: none (docs).
+- Decisions: none signed off; D0 on draft 0.2 next.
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: D0, D2; then CO0.1, CO0.2 and CO3.1.
