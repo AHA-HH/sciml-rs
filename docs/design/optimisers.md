@@ -1,11 +1,13 @@
 # Optimiser benchmarks for the neural operators: L-BFGS and SOAP against Adam and Gauss–Newton: design proposal
 
-Draft 0.1, 2026-11-24. A proposal for review, not a plan: nothing here is signed off, and no
+Draft 0.2, 2026-11-24. A proposal for review, not a plan: nothing here is signed off, and no
 convention changes. It adds two optimisers to the comparison the 2D objective's Phase 10
 began (`docs/poisson2d/phase10/results.md`), on the 2D Poisson baseline first and on the 3D
-objective's Poisson baseline later. Section 12 lists the decisions the proposal needs from
-the author. The reference notes behind Sections 5 and 13 are in
-`docs/optimisers/references.md`.
+objective's Poisson baseline later, and, since draft 0.2, replicates the one published
+Gauss–Newton training of an FNO (Zampini et al. 2024, PETScML) on 1D Burgers, with Darcy as
+an extension. Section 12 lists the decisions the proposal needs from the author. The
+reference notes behind Sections 5 and 13 are in `docs/optimisers/references.md`; the
+literature search behind Section 3.1 is in `paper/literature-search.md` (git-ignored).
 
 > `docs/CONVENTIONS.md` takes precedence over this document. Nothing here changes a
 > convention.
@@ -19,10 +21,24 @@ which infers curvature from its gradient history (Burn 0.23 ships one), and SOAP
 in the eigenbasis of a Kronecker-factored preconditioner (to be written). First rerun the
 Phase 10 reference arms on Burn 0.23 with five seeds, because every Phase 10 run was on the
 old Burn fork (O0). Add L-BFGS as a full-batch arm minimising Gauss–Newton's objective, with
-every closure evaluation counted as passes (O1). Write SOAP as a per-parameter Burn
+every closure evaluation counted as passes (O2). Write SOAP as a per-parameter Burn
 `Optimizer`, so it reuses Adam's training path unchanged, with one Kronecker factor per
-tensor dimension, the reference implementation's default (O2). Compare all four at equal wall-clock and at
-a 6.3× longer budget (O3), then carry the arms that hold up into 3D (O4).
+tensor dimension, the reference implementation's default (O3). Compare all four at equal wall-clock and at
+a 6.3× longer budget (O4), then carry the arms that hold up into 3D (O5).
+
+Draft 0.2 adds a replication (O1). Zampini et al. (2024, arXiv 2403.12188, §4.1.1) trained
+the FNO paper's 1D Burgers model with trust-region Gauss–Newton and found it "almost two
+orders of magnitude" better in test error than the reference AdamW, but that AdamW carried
+weight decay 1e-4 and their Gauss–Newton none. Phase 10 found weight decay helps Adam and
+traps Gauss–Newton, so part of that gap may be the weight decay, not the curvature. O1
+reruns their setting as a 2 × 2: {AdamW, Gauss–Newton} × {weight decay 0, 1e-4}, five seeds,
+then the same on Darcy. It needs only Adam and Gauss–Newton, with its own settings (D12), so it can run beside O0. Draft
+0.2 also proposes weight decay as a factor in every arm of O4 (D13). The hypothesis it
+tests: an optimiser that reaches the penalised minimiser within the budget (full-batch
+Gauss–Newton, full-batch L-BFGS on Φ + ½μ‖θ‖²) is hurt by the penalty, while a stochastic
+first-order one is helped, whether its decay is coupled (our Adam, helped in Phase 10) or
+decoupled (AdamW, SOAP). O1's optional coupled-Adam cells beside AdamW tell "reaches the
+minimiser" apart from "coupled or decoupled".
 
 ## 1. Purpose, scope and non-goals
 
@@ -30,16 +46,22 @@ a 6.3× longer budget (O3), then carry the arms that hold up into 3D (O4).
 
 Measure whether cheaper curvature-aware optimisers match Gauss–Newton's advantage over Adam
 on the Poisson FNO, at equal A100 wall-clock and at equal passes, with enough seeds to
-separate the arms; and settle Phase 10's open equal-time question on the same Burn.
+separate the arms; and settle Phase 10's open equal-time question on the same Burn. Test
+whether the published Gauss–Newton advantage on Burgers survives once both arms are run
+with and without weight decay, and whether weight decay's effect on an optimiser follows
+from whether that optimiser minimises the penalised objective.
 
 ### 1.2 In scope
 
 - **O0, re-baseline on Burn 0.23:** Adam and the reference Gauss–Newton arm, five seeds;
   Adam at the long budget; a cost profile of one Gauss–Newton step.
-- **O1, L-BFGS:** Burn's `LBFGS` as a training arm.
-- **O2, SOAP:** a new optimiser, `optim/soap/`, and its training arm.
-- **O3, the 2D comparison:** four arms, five seeds, two budgets; results.
-- **O4, the 3D arms:** the arms O3 keeps, on the 3D objective's Poisson baseline.
+- **O1, the Burgers replication and the Darcy extension:** PETScML's Burgers setting
+  (Section 3.1) with an AdamW arm and a step schedule added to the trainer, Gauss–Newton
+  wired into `train_burgers` and `train_darcy`; the 2 × 2 on each.
+- **O2, L-BFGS:** Burn's `LBFGS` as a training arm.
+- **O3, SOAP:** a new optimiser, `optim/soap/`, and its training arm.
+- **O4, the 2D comparison:** four arms, five seeds, two budgets; results.
+- **O5, the 3D arms:** the arms O4 keeps, on the 3D objective's Poisson baseline.
 
 ### 1.3 Non-goals
 
@@ -51,6 +73,12 @@ separate the arms; and settle Phase 10's open equal-time question on the same Bu
   JVP, new preconditioners). O0's profile may propose such work; it is not part of this
   objective.
 - Mini-batch L-BFGS variants (stochastic quasi-Newton).
+- Replicating PETScML's *solver* (trust region, Steihaug–Toint CG, an L-BFGS
+  preconditioner) or its f64 arithmetic: O1 replicates their *setting and baseline* with
+  our Levenberg–Marquardt Gauss–Newton in f32 (D10). Their 2D Navier–Stokes FNO case and
+  their DeepONet cases are not rerun.
+- Phase 10 T6's conditioning study (H10b) on Burgers or Darcy: a later task if O1's results
+  call for it.
 
 ### 1.4 Guiding principle
 
@@ -58,7 +86,7 @@ separate the arms; and settle Phase 10's open equal-time question on the same Bu
 Gauss–Newton paths, their run files, and every 2D and 3D result. The new optimisers are
 additive: a new `OptimizerConfig` variant each, new modules, and no edit to the existing
 branches of the trainer. Enabling Burn's `linalg` feature (Section 5.4) must not change any
-existing output either; O2's first task checks it.
+existing output either; O3's first task checks it.
 
 ## 2. Constraints from the existing code
 
@@ -92,7 +120,8 @@ existing output either; O2's first task checks it.
 
 ## 3. Experimental protocol
 
-Inherited from Phase 10 (2D design §13.17, G4) unless a decision below changes it.
+The Poisson protocol (O0, O2–O5), inherited from Phase 10 (2D design §13.17, G4) unless a
+decision below changes it. O1's Burgers and Darcy protocol is Section 3.1.
 
 - **Problem:** stage 3 (n = 129, K = 64), s = 64, p = 0, modes [12, 12], width 32, 4 layers,
   N = 1000, the 200 test samples; one A100 per run (the VM has two, so two runs at once).
@@ -113,6 +142,59 @@ Inherited from Phase 10 (2D design §13.17, G4) unless a decision below changes 
 - **Tuning budget:** the new arms get a fixed pilot (one seed, the equal-time budget, a
   short grid named in D5 and D6) before the matrix; Adam keeps its untuned Phase 5 settings
   and Gauss–Newton its Phase 10 ones. Stated in the results as a limitation either way.
+
+### 3.1 The Burgers replication and the Darcy extension (O1)
+
+**What is replicated.** Zampini, Zerbinati, Turkiyyah, Keyes (2024), "PETScML: Second-order
+solvers for training regression problems in Scientific Machine Learning", arXiv 2403.12188
+(PASC '24), §4 and §4.1.1, read 2026-11-24 from the arXiv HTML:
+
+| | PETScML §4.1.1 | O1 |
+| --- | --- | --- |
+| Data | Li et al.'s `burgers_data_R10.mat`, 8192 points subsampled to **s = 128**; 1,000 train, 100 test pairs | the same file (`BurgersFiles::DATA`), subsample rate 64; the split checked against Li et al.'s `fourier_1d.py` in CO1.1 |
+| Model | dense 64, 4 Fourier layers, 16 modes, width 64, dense 128, GELU: **549,569** parameters | `FNOConfig` modes [16], width 64, 4 layers (`train_burgers`'s model): the same shapes, the count (549,569, computed from the layer shapes) asserted in a test; but our FNO's activation is **ReLU**, so GELU is added in CO1.1 as an `FNOConfig` option whose default stays ReLU (D10) |
+| Loss | mean squared relative L² (eq. 6) | Gauss–Newton's Φ = (1/2B) Σ eᵢ² (`FnoResidual`) is eq. 6 up to the ½. The Adam path's `LpLoss` is **not**: it sums the unsquared relative L² (Li et al.'s convention, eq. 7's quantity), so CO1.1 adds a squared option for the Adam path, default unchanged (D10). Phase 10's Adam and Gauss–Newton arms trained on these two different objectives |
+| Metric | mean relative L² on the 100 test pairs (eq. 7); reference **0.0014** | the run's test L²; also error at every 100 epochs |
+| Reference | AdamW, weight decay 1e-4, batch 20, lr 1e-3 halved every 100 epochs (the epoch count is not stated; Li et al.'s script, 500, to be confirmed in CO1.1) | an `AdamW` arm with Burn's `AdamWConfig` (ε set to 1e-8, PyTorch's; Burn's default is 1e-5) and a step schedule |
+| Second-order | TR-GN, Steihaug–Toint CG ≤ 100 iterations, L-BFGS preconditioner (5 vectors), full batch, **f64** | our Gauss–Newton (D12), full batch, CG cap 100, **f32** (D10) |
+| Cost | oracle calls: a gradient 2, a GN product 2; "training times are always strongly correlated" with them; no timings | passes by Phase 10's rule (one forward or one backward on one batch; our central-difference JVP is two forwards where theirs is one), their oracle calls computed alongside, plus training time and updates |
+
+**The 2 × 2 (D11, D12).** Seeds 42–46, every cell:
+
+| | weight decay 0 | weight decay 1e-4 |
+| --- | --- | --- |
+| AdamW, the reference recipe | **A0** | **A1** (PETScML's reference) |
+| Gauss–Newton (D12) | **G0** (PETScML's TR-GN, on our solver) | **G1** (the Tikhonov term, ½μ‖θ‖², μ = 1e-4) |
+
+The question the cells answer: PETScML's gap is A1 against G0. If A0 closes most of it, the
+gap was the weight decay; if G0 still wins by an order of magnitude over A0, Gauss–Newton's
+advantage on Burgers is real. G1 against G0 tests Phase 10's trap on a second problem.
+A fifth cell, **G0-200** (D12): G0 at batch 200 instead of the full batch, the setting behind
+Phase 10's best results (GN200-D); there full batch lost to batch 200 at μ = 0 (2.12e-2
+against 5.58e-3 at 5,400 s, `docs/poisson2d/phase10/results.md`). G0 is the faithful cell,
+G0-200 our method at its best; both are reported, and the verdict on PETScML's gap uses
+G0.
+Recommended extra cells (D11): our Adam (coupled L2, cosine) at weight decay 0 and 1e-4.
+They link the replication to the Poisson arms, and beside A0 and A1 they tell whether
+weight decay helps a stochastic first-order method whether coupled or decoupled (D13's
+hypothesis).
+
+**Acceptance (D10).** A1's mean test L² over seeds 42–46 within a factor 2 of PETScML's
+0.0014 counts as reproducing their reference. Outside that band, O1 reports the gap, checks
+the data split and the parameter count first, and goes on: the 2 × 2 is internally
+comparable either way.
+
+**Budgets.** Every cell at A1's mean training time (equal time) and at 6 × that (long), as
+Poisson's D2; AdamW's step schedule spans its epochs, so at the long budget AdamW runs
+6 × the epochs with the halving every 6 × 100 (D11).
+
+**Darcy (extension, not a replication).** PETScML has no Darcy case. The same 2 × 2 on Li et
+al.'s 2D Darcy data at `train_darcy`'s resolution and model, seeds 42–46, at equal time
+only. Its role: a second elliptic problem whose solution depends nonlinearly on the input,
+to see whether the Burgers and Poisson findings carry over.
+
+**Machines.** Code and smoke runs on the Mac; the cells on one A100 each on the VM, as
+Poisson's, so that times compare.
 
 ## 4. L-BFGS
 
@@ -201,8 +283,8 @@ lr ∈ {1e-3, 3e-3} and f ∈ {10, 50}, on seed 42 at the equal-time budget.
 | Symmetric eigendecomposition (first basis) | once per tensor | no `eigh`; `linalg::svd` (host) of the symmetric PSD factor gives its eigenvectors |
 
 Recommended: enable `linalg`; the first basis by `svd` on the host (sizes ≤ 128, once per
-tensor), the refreshes by `qr` on the device if O2's first task shows it correct and fast
-on cuda, metal and flex, else on the host. Precision f32, as the paper's optimiser; O2's first task
+tensor), the refreshes by `qr` on the device if O3's first task shows it correct and fast
+on cuda, metal and flex, else on the host. Precision f32, as the paper's optimiser; O3's first task
 checks the refresh against an f64 host reference at our sizes.
 
 ### 5.5 Code
@@ -218,27 +300,37 @@ built; nothing else in the Adam path changes. `OPTIMIZER=soap` and the `_soap` r
 
 | Module | Change | Milestone |
 | --- | --- | --- |
-| `training/config.rs` | `OptimizerConfig::Lbfgs`, `OptimizerConfig::Soap` | O1, O2 |
-| `training/lbfgs.rs` (new) | `train_epoch_lbfgs`, the closure over Φ | O1 |
-| `training/trainer.rs` | the new variants' construction and dispatch; Adam and GN branches untouched | O1, O2 |
-| `optim/soap/` (new) | `SoapConfig`, `Soap` | O2 |
-| `runs/` | the L-BFGS checkpoint section; passes for the new arms | O1 |
-| `examples/train/poisson.rs` | `OPTIMIZER=lbfgs|soap`, the new literals | O1, O2 |
-| `examples/predict/poisson_matrix.rs` | the new arms in `--by-optimizer` | O3 |
-| `Cargo.toml` | Burn's `linalg` feature | O2 |
+| `training/config.rs` | `OptimizerConfig::AdamW`; `TrainingConfig.lr_schedule`, an `Option` whose `None` is today's cosine (old configs load unchanged) and whose step variant halves every k epochs | O1 |
+| `training/trainer.rs` | the AdamW arm's construction and the step schedule; the Adam and GN branches untouched | O1 |
+| `models/fno/mod.rs` | an activation option in `FNOConfig` (`Option`, `None` = ReLU, so saved configs load and every output is unchanged), GELU for O1 | O1 |
+| `training/step.rs` | a squared relative-L² option for the Adam path's loss (PETScML's eq. 6), off by default | O1 |
+| `examples/train/burgers.rs`, `examples/train/darcy.rs` | `OPTIMIZER=adamw|gauss-newton`, `WEIGHT_DECAY`, `GN_*` as in `train_poisson`; `BURGERS_S` (subsample rate); `costs.json` (passes, time); unset, every output as today | O1 |
+| `training/config.rs` | `OptimizerConfig::Lbfgs`, `OptimizerConfig::Soap` | O2, O3 |
+| `training/lbfgs.rs` (new) | `train_epoch_lbfgs`, the closure over Φ | O2 |
+| `training/trainer.rs` | the new variants' construction and dispatch; Adam and GN branches untouched | O2, O3 |
+| `optim/soap/` (new) | `SoapConfig`, `Soap` | O3 |
+| `runs/` | the L-BFGS checkpoint section; passes for the new arms | O2 |
+| `examples/train/poisson.rs` | `OPTIMIZER=lbfgs|soap`, the new literals | O2, O3 |
+| `examples/predict/poisson_matrix.rs` | the new arms in `--by-optimizer` | O4 |
+| `Cargo.toml` | Burn's `linalg` feature | O3 |
 
 ## 7. Cost and memory model (initial estimates)
 
 - **SOAP (A):** factors and bases 0.3 MB for all spectral tensors; per step about 880·N flops
   per spectral tensor (four projections plus the factor updates; not measured), about
   2·10⁹ in all, small beside the FNO's forward and backward. Expected per-step time close to
-  Adam's at batch 20, which is overhead-bound (Phase 10: 58 passes per second); O2 measures it.
+  Adam's at batch 20, which is overhead-bound (Phase 10: 58 passes per second); O3 measures it.
 - **L-BFGS (full batch):** 2 × 100 history vectors of 9.5 MB = 1.9 GB at the default
   history; the full-batch forward and backward at N = 1,000 below Phase 10's full-batch GN
   peak (12,619–17,195 MiB); Phase 10's full-batch GN ran about 0.26 s per pass of 1,000 samples (5,413 s for 20,614
   passes), so about 0.5 s per closure evaluation, about 1,700 at the equal-time budget.
-- **The matrix (O3):** four arms × five seeds at about 900 s, and at 5,400 s (D2): about
-  5 h and 30 h of A100 time, half that on the VM's two A100s.
+- **The matrix (O4):** four arms × five seeds at about 900 s, and at 5,400 s (D2): about
+  5 h and 30 h of A100 time, half that on the VM's two A100s. With weight decay as a factor
+  (D13), twice that: about 10 h and 60 h.
+- **O1 (Burgers):** not estimated. The model has 549,569 parameters (a quarter of the 2D
+  FNO's) on 128 points; A1's 500 epochs set the equal-time budget, measured in CO1.3. Five
+  cells (A0, A1, G0, G1, G0-200) × five seeds × two budgets = 50 runs, 70 with the two
+  coupled-Adam cells; Darcy adds 20 at equal time.
 
 ## 8. Risks
 
@@ -252,7 +344,15 @@ built; nothing else in the Adam path changes. `OPTIMIZER=soap` and the `_soap` r
   and stated (Section 3).
 - **R5, the equal-time result stays unsettled** at five seeds; report it as such, with the
   spread.
-- **R6, 3D cost:** O4 waits on the 3D objective's baseline (CL4.2) and its memory (D4 there).
+- **R6, 3D cost:** O5 waits on the 3D objective's baseline (CL4.2) and its memory (D4 there).
+- **R7, the reference is not reproduced** (A1 outside D10's band): f32 against their f64, a
+  different data split or schedule length, or a GELU or squared-loss option not matching
+  theirs. Check the split, the parameter count and the
+  epoch count; report the gap; the 2 × 2 stays internally comparable.
+- **R8, f32 limits Gauss–Newton** where PETScML's f64 did not, so G0 falls short of their
+  TR-GN for reasons of precision, not of the method. If G0 stalls, a flex f64 run of G0 on
+  seed 42 tells the two apart, provided flex's f64 FFT is correct on Burn 0.23 (not checked;
+  on the old fork its f64 rfft used f32 twiddles).
 
 ## 9. Validation
 
@@ -263,34 +363,46 @@ built; nothing else in the Adam path changes. `OPTIMIZER=soap` and the `_soap` r
   implementation (Python, outside CI, as in the library objective).
 - **L-BFGS:** the trainer integration on a small least-squares problem (it converges, the
   passes add up, resume is exact); Burn's own tests cover the algorithm.
-- **Constraint 1:** the existing suite unedited, the Adam replay check of Phase 10 T3, and an
+- **O1:** the Burgers model's parameter count is 549,569; `FnoResidual` on a rank-3 batch
+  gives ½‖r‖² = (1/2B) Σ eᵢ², half the mean squared relative error, as its 2D test does; the AdamW arm
+  with weight decay 0 equals Adam with weight decay 0 under the same schedule to f32
+  round-off; the GELU and squared-loss options off reproduce today's outputs bit for bit; the step schedule halves at the stated epochs; a Gauss–Newton Burgers smoke run
+  on flex and its resume.
+- **Constraint 1:** the existing suite unedited, `train_burgers` and `train_darcy` with no
+  new variable set bit for bit equal before and after, the Adam replay check of Phase 10 T3, and an
   Adam and a Gauss–Newton run on flex bit for bit equal before and after each change.
 
 ## 10. Phased plan
 
-Milestones O0–O4, each ending at a gate (`docs/optimisers/gates/O<n>.md`). The tasks, their
+Milestones O0–O5, each ending at a gate (`docs/optimisers/gates/O<n>.md`). The tasks, their
 *Done when* and *Needs* are in `docs/optimisers/roadmap.md`.
 
 ```mermaid
 flowchart LR
-  O0["O0 re-baseline on Burn 0.23"] --> O3
-  O0 --> O1
+  O0["O0 re-baseline on Burn 0.23"] --> O4
   O0 --> O2
-  O1["O1 L-BFGS"] --> O3["O3 2D comparison"]
-  O2["O2 SOAP"] --> O3
-  O3 --> O4["O4 3D arms"]
-  L4["3D L4 (CL4.2)"] --> O4
+  O0 --> O3
+  O1["O1 Burgers replication, Darcy"] -.->|D14| O4
+  O2["O2 L-BFGS"] --> O4["O4 2D comparison"]
+  O3["O3 SOAP"] --> O4
+  O4 --> O5["O5 3D arms"]
+  L4["3D L4 (CL4.2)"] --> O5
+  M03["library CM0.3"] --> O1
+  M03 --> O2
+  O1 -.->|CO1.1 before CO2.1| O2
 ```
 
-CO0.1, CO0.2, CO1.1, CO2.1 and CO2.2 can start at once (code on the Mac; the runs and CO2.1's
-cuda check on the VM); the pilots CO1.2 and CO2.3 need CO0.1's equal-time budget.
-O4 also needs the 3D objective's Poisson baseline.
+CO0.1, CO0.2 and CO3.1 can start at once (code on the Mac; the runs and CO3.1's cuda check
+on the VM); CO3.2 follows CO3.1; the pilots CO2.2 and CO3.3 need CO0.1's equal-time budget. O1 needs
+nothing from O0 and can run beside it, but its code (CO1.1, CO1.2) touches `training/`, as
+CO2.1 does, so both wait for the library objective's CM0.3 (the generic trainer) and run
+one after the other, never at once: CO1.1 first, then CO2.1. O5 also needs the 3D objective's Poisson baseline.
 
 ## 11. Alternatives considered
 
 - **Muon** (in Burn 0.23, a per-parameter `Optimizer`): cheap to add, but a first-order
   orthogonalised update, not curvature-aware in the sense compared here; an optional arm if
-  O3's results call for it.
+  O4's results call for it.
 - **Shampoo:** SOAP's parent, with the same factors (as moving averages in SOAP) and a
   matrix root instead of Adam in the basis; SOAP adds one hyperparameter (f) over AdamW and
   degrades more slowly than Shampoo as f grows.
@@ -298,12 +410,18 @@ O4 also needs the 3D objective's Poisson baseline.
   FNO's spectral layers do not have in Burn.
 - **Mini-batch L-BFGS:** out of scope (Section 1.3).
 - **SOAP's `merge_dims`:** 14.5× to 256× the tensor's memory for our shapes (Section 5.2).
+- **Replicating with PETScML's own code** (Python, JAX and PETSc): it would reproduce their
+  solver exactly, but the 2 × 2 would then compare two code bases; and constraint 1 keeps
+  Python outside the crate. Their solver, in Rust, is a non-goal (Section 1.3).
+- **Replicating their 2D Navier–Stokes FNO case** instead of, or as well as, Burgers: a
+  6.6 M-parameter 3D-convolution FNO on a time series, far costlier per run; Burgers is the
+  case with their headline gap.
 
 ## 12. Decisions needed
 
 | ID | Decision | Recommendation |
 | --- | --- | --- |
-| D0 | This proposal as the plan of record | draft 0.1, after the author's review |
+| D0 | This proposal as the plan of record | draft 0.2, after the author's review |
 | D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; the CG cap (50 or 150) chosen from O0's seed-42 runs at both budgets |
 | D2 | Seeds and budgets | seeds 42–46; equal time (O0's Adam mean) and 5,400 s, every arm at both |
 | D3 | L-BFGS's objective and weight decay | Φ at μ = 0, Gauss–Newton's objective |
@@ -312,7 +430,12 @@ O4 also needs the 3D objective's Poisson baseline.
 | D6 | SOAP's hyperparameters | lr 1e-3 cosine, weight decay 1e-4, β (0.95, 0.95), f = 10; pilot lr ∈ {1e-3, 3e-3}, f ∈ {10, 50} |
 | D7 | Pass accounting for the new arms | one forward and one backward per SOAP step and per L-BFGS closure evaluation; SOAP's preconditioner work as time |
 | D8 | SOAP's handling of the spectral tensors | A, one factor per dimension; re and im separate; biases on Adam |
-| D9 | Where SOAP's linear algebra runs | `linalg` enabled; first basis by host `svd`, refreshes by device `qr` if O2's first task passes, else host |
+| D9 | Where SOAP's linear algebra runs | `linalg` enabled; first basis by host `svd`, refreshes by device `qr` if O3's first task passes, else host |
+| D10 | O1's fidelity to PETScML | their data, model (GELU, an `FNOConfig` option added in CO1.1), loss (eq. 6: a squared-loss option for the Adam path, added in CO1.1), metric and reference recipe (Section 3.1); f32 on cuda, not their f64; our Levenberg–Marquardt Gauss–Newton, not their trust region; reproduced if A1's mean over seeds 42–46 is within a factor 2 of 0.0014 |
+| D11 | O1's Adam arms | AdamW (decoupled), lr 1e-3 halved every 100 epochs, batch 20, 500 epochs, ε 1e-8, at weight decay 1e-4 (A1) and 0 (A0); at the long budget the epochs and the halving period scaled by 6; our Adam (coupled L2, cosine) at 0 and 1e-4 as two more cells (recommended: they separate coupled from decoupled decay) |
+| D12 | O1's Gauss–Newton arm | full batch (1,000), CG cap 100 (PETScML's), Phase 10's damping and backtracking, the Hutchinson diagonal (Phase 10's `-D`, fixed here so that O1 does not wait for D1), μ = 0 (G0) and 1e-4 (G1); and G0-200, G0 at batch 200 (Phase 10's GN200-D batch); seeds 42–46; both budgets of Section 3.1 |
+| D13 | Weight decay as a factor in O4 | every arm at weight decay 0 and 1e-4: L-BFGS with ½μ‖θ‖² in its closure (D3 becomes μ ∈ {0, 1e-4}), SOAP with decoupled decay at 0 and 1e-4 (D6's 1e-4 plus 0), Adam and Gauss–Newton at both; doubles O4's cost (Section 7) |
+| D14 | Burgers in O4 | the four arms of O4 also on O1's Burgers setting, at the equal-time budget only, seeds 42–46; PETScML ran L-BFGS there too (30 history vectors), so L-BFGS's Burgers cell is a second replication point |
 
 ## 13. References
 
@@ -325,6 +448,17 @@ O4 also needs the 3D objective's Poisson baseline.
   methods for neural operators).
 - Liu, D. C., Nocedal, J. (1989). On the limited memory BFGS method for large scale
   optimization. Mathematical Programming 45; Burn's `burn-optim/src/optim/lbfgs.rs`.
+- Zampini, S., Zerbinati, U., Turkiyyah, G., Keyes, D. (2024). PETScML: Second-order solvers
+  for training regression problems in Scientific Machine Learning. PASC '24,
+  DOI 10.1145/3659914.3659931; arXiv 2403.12188 (§4, §4.1.1: the Burgers setting O1
+  replicates).
+- Li, Z. et al. (2021). Fourier neural operator for parametric partial differential
+  equations. ICLR 2021, arXiv 2010.08895 (the Burgers and Darcy data and `fourier_1d.py`).
+- Zhang, G., Wang, C., Xu, B., Grosse, R. (2019). Three mechanisms of weight decay
+  regularization. ICLR 2019, arXiv 1810.12281 (weight decay and K-FAC's damping; the
+  contrast for D13).
+- Loshchilov, I., Hutter, F. (2019). Decoupled weight decay regularization. ICLR 2019,
+  arXiv 1711.05101 (AdamW).
 - The 2D design §13.17 and `docs/poisson2d/phase10/` (Gauss–Newton, the protocol, the
   results); `docs/optimisers/references.md` (the reading notes).
 
@@ -333,3 +467,8 @@ O4 also needs the 3D objective's Poisson baseline.
 - **Draft 0.1 (2026-11-24).** First draft: scope (L-BFGS and SOAP against Adam and
   Gauss–Newton, 2D then 3D, the author's choice of 2026-11-24), protocol, SOAP's tensor
   handling from the reading notes, milestones O0–O4, decisions D0–D9.
+- **Draft 0.2 (2026-11-24).** The Burgers replication of Zampini et al. 2024 (PETScML) and
+  the Darcy extension as a new milestone O1 (Section 3.1); the former O1–O4 renumbered
+  O2–O5 and their tasks CO1.x–CO4.x renumbered CO2.x–CO5.x (no task had started); weight
+  decay as a factor in the 2D comparison proposed (D13) and Burgers in it (D14); decisions
+  D10–D14; risks R7–R8. The author's request of 2026-11-24.
