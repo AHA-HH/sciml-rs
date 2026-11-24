@@ -9,7 +9,9 @@
 //!   `cheb_to_uniform`, `uniform_to_cheb`, `apply`, and the production pair `Transfers`
 //!   with its degree `TRANSFER_DEGREE`), and the closed-form Clenshaw–Curtis weights with
 //!   the norm and relative L² error built from them (`clencurt`, `cc_norm_sq`,
-//!   `cc_rel_l2_error`, `cc_rel_l2_error_weighted`). They depend on ndarray alone, so training and
+//!   `cc_rel_l2_error`, `cc_rel_l2_error_weighted`). Each function on 2D fields has a sibling for
+//!   any rank (`apply_nd`, `Transfers::to_uniform_nd` and the like, `cc_norm_sq_nd`, …;
+//!   3D CL1.2) that routes rank 2 to it unchanged. They depend on ndarray alone, so training and
 //!   evaluation on Chebyshev data need no RLST, BLAS or FFTW (design §12, decisions 13
 //!   and 15).
 //! - Behind the `datagen` feature: D and D² (`diff_matrix`, `diff2_matrix`), the only
@@ -19,6 +21,8 @@
 //! - Test oracles only (`#[cfg(all(test, feature = "datagen"))]`): the RLST nodes
 //!   (`points::nodes`) and Clenshaw–Curtis weights (`quadrature::clenshaw_curtis`), which
 //!   the closed forms above are checked against (design §12, decisions 12 and 26).
+
+use ndarray::{ArrayView, CowArray, Dimension, Ix2};
 
 mod clencurt;
 // Gated: wraps RLST's FFTW transforms (design §12, decision 12).
@@ -30,11 +34,15 @@ mod points;
 mod quadrature;
 mod transfer;
 
-pub use clencurt::{cc_norm_sq, cc_rel_l2_error, cc_rel_l2_error_weighted, clencurt};
+pub use clencurt::{
+    cc_norm_sq, cc_norm_sq_nd, cc_rel_l2_error, cc_rel_l2_error_nd, cc_rel_l2_error_weighted,
+    cc_rel_l2_error_weighted_nd, clencurt,
+};
 #[cfg(feature = "datagen")]
 pub use differentiation::{diff_matrix, diff2_matrix};
 pub use transfer::{
-    TRANSFER_DEGREE, Transfers, apply, cheb_to_uniform, nodes, uniform_nodes, uniform_to_cheb,
+    TRANSFER_DEGREE, Transfers, apply, apply_nd, cheb_to_uniform, nodes, uniform_nodes,
+    uniform_to_cheb,
 };
 
 /// Panic with a uniform message when a 1D grid has fewer than two nodes.
@@ -43,4 +51,17 @@ fn check_n(caller: &str, n: usize) {
         n >= 2,
         "{caller}: n must be >= 2 (CGL nodes include both endpoints), got {n}"
     );
+}
+
+/// `v: [n_0, …]` read as `[n_0, rest]` in row-major order, copied only if not contiguous.
+pub(super) fn as_matrix<D: Dimension>(v: ArrayView<f64, D>) -> CowArray<f64, Ix2> {
+    let rows = v.shape()[0];
+    let cols = v.len() / rows.max(1);
+    let v = if v.is_standard_layout() {
+        CowArray::from(v)
+    } else {
+        CowArray::from(v.as_standard_layout().into_owned())
+    };
+    v.into_shape_with_order((rows, cols))
+        .expect("standard layout")
 }

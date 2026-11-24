@@ -7,10 +7,10 @@
 //! with the RLST-backed `quadrature::clenshaw_curtis` test oracle (feature `datagen`) to
 //! round-off.
 
-use ndarray::{Array1, ArrayView1, ArrayView2, Zip};
+use ndarray::{Array1, ArrayView, ArrayView1, ArrayView2, Dimension, Zip};
 use std::f64::consts::PI;
 
-use super::check_n;
+use super::{as_matrix, check_n};
 
 /// Clenshaw–Curtis weights w, shape `[n]`, on the ascending CGL nodes (CONVENTIONS §12),
 /// in closed form (Trefethen, *Spectral Methods in MATLAB*, ch. 12, `clencurt`):
@@ -124,11 +124,107 @@ pub fn cc_rel_l2_error_weighted(
     (sd / sb) * (num / den).sqrt()
 }
 
+/// Squared Clenshaw–Curtis L² norm of `v: [n_0, …, n_{r−1}]`, a field of any rank on the CGL
+/// tensor grid (CONVENTIONS §12): Σ w0_i · w1_j · … · v[i, j, …]², with `ws[a]: [n_a]` the weights
+/// along axis a, e.g. [`clencurt`]. Rank 2 is [`cc_norm_sq`] itself, bit for bit (design
+/// D1, D2); otherwise `v` is read as `[n_0, rest]` with w0 and the Kronecker product of the
+/// other weights. Unscaled, as [`cc_norm_sq`].
+///
+/// # Panics
+/// If `ws.len()` is not the rank of `v` (at least 1), or `ws[a]` has not `n_a` entries.
+pub fn cc_norm_sq_nd<D: Dimension>(v: ArrayView<f64, D>, ws: &[ArrayView1<f64>]) -> f64 {
+    check_weights("cc_norm_sq_nd", v.shape(), ws);
+    if let [wx, wy] = ws {
+        return cc_norm_sq(rank2(v), *wx, *wy);
+    }
+    let w_rest = kron(&ws[1..]);
+    cc_norm_sq(as_matrix(v).view(), ws[0], w_rest.view())
+}
+
+/// [`cc_rel_l2_error`] for fields `a`, `b: [n_0, …, n_{r−1}]` of any rank: ‖a − b‖ / ‖b‖ in the norm of
+/// [`cc_norm_sq_nd`] with [`clencurt`] weights on every axis (CONVENTIONS §12), `b` the
+/// reference, scaled against underflow and overflow as [`cc_rel_l2_error`]. Rank 2 is
+/// [`cc_rel_l2_error`] itself, bit for bit (design D1, D2).
+///
+/// # Panics
+/// If `a` and `b` differ in shape, have rank 0, or an axis has fewer than 2 nodes.
+pub fn cc_rel_l2_error_nd<D: Dimension>(a: ArrayView<f64, D>, b: ArrayView<f64, D>) -> f64 {
+    assert_eq!(a.shape(), b.shape(), "cc_rel_l2_error_nd: shapes differ");
+    for &n in b.shape() {
+        check_n("cc_rel_l2_error_nd", n);
+    }
+    if b.ndim() == 2 {
+        return cc_rel_l2_error(rank2(a), rank2(b));
+    }
+    let w: Vec<_> = b.shape().iter().map(|&n| clencurt(n)).collect();
+    let ws: Vec<_> = w.iter().map(|w| w.view()).collect();
+    cc_rel_l2_error_weighted_nd(a, b, &ws)
+}
+
+/// [`cc_rel_l2_error_nd`] with the weights given, `ws[a]: [n_a]` along axis a: with
+/// [`clencurt`] weights the two agree exactly. Rank 2 is [`cc_rel_l2_error_weighted`]
+/// itself, bit for bit (design D1, D2); otherwise that function on `a` and `b` read as
+/// `[n_0, rest]`, with w0 and the Kronecker product of the other weights.
+///
+/// # Panics
+/// If `a` and `b` differ in shape, `ws.len()` is not their rank (at least 1), or `ws[a]`
+/// has not `n_a` entries.
+pub fn cc_rel_l2_error_weighted_nd<D: Dimension>(
+    a: ArrayView<f64, D>,
+    b: ArrayView<f64, D>,
+    ws: &[ArrayView1<f64>],
+) -> f64 {
+    assert_eq!(
+        a.shape(),
+        b.shape(),
+        "cc_rel_l2_error_weighted_nd: shapes differ"
+    );
+    check_weights("cc_rel_l2_error_weighted_nd", b.shape(), ws);
+    if let [wx, wy] = ws {
+        return cc_rel_l2_error_weighted(rank2(a), rank2(b), *wx, *wy);
+    }
+    let w_rest = kron(&ws[1..]);
+    cc_rel_l2_error_weighted(
+        as_matrix(a).view(),
+        as_matrix(b).view(),
+        ws[0],
+        w_rest.view(),
+    )
+}
+
+/// A view the caller knows to be rank 2, as `[n_x, n_y]`.
+fn rank2<D: Dimension>(v: ArrayView<'_, f64, D>) -> ArrayView2<'_, f64> {
+    v.into_dimensionality().expect("rank 2")
+}
+
+/// Panic unless `ws` holds one weight vector of the right length per axis of `shape`.
+fn check_weights(caller: &str, shape: &[usize], ws: &[ArrayView1<f64>]) {
+    assert!(
+        ws.len() == shape.len() && !ws.is_empty(),
+        "{caller}: one weight vector per axis, got {} for rank {}",
+        ws.len(),
+        shape.len()
+    );
+    for (a, (w, &n)) in ws.iter().zip(shape).enumerate() {
+        assert_eq!(w.len(), n, "{caller}: ws[{a}] must have {n} entries");
+    }
+}
+
+/// The Kronecker product of the weight vectors, earlier axes outer: the weights of the
+/// trailing axes flattened in row-major order. `[1.0]` for none.
+fn kron(ws: &[ArrayView1<f64>]) -> Array1<f64> {
+    ws.iter().fold(Array1::ones(1), |acc, w| {
+        acc.iter()
+            .flat_map(|&p| w.iter().map(move |&q| p * q))
+            .collect()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::nodes;
     use super::*;
-    use ndarray::{Array2, s};
+    use ndarray::{Array2, Array3, s};
 
     fn sample(nx: usize, ny: usize, f: impl Fn(f64, f64) -> f64) -> Array2<f64> {
         let (x, y) = (nodes(nx), nodes(ny));
@@ -258,6 +354,122 @@ mod tests {
         let p = sample(17, 33, |x, y| x * y * y);
         let exact = 4.0 / 15.0;
         assert!((cc_norm_sq(p.view(), wx.view(), wy.view()) - exact).abs() <= 1e-14);
+    }
+
+    fn sample3(dim: (usize, usize, usize), f: impl Fn(f64, f64, f64) -> f64) -> Array3<f64> {
+        let (x, y, z) = (nodes(dim.0), nodes(dim.1), nodes(dim.2));
+        Array3::from_shape_fn(dim, |(i, j, k)| f(x[i], y[j], z[k]))
+    }
+
+    // ∫ 1 dV = 8 and ∫ x² y⁴ z² dV = (2/3)(2/5)(2/3), exact at these n (CONVENTIONS §12).
+    #[test]
+    fn cc_norm_sq_nd_integrates_3d_polynomials() {
+        let dim = (5, 9, 7);
+        let w = [clencurt(dim.0), clencurt(dim.1), clencurt(dim.2)];
+        let ws = [w[0].view(), w[1].view(), w[2].view()];
+        let one = Array3::from_elem(dim, 1.0);
+        assert!((cc_norm_sq_nd(one.view(), &ws) - 8.0).abs() <= 1e-14);
+        let p = sample3(dim, |x, y, z| x * y * y * z);
+        let exact = (2.0 / 3.0) * (2.0 / 5.0) * (2.0 / 3.0);
+        let got = cc_norm_sq_nd(p.view(), &ws);
+        assert!((got - exact).abs() <= 1e-14, "{got} vs {exact}");
+        // rank 1: Σ w x² = ∫ x² = 2/3
+        let x = nodes(5);
+        let got = cc_norm_sq_nd(x.view(), &ws[..1]);
+        assert!((got - 2.0 / 3.0).abs() <= 1e-15, "{got}");
+    }
+
+    #[test]
+    fn cc_rel_l2_error_nd_known_pair_3d() {
+        let b = sample3((9, 17, 5), |x, y, z| x.exp() * (2.0 * y).cos() + z + 0.5);
+        for eps in [1e-3, 0.25, -0.5] {
+            let a = (1.0 + eps) * &b;
+            let err = cc_rel_l2_error_nd(a.view(), b.view());
+            assert!((err - eps.abs()).abs() <= 1e-14, "eps={eps}: {err}");
+        }
+        assert_eq!(cc_rel_l2_error_nd(b.view(), b.view()), 0.0);
+        // Scaled as the 2D function: no underflow or overflow at extreme magnitudes.
+        for scale in [1e-170, 1e170] {
+            let bs = scale * &b;
+            let err = cc_rel_l2_error_nd((1.25 * &bs).view(), bs.view());
+            assert!((err - 0.25).abs() <= 1e-14, "scale={scale}: {err}");
+        }
+    }
+
+    // Weights follow the axes: a permuted view gives the same error.
+    #[test]
+    fn cc_rel_l2_error_nd_follows_permuted_axes() {
+        let b = sample3((9, 17, 5), |x, y, z| (x + 2.0 * y).sin() + z * z);
+        let a = sample3((9, 17, 5), |x, y, z| {
+            (x + 2.0 * y).sin() + z * z + 0.1 * x * y
+        });
+        let expected = cc_rel_l2_error_nd(a.view(), b.view());
+        let err = cc_rel_l2_error_nd(
+            a.view().permuted_axes([2, 0, 1]),
+            b.view().permuted_axes([2, 0, 1]),
+        );
+        assert!(
+            (err - expected).abs() <= 1e-14 * expected,
+            "{err} vs {expected}"
+        );
+        // and the weighted form with clencurt weights equals the unweighted one
+        let w = [clencurt(9), clencurt(17), clencurt(5)];
+        let ws = [w[0].view(), w[1].view(), w[2].view()];
+        assert_eq!(
+            cc_rel_l2_error_weighted_nd(a.view(), b.view(), &ws),
+            expected
+        );
+    }
+
+    // D2: rank 2 is routed to the 2D functions, so the outputs are bit for bit the old ones,
+    // for a contiguous grid and a transposed view alike.
+    #[test]
+    fn rank_two_is_bit_identical_to_2d() {
+        let b = sample(17, 33, |x, y| x.exp() * (2.0 * y).cos() + 0.5);
+        let a = sample(17, 33, |x, y| x.exp() * (2.0 * y).cos() + 0.5 + 0.1 * x * y);
+        for (a, b) in [(a.view(), b.view()), (a.t(), b.t())] {
+            let (wx, wy) = (clencurt(a.nrows()), clencurt(a.ncols()));
+            let ws = [wx.view(), wy.view()];
+            assert_eq!(cc_norm_sq_nd(b, &ws), cc_norm_sq(b, wx.view(), wy.view()));
+            assert_eq!(cc_rel_l2_error_nd(a, b), cc_rel_l2_error(a, b));
+            assert_eq!(
+                cc_rel_l2_error_weighted_nd(a, b, &ws),
+                cc_rel_l2_error_weighted(a, b, wx.view(), wy.view())
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "cc_norm_sq_nd: one weight vector per axis")]
+    fn cc_norm_sq_nd_panics_on_weight_count() {
+        let w = clencurt(3);
+        cc_norm_sq_nd(Array3::zeros((3, 3, 3)).view(), &[w.view(), w.view()]);
+    }
+
+    #[test]
+    #[should_panic(expected = "cc_norm_sq_nd: ws[1] must have 4 entries")]
+    fn cc_norm_sq_nd_panics_on_weight_length() {
+        let w = clencurt(3);
+        cc_norm_sq_nd(
+            Array3::zeros((3, 4, 3)).view(),
+            &[w.view(), w.view(), w.view()],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "cc_rel_l2_error_nd: shapes differ")]
+    fn cc_rel_l2_error_nd_panics_on_shape_mismatch() {
+        cc_rel_l2_error_nd(
+            Array3::zeros((3, 3, 3)).view(),
+            Array3::zeros((3, 3, 4)).view(),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "cc_rel_l2_error_nd: n must be >= 2")]
+    fn cc_rel_l2_error_nd_panics_for_n_below_2() {
+        let v = Array3::zeros((3, 1, 3));
+        cc_rel_l2_error_nd(v.view(), v.view());
     }
 
     #[test]
