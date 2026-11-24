@@ -53,10 +53,10 @@ The proposal's Section 12. Recorded when the author takes them:
 **Gate:** the stack is model-agnostic with the FNO unchanged; a fixture round trip works;
 the feature matrix is verified.
 
-- [ ] **CM0.1 Feature matrix at 2.0.0.** Fill `feature-matrix.md` from the tag's source
+- [x] **CM0.1 Feature matrix at 2.0.0.** Fill `feature-matrix.md` from the tag's source
   (every public model, layer, loss, training feature and dataset, with its options and
   defaults). *Done when:* every row has a status and a source path, checked by an agent
-  independent of the writer. *Needs:* D1.
+  independent of the writer. *Needs:* D1. Done 2026-11-24: plan `docs/operators/tasks/CM0.1.md`.
 - [ ] **CM0.2 Pinned Python environment and fixture generator.** `tools/parity/`:
   `neuraloperator` 2.0.0 with torch, tensorly, tltorch and torch_harmonics pinned in a
   lock file; a generator writing weights, input and output of a named configuration to
