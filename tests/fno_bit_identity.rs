@@ -19,7 +19,11 @@ use burn::{
 };
 use ndarray::{ArrayD, IxDyn};
 use sciml_rs::neural_operators::{
-    data::{dataset::OperatorDataset, transforms::normalizers::UnitGaussianNormalizer},
+    data::{
+        dataset::OperatorDataset,
+        loaders::{base_dataset::DatasetConfig, darcy::DarcyConfig},
+        transforms::normalizers::UnitGaussianNormalizer,
+    },
     models::{
         fno::{FNO, FNOConfig},
         predict::predict_host,
@@ -114,7 +118,15 @@ fn one_epoch(
     let components =
         build_training_components::<4, 3, _>(model_cfg, train_cfg, train, test, &device);
     let run = RunDir::create(&root, case).unwrap();
-    run.save_configs(model_cfg, train_cfg, model_cfg).unwrap();
+    // the data are synthetic: a Darcy-shaped data config (subsampling 1) for `data_cfg.json`
+    let data_cfg = DarcyConfig::new(
+        DatasetConfig {
+            n_train: n.0,
+            n_test: n.1,
+        },
+        1,
+    );
+    run.save_configs(model_cfg, train_cfg, &data_cfg).unwrap();
     let (model, metrics) = train_components(
         components,
         Some(&y_norm),

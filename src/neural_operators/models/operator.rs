@@ -118,6 +118,7 @@ mod tests {
         *,
     };
     use crate::neural_operators::{
+        data::loaders::{base_dataset::DatasetConfig, burgers::BurgersConfig},
         models::predict::predict_host,
         optim::gauss_newton::params,
         runs::RunDir,
@@ -132,20 +133,14 @@ mod tests {
         t.into_data().try_to_vec::<f32>().unwrap()
     }
 
-    /// The trait's `init` and `forward` are the FNO's own, bit for bit.
+    /// The trait's `forward` is the FNO's own, bit for bit. (Seeded `init` is not compared
+    /// here: Flex's RNG is process-wide, so another test drawing in parallel changes the
+    /// weights. `tests/fno_bit_identity.rs` shows it: its runs build through `M::init`
+    /// and match `main`.)
     #[test]
     fn fno_through_the_trait_is_the_fno() {
         let device = Device::default();
-        let cfg = tiny_model_cfg();
-        // Burn draws a `Linear`'s parameters lazily, at first access: read each model's
-        // right after its own seed
-        device.seed(7);
-        let direct = cfg.init::<3>(&device);
-        let direct_params = values(params(&direct).to_flat());
-        device.seed(7);
-        let via_trait = <FNO<3> as Operator>::init(&cfg, &device);
-        assert_eq!(direct_params, values(params(&via_trait).to_flat()));
-
+        let direct = <FNO<3> as Operator>::init(&tiny_model_cfg(), &device);
         let x = Tensor::<3>::from_data(
             TensorData::new((0..16).map(|i| (i as f32 * 0.3).sin()).collect(), [2, 8, 1]),
             &device,
@@ -178,8 +173,14 @@ mod tests {
             &device,
         );
         let run = RunDir::create(&root, "pointwise").unwrap();
-        run.save_configs(&model_cfg, &train_cfg, &model_cfg)
-            .unwrap();
+        let data_cfg = BurgersConfig::new(
+            DatasetConfig {
+                n_train: 4,
+                n_test: 2,
+            },
+            1,
+        );
+        run.save_configs(&model_cfg, &train_cfg, &data_cfg).unwrap();
         let (model, metrics) = train_components(
             components,
             None,

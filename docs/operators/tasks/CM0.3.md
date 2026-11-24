@@ -181,9 +181,10 @@ CM3.3 an extension rather than a rewrite.
   The test is `#[ignore]`d (about 4 minutes in a debug build) and run in release by
   `/verify` (`-- --ignored`); CI compiles it (clippy `--all-targets`). The comparison is
   the `/verify` step, since flex's bits need not agree across the Mac and CI's x86.
-- **The trait:** a unit test in `models/operator.rs` that `<FNO<4> as Operator>::init`
-  and `FNOConfig::init::<4>` from the same seed give the same weights, and that
-  `Operator::forward` equals `FNO::forward` bit for bit.
+- **The trait:** a unit test in `models/operator.rs` that `Operator::forward` equals
+  `FNO::forward` bit for bit. (Seeded `init` against `FNOConfig::init` was planned here
+  too, but Flex's RNG is process-wide, so the comparison was flaky beside the module's
+  training test; the bit-identity runs, which build through `M::init`, show it instead.)
 - **Generic for real:** a test-only second operator (a one-`Linear` pointwise model,
   `#[cfg(test)]`) trains one epoch through `train`, saves and resumes from a checkpoint and
   reloads with `load_model`, so the generic path is exercised by something that is not the
