@@ -27,12 +27,14 @@ function's bit for bit (D1, D2)." New fields go on new 3D types, not on
 - CONVENTIONS §12: the 2D boundary norm and the 3D one (six faces, 24 against 8).
 
 ## Changes
-Only `metrics/poisson.rs`. `poisson_errors`, `boundary_errors`, `evaluate` and
+Only `metrics/poisson`, which becomes a folder (code review blocker: the file passed 1,000
+lines): `metrics/poisson/mod.rs` and its tests, moved unchanged, in `poisson/tests.rs`.
+`poisson_errors`, `boundary_errors`, `evaluate` and
 `PoissonErrorsRecord` are not edited, except that the private `rel_l2_equal_weights`
 becomes generic over the rank (the same body; `ArrayView2` is its rank-2 instance).
 - `poisson_errors_nd<D: RemoveAxis>(pred: ArrayView<f64, D>, u: ArrayView<f64, D>,
   transfers) -> PoissonErrors`: axis 0 the samples, `pred: [N, s, …, s]`, `u: [N, n, …, n]`,
-  field rank r ≥ 2. Rank 3 arrays (r = 2) call `poisson_errors`. Otherwise per sample:
+  field rank r = 2 or 3 (the ranks CONVENTIONS §12 defines; plan review). Rank 3 arrays (r = 2) call `poisson_errors`. Otherwise per sample:
   error 2 and 4 by `cc_rel_l2_error_weighted_nd` with `clencurt(n)` on every axis, error 3
   equal weights, ‖u‖ by `cc_norm_sq_nd`, error 5 by `boundary_errors_nd`.
 - `boundary_errors_nd` (private): the 2r faces `index_axis(a, 0 | n − 1)`, each integrated
@@ -60,7 +62,8 @@ In `metrics/poisson.rs`'s `tests`, rank 4 arrays (3D fields), non-trivial n (9, 
 - D2, `nd_rank_two_is_bit_identical_to_2d`: `poisson_errors_nd` on `[N, s, s]` /
   `[N, n, n]` (s = n − 1 and s < n − 1, a transposed view) against `poisson_errors`,
   every vector `assert_eq!`.
-- Panics: sample count, rank mismatch, non-cubic, grid not the transfers', field rank < 2.
+- Panics: sample count, rank mismatch, non-cubic, grid not the transfers', field rank not
+  2 or 3.
 
 ## Checks
 `/verify` (fmt, the three CI clippy jobs, `cargo clippy --all-targets`, `cargo test`,
@@ -75,8 +78,8 @@ None.
   shown in process by the bit-identity test; `predict_poisson` and `poisson_resolution`
   still call `poisson_errors`, so `errors.json` is unchanged. `rel_l2_equal_weights`
   becomes generic with the same body; the D2 test covers it.
-- `poisson.rs` grows past 1,000 lines (888 now); moving its tests to a file of their own is
-  left to the next task that edits it (as CL1.2 did for `transfer.rs`).
+- `poisson.rs` would have grown past 1,000 lines (888 before); its tests moved to
+  `poisson/tests.rs` in this task (code review, round 1 blocker).
 
 ## Pending runs
 None.

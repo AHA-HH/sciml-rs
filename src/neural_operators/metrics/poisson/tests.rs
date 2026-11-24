@@ -541,7 +541,9 @@ fn nd_u_norm_is_the_cc_norm() {
     assert_rel(e.u_norm[0], (16.0_f64 / 15.0).powf(1.5), 1e-14, "||u||");
 }
 
-// the generic face code against the trusted 2D path (four edges, 8 against 4)
+// poisson_errors_nd never calls boundary_errors_nd at rank 2 (it routes 2D to
+// poisson_errors); this checks the general face formula against the trusted 2D one (four
+// edges, 8 against 4), to round-off since the sums run in another order
 #[test]
 fn nd_boundary_at_rank_two_matches_2d() {
     let n = 17;
@@ -551,7 +553,12 @@ fn nd_boundary_at_rank_two_matches_2d() {
         let ui = u.index_axis(Axis(0), k);
         let u_hat = Array2::from_shape_fn((n, n), |(i, j)| ui[[i, j]] + 0.02 * noise(k, i, j));
         let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
-        let (ratio_nd, rms_nd) = boundary_errors_nd(u_hat.view().into_dyn(), ui.into_dyn(), &w);
+        let (ratio_nd, rms_nd) = boundary_errors_nd(
+            u_hat.view().into_dyn(),
+            ui.into_dyn(),
+            &w,
+            cc_norm_sq(ui, w.view(), w.view()),
+        );
         assert_rel(ratio_nd, ratio, 1e-14, "ratio");
         assert_rel(rms_nd, rms, 1e-14, "rms");
     }
@@ -640,9 +647,17 @@ fn nd_wrong_grid_panics() {
 }
 
 #[test]
-#[should_panic(expected = "at least two spatial axes")]
+#[should_panic(expected = "two or three spatial axes")]
 fn nd_one_spatial_axis_panics() {
     let u = Array2::<f64>::zeros((1, 9));
     let pred = Array2::<f64>::zeros((1, 8));
+    poisson_errors_nd(pred.view(), u.view(), &Transfers::new(9));
+}
+
+#[test]
+#[should_panic(expected = "two or three spatial axes")]
+fn nd_four_spatial_axes_panics() {
+    let u = ndarray::Array5::<f64>::zeros((1, 9, 9, 9, 9));
+    let pred = ndarray::Array5::<f64>::zeros((1, 8, 8, 8, 8));
     poisson_errors_nd(pred.view(), u.view(), &Transfers::new(9));
 }

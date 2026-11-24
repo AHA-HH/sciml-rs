@@ -42,7 +42,8 @@ use ndarray::{
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Per-sample errors from [`poisson_errors`], one entry per sample, in sample order.
+/// Per-sample errors from [`poisson_errors`] (2D) or [`poisson_errors_nd`] (2D or 3D), one
+/// entry per sample, in sample order.
 #[derive(Debug, Clone, Default)]
 pub struct PoissonErrors {
     /// Error 2: ‖P R u − u‖ / ‖u‖, Clenshaw–Curtis norm.
@@ -56,7 +57,8 @@ pub struct PoissonErrors {
     pub u_norm: Vec<f64>,
     /// Error 5, max ratio: max over ∂Ω of |û| / max over Ω of |u|, on the CGL nodes.
     pub boundary_max_ratio: Vec<f64>,
-    /// Error 5, relative boundary RMS: √(∮ û² ds / 8) / √(∫∫ u² dA / 4).
+    /// Error 5, relative boundary RMS: in 2D √(∮ û² ds / 8) / √(∫∫ u² dA / 4), in 3D
+    /// √(∯ û² dS / 24) / √(∭ u² dV / 8) (CONVENTIONS §12).
     pub boundary_rel_rms: Vec<f64>,
 }
 
@@ -144,8 +146,8 @@ pub fn poisson_errors(
     errors
 }
 
-/// [`poisson_errors`] for fields of any rank r ≥ 2: axis 0 the samples, the rest the
-/// spatial axes, stored 'ij' or 'ijk' (CONVENTIONS §12).
+/// [`poisson_errors`] for 2D or 3D fields (rank r = 2 or 3, the ranks CONVENTIONS §12
+/// defines): axis 0 the samples, the rest the spatial axes, stored 'ij' or 'ijk'.
 ///
 /// - `pred`: decoded predictions on the uniform learning grid, `[N, s, …, s]`.
 /// - `u`: the raw solutions on the CGL grid, `[N, n, …, n]`, of the same rank.
@@ -159,7 +161,7 @@ pub fn poisson_errors(
 /// the volume 2^r: in 3D √(∯ û² dS / 24) / √(∭ u² dV / 8) (CONVENTIONS §12).
 ///
 /// # Panics
-/// If `u` has fewer than two spatial axes, `pred` and `u` differ in rank or sample count,
+/// If `u` has not two or three spatial axes, `pred` and `u` differ in rank or sample count,
 /// or an axis is not the transfers' s (for `pred`) or n (for `u`).
 pub fn poisson_errors_nd<D: RemoveAxis>(
     pred: ArrayView<f64, D>,
@@ -167,8 +169,8 @@ pub fn poisson_errors_nd<D: RemoveAxis>(
     transfers: &Transfers,
 ) -> PoissonErrors {
     assert!(
-        u.ndim() >= 3,
-        "poisson_errors_nd: u must be [N, n, n, ...] with at least two spatial axes, got {:?}",
+        matches!(u.ndim(), 3 | 4),
+        "poisson_errors_nd: u must be [N, n, n] or [N, n, n, n] (two or three spatial axes), got {:?}",
         u.shape()
     );
     assert_eq!(
@@ -215,8 +217,9 @@ pub fn poisson_errors_nd<D: RemoveAxis>(
         errors
             .total
             .push(cc_rel_l2_error_weighted_nd(u_hat.view(), ui.view(), &ws));
-        errors.u_norm.push(cc_norm_sq_nd(ui.view(), &ws).sqrt());
-        let (ratio, rms) = boundary_errors_nd(u_hat.view().into_dyn(), ui.into_dyn(), &w);
+        let u_sq = cc_norm_sq_nd(ui.view(), &ws);
+        errors.u_norm.push(u_sq.sqrt());
+        let (ratio, rms) = boundary_errors_nd(u_hat.view().into_dyn(), ui.into_dyn(), &w, u_sq);
         errors.boundary_max_ratio.push(ratio);
         errors.boundary_rel_rms.push(rms);
     }
@@ -601,10 +604,15 @@ fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> 
     (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
 }
 
-/// Error 5 for one sample of any rank r ≥ 2: `(max ratio, relative boundary RMS)` of
+/// Error 5 for one sample of rank r: `(max ratio, relative boundary RMS)` of
 /// `u_hat: [n, …, n]` against `u: [n, …, n]`, both on the CGL grid, with Clenshaw–Curtis
-/// weights `w: [n]` on every axis (see [`poisson_errors_nd`]).
-fn boundary_errors_nd(u_hat: ArrayViewD<f64>, u: ArrayViewD<f64>, w: &Array1<f64>) -> (f64, f64) {
+/// weights `w: [n]` on every axis and `u_sq`, ‖u‖² in that norm (see [`poisson_errors_nd`]).
+fn boundary_errors_nd(
+    u_hat: ArrayViewD<f64>,
+    u: ArrayViewD<f64>,
+    w: &Array1<f64>,
+    u_sq: f64,
+) -> (f64, f64) {
     let r = u.ndim();
     let last = u_hat.len_of(Axis(0)) - 1;
     let face_ws = vec![w.view(); r - 1];
@@ -617,14 +625,13 @@ fn boundary_errors_nd(u_hat: ArrayViewD<f64>, u: ArrayViewD<f64>, w: &Array1<f64
         }
     }
     let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-    let volume = cc_norm_sq_nd(u, &vec![w.view(); r]);
 
     // 2r faces of area 2^(r − 1) each, against the volume 2^r: 8 and 4 in 2D, 24 and 8 in 3D
     let cube = 2.0_f64.powi(r as i32);
     let faces = r as f64 * cube;
     (
         max_face / max_u,
-        (surface / faces).sqrt() / (volume / cube).sqrt(),
+        (surface / faces).sqrt() / (u_sq / cube).sqrt(),
     )
 }
 
