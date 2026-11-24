@@ -54,9 +54,9 @@ patterns at rank 5, which do not depend on size; CL0.1 measures the sizes.
 Each case against Flex, the trusted path (its rank-5 grid is pinned by
 `grid_controls_3d`, its rank-5 spectral layer by `forward_3d_matches_numpy_reference`):
 relative L² error ≤ 1e-5 (the 2D replay's tolerance) over the whole output, and for
-`grid_3d` and `spectral_conv_3d` also max |GPU − Flex| / max |Flex| ≤ 1e-5, so a few
-zeroed entries cannot hide in an L² norm. The replays print the max-entry error but
-assert L² only, so the 2D gate keeps its criterion.
+the three 3D cases also max |GPU − Flex| / max |Flex| ≤ 1e-5, so a few zeroed entries
+cannot hide in an L² norm. The 2D replay prints the max-entry error but asserts L² only,
+so the 2D gate keeps its criterion from `main`.
 
 ## Checks
 `/verify`; `cargo test --release --features metal --test gpu_parity` (all cases, the 2D

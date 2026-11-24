@@ -18,6 +18,8 @@
 
 use burn::prelude::*;
 use burn::tensor::signal;
+#[cfg(any(feature = "metal", feature = "cuda"))]
+use sciml_rs::neural_operators::models::fno::FNO;
 
 /// The GPU under test: CUDA when the `cuda` feature is on.
 #[cfg(feature = "cuda")]
@@ -199,18 +201,27 @@ fn max_rel(a: &[f32], b: &[f32]) -> f32 {
     num / den.max(1e-30)
 }
 
+/// (model, autodiff model, device, autodiff device): one backend's side of [`replay`].
+#[cfg(any(feature = "metal", feature = "cuda"))]
+type Side<'a, const R: usize> = (&'a FNO<R>, &'a FNO<R>, &'a Device, &'a Device);
+
 /// Replays `schedule` on an `FNO<R>` of width 32 and 4 layers with `modes`, once per
 /// padding in `pads`: shapes change as in training, inputs are uploaded afresh per call,
 /// and every GPU call is compared to Flex (forward output, and loss + input gradient
-/// through backward). Prints one line per padding; returns the worst relative L² error.
+/// through backward). Prints one line per padding; returns the worst relative L² and the
+/// worst max-entry error.
 #[cfg(any(feature = "metal", feature = "cuda"))]
-fn replay<const R: usize>(modes: &[usize], pads: &[usize], schedule: &[(Call, [usize; R])]) -> f32 {
+fn replay<const R: usize>(
+    modes: &[usize],
+    pads: &[usize],
+    schedule: &[(Call, [usize; R])],
+) -> (f32, f32) {
     use burn::module::Module;
     use sciml_rs::neural_operators::layers::spectral_convolution::SpectralInit;
-    use sciml_rs::neural_operators::models::fno::{FNO, FNOConfig};
+    use sciml_rs::neural_operators::models::fno::FNOConfig;
     let (m, f) = (gpu(), Device::flex());
     let (fa, ma) = (f.clone().autodiff(), m.clone().autodiff());
-    let mut worst = 0.0f32;
+    let (mut worst, mut worst_max) = (0.0f32, 0.0f32);
     for &p in pads {
         f.seed(5);
         let model_f = FNOConfig::new(modes.to_vec(), 1, 1)
@@ -224,8 +235,6 @@ fn replay<const R: usize>(modes: &[usize], pads: &[usize], schedule: &[(Call, [u
             model_f.clone().to_device(&fa),
             model_f.clone().to_device(&ma),
         );
-        // (model, autodiff model, device, autodiff device) for each backend.
-        type Side<'a, const R: usize> = (&'a FNO<R>, &'a FNO<R>, &'a Device, &'a Device);
         let (flex, gpu_side): (Side<R>, Side<R>) = (
             (&model_f, &model_fa, &f, &fa),
             (&model_m, &model_ma, &m, &ma),
@@ -244,6 +253,7 @@ fn replay<const R: usize>(modes: &[usize], pads: &[usize], schedule: &[(Call, [u
             let got = run(kind, dims, gpu_side);
             let (e, e_max) = (rel(&got, want), max_rel(&got, want));
             worst = worst.max(e);
+            worst_max = worst_max.max(e_max);
             line.push(format!(
                 "{call}:{kind}{dims:?}={e:.1e}/{e_max:.1e}{}",
                 if e > 1e-5 { "!" } else { "" }
@@ -251,8 +261,8 @@ fn replay<const R: usize>(modes: &[usize], pads: &[usize], schedule: &[(Call, [u
         }
         println!("p={p:<2} {}", line.join(" "));
     }
-    println!("worst gpu/flex rel err: {worst:.2e}");
-    worst
+    println!("worst gpu/flex rel err: {worst:.2e}, max rel: {worst_max:.2e}");
+    (worst, worst_max)
 }
 
 /// 2D replay check at the Poisson trainer's configuration (s = 64, modes 12²): train
@@ -276,13 +286,15 @@ fn replay_2d_poisson() {
         (Call::Train, sq(7)),
         (Call::Eval, sq(20)),
     ];
-    let worst = replay(&[12, 12], &pads, &schedule);
+    // L² only, the criterion on main; the max-entry error is printed.
+    let (worst, _) = replay(&[12, 12], &pads, &schedule);
     assert!(worst <= 1e-5, "GPU differs from Flex: {worst:e}");
 }
 
 /// 3D replay check (CL0.2): [`replay_2d_poisson`]'s schedule at rank 5, s = 16 and
 /// modes 6³, padding 0 and 4 (24³ goes through Bluestein), with an evaluation at the
-/// non-cubic [2, 14, 13, 12, 1] in the middle (a resolution change).
+/// non-cubic [2, 14, 13, 12, 1] in the middle (a resolution change). Asserts both the
+/// relative L² and the max-entry error.
 #[cfg(any(feature = "metal", feature = "cuda"))]
 #[test]
 fn replay_3d_poisson() {
@@ -298,8 +310,11 @@ fn replay_3d_poisson() {
         (Call::Train, cube(7)),
         (Call::Eval, cube(20)),
     ];
-    let worst = replay(&[6, 6, 6], &[0, 4], &schedule);
-    assert!(worst <= 1e-5, "GPU differs from Flex at rank 5: {worst:e}");
+    let (worst, worst_max) = replay(&[6, 6, 6], &[0, 4], &schedule);
+    assert!(
+        worst <= 1e-5 && worst_max <= 1e-5,
+        "GPU differs from Flex at rank 5: rel {worst:e}, max rel {worst_max:e}"
+    );
 }
 
 /// 3D grid channels (CL0.2): `FNO<5>` with no Fourier layers, so the output is the
