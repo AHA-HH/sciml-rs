@@ -14,6 +14,10 @@
 //! - error 5 (boundary): with û = T_uc(prediction), the max ratio max_∂Ω |û| / max_Ω |u|
 //!   and the relative boundary RMS √(∮ û² ds / 8) / √(∫∫ u² dA / 4).
 //!
+//! [`poisson_errors_nd`] computes the same errors for 2D or 3D fields, 2D through
+//! [`poisson_errors`] itself; in 3D error 5 runs over the six faces, √(∯ û² dS / 24) /
+//! √(∭ u² dV / 8) (CONVENTIONS §12).
+//!
 //! [`check_error3`] cross-checks the mean error 3 against the run's last test_l2. Each
 //! error is summarised over the samples with [`ErrorStats`]. [`evaluate`] applies the
 //! evaluation policy, the worst sample, both cross-checks and the boundary verdict, and

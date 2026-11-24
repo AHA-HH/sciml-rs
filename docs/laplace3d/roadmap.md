@@ -11,7 +11,8 @@ signed off 2026-11-11, #117). 2026-11-24: CL1.1 (the CONVENTIONS 3D additions) s
 by the author and merged (#122); CL0.2 done (rank-5 parity on metal, no Burn bug found);
 CL0.1 measured on the Mac (#123, the cuda run waits for the VM); CL1.2 (transfers and
 CC norms for any rank) done; CL3.1 done (the 3D GRF, `pde/poisson/grf3d`; D3 confirmed 2026-11-24 on
-its ε_K table); next CL1.3 and CL2.1.
+its ε_K table); CL1.3 (errors 2–5 for 2D or 3D fields) done, so L1's tasks are all done;
+next CL2.1, then the L1 gate.
 
 ## How to read this file
 
@@ -84,9 +85,14 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
   Follow-ups: the 3D test names go into CONVENTIONS §12 "Verification" with CL1.3's (a
   CONVENTIONS edit, for sign-off); `chebyshev/transfer.rs` is 970 lines, so the next task
   that edits it first moves its tests to `transfer/tests.rs`.
-- [ ] **CL1.3 N-D errors.** `metrics/poisson` errors 2–5 for any rank, error 5 over six
+- [x] **CL1.3 N-D errors.** `metrics/poisson` errors 2–5 for any rank, error 5 over six
   faces (proposal §3.5). *Done when:* 3D errors on synthetic fields against direct
   computation; 2D unchanged by D2's test. *Needs:* CL1.2.
+  Report: `docs/laplace3d/tasks/CL1.3.md` and `progress.md` (2026-11-24):
+  `poisson_errors_nd` for 2D or 3D fields (the ranks CONVENTIONS §12 defines), 2D routed
+  to `poisson_errors`; `metrics/poisson` is now a folder, its tests in `poisson/tests.rs`.
+  Follow-up: the 3D test names in CONVENTIONS §12 "Verification" (with CL1.2's, for
+  sign-off).
 
 ## L2: 3D reference solver
 
@@ -119,7 +125,10 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 - [ ] **CL4.1 3D training and prediction examples.** `train_poisson3d` and the 3D predict
   example (`train_poisson` unchanged). *Done when:* a short run at n = 33 on the Mac writes
   a run directory that the 3D predict example evaluates. Near the three-module limit: split
-  when it starts if it exceeds it. *Needs:* CL0.2, CL1.3, CL3.3, D4.
+  when it starts if it exceeds it. *Needs:* CL0.2, CL1.3, CL3.3, D4. The 3D `evaluate` and
+  errors record are new 3D types (proposal §6); with them, consider one per-sample loop in
+  `metrics/poisson` for 2D and 3D, keeping a frozen copy of today's `poisson_errors` as
+  the D2 oracle, and passing max |u| to `boundary_errors_nd` (CL1.3 review F1, N2).
 - [ ] **CL4.2 3D baseline.** Training at n = 65 over seeds. *Done when:* the results table
   with errors 2–5 against the 3D floor, and 2D Phase 5 at the same s as context (the
   input families differ, proposal §3.3). Before its first cuda run, CL0.2's cases run on
