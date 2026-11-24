@@ -4157,6 +4157,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "linalg-spike"
+version = "0.0.0"
+dependencies = [
+ "burn",
+ "ndarray",
+ "num-traits",
+ "sciml-rs",
+]
+
+[[package]]
 name = "line-clipping"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
