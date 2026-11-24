@@ -1,6 +1,6 @@
 # Conventions
 
-`CONVENTION_VERSION = 2`.
+`CONVENTION_VERSION = 3`.
 
 This file is the single source of truth for tensor layouts, coordinate grids, padding,
 Fourier transforms, mode truncation and weight initialisation in `sciml-rs`, and records
@@ -206,7 +206,7 @@ a published PyTorch/NumPy value), with its tolerance stated relative to that ref
 
 ## 9. Versioning
 
-`CONVENTION_VERSION = 2`. Any change to §1–§6 bumps it: those sections fix parameter
+`CONVENTION_VERSION = 3`. Any change to §1–§6 bumps it: those sections fix parameter
 names and shapes, the grid-channel order, the spectral layout and the initialisation draw
 order, which saved checkpoints depend on. A design document that needs a new convention
 proposes it as a diff to this file, and the change lands here before any code that
@@ -218,6 +218,10 @@ the code that implements it in the same pull request.
 History: version 2 (Phase 5 T2) lets §12's uniform size s differ from n − 1 and names the
 restriction R. Every version 1 dataset file is still valid at version 2: its s = n − 1
 grid and T_cu are unchanged, and the loaders do not check a sidecar's version.
+Version 3 (3D CL1.1, proposal `docs/design/3d-chebyshev-laplace-fno.md` §4) adds §12's
+three-dimensional statements and changes no existing one. Every version 1 and 2 dataset
+file is still valid at version 3; a 2D sidecar's `convention_version` is metadata, outside
+the 3D objective's bit identity of 2D outputs (its decision D2).
 
 ## 10. Data normalisation
 
@@ -337,6 +341,38 @@ code that implements it (§9); its tests landed in Phase 1 T1, Phase 2 T1 and Ph
   Norms on the uniform grid stay `LpLoss` (§11).
 - Reference data (nodes, transfer matrices, solver output, dataset files) are f64 on the
   host; the model sees f32 after normalisation (§8, §10).
+
+### Three dimensions (version 3)
+
+The 3D objective (design `docs/design/3d-chebyshev-laplace-fno.md`) uses the same grids on
+Ω = [−1, 1]³. Everything above holds per axis; these statements add what a third axis
+needs and apply to rank 3 only. §1 and §2 are already rank-generic: an `FNO<5>` gets
+`[data, z, y, x]`.
+
+- Fields are stored 'ijk': `F[i, j, k] = f(x_i, y_j, z_k)`, the axes x, y, z in that
+  order, on the CGL grid and the uniform grid alike, n (or s) points on every axis.
+- Transfers apply the same 1D matrix T (T_cu, R or T_uc) along x, then y, then z, the
+  order of the 2D T F Tᵀ (along x, then y).
+- The Clenshaw–Curtis norm takes the tensor weights over three axes:
+
+  ```math
+  \lVert v \rVert_{L^2(\Omega)}^2 \approx \sum_{i, j, k} w_i\, w_j\, w_k\, v(x_i, y_j, z_k)^2
+  ```
+
+- Boundary norm (error 5 in 3D): the sum over the six faces of each face's integral with
+  2D tensor Clenshaw–Curtis weights in the face's two coordinates. A node on an edge or
+  a corner belongs to every face that contains it and is counted once per face, so each
+  face's quadrature is complete on its own. The relative boundary RMS normalises by the
+  total face area 24 against the volume 8:
+
+  ```math
+  e_5 = \frac{\sqrt{\tfrac{1}{24} \sum_{\text{faces}} \sum_{a, b} w_a\, w_b\, \hat u^2}}
+             {\sqrt{\tfrac{1}{8} \sum_{i, j, k} w_i\, w_j\, w_k\, u^2}}
+  ```
+
+  For Laplace, û² becomes (û − g)², with g the boundary data, in the same norm.
+
+The tests of these statements land with the code that implements them (3D CL1.2, CL1.3).
 
 ### Verification
 Tests marked † need the `datagen` feature (named `chebyshev` before Phase 4s T16).
