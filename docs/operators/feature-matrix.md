@@ -8,7 +8,8 @@ the signatures with Python's `ast` and checked against the source.
 
 *Source* is the path under `neuralop/` at 2.0.0. *Status*: **have** (output parity shown),
 **partial** (exists, parity not shown or options missing), **missing**, **not planned**
-(outside proposal §1.2). *Task* is the roadmap task that sets the row; "–" means none yet.
+(outside proposal §1.2); a parenthetical after a status qualifies it (internal: a helper,
+ported with the task that needs it). *Task* is the roadmap task that sets the row; "–" means none yet.
 "Exported" means importable from `neuralop` itself or from its subpackage's `__init__.py`
 (`neuralop.models`, `neuralop.losses`, `neuralop.training`, `neuralop.data.datasets`); other
 items are imported by module path. From `neuralop` itself: `FNO`, `TFNO`, `get_model`,
@@ -124,7 +125,7 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `UnitGaussianNormalizer` (`eps=1e-07`, `dim`, `mask`), `Normalizer`, `DictUnitGaussianNormalizer` | `data/transforms/normalizers.py` | `UnitGaussianNormalizer` (CONVENTIONS §10) | partial | – |
+| `UnitGaussianNormalizer` (`eps=1e-07`, `dim`, `mask`), `Normalizer`, `DictUnitGaussianNormalizer` | `data/transforms/normalizers.py` | `UnitGaussianNormalizer` (CONVENTIONS §10), default eps 1e-5 against 2.0.0's 1e-7 | partial | – |
 | `DataProcessor` (base), `DefaultDataProcessor` (normalise in, decode out) | `data/transforms/data_processors.py` | `Normalizers`, `FlatDecoder` (loader-internal `normalize_split_pair`) | partial | – |
 | `IncrementalDataProcessor` (incremental resolution) | `data/transforms/data_processors.py` | – | missing | CM1.7 |
 | `MGPatchingDataProcessor` | `data/transforms/data_processors.py` | – | missing | CM1.7 |

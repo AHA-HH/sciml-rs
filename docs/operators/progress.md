@@ -38,12 +38,17 @@ template:
 - Tests: an independent agent re-read its own clone of the tag and checked every row and
   signature: 183 of 185 signatures exact, one item missing from the appendix, an
   inconsistent "exported" rule, two wrong parentheticals and three thin sciml-rs cells;
-  all fixed, then re-checked (see the PR).
-- Checks: docs only; no Rust check applies, CI's `changes` filter skips its jobs.
+  all fixed. A second pass found one more (`LocalNO` does need torch_harmonics: the DISCO
+  module builds a dict from names it failed to import); fixed, and nothing else remained
+  (the "exported" marks match all five `__init__.py` files; 186 signatures exact).
+- Checks: ran the independent row check (twice); `/verify` not run: docs only, no Rust
+  check applies and CI's `changes` filter skips its jobs. Pending none.
 - Decisions: none taken; questions for sign-off in the PR (scope of the not-planned rows,
   owners for the rows without a task, proposal §3 and CM1.3 corrections).
-- Review: plan review (see the PR); code-quality review skipped (docs only).
+- Review: plan review PASS, no blocker; its findings fixed (this entry's evidence, the
+  normaliser's eps, the legend's qualified statuses) or put to the author (owners of the
+  "–" rows); code-quality review skipped (docs only).
 - FNO: not touched.
 - Matrix: every row set.
-- Follow-ups: owners for the "–" rows (datasets, transforms, utilities) once the author
-  answers the PR's questions.
+- Follow-ups: owners for the "–" rows (datasets, transforms, utilities): no roadmap line
+  until the author answers the PR's question 2.
