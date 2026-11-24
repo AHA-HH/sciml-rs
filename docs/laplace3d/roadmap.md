@@ -7,9 +7,9 @@ each task's plan is `docs/laplace3d/tasks/<ID>.md`, written when it starts; each
 milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 
 Status: **L0 and L1 under way.** Draft 0.2 of the proposal is the plan of record (D0–D3
-signed off 2026-11-11, #117). 2026-11-24: CL1.1 (the CONVENTIONS 3D additions) written
-and put to the author for sign-off, as a draft PR; CL0.1 in progress beside it; next CL0.2,
-and CL1.2 once CL1.1 is signed off and merged.
+signed off 2026-11-11, #117). 2026-11-24: CL1.1 (the CONVENTIONS 3D additions) signed off
+by the author (#122); CL0.1 measured on the Mac (#123, the cuda run waits for the VM);
+CL0.2 in progress; CL1.2 and CL3.1 once #122 is merged.
 
 ## How to read this file
 
@@ -65,10 +65,12 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 
 **Gate:** CONVENTIONS has the 3D additions; the shared pieces take any rank; 2D unchanged.
 
-- [ ] **CL1.1 CONVENTIONS 3D additions.** Proposal §4, with a `CONVENTION_VERSION` bump.
+- [x] **CL1.1 CONVENTIONS 3D additions.** Proposal §4, with a `CONVENTION_VERSION` bump.
   *Done when:* signed off by the author. *Needs:* –. *Sign-off:* the additions.
-  Written 2026-11-24 (plan `docs/laplace3d/tasks/CL1.1.md`); the tick waits for the
-  author's sign-off on its PR.
+  Signed off by the author 2026-11-24 (#122, plan `docs/laplace3d/tasks/CL1.1.md`), with
+  the 2D boundary norm recorded in §12 and the 2D-only statements labelled. Deferred to the
+  L4 gate (D6, D7): whether the Laplace boundary norm is relative to ‖u‖ (as written) or to
+  ‖g‖ on ∂Ω.
 - [ ] **CL1.2 N-D transfers and quadrature.** `transfer::apply`/`Transfers` and
   `cc_rel_l2_error` for any rank. *Done when:* 3D round-trip and CC-norm tests against
   closed forms; the 2D outputs bit for bit unchanged by D2's test. *Needs:* CL1.1, D1, D2.

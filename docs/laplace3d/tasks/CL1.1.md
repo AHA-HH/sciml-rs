@@ -57,4 +57,7 @@ this task touches only `docs/CONVENTIONS.md`, `src/lib.rs` and `docs/laplace3d/`
 None.
 
 ## Open questions
-See the PR: the 2D boundary norm's absence from CONVENTIONS, and the branch name.
+Answered by the author 2026-11-24 on #122: the additions signed off; the 2D boundary norm
+recorded in §12 (yes); the Laplace boundary norm's denominator deferred to the L4 gate
+(D6, D7); the 2D-only statements of §12 labelled (yes); the branch name `cl1-1` stands
+(the skill writes the ID's dots as dashes).

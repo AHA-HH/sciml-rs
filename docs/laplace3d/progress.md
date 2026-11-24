@@ -51,10 +51,12 @@ template:
 - Tests: none new (the conventions land before their code, CONVENTIONS §9; CL1.2 and
   CL1.3 add theirs). `convention_version_matches_conventions_md` checks the bump.
 - Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo doc`, datagen clippy and tests).
-- Decisions: none; the additions are put to the author for sign-off, with the questions in
-  the PR.
+- Decisions: the additions signed off by the author 2026-11-24 on #122, with two answers
+  applied: §12 records the 2D boundary norm `metrics::poisson` already computes, and labels
+  its 2D-only statements. The Laplace boundary norm's denominator (‖u‖ or ‖g‖ on ∂Ω) is
+  deferred to the L4 gate (D6, D7).
 - Review: plan review by the `reviewer` agent; no code-quality review (docs and one
   constant).
 - 2D: no numerical code changed; newly generated 2D sidecars record
   `convention_version: 3`, metadata outside D2.
-- Follow-ups: the tick on the author's sign-off; then CL1.2.
+- Follow-ups: CL1.2 and CL3.1 once #122 is merged.
