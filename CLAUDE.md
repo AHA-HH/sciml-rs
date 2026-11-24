@@ -24,6 +24,12 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   D0–D8 in docs/operators/roadmap.md; feature matrix docs/operators/feature-matrix.md; log
   docs/operators/progress.md. Constraint 1: every existing FNO output stays bit for bit
   identical. Python (fixtures from 2.0.0) stays outside CI.
+- Objective optimisers (L-BFGS and SOAP against Adam and Gauss–Newton, 2D then 3D):
+  proposal docs/design/optimisers.md (draft 0.1, 2026-11-24, nothing signed off);
+  milestones O0–O4, tasks `CO<m>.<n>`, decisions D0–D9 in docs/optimisers/roadmap.md;
+  log docs/optimisers/progress.md; reading notes docs/optimisers/references.md.
+  Constraint 1: every existing output, Adam and Gauss–Newton included, stays bit for bit
+  identical.
 - Objective 2D (everything below; phases in docs/poisson2d/).
 - Current phase: none planned after Phase 10. Candidates: an optimiser comparison
   (L-BFGS, SOAP; more GN seeds at μ = 0 and a long Adam run, post-Phase 10) and the 3D
