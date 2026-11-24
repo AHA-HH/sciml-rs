@@ -28,7 +28,7 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | `partialclass` (helper: a subclass with new defaults) | `models/fno.py` | – | not planned (Python idiom) | – |
 | `SFNO` (exported, only with torch_harmonics; `FNO` with `factorization="dense"`, `conv_module=SphericalConv`) | `models/sfno.py` | – | missing | CM3.2 |
 | `UNO` (exported) | `models/uno.py` | – | missing | CM2.2 |
-| `LocalNO` (exported only with torch_harmonics; the module itself imports without it) | `models/local_no.py` | – | missing | CM2.3 |
+| `LocalNO` (exported, only with torch_harmonics, which it needs through `EquidistantDiscreteContinuousConv2d`) | `models/local_no.py` | – | missing | CM2.3 |
 | `UQNO` (exported; wraps a base and a residual model; returns solution and quantile) | `models/uqno.py` | – | missing | CM2.6 |
 | `GINO` (exported) | `models/gino.py` | – | missing | CM3.4 |
 | `FNOGNO` (exported) | `models/fnogno.py` | – | missing | CM3.4 |
