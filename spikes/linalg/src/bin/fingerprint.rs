@@ -50,7 +50,12 @@ fn weights(h: &mut Fnv, model: &FNO<4>) {
     let mut ps: Vec<_> = model
         .collect(None, None, false)
         .iter()
-        .map(|t| (t.name.clone(), to_data(t).unwrap().try_to_vec::<f32>().unwrap()))
+        .map(|t| {
+            (
+                t.name.clone(),
+                to_data(t).unwrap().try_to_vec::<f32>().unwrap(),
+            )
+        })
         .collect();
     ps.sort_by(|a, b| a.0.cmp(&b.0));
     ps.iter().for_each(|(_, v)| h.f32s(v));

@@ -116,6 +116,7 @@ fn jacobi_eigenvalues(a: &[f64], n: usize) -> Vec<f64> {
             .filter(|ij| ij / n != ij % n)
             .map(|ij| a[ij] * a[ij])
             .sum();
+        // absolute tolerance: valid because every P here has ‖P‖₂ = 1
         if off < 1e-30 {
             break;
         }
@@ -232,8 +233,13 @@ fn main() {
             let (q, r) = qr(a_t(), true);
             let _ = (q.into_data(), r.into_data());
         });
+        // like for like with `qr_time`: A from the device, QR on the host, Q and R back
+        let a_dev = a_t();
         let host_qr_time = median_secs(|| {
-            let _ = householder_qr(&a32, n);
+            let (q, r) = householder_qr(&read(a_dev.clone()), n);
+            let q = Tensor::<2>::from_data(TensorData::new(q, [n, n]), &device);
+            let r = Tensor::<2>::from_data(TensorData::new(r, [n, n]), &device);
+            let _ = (q.into_data(), r.into_data());
         });
 
         // svd of the symmetric PSD P: σ = eigenvalues, U = V

@@ -290,9 +290,10 @@ An exact test filter needs the full module path:
 
 ## Burn
 - Burn is pinned exactly in `Cargo.toml` (`[workspace.dependencies]`): `burn = "=0.23.0-pre.2"`
-  from crates.io, a pre-release, features `autodiff, linalg, signal, store, train` (`linalg` since optimisers CO3.1). It replaced the
-  fork `ax1s-x1zz/burn` at `ddfa9af` on 2026-11-13 (the fork's Bluestein FFT is upstream
-  #5757); every 2D Phase 1–10 result was measured on the fork.
+  from crates.io, a pre-release, features `autodiff, linalg, signal, store, train`
+  (`linalg` since optimisers CO3.1). It replaced the fork `ax1s-x1zz/burn` at `ddfa9af`
+  on 2026-11-13 (the fork's Bluestein FFT is upstream #5757); every 2D Phase 1–10 result
+  was measured on the fork.
 - `cubek.toml` (repository root) sets `[matmul] allow_tf32 = false`: Burn 0.23's cuda matmuls
   default to TF32, which made the GPU 50× less accurate than Flex in `replay_2d_poisson`
   (1.6e-4; 1.4e-6 with it off). It is found by walking up from the working directory, so

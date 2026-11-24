@@ -37,11 +37,14 @@ feature (Section 5.4) must not change any existing output either; O3's first tas
       ‖A − QR‖_F / ‖A‖_F, orthogonality max|QᵀQ − I|, and the forward error of Q against an
       f64 host Householder QR of the same f32 matrix (columns sign-fixed by diag R > 0),
       beside the same errors of an f32 host Householder QR (the baseline any f32 QR meets);
-    - **svd** of P itself (the first basis): max relative error of the singular values
-      against the eigenvalues P was built from, max over i of 1 − |uᵢ · vᵢ| against its
-      eigenvectors (in f64), and max|UᵀU − I|;
+    - **svd** of P itself (the first basis): max|σᵢ − λᵢ| / λ₁ against a cyclic Jacobi
+      eigensolver in f64 on the same f32 matrix (rounding P to f32 alone moves its
+      eigenvalues by about 6e-8, so the eigenvalues it was built from are not the
+      reference), the residual ‖P U − U diag(σ)‖_F / ‖P‖_F, and max|UᵀU − I|
+      (amended during the task, after the code-quality review);
     - time: median of 20 calls after 3 warm-up calls, each synchronised by reading the
-      outputs back (`into_data`), release build.
+      outputs back (`into_data`), release build; the host QR arm timed with the same
+      round trip (A downloaded, Q and R uploaded and read back).
   - `fingerprint`: constraint 1. Seeded (`device.seed`), flex: an `FNO<4>` forward on a
     fixed input, two Adam epochs of `train_fno` and a three-epoch hybrid Gauss–Newton run
     on tiny 2D datasets; prints an FNV-1a hash of the output's, the final weights' and the
