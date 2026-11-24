@@ -7,7 +7,9 @@ the proposal wins. Progress is logged in `docs/optimisers/progress.md`; each tas
 `docs/optimisers/gates/<milestone>.md`. Reading notes: `docs/optimisers/references.md`.
 
 Status: **planning.** Draft 0.1 written 2026-11-24, draft 0.2 (the Burgers replication as
-O1; the former O1–O4 renumbered O2–O5) the same day; nothing signed off. D0 first.
+O1; the former O1–O4 renumbered O2–O5) the same day, corrected after an independent check
+(#128). D0 and D2 signed off 2026-11-24; next CO0.1, CO0.2 and CO3.1 (CO0.1 and CO0.2 on
+the VM, at the author's go per run).
 
 ## How to read this file
 
@@ -37,9 +39,9 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 
 | ID | Decision | Proposal's recommendation | Prepared by | Needed by | Status |
 | --- | --- | --- | --- | --- | --- |
-| D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | open |
+| D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | signed off 2026-11-24: draft 0.2, with the corrections of #128, as the plan of record |
 | D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; CG cap 50 or 150 from CO0.1 | CO0.1 | CO4.1 | open |
-| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | open |
+| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both) |
 | D3 | L-BFGS's objective and weight decay | Φ at μ = 0 | – | CO2.1 | open |
 | D4 | L-BFGS's batch | one batch of 1,000; accumulation if memory requires | – | CO2.1 | open |
 | D5 | L-BFGS's settings | strong Wolfe, lr 1; history and `max_iter` from the pilot | CO2.2 | CO4.1 | open |

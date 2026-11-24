@@ -49,3 +49,14 @@ template:
 - Decisions: none signed off; D0 on draft 0.2 next.
 - Adam and Gauss–Newton: not touched.
 - Follow-ups: D0, D2; then CO0.1, CO0.2 and CO3.1.
+
+## 2026-11-24: D0 and D2
+- Done: D0 signed off by the author: draft 0.2 of `docs/design/optimisers.md`, with the
+  corrections of #128, as the plan of record. D2 signed off as recommended: seeds 42–46;
+  the equal-time budget (CO0.1's Adam mean) and 5,400 s, every arm at both.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D0 and D2 signed off 2026-11-24.
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO0.1 and CO0.2 (the VM, at the author's go per run) and CO3.1; CO3.2 after
+  CO3.1; the tasks that change `training/` after the library's CM0.3.
