@@ -41,3 +41,20 @@ template:
 - Review: the review of 0.1 is the input; 0.2 not yet reviewed by the author.
 - 2D: not touched.
 - Follow-ups: D0 on draft 0.2; then CL0.1 (the zip64 check added to it), CL0.2, CL1.1.
+
+## 2026-11-24: CL1.1 CONVENTIONS 3D additions
+- Done: proposal §4 written into `docs/CONVENTIONS.md` §12 as a "Three dimensions
+  (version 3)" block ('ijk' storage, transfers along x, then y, then z, the 3D
+  Clenshaw–Curtis norm, the 3D boundary norm of proposal §3.5); `CONVENTION_VERSION` 2 → 3
+  in the header, §9 (with a History line) and `src/lib.rs`. Plan
+  `docs/laplace3d/tasks/CL1.1.md`.
+- Tests: none new (the conventions land before their code, CONVENTIONS §9; CL1.2 and
+  CL1.3 add theirs). `convention_version_matches_conventions_md` checks the bump.
+- Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo doc`, datagen clippy and tests).
+- Decisions: none; the additions are put to the author for sign-off, with the questions in
+  the PR.
+- Review: plan review by the `reviewer` agent; no code-quality review (docs and one
+  constant).
+- 2D: no numerical code changed; newly generated 2D sidecars record
+  `convention_version: 3`, metadata outside D2.
+- Follow-ups: the tick on the author's sign-off; then CL1.2.
