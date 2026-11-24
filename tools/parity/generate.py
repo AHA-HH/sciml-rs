@@ -78,6 +78,8 @@ def arrays(model, x, dtype):
 def reload_output(path, name, dtype, complex_names):
     """The output of a fresh model with the weights read back from `path`."""
     model, _ = build(name, dtype)
+    for p in model.parameters():  # same seed, same weights: zero them so only the file's count
+        p.data.zero_()
     with np.load(path) as f:
         state = {}
         for k in f.files:
