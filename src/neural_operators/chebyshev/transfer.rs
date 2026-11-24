@@ -1,7 +1,8 @@
 //! Grid transfers between the CGL grid and the model's uniform grid (CONVENTIONS §12).
 //!
 //! Both transfers are rational barycentric interpolants, built once per (n, s) as dense
-//! 1D matrices in f64 and applied along each axis, Tx F Tyᵀ ([`apply`]):
+//! 1D matrices in f64 and applied along each axis: Tx F Tyᵀ for 2D fields ([`apply`]), and
+//! along x, then y, then z for 3D 'ijk' fields ([`apply_nd`], any rank; 3D CL1.2):
 //! - Chebyshev → uniform, T_cu ([`cheb_to_uniform`]): polynomial interpolation on the CGL
 //!   nodes, second-kind weights.
 //! - Uniform → Chebyshev, T_uc ([`uniform_to_cheb`]): Floater–Hormann interpolation of
@@ -19,7 +20,7 @@ use ndarray::{
 };
 use std::f64::consts::PI;
 
-use super::check_n;
+use super::{as_matrix, check_n};
 
 /// The Floater–Hormann degree d of T_uc in production (design §12, decision 8). The
 /// generator records it in each split's sidecar as `error2.d`.
@@ -215,12 +216,7 @@ fn apply_dyn(ts: &[ArrayView2<f64>], f: ArrayViewD<f64>) -> ArrayD<f64> {
     }
     let (t0, rest) = ts.split_first().expect("rank >= 1");
     let shape = f.shape().to_vec();
-    let cols: usize = shape[1..].iter().product();
-    let f = f.as_standard_layout();
-    let flat = f
-        .view()
-        .into_shape_with_order((shape[0], cols))
-        .expect("standard layout");
+    let flat = as_matrix(f);
     let mut out_shape = shape;
     out_shape[0] = t0.nrows();
     let along_0 = t0
@@ -245,7 +241,8 @@ fn apply_dyn(ts: &[ArrayView2<f64>], f: ArrayViewD<f64>) -> ArrayD<f64> {
 /// degree [`TRANSFER_DEGREE`], between the CGL nodes and the uniform learning grid of s
 /// points: s = n − 1 from [`Transfers::new`] (design §12, decisions 5 and 8), any s from
 /// [`Transfers::with_s`] (decision 30, D1). Both matrices are built once and applied along
-/// both axes of 'ij' fields with [`apply`].
+/// both axes of 'ij' fields with [`apply`], or along every axis of a field of any rank
+/// with [`apply_nd`] (the `_nd` methods).
 #[derive(Clone, Debug)]
 pub struct Transfers {
     /// `[s, n]`
@@ -362,6 +359,11 @@ impl Transfers {
     /// # Panics
     /// If an axis of `f` other than the first has not n points, or `f` has rank below 2.
     pub fn to_uniform_all_nd<D: RemoveAxis>(&self, f: ArrayView<f64, D>) -> Array<f64, D> {
+        assert!(
+            f.ndim() >= 2,
+            "Transfers::to_uniform_all_nd: f must be [N, n, ...], got rank {}",
+            f.ndim()
+        );
         let mut shape = f.raw_dim();
         for a in 1..shape.ndim() {
             shape[a] = self.s();
@@ -795,6 +797,12 @@ mod tests {
             &[t.view(), t.view(), u.view()],
             Array3::<f64>::zeros((5, 5, 5)).view(),
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Transfers::to_uniform_all_nd: f must be [N, n, ...], got rank 1")]
+    fn to_uniform_all_nd_panics_below_rank_two() {
+        Transfers::new(5).to_uniform_all_nd(Array1::<f64>::zeros(0).view());
     }
 
     #[test]

@@ -7,10 +7,10 @@
 //! with the RLST-backed `quadrature::clenshaw_curtis` test oracle (feature `datagen`) to
 //! round-off.
 
-use ndarray::{Array1, ArrayView, ArrayView1, ArrayView2, CowArray, Dimension, Ix2, Zip};
+use ndarray::{Array1, ArrayView, ArrayView1, ArrayView2, Dimension, Zip};
 use std::f64::consts::PI;
 
-use super::check_n;
+use super::{as_matrix, check_n};
 
 /// Clenshaw–Curtis weights w, shape `[n]`, on the ascending CGL nodes (CONVENTIONS §12),
 /// in closed form (Trefethen, *Spectral Methods in MATLAB*, ch. 12, `clencurt`):
@@ -124,8 +124,8 @@ pub fn cc_rel_l2_error_weighted(
     (sd / sb) * (num / den).sqrt()
 }
 
-/// Squared Clenshaw–Curtis L² norm of a field of any rank on the CGL tensor grid
-/// (CONVENTIONS §12): Σ w0_i · w1_j · … · v[i, j, …]², with `ws[a]: [n_a]` the weights
+/// Squared Clenshaw–Curtis L² norm of `v: [n_0, …, n_{r−1}]`, a field of any rank on the CGL
+/// tensor grid (CONVENTIONS §12): Σ w0_i · w1_j · … · v[i, j, …]², with `ws[a]: [n_a]` the weights
 /// along axis a, e.g. [`clencurt`]. Rank 2 is [`cc_norm_sq`] itself, bit for bit (design
 /// D1, D2); otherwise `v` is read as `[n_0, rest]` with w0 and the Kronecker product of the
 /// other weights. Unscaled, as [`cc_norm_sq`].
@@ -141,7 +141,7 @@ pub fn cc_norm_sq_nd<D: Dimension>(v: ArrayView<f64, D>, ws: &[ArrayView1<f64>])
     cc_norm_sq(as_matrix(v).view(), ws[0], w_rest.view())
 }
 
-/// [`cc_rel_l2_error`] for fields of any rank: ‖a − b‖ / ‖b‖ in the norm of
+/// [`cc_rel_l2_error`] for fields `a`, `b: [n_0, …, n_{r−1}]` of any rank: ‖a − b‖ / ‖b‖ in the norm of
 /// [`cc_norm_sq_nd`] with [`clencurt`] weights on every axis (CONVENTIONS §12), `b` the
 /// reference, scaled against underflow and overflow as [`cc_rel_l2_error`]. Rank 2 is
 /// [`cc_rel_l2_error`] itself, bit for bit (design D1, D2).
@@ -218,19 +218,6 @@ fn kron(ws: &[ArrayView1<f64>]) -> Array1<f64> {
             .flat_map(|&p| w.iter().map(move |&q| p * q))
             .collect()
     })
-}
-
-/// `v: [n_0, …]` read as `[n_0, rest]` in row-major order, copied only if not contiguous.
-fn as_matrix<D: Dimension>(v: ArrayView<f64, D>) -> CowArray<f64, Ix2> {
-    let rows = v.shape()[0];
-    let cols = v.len() / rows.max(1);
-    let v = if v.is_standard_layout() {
-        CowArray::from(v)
-    } else {
-        CowArray::from(v.as_standard_layout().into_owned())
-    };
-    v.into_shape_with_order((rows, cols))
-        .expect("standard layout")
 }
 
 #[cfg(test)]
@@ -387,7 +374,7 @@ mod tests {
         let got = cc_norm_sq_nd(p.view(), &ws);
         assert!((got - exact).abs() <= 1e-14, "{got} vs {exact}");
         // rank 1: Σ w x² = ∫ x² = 2/3
-        let x = nodes(5).mapv(|x| x);
+        let x = nodes(5);
         let got = cc_norm_sq_nd(x.view(), &ws[..1]);
         assert!((got - 2.0 / 3.0).abs() <= 1e-15, "{got}");
     }
