@@ -137,8 +137,13 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `-D warnings` rejects an undocumented public item.
 
 ## Layout
-- `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO; tests in `tests/{reference,padding,grid,checkpoint}.rs`), `models/predict.rs`
-  (`predict_host`: batched inference to host f64, any rank), `layers/spectral_convolution.rs`
+- `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO; tests in `tests/{reference,padding,grid,checkpoint}.rs`),
+  `models/operator.rs` (library CM0.3, D4: `Operator`, the trait every model implements for
+  the training stack, with associated `Config`, `Input`, `Output` and `NAME`;
+  `GridOperator<R>`, rank-R tensors in and out, which `training/`, `runs` and
+  `predict_host` are generic over; the FNO-named functions stay as wrappers),
+  `models/predict.rs` (`predict_host`: batched inference to host f64, any rank, any
+  `GridOperator`), `layers/spectral_convolution.rs`
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson

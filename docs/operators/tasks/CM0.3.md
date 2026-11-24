@@ -95,7 +95,7 @@ impl<const R: usize> Operator for FNO<R> {
 | Part | Effect |
 | --- | --- |
 | Trainer | `train_epoch`, `run_loop`, `training_loop`, `train_components` and the data-parallel epoch take `M: GridOperator<R>`; `TrainingComponents<R, RM1, M = FNO<R>>`; a generic `build_components::<M, …>(&M::Config, …)` beside `build_training_components` (FNO wrapper) and `train::<M, …>` beside `train_fno` (FNO wrapper). `Batch<R, RM1>` and the loaders are unchanged. `ModuleOptimizer` and the scheduler need nothing (already module-agnostic). The epoch observer becomes `dyn FnMut(&EpochMetrics, &M)`, `EpochObserver<'a, R, M = FNO<R>>`. |
-| Checkpoints | `Checkpoint<R, M = FNO<R>>`; `encode`/`decode` and `save_checkpoint(_gn)` take any `Module` (Burnpack already is); `decode` builds through `M::init(&M::Config)`. File format, magic and blob order unchanged, so every `checkpoint.bin` on disk reads as before. |
+| Checkpoints | `OperatorCheckpoint<M>`, with `Checkpoint<R>` kept as an alias for `OperatorCheckpoint<FNO<R>>` (amended during implementation: `R` would have been a phantom parameter); `RunDir::checkpoint_of::<M>` beside `checkpoint::<R>`; `encode`/`decode` and `save_checkpoint(_gn)` take any `Module` (Burnpack already is); `decode` builds through `M::init(&M::Config)`. File format, magic and blob order unchanged, so every `checkpoint.bin` on disk reads as before. |
 | `predict_host` | `predict_host<const R>(model: &impl GridOperator<R>, …)`; body unchanged. |
 | Run directory | `save_weights(&impl Module)`; new `load_model::<M>()` reads `model_cfg.json` as `M::Config`, `M::init`, loads the Burnpack weights; `load_fno::<R>` becomes `load_model::<FNO<R>>`. File names and contents unchanged. `kind` in `model_cfg.json` stays CM0.4's. |
 | Gauss–Newton residual | `impl<M: GridOperator<R>> LeastSquares<M> for FnoResidual<R, RM1>`: one generic impl, the name kept (renaming it is a later, separate change); `train_epoch_gn` generic. `optim::gauss_newton` itself is untouched. |
@@ -147,8 +147,10 @@ CM3.3 an extension rather than a rewrite.
   CM0.4, a sentence to add to that roadmap line), examples (they keep calling the FNO
   names).
 - Public API: additions only (`Operator`, `GridOperator`, `train`, `build_components`,
-  `load_model`, a generic parameter with an FNO default on `TrainingComponents`,
-  `Checkpoint`, `EpochObserver`). No conventions change.
+  `load_model`, `checkpoint_of`, `OperatorCheckpoint<M>` with `Checkpoint<R>` its FNO
+  alias, a generic parameter with an FNO default on `TrainingComponents` and
+  `EpochObserver`); `save_weights`, `save_checkpoint(_gn)` and `print_epoch` lose their
+  `const R` for an `impl Module` / generic argument (no caller named it). No conventions change.
 - Size: three modules (`models`, `training`, `runs`) and one test file; estimated 400–700
   changed lines.
 
@@ -163,17 +165,22 @@ CM3.3 an extension rather than a rewrite.
   1. *fixed forward:* `FNOConfig` of the Phase 5 baseline (modes 12×12, width 32, 4
      layers, padding as the Phase 5 baseline), seeded init, fixed seeded input
      `[4, 64, 64, 1]`: the output.
-  2. *one Phase 5 epoch:* `train_fno::<4, 3, _>` with the Phase 5 `TrainingConfig`
-     defaults and `epochs = 1`, on a seeded synthetic 2D split shaped as Phase 5's
-     (s = 64; small N so it runs in seconds), into a temporary `RunDir`: the trained
-     weights, `metrics.csv`'s row minus `epoch_time_s`, and `model_weights` and
-     `checkpoint.bin` byte for byte.
-  3. *one Gauss–Newton epoch:* the same with `OPTIMIZER` Gauss–Newton (the Phase 10
-     `GN_*` defaults) on a tiny model: weights, the `gn_steps.csv` rows minus times.
+  2. *one Phase 5 epoch:* `build_training_components::<4, 3, _>` and `train_components`
+     (the path `train_fno` and `train_poisson` take) with `train_poisson`'s Adam settings
+     and `epochs = 1`, a checkpoint after the epoch, on a deterministic synthetic 2D split
+     at s = 64 (20 training samples, one batch), into a temporary `RunDir`: the epoch's
+     metrics minus `epoch_time_s`; the trained, reloaded (`load_fno`) and checkpointed
+     (`checkpoint::<4>`) parameters; the checkpoint's epoch counters; `predict_host` of the
+     reloaded models. The files are compared by what they hold, not their bytes: Burnpack
+     records each parameter's random `ParamId`, so even `main` never writes the same
+     bytes twice (found while writing the test).
+  3. *one Gauss–Newton epoch:* the same with Gauss–Newton (CG capped at 5, the adjoint
+     check every step) on a tiny model, through the same checkpoint (`save_checkpoint_gn`).
   `/verify` runs it on a detached `origin/main` worktree (the file copied in) and on the
   branch, then `cmp`s each `.bin`. Trusted path: `main`'s code. Tolerance: none (bytes).
-  In CI the test only checks the cases run; the comparison is the `/verify` step, since
-  flex's bits need not agree across the Mac and CI's x86.
+  The test is `#[ignore]`d (about 4 minutes in a debug build) and run in release by
+  `/verify` (`-- --ignored`); CI compiles it (clippy `--all-targets`). The comparison is
+  the `/verify` step, since flex's bits need not agree across the Mac and CI's x86.
 - **The trait:** a unit test in `models/operator.rs` that `<FNO<4> as Operator>::init`
   and `FNOConfig::init::<4>` from the same seed give the same weights, and that
   `Operator::forward` equals `FNO::forward` bit for bit.
