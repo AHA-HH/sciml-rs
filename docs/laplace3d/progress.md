@@ -132,3 +132,30 @@ template:
 - 2D: `grf.rs` differs from `main` only by `sine_basis` becoming `pub(super)`; the 2D
   GRF and dataset tests pass unchanged.
 - Follow-ups: none new; CL3.2 uses `grf3d` (needs CL1.2, CL2.1, D5).
+
+## 2026-11-24: CL2.1 Collocation solver A3
+- Done: `CollocationSolver3d` in `pde/poisson/collocation.rs` (behind `datagen`), A3 of
+  proposal §5: one interior D² eigendecomposition per axis (`real_eig`, `interior_d2`,
+  reused), the two three-way mode products by CL1.2's `apply_nd`, and the division by
+  −(λ_i + μ_j + ν_k); `new`, `solve`, `solve_full` as in 2D. Plan
+  `docs/laplace3d/tasks/CL2.1.md`, report `docs/laplace3d/results/cl2-1.md`.
+- Tests: 7 new (3D fixtures in `manufactured.rs`). Max and 3D CC errors ≤ 1e-12 from
+  n = 33 on sin πx sin πy sin πz, sin πx sin 2πy sin 3πz and (1−x²)eˣ(1−y²)(1−z²) (worst
+  3.3e-13 at n = 65), 100× decay from n = 9 to 17; `grf3d`'s closed form at K = 8, n = 33
+  and K = 16, n = 65 (worst 1.9e-13); the discrete residual, without the
+  eigendecomposition, ≤ 6.0e-17; a non-cubic grid [17, 25, 33] at 1.5e-14 and 8.6e-5
+  with the axes reversed; the panics. Time per solve (M2 Pro, release, a loaded machine):
+  0.38–0.49 ms at n = 33, 5.5–17.6 ms at n = 65; setup 5–17 ms.
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, `cargo test`,
+  `cargo doc`, datagen clippy and tests (384 passed), datagen `cargo doc -D warnings`, the
+  timing test in release; not run: metal and gpu_parity (host-only ndarray code), cuda.
+- Decisions: none.
+- Review: plan review PASS (advisories taken: the residual range in the report, the decay
+  assert over all three pairs); code quality APPROVE with findings, all six taken (3D
+  fixtures moved to `manufactured.rs` with a rank-generic `rel_max` and `max_abs`, the
+  test imports merged, `Debug` for the 3D solver, neutral `real_eig` panic texts, a doc
+  reflow); the rank-generic single solver it waived (2D bit identity) is not a follow-up.
+- 2D: unchanged bit for bit: no 2D function body edited (the diff to 2D lines is the
+  widened imports, `real_eig`'s panic texts and test-only helpers made rank-generic); the
+  whole 2D suite passes.
+- Follow-ups: none new; CL3.2 uses A3 for the 3D labels.

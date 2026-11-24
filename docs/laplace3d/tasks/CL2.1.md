@@ -36,12 +36,16 @@ cc_rel_l2_error_nd`, `pde/poisson/grf3d` (`draw_xi`, `forcing_coeffs`, `solution
   nz)`, `solve(f_interior: ArrayView3)` and `solve_full(f: ArrayView3)`, mirroring the 2D
   API. It reuses `real_eig` and `interior_d2` per axis and `apply_nd` for the two
   three-way mode products. Every existing 2D item is left byte for byte as it is.
+- `pde/poisson/manufactured.rs` (test-only): the 3D manufactured pairs and `sample3` beside
+  the 2D ones; `rel_max` generic over the rank (code-quality review).
+- `real_eig`'s panic texts start `real_eig:`, not `CollocationSolver::new:`, since A3 calls
+  it too (messages only; code-quality review).
 - The module docs gain a paragraph on the 3D form. `pde/poisson/mod.rs`'s one-line docs
   mention A3. Root `CLAUDE.md`'s layout line for `collocation` names the 3D type.
 - Conventions: none.
 
 ## Tests that prove it
-In `collocation.rs`'s test module, beside the 2D tests:
+In `collocation.rs`'s test module, beside the 2D tests (fixtures in `manufactured.rs`):
 - `solver_3d_manufactured_solutions_reach_floor`: against closed-form u (the trusted
   path), ≤ 1e-12 at n ≥ 33, and n = 9 → 17 gains ≥ 100× (spectral decay).
 - `solver_3d_grf_closed_form_reaches_floor`: against `grf3d`'s exact series, ≤ 1e-12.
