@@ -60,3 +60,22 @@ template:
 - Adam and Gauss–Newton: not touched.
 - Follow-ups: CO0.1 and CO0.2 (the VM, at the author's go per run) and CO3.1; CO3.2 after
   CO3.1; the tasks that change `training/` after the library's CM0.3.
+
+## 2026-11-24: CO3.1 Burn linear algebra for SOAP
+- Done: Burn's `linalg` feature enabled in the workspace `burn` dependency (pin unchanged).
+  Spike `spikes/linalg/` (`REPORT.md`): `linalg_check` measures `qr` (device) and `svd`
+  (host) at n = 12, 32, 128, 144 in f32 against f64 host references; `fingerprint` hashes a
+  seeded FNO forward, Adam and hybrid Gauss–Newton runs. Both correct on flex and metal;
+  device `qr` on metal 18–23× slower than a host QR (round trip included) at n ≥ 128.
+- Tests: no new crate test (spike only); the existing suite unedited with the feature on.
+- Checks: ran fmt, the three clippy lines and `--all-targets`, `cargo test`, `cargo doc`,
+  datagen clippy and tests, the spike's clippy (flex, metal) and runs (flex, metal), the
+  fingerprint on this branch and on `origin/main`; metal `gpu_parity` (see the PR);
+  pending: `linalg_check` on cuda (the VM).
+- Decisions: D9 proposed (host `svd` first basis, host QR refreshes; cuda's row decides
+  cuda), for sign-off.
+- Review: plan review PASS (wording fixes applied); code quality APPROVE, no blockers
+  (plan amended for the svd metrics, like-for-like host timing, comments).
+- Adam and Gauss–Newton: unchanged bit for bit: equal fingerprints with `linalg` off
+  (`origin/main` 4d681d0) and on, flex; the feature adds no code the crate uses (REPORT).
+- Follow-ups: the cuda row and D9's sign-off in this PR; then CO3.2.
