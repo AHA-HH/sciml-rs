@@ -3,11 +3,12 @@
 //! [`collocation`] is solver A, the source of every training label. `sparse` (test-only) is
 //! solver C, the validation oracle that checks A; it never produces labels. [`grf`] samples the GRF
 //! forcings of design §3.3, and [`dataset`] turns them into labelled, checked splits
-//! (design §5.1).
+//! (design §5.1). [`grf3d`] samples the 3D forcings (3D proposal §3.3).
 
 pub mod collocation;
 pub mod dataset;
 pub mod grf;
+pub mod grf3d;
 #[cfg(test)]
 mod manufactured;
 #[cfg(test)]

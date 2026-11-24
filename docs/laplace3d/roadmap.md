@@ -10,7 +10,8 @@ Status: **L0 and L1 under way.** Draft 0.2 of the proposal is the plan of record
 signed off 2026-11-11, #117). 2026-11-24: CL1.1 (the CONVENTIONS 3D additions) signed off
 by the author and merged (#122); CL0.2 done (rank-5 parity on metal, no Burn bug found);
 CL0.1 measured on the Mac (#123, the cuda run waits for the VM); CL1.2 (transfers and
-CC norms for any rank) done; next CL1.3 and CL3.1.
+CC norms for any rank) done; CL3.1 done (the 3D GRF, `pde/poisson/grf3d`; D3 confirmed 2026-11-24 on
+its ε_K table); next CL1.3 and CL2.1.
 
 ## How to read this file
 
@@ -41,7 +42,7 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | signed off 2026-11-11: draft 0.2 as the plan of record |
 | D1 | Generalise the 2D pieces or copy them | generalise, rank 2 routed to the existing code | – | CL1.2 | signed off 2026-11-11: generalise, rank 2 routed to the existing code |
 | D2 | What "bit for bit unchanged" covers for 2D, and how it is checked | the numerical outputs (proposal §9), not metadata; in-process old-against-new tests on fixed 2D inputs, plus the whole 2D suite | – | CL1.2 | signed off 2026-11-11: numbers only, in process (the numerical outputs of proposal §9, not metadata; in-process old-against-new tests on fixed 2D inputs, plus the whole 2D suite) |
-| D3 | GRF parameters and K in 3D | τ = 3, α = 3, K(n) = (n − 1)/2, ε_K ≤ 5e-3 on f; alternative α = 2 with the tolerance on u | CL3.1 | CL3.2 | signed off 2026-11-11: τ = 3, α = 3 |
+| D3 | GRF parameters and K in 3D | τ = 3, α = 3, K(n) = (n − 1)/2, ε_K ≤ 5e-3 on f; alternative α = 2 with the tolerance on u | CL3.1 | CL3.2 | signed off 2026-11-11: τ = 3, α = 3; confirmed 2026-11-24 on CL3.1's measured ε_K table (#132), as recommended |
 | D4 | Model size and batch at s = 32 and 64 | width 32, 4 layers, modes 8³ unless 12³ fits; batch 20 unless memory says less | CL0.1 | CL4.1 | open |
 | D5 | Stages, sizes, names and storage | n = 33 (tests), 65 (training); 129 test-only if needed; 1000/200; `poisson3d_n{n}_K{K}_{split}`; precision and zip64 from CL0.1 | CL0.1 | CL3.2 | open |
 | D6 | Laplace input representation | – | L4 gate | CL5.1 | open |
@@ -100,9 +101,10 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 
 **Gate:** the 3D datasets of D5 written, label-checked, loadable.
 
-- [ ] **CL3.1 3D GRF.** Separable evaluation (proposal §3.3), nested draws, the 3D S_K;
+- [x] **CL3.1 3D GRF.** Separable evaluation (proposal §3.3), nested draws, the 3D S_K;
   ε_K for K = 8, 16, 32. *Done when:* the evaluation matches a direct sum on a small case;
-  the ε_K table; D3 re-proposed. *Needs:* CL1.1. *Sign-off:* D3.
+  the ε_K table; D3 re-proposed. *Needs:* CL1.1. *Sign-off:* D3. Report:
+  `docs/laplace3d/results/cl3-1.md`.
 - [ ] **CL3.2 3D dataset generation.** Generation, label check against the closed form,
   catalogue names carrying the dimension; the n = 65 set generated on the VM. Near the
   three-module limit: split into CL3.2a/b when it starts if it exceeds it.

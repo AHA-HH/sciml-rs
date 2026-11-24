@@ -197,6 +197,8 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
 - `src/neural_operators/pde/poisson/` (behind `datagen`): `collocation`
   (`CollocationSolver`, solver A, fast diagonalisation); `sparse` (`SparseSolver`, solver C,
   Q1 + unpreconditioned CG, validation oracle, test-only); `manufactured` (test-only fixtures).
+- `pde/poisson/grf3d` (3D laplace3d CL3.1): the 3D GRF, α = 3, ChaCha8 stream 3, separable
+  evaluation; shares `grf::{TAU, K_MAX, sine_basis}`.
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`
   (`generate`, `label_check`, `write_split`), driven by `examples/generate/poisson.rs`
   (`generate_poisson`), which writes `datasets/poisson/`.
