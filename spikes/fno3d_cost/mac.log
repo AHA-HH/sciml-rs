@@ -118,3 +118,9 @@ epoch 0 train_s 11.369 test_s 1.645 train_l2 1.0120 test_l2 1.0036 epoch_s_at_10
 epoch 1 train_s 11.511 test_s 1.658 train_l2 1.0023 test_l2 1.0000 epoch_s_at_1000_200 3043.7
           3082374096  peak memory footprint
 exit 0
+== zip64_roundtrip (/usr/bin/time -l), Mac, 2026-11-24
+wrote 4394000526 bytes (4.092 GiB, above 4 GiB: true) in 4.0 s
+read and checked f and u bit for bit in 4.2 s
+        8.59 real         0.78 user         3.75 sys
+          2202976256  maximum resident set size
+          2199865240  peak memory footprint
