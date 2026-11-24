@@ -84,6 +84,31 @@ template:
   loss and tolerance, and passes on metal.
 - Follow-ups: CL0.2's cases on cuda before CL4.2's first cuda run (a sentence in CL4.2).
 
+## 2026-11-24: CL1.2 N-D transfers and quadrature
+- Done: rank-generic siblings of the 2D transfers and Clenshaw–Curtis norms in
+  `chebyshev/`: `apply_nd` (T₀ along axis 0 as one matrix product, then the rest on each
+  slice, so rank 3 is x, then y, then z, CONVENTIONS §12), `Transfers::to_uniform_nd`,
+  `to_cheb_nd`, `to_uniform_all_nd`, and `cc_norm_sq_nd`, `cc_rel_l2_error_nd`,
+  `cc_rel_l2_error_weighted_nd` (a field read as `[n₀, rest]` with w₀ and the Kronecker
+  product of the other weights, so the 2D scaling serves every rank). Rank 2 calls the
+  existing 2D functions (D1). Plan `docs/laplace3d/tasks/CL1.2.md`.
+- Tests: 18 new. 3D against closed forms on non-cubic grids: the 'ijk' layout both ways,
+  separable fields against the 1D transfers (1e-14), the round trip exact on quadratics,
+  the restriction exact on a resolved mode, ∫ 1 = 8 and ∫ x² y⁴ z² exact, (1 + ε) b
+  against b, extreme magnitudes, permuted views; and the panics. D2: `rank_two_is_bit_identical_to_2d`
+  in both modules (`assert_eq!`, a non-square grid and a transposed view).
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, `cargo test`,
+  `cargo doc`, `cargo test --features datagen`; not run: metal (no backend code).
+- Decisions: none.
+- Review: plan review PASS (advisories in the PR); code quality APPROVE with findings: the
+  shared `as_matrix`, the rank assert in `to_uniform_all_nd` and the docs taken; the
+  duplicated shape checks (different panic texts) left; the file size a follow-up.
+- 2D: unchanged bit for bit: no 2D function or caller edited, rank 2 routed to them, shown
+  in process by the D2 tests; the whole 2D suite passes.
+- Follow-ups: in CL1.2's roadmap line: the 3D test names in CONVENTIONS §12
+  "Verification" (with CL1.3's, for sign-off); split `transfer.rs`'s tests out before its
+  next edit.
+
 ## 2026-11-24: CL3.1 3D GRF
 - Done: `pde/poisson/grf3d` (behind `datagen`), the 3D GRF of proposal §3.3 beside the 2D
   one: τ = 3, α = 3 (D3), S_K = ⅛ Σ λ_klm, S_∞ = 1.232538e-4 (cube sums to 80 and 160 with

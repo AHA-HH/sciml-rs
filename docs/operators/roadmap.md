@@ -8,8 +8,8 @@ milestone's gate report is `docs/operators/gates/<milestone>.md`; the feature ma
 `docs/operators/feature-matrix.md`.
 
 Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 (draft 0.1 as
-the plan of record); next CM0.1 and CM0.2. CM0.3 lands before the optimisers tasks that
-change `training/`.
+the plan of record); CM0.1 and CM0.2 done 2026-11-24. Next CM0.3 (needs D4), then CM0.4;
+CM0.5 needs D3. CM0.3 lands before the optimisers tasks that change `training/`.
 
 ## How to read this file
 
@@ -46,22 +46,23 @@ The proposal's Section 12. Recorded when the author takes them:
 | D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | open |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |
 | D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | open |
-| D8 | Fixture size | tiny models, under about 1 MB per fixture | CM0.2 | CM0.2 | open |
+| D8 | Fixture size | tiny models, under about 1 MB per fixture | CM0.2 | CM0.2 | signed off 2026-11-24: as recommended (tiny models, P ≲ 10⁴, under about 1 MB per fixture) |
 
 ## M0: Foundations
 
 **Gate:** the stack is model-agnostic with the FNO unchanged; a fixture round trip works;
 the feature matrix is verified.
 
-- [ ] **CM0.1 Feature matrix at 2.0.0.** Fill `feature-matrix.md` from the tag's source
+- [x] **CM0.1 Feature matrix at 2.0.0.** Fill `feature-matrix.md` from the tag's source
   (every public model, layer, loss, training feature and dataset, with its options and
   defaults). *Done when:* every row has a status and a source path, checked by an agent
-  independent of the writer. *Needs:* D1.
-- [ ] **CM0.2 Pinned Python environment and fixture generator.** `tools/parity/`:
+  independent of the writer. *Needs:* D1. Done 2026-11-24: plan `docs/operators/tasks/CM0.1.md`.
+- [x] **CM0.2 Pinned Python environment and fixture generator.** `tools/parity/`:
   `neuraloperator` 2.0.0 with torch, tensorly, tltorch and torch_harmonics pinned in a
   lock file; a generator writing weights, input and output of a named configuration to
   `.npz`. *Done when:* a 1D and a 2D FNO fixture written, sizes within D8. *Needs:* D2,
-  D8.
+  D8. Plan `docs/operators/tasks/CM0.2.md`; environment and generator `tools/parity/`
+  (README); fixtures `tests/fixtures/parity/fno{1d,2d}_{f32,f64}`. Done 2026-11-24.
 - [ ] **CM0.3 The operator trait and a generic stack.** Proposal §6.1: trainer, evaluate,
   `predict_host`, checkpoints, the epoch observer, the run directory's weights and the
   Gauss–Newton residual generic over the trait; `FNO<R>` implements it. *Done when:* every

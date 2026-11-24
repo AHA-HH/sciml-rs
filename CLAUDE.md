@@ -25,7 +25,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   docs/operators/progress.md. Constraint 1: every existing FNO output stays bit for bit
   identical. Python (fixtures from 2.0.0) stays outside CI.
 - Objective optimisers (L-BFGS and SOAP against Adam and Gauss–Newton, 2D then 3D):
-  proposal docs/design/optimisers.md (draft 0.2, 2026-11-24, nothing signed off;
+  proposal docs/design/optimisers.md (draft 0.2, 2026-11-24; D0 and D2 signed off;
   adds the Burgers replication of PETScML (Zampini et al. 2024) as O1);
   milestones O0–O5, tasks `CO<m>.<n>`, decisions D0–D14 in docs/optimisers/roadmap.md;
   log docs/optimisers/progress.md; reading notes docs/optimisers/references.md.
@@ -90,13 +90,15 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   questions are pending). Merging, pushing to `main`, force-pushing, rewriting history,
   deleting branches and closing PRs still need a yes in the current message.
 - `main` is protected on GitHub (2026-11-11): changes only by PR, the CI jobs
-  `run-tests`, `run-tests-datagen` and `style-checks` green, the branch up to date with
-  `main`. Merged branches are deleted. The rules do not bind admins, by the author's
+  `run-tests`, `run-tests-datagen` and `style-checks` green. Since 2026-11-24 the branch
+  need not be up to date with `main` (`strict` off, the author's choice): GitHub still
+  refuses a PR with conflicts, and CI on every push to `main` catches a combination that
+  breaks. Merged branches are deleted. The rules do not bind admins, by the author's
   choice: the author may merge past them with `gh pr merge --admin` (e.g. when an apt
   mirror outage fails `run-tests-datagen` on a PR it cannot judge); never suggest
   changing that. `.claude/settings.json` denies pushing to `main`, force-pushing,
   deleting remote branches, and `gh pr merge` / `gh pr close`, so no session can merge or
-  push to `main`: the author runs those (`! <command>` in the prompt). Bring a stale PR branch up to date by merging `origin/main` into it,
+  push to `main`: the author runs those (`! <command>` in the prompt). Resolve a PR branch's conflicts with `main` by merging `origin/main` into it,
   never by rebasing. Branch from `origin/main` with `git switch --no-track -c`, never
   checking out `main` (worktrees).
 - Default flow: make the change, run the checks, report exactly which ones ran and what

@@ -9,8 +9,9 @@ milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 Status: **L0 and L1 under way.** Draft 0.2 of the proposal is the plan of record (D0–D3
 signed off 2026-11-11, #117). 2026-11-24: CL1.1 (the CONVENTIONS 3D additions) signed off
 by the author and merged (#122); CL0.2 done (rank-5 parity on metal, no Burn bug found);
-CL0.1 measured on the Mac (#123, the cuda run waits for the VM); CL3.1 done (the 3D GRF,
-`pde/poisson/grf3d`; ε_K confirms D3, re-proposed on its PR); next CL1.2, then CL2.1.
+CL0.1 measured on the Mac (#123, the cuda run waits for the VM); CL1.2 (transfers and
+CC norms for any rank) done; CL3.1 done (the 3D GRF, `pde/poisson/grf3d`; ε_K confirms D3,
+re-proposed on its PR); next CL1.3 and CL2.1.
 
 ## How to read this file
 
@@ -74,9 +75,15 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
   the 2D boundary norm recorded in §12 and the 2D-only statements labelled. Deferred to the
   L4 gate (D6, D7): whether the Laplace boundary norm is relative to ‖u‖ (as written) or to
   ‖g‖ on ∂Ω.
-- [ ] **CL1.2 N-D transfers and quadrature.** `transfer::apply`/`Transfers` and
+- [x] **CL1.2 N-D transfers and quadrature.** `transfer::apply`/`Transfers` and
   `cc_rel_l2_error` for any rank. *Done when:* 3D round-trip and CC-norm tests against
   closed forms; the 2D outputs bit for bit unchanged by D2's test. *Needs:* CL1.1, D1, D2.
+  Report: `docs/laplace3d/tasks/CL1.2.md` and `progress.md` (2026-11-24): `apply_nd`,
+  `Transfers::{to_uniform_nd, to_cheb_nd, to_uniform_all_nd}`, `cc_norm_sq_nd`,
+  `cc_rel_l2_error_nd`, `cc_rel_l2_error_weighted_nd`, rank 2 routed to the 2D functions.
+  Follow-ups: the 3D test names go into CONVENTIONS §12 "Verification" with CL1.3's (a
+  CONVENTIONS edit, for sign-off); `chebyshev/transfer.rs` is 970 lines, so the next task
+  that edits it first moves its tests to `transfer/tests.rs`.
 - [ ] **CL1.3 N-D errors.** `metrics/poisson` errors 2–5 for any rank, error 5 over six
   faces (proposal §3.5). *Done when:* 3D errors on synthetic fields against direct
   computation; 2D unchanged by D2's test. *Needs:* CL1.2.

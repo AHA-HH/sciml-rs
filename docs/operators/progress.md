@@ -38,3 +38,52 @@ template:
 - Matrix: unchanged.
 - Follow-ups: CM0.1 and CM0.2 (no Rust, can run beside the 3D tasks); CM0.3 before the
   optimisers tasks that change `training/`.
+
+## 2026-11-24: CM0.1 Feature matrix at 2.0.0
+- Done: `feature-matrix.md` read from the source of tag 2.0.0 (`b307030`): every public
+  top-level class and function of `neuralop/` (tests excluded) in a table row with its
+  source path, the sciml-rs counterpart, a status and a task; an appendix of 186
+  signatures with defaults, extracted with `ast`. New against the seed: `data/transforms`,
+  `mpu`, `utils.py`, `BatchNorm`, the equation-loss classes, the differentiation APIs, the
+  registry's contents (UNO and CODANO are not in `get_model`). Corrected: 2.0.0's Burgers
+  dataset is space-time, so not the crate's Burgers task (missing, not partial).
+- Tests: an independent agent re-read its own clone of the tag and checked every row and
+  signature: 183 of 185 signatures exact, one item missing from the appendix, an
+  inconsistent "exported" rule, two wrong parentheticals and three thin sciml-rs cells;
+  all fixed. A second pass found one more (`LocalNO` does need torch_harmonics: the DISCO
+  module builds a dict from names it failed to import); fixed, and nothing else remained
+  (the "exported" marks match all five `__init__.py` files; 186 signatures exact).
+- Checks: ran the independent row check (twice); `/verify` not run: docs only, no Rust
+  check applies and CI's `changes` filter skips its jobs. Pending none.
+- Decisions: none taken; questions for sign-off in the PR (scope of the not-planned rows,
+  owners for the rows without a task, proposal §3 and CM1.3 corrections).
+- Review: plan review PASS, no blocker; its findings fixed (this entry's evidence, the
+  normaliser's eps, the legend's qualified statuses) or put to the author (owners of the
+  "–" rows); code-quality review skipped (docs only).
+- FNO: not touched.
+- Matrix: every row set.
+- Follow-ups: owners for the "–" rows (datasets, transforms, utilities): no roadmap line
+  until the author answers the PR's question 2.
+
+## 2026-11-24: CM0.2 Pinned Python environment and fixture generator
+- Done: `tools/parity/`, a uv project (Python 3.12, `uv.lock`) pinning `neuraloperator`
+  2.0.0 (PyPI wheel, its Python code identical to the tag's), torch 2.9.0, tensorly 0.9.0,
+  tensorly-torch 0.5.0, torch-harmonics 0.7.4 (the tag's `doc` pin), numpy 2.3.4;
+  `generate.py` writes 2.0.0's `FNO` (defaults but sizes) as `.npz` (input, output,
+  `param.<name>`, complex as a trailing (re, im) axis) with a `.json` sidecar:
+  `fno1d` (P = 3,529) and `fno2d` (P = 7,129), each in f32 and f64, 28–103 kB.
+- Tests: the generator asserts P ≤ 10⁴, size ≤ 1 MB and f32/f64-only arrays, and reloads
+  each file into a zeroed fresh model, reproducing the output bit for bit; `--check`
+  regenerates and compares arrays and sidecars bit for bit (passes).
+- Checks: ran `uv sync --locked`, `generate.py`, `generate.py --check`, the wheel-against-tag
+  diff; the reviewer ran `cargo fmt --check`, clippy (default, `--all-targets`,
+  `datagen`), `cargo test`, `cargo test --features datagen`, `cargo doc` (all pass); metal
+  not run (no Rust changed).
+- Decisions: D8 (fixture size) signed off 2026-11-24 as recommended (P ≲ 10⁴, under about
+  1 MB per fixture).
+- Review: plan review PASS (advisories fixed: round trip from zeroed weights, strict load,
+  sidecars in `--check`); code quality APPROVE with findings (F1–F3 fixed; F4, F5 left in
+  the PR text).
+- FNO: not touched (no Rust changed).
+- Matrix: no rows (environment only).
+- Follow-ups: CM0.5 reads these fixtures (the CM0.5 line).
