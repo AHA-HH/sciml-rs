@@ -83,3 +83,26 @@ template:
 - 2D: no 2D code touched; the 2D replay is restructured with the same schedule, inputs,
   loss and tolerance, and passes on metal.
 - Follow-ups: CL0.2's cases on cuda before CL4.2's first cuda run (a sentence in CL4.2).
+
+## 2026-11-24: CL3.1 3D GRF
+- Done: `pde/poisson/grf3d` (behind `datagen`), the 3D GRF of proposal §3.3 beside the 2D
+  one: τ = 3, α = 3 (D3), S_K = ⅛ Σ λ_klm, S_∞ = 1.232538e-4 (cube sums to 80 and 160 with
+  the (m + ½)⁻³ tail extrapolated), nested draws of 64³ normals on ChaCha8 stream 3 (2D
+  and the Phase 7 subsets use stream 0; seeds numbered as in 2D; `grf3d::RNG` is the
+  sidecar string), exact solution c / μ, separable evaluation (three mode products). Plan
+  `docs/laplace3d/tasks/CL3.1.md`, report `docs/laplace3d/results/cl3-1.md`.
+- Tests: 9 in `grf3d`: evaluation against the direct triple sum (1.3e-15 at scale 2.85),
+  ε_K at K = 8, 16, 32, 64 = 2.742e-2, 4.265e-3, 5.892e-4, 7.703e-5 (the proposal's row to
+  two digits), nesting, the stream distinct from 2D, the draw order, the pins, mean square
+  1, zero on all six faces, −Δu = f by a stencil (2.0e-6 at h = 1e-3), the K > K_MAX panic.
+- Checks: ran fmt, the three clippy jobs, `cargo clippy --all-targets`, `cargo test`,
+  `cargo doc`, datagen clippy and tests (385 passed), datagen `cargo doc -D warnings`; not
+  run: metal and gpu_parity (host-only ndarray code), cuda (no VM).
+- Decisions: D3 re-proposed on the measured table (question on the PR); unchanged in the
+  table until the author answers.
+- Review: plan review FAIL on docs only (results file, plan text), fixed; code quality
+  APPROVE, 0 blockers; F1 (own module), F2 (pin test), F3 (evaluate without slices), F7
+  and F8 taken, plus the plan review's draw-order test; F4–F6 left (in the PR).
+- 2D: `grf.rs` differs from `main` only by `sine_basis` becoming `pub(super)`; the 2D
+  GRF and dataset tests pass unchanged.
+- Follow-ups: none new; CL3.2 uses `grf3d` (needs CL1.2, CL2.1, D5).

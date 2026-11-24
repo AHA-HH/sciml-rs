@@ -9,7 +9,8 @@ milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 Status: **L0 and L1 under way.** Draft 0.2 of the proposal is the plan of record (D0–D3
 signed off 2026-11-11, #117). 2026-11-24: CL1.1 (the CONVENTIONS 3D additions) signed off
 by the author and merged (#122); CL0.2 done (rank-5 parity on metal, no Burn bug found);
-CL0.1 measured on the Mac (#123, the cuda run waits for the VM); next CL1.2 and CL3.1.
+CL0.1 measured on the Mac (#123, the cuda run waits for the VM); CL3.1 done (the 3D GRF,
+`pde/poisson/grf3d`; ε_K confirms D3, re-proposed on its PR); next CL1.2, then CL2.1.
 
 ## How to read this file
 
@@ -93,9 +94,10 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 
 **Gate:** the 3D datasets of D5 written, label-checked, loadable.
 
-- [ ] **CL3.1 3D GRF.** Separable evaluation (proposal §3.3), nested draws, the 3D S_K;
+- [x] **CL3.1 3D GRF.** Separable evaluation (proposal §3.3), nested draws, the 3D S_K;
   ε_K for K = 8, 16, 32. *Done when:* the evaluation matches a direct sum on a small case;
-  the ε_K table; D3 re-proposed. *Needs:* CL1.1. *Sign-off:* D3.
+  the ε_K table; D3 re-proposed. *Needs:* CL1.1. *Sign-off:* D3. Report:
+  `docs/laplace3d/results/cl3-1.md`.
 - [ ] **CL3.2 3D dataset generation.** Generation, label check against the closed form,
   catalogue names carrying the dimension; the n = 65 set generated on the VM. Near the
   three-module limit: split into CL3.2a/b when it starts if it exceeds it.
