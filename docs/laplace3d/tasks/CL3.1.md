@@ -82,4 +82,5 @@ draws cost 64³ normals per sample (2 MB): fine for generation, kept small in te
 None.
 
 ## Open questions
-None yet.
+Answered by the author 2026-11-24 on #132, both as recommended: D3 confirmed on the
+measured ε_K table; the 3D seeds on ChaCha8 stream 3 with the 2D seed numbering.

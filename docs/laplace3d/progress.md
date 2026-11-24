@@ -123,8 +123,9 @@ template:
 - Checks: ran fmt, the three clippy jobs, `cargo clippy --all-targets`, `cargo test`,
   `cargo doc`, datagen clippy and tests (385 passed), datagen `cargo doc -D warnings`; not
   run: metal and gpu_parity (host-only ndarray code), cuda (no VM).
-- Decisions: D3 re-proposed on the measured table (question on the PR); unchanged in the
-  table until the author answers.
+- Decisions: D3 confirmed by the author 2026-11-24 on the measured table, as recommended
+  (#132); the 3D seed scheme, ChaCha8 stream 3 with the 2D seed numbering, approved by the
+  author the same day, as recommended.
 - Review: plan review FAIL on docs only (results file, plan text), fixed; code quality
   APPROVE, 0 blockers; F1 (own module), F2 (pin test), F3 (evaluate without slices), F7
   and F8 taken, plus the plan review's draw-order test; F4–F6 left (in the PR).
