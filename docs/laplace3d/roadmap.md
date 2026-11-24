@@ -42,7 +42,7 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | D2 | What "bit for bit unchanged" covers for 2D, and how it is checked | the numerical outputs (proposal §9), not metadata; in-process old-against-new tests on fixed 2D inputs, plus the whole 2D suite | – | CL1.2 | signed off 2026-11-11: numbers only, in process (the numerical outputs of proposal §9, not metadata; in-process old-against-new tests on fixed 2D inputs, plus the whole 2D suite) |
 | D3 | GRF parameters and K in 3D | τ = 3, α = 3, K(n) = (n − 1)/2, ε_K ≤ 5e-3 on f; alternative α = 2 with the tolerance on u | CL3.1 | CL3.2 | signed off 2026-11-11: τ = 3, α = 3 |
 | D4 | Model size and batch at s = 32 and 64 | width 32, 4 layers, modes 8³ unless 12³ fits; batch 20 unless memory says less | CL0.1 | CL4.1 | open |
-| D5 | Stages, sizes, names and storage | n = 33 (tests), 65 (training); 129 test-only if needed; 1000/200; `poisson3d_n{n}_K{K}_{split}`; precision and zip64 from CL0.1 | CL0.1 | CL3.2 | open |
+| D5 | Stages, sizes, names and storage | n = 33 (tests), 65 (training); 129 test-only if needed; 1000/200; `poisson3d_n{n}_K{K}_{split}`; precision and zip64 from CL0.1 | CL0.1 | CL3.2 | signed off 2026-11-24 (#123): n = 33 (tests and Mac runs), 65 (training), 129 test-only if the resolution study needs it; 1000 train / 200 test; `poisson3d_n{n}_K{K}_{split}`; f64, one `.npz` per split (zip64 verified on the Mac) |
 | D6 | Laplace input representation | – | L4 gate | CL5.1 | open |
 | D7 | Laplace boundary data family | face sine series (proposal §3.4) | L4 gate | CL5.1 | open |
 | D8 | Where runs happen | n = 33 on the Mac, n = 65 generation and training on one A100 80 GB | – | CL4.2 | open |
