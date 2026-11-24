@@ -345,8 +345,9 @@ code that implements it (§9); its tests landed in Phase 1 T1, Phase 2 T1 and Ph
 ### Three dimensions (version 3)
 
 The 3D objective (design `docs/design/3d-chebyshev-laplace-fno.md`) uses the same grids on
-Ω = [−1, 1]³. Everything above holds per axis; these statements add what a third axis
-needs and apply to rank 3 only. §1 and §2 are already rank-generic: an `FNO<5>` gets
+Ω = [−1, 1]³ in place of [−1, 1]². The nodes, the uniform grid, s and the 1D transfer
+matrices above hold per axis; these statements replace the 2D formulas (T F Tᵀ, the sum
+over i, j) at rank 3 and apply to rank 3 only. §1 and §2 are already rank-generic: an `FNO<5>` gets
 `[data, z, y, x]`.
 
 - Fields are stored 'ijk': `F[i, j, k] = f(x_i, y_j, z_k)`, the axes x, y, z in that
@@ -363,7 +364,8 @@ needs and apply to rank 3 only. §1 and §2 are already rank-generic: an `FNO<5>
   2D tensor Clenshaw–Curtis weights in the face's two coordinates. A node on an edge or
   a corner belongs to every face that contains it and is counted once per face, so each
   face's quadrature is complete on its own. The relative boundary RMS normalises by the
-  total face area 24 against the volume 8:
+  total face area 24 against the volume 8, with (a, b) the face's nodes in its two
+  coordinates and û taken there:
 
   ```math
   e_5 = \frac{\sqrt{\tfrac{1}{24} \sum_{\text{faces}} \sum_{a, b} w_a\, w_b\, \hat u^2}}
