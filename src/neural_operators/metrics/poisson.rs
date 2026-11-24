@@ -30,17 +30,20 @@
 
 use super::stats::ErrorStats;
 use crate::neural_operators::chebyshev::{
-    TRANSFER_DEGREE, Transfers, cc_norm_sq, cc_rel_l2_error_weighted, clencurt,
+    TRANSFER_DEGREE, Transfers, cc_norm_sq, cc_norm_sq_nd, cc_rel_l2_error_weighted,
+    cc_rel_l2_error_weighted_nd, clencurt,
 };
 use crate::neural_operators::data::loaders::poisson::SidecarRecord;
 use crate::neural_operators::runs::EpochMetrics;
 use burn::config::Config;
-use ndarray::{Array1, Array2, ArrayView, ArrayView2, ArrayView3, Axis, RemoveAxis};
+use ndarray::{
+    Array1, Array2, ArrayView, ArrayView2, ArrayView3, ArrayViewD, Axis, Dimension, Ix3, RemoveAxis,
+};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// Per-sample errors from [`poisson_errors`], one entry per sample, in sample order.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PoissonErrors {
     /// Error 2: ‖P R u − u‖ / ‖u‖, Clenshaw–Curtis norm.
     pub transfer: Vec<f64>,
@@ -163,7 +166,61 @@ pub fn poisson_errors_nd<D: RemoveAxis>(
     u: ArrayView<f64, D>,
     transfers: &Transfers,
 ) -> PoissonErrors {
-    todo!()
+    assert!(
+        u.ndim() >= 3,
+        "poisson_errors_nd: u must be [N, n, n, ...] with at least two spatial axes, got {:?}",
+        u.shape()
+    );
+    assert_eq!(
+        pred.ndim(),
+        u.ndim(),
+        "poisson_errors_nd: pred has rank {} but u has rank {}",
+        pred.ndim(),
+        u.ndim()
+    );
+    if u.ndim() == 3 {
+        return poisson_errors(
+            pred.into_dimensionality::<Ix3>().expect("rank 3"),
+            u.into_dimensionality::<Ix3>().expect("rank 3"),
+            transfers,
+        );
+    }
+    let (np, nu) = (pred.len_of(Axis(0)), u.len_of(Axis(0)));
+    assert_eq!(
+        np, nu,
+        "poisson_errors_nd: pred has {np} samples but u has {nu}"
+    );
+    let (s, n) = (transfers.s(), transfers.n());
+    assert!(
+        pred.shape()[1..].iter().all(|&a| a == s) && u.shape()[1..].iter().all(|&a| a == n),
+        "poisson_errors_nd: pred {:?} and u {:?} must be on the transfers' grids (s, n) = ({s}, {n})",
+        pred.shape(),
+        u.shape()
+    );
+
+    let w = clencurt(n);
+    let ws = vec![w.view(); u.ndim() - 1];
+    let mut errors = PoissonErrors::default();
+    for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
+        let u_uni = transfers.to_uniform_nd(ui.view());
+        let round_trip = transfers.to_cheb_nd(u_uni.view());
+        let u_hat = transfers.to_cheb_nd(p.view());
+
+        errors.transfer.push(cc_rel_l2_error_weighted_nd(
+            round_trip.view(),
+            ui.view(),
+            &ws,
+        ));
+        errors.model.push(rel_l2_equal_weights(p, u_uni.view()));
+        errors
+            .total
+            .push(cc_rel_l2_error_weighted_nd(u_hat.view(), ui.view(), &ws));
+        errors.u_norm.push(cc_norm_sq_nd(ui.view(), &ws).sqrt());
+        let (ratio, rms) = boundary_errors_nd(u_hat.view().into_dyn(), ui.into_dyn(), &w);
+        errors.boundary_max_ratio.push(ratio);
+        errors.boundary_rel_rms.push(rms);
+    }
+    errors
 }
 
 /// Tolerance of [`check_error3`], relative: the run's test_l2 is f32.
@@ -513,8 +570,8 @@ impl fmt::Display for PoissonEvaluation {
 }
 
 /// ‖a − b‖₂ / ‖b‖₂ over all entries with equal weights (`LpLoss::rel` with p = 2).
-fn rel_l2_equal_weights(a: ArrayView2<f64>, b: ArrayView2<f64>) -> f64 {
-    let num: f64 = a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum();
+fn rel_l2_equal_weights<D: Dimension>(a: ArrayView<f64, D>, b: ArrayView<f64, D>) -> f64 {
+    let num: f64 = a.iter().zip(&b).map(|(x, y)| (x - y) * (x - y)).sum();
     let den: f64 = b.iter().map(|y| y * y).sum();
     (num / den).sqrt()
 }
@@ -547,12 +604,28 @@ fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> 
 /// Error 5 for one sample of any rank r ≥ 2: `(max ratio, relative boundary RMS)` of
 /// `u_hat: [n, …, n]` against `u: [n, …, n]`, both on the CGL grid, with Clenshaw–Curtis
 /// weights `w: [n]` on every axis (see [`poisson_errors_nd`]).
-fn boundary_errors_nd<D: RemoveAxis>(
-    u_hat: ArrayView<f64, D>,
-    u: ArrayView<f64, D>,
-    w: &Array1<f64>,
-) -> (f64, f64) {
-    todo!()
+fn boundary_errors_nd(u_hat: ArrayViewD<f64>, u: ArrayViewD<f64>, w: &Array1<f64>) -> (f64, f64) {
+    let r = u.ndim();
+    let last = u_hat.len_of(Axis(0)) - 1;
+    let face_ws = vec![w.view(); r - 1];
+    let (mut surface, mut max_face) = (0.0, 0.0_f64);
+    for axis in 0..r {
+        for index in [0, last] {
+            let face = u_hat.index_axis(Axis(axis), index);
+            max_face = face.iter().fold(max_face, |m, v| m.max(v.abs()));
+            surface += cc_norm_sq_nd(face, &face_ws);
+        }
+    }
+    let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let volume = cc_norm_sq_nd(u, &vec![w.view(); r]);
+
+    // 2r faces of area 2^(r − 1) each, against the volume 2^r: 8 and 4 in 2D, 24 and 8 in 3D
+    let cube = 2.0_f64.powi(r as i32);
+    let faces = r as f64 * cube;
+    (
+        max_face / max_u,
+        (surface / faces).sqrt() / (volume / cube).sqrt(),
+    )
 }
 
 #[cfg(test)]
@@ -1111,7 +1184,7 @@ mod tests {
             let ui = u.index_axis(Axis(0), k);
             let u_hat = Array2::from_shape_fn((n, n), |(i, j)| ui[[i, j]] + 0.02 * noise(k, i, j));
             let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
-            let (ratio_nd, rms_nd) = boundary_errors_nd(u_hat.view(), ui, &w);
+            let (ratio_nd, rms_nd) = boundary_errors_nd(u_hat.view().into_dyn(), ui.into_dyn(), &w);
             assert_rel(ratio_nd, ratio, 1e-14, "ratio");
             assert_rel(rms_nd, rms, 1e-14, "rms");
         }
