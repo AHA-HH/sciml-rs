@@ -8,8 +8,8 @@ milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 
 Status: **L0 and L1 under way.** Draft 0.2 of the proposal is the plan of record (D0–D3
 signed off 2026-11-11, #117). 2026-11-24: CL1.1 (the CONVENTIONS 3D additions) signed off
-by the author (#122); CL0.1 measured on the Mac (#123, the cuda run waits for the VM);
-CL0.2 in progress; CL1.2 and CL3.1 once #122 is merged.
+by the author and merged (#122); CL0.2 done (rank-5 parity on metal, no Burn bug found);
+CL0.1 measured on the Mac (#123, the cuda run waits for the VM); next CL1.2 and CL3.1.
 
 ## How to read this file
 
@@ -57,9 +57,11 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
   parameter counts and activation memory against §7; the zip64 result; D4 (with the batch)
   and D5 proposed. *Needs:* –.
   *Machines:* the VM (cuda). *Sign-off:* D4, D5.
-- [ ] **CL0.2 Rank-5 backend parity.** `tests/gpu_parity.rs` cases for the 3D spectral
+- [x] **CL0.2 Rank-5 backend parity.** `tests/gpu_parity.rs` cases for the 3D spectral
   layer and the 3D grid channels on metal (the 2D cat and fusion bugs). *Done when:* the
   cases pass, or fail with a recorded Burn bug and a workaround. *Needs:* –.
+  Report: `docs/laplace3d/tasks/CL0.2.md` and `progress.md` (2026-11-24); all pass on
+  metal, worst rank-5 error 1.5e-6 against 1e-5.
 
 ## L1: Conventions and N-D shared pieces
 
@@ -111,7 +113,8 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
   when it starts if it exceeds it. *Needs:* CL0.2, CL1.3, CL3.3, D4.
 - [ ] **CL4.2 3D baseline.** Training at n = 65 over seeds. *Done when:* the results table
   with errors 2–5 against the 3D floor, and 2D Phase 5 at the same s as context (the
-  input families differ, proposal §3.3).
+  input families differ, proposal §3.3). Before its first cuda run, CL0.2's cases run on
+  cuda: `cargo test --release --no-default-features --features cuda --test gpu_parity`.
   *Needs:* CL4.1, D8. *Machines:* the VM.
 
 ## L5: 3D Laplace

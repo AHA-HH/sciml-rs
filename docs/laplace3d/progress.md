@@ -60,3 +60,26 @@ template:
 - 2D: no numerical code changed; newly generated 2D sidecars record
   `convention_version: 3`, metadata outside D2.
 - Follow-ups: CL1.2 and CL3.1 once #122 is merged.
+
+## 2026-11-24: CL0.2 Rank-5 backend parity
+- Done: three GPU-against-Flex cases in `tests/gpu_parity.rs`: `grid_3d` (`FNO<5>` with no
+  Fourier layers, so the grid channels are isolated; non-cubic shapes, one repeated after
+  another), `spectral_conv_3d` (`SpectralConv<5>` forward and input gradient; Bluestein on
+  both cfft axes, an even rfft half-width) and `replay_3d_poisson` (the 2D replay schedule
+  at rank 5, s = 16, modes 6³, padding 0 and 4, with a resolution change). The 2D replay's
+  body became a rank-generic `replay<R>` that both replays call.
+- Tests: on metal (Mac, release), 9 of 9 pass. Rank 5 worst relative L² 1.5e-6, every
+  max-entry error ≤ 7.2e-7, against 1e-5 (the 2D replay's max-entry error, printed and not
+  asserted: 9.6e-7). No Burn bug at rank 5, so no workaround. The 2D
+  replay's per-call errors at padding 4, 8, 16 are the same before and after the refactor;
+  padding 0, the first configuration per test while Metal autotunes, varies run to run.
+- Checks: ran fmt, the three clippy jobs, `cargo clippy --features metal --all-targets`,
+  `cargo test` (flex), `cargo doc`, `cargo test --release --features metal --test
+  gpu_parity`; not run: cuda (Mac-only lane), datagen and mlflow (not touched).
+- Decisions: none.
+- Review: plan review PASS (advisory: an even rfft half-width, added); code quality round 1
+  BLOCKED (the replay harness duplicated, fixed by `replay<R>`) → round 2 APPROVE (its
+  advisories taken: the 3D replay asserts the max-entry error too; the rest in the PR).
+- 2D: no 2D code touched; the 2D replay is restructured with the same schedule, inputs,
+  loss and tolerance, and passes on metal.
+- Follow-ups: CL0.2's cases on cuda before CL4.2's first cuda run (a sentence in CL4.2).
