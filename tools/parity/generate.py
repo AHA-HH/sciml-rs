@@ -87,9 +87,7 @@ def reload_output(path, name, dtype, complex_names):
             key = k[len(PREFIX):]
             state[key] = torch.view_as_complex(t.contiguous()) if key in complex_names else t
         x = torch.from_numpy(f["input"])
-    model.load_state_dict(state, strict=False)  # strict=False: `_metadata` is not stored
-    missing = {k for k, v in model.state_dict().items() if torch.is_tensor(v)} - state.keys()
-    assert not missing, f"weights missing from {path}: {missing}"
+    model.load_state_dict(state, strict=True)  # 2.0.0's load_state_dict tolerates no `_metadata`
     with torch.no_grad():
         return model(x).numpy()
 
@@ -123,6 +121,28 @@ def sidecar(name, dtype_name, model, x, complex_names):
     }
 
 
+def write(path, name, dtype, data, meta):
+    """Write one fixture and its sidecar; assert D8's bounds and the reload round trip."""
+    np.savez(path, **data)
+    path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
+    size = path.stat().st_size
+    assert size <= MAX_BYTES, f"{path.name}: {size} bytes"
+    y = reload_output(path, name, dtype, meta["complex_params"])
+    assert np.array_equal(y, data["output"]), f"{path.name}: reloaded output differs"
+    print(f"{path.name}: P = {meta['n_params_real']}, {size} bytes, round trip bit for bit")
+
+
+def same_as_committed(path, data, meta):
+    """Whether the committed fixture and sidecar equal `data` and `meta`, bit for bit."""
+    with np.load(path) as f:
+        same = set(f.files) == set(data) and all(
+            np.array_equal(f[k], v) and f[k].dtype == v.dtype for k, v in data.items()
+        )
+    same &= path.with_suffix(".json").read_text() == json.dumps(meta, indent=2) + "\n"
+    print(f"{path.name}: {'same' if same else 'DIFFERS'}")
+    return same
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="compare with the committed fixtures")
@@ -138,20 +158,9 @@ def main():
             meta = sidecar(name, dtype_name, model, x, complex_names)
             assert meta["n_params_real"] <= MAX_PARAMS, f"{path.name}: P = {meta['n_params_real']}"
             if check:
-                with np.load(path) as f:
-                    same = set(f.files) == set(data) and all(
-                        np.array_equal(f[k], v) and f[k].dtype == v.dtype for k, v in data.items()
-                    )
-                print(f"{path.name}: {'same' if same else 'DIFFERS'}")
-                failed |= not same
-                continue
-            np.savez(path, **data)
-            path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
-            size = path.stat().st_size
-            assert size <= MAX_BYTES, f"{path.name}: {size} bytes"
-            y = reload_output(path, name, dtype, complex_names)
-            assert np.array_equal(y, data["output"]), f"{path.name}: reloaded output differs"
-            print(f"{path.name}: P = {meta['n_params_real']}, {size} bytes, round trip bit for bit")
+                failed |= not same_as_committed(path, data, meta)
+            else:
+                write(path, name, dtype, data, meta)
     sys.exit(1 if failed else 0)
 
 
