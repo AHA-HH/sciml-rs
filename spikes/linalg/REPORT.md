@@ -17,9 +17,11 @@ For n ∈ {12, 32, 128, 144}, matrices built in f64 and rounded to f32 (seeded):
 - **svd** (`burn::linalg::svd`, 30 sweeps; runs on the host through `into_data`) of P (the
   first basis): σ error max|σᵢ − λᵢ| / λ₁ against a cyclic Jacobi eigensolver in f64 on the
   same f32 matrix; residual ‖P U − U diag(σ)‖_F / ‖P‖_F; orth max|UᵀU − I|.
-- **time**: median of 20 calls after 3 warm-up calls, each read back with `into_data` (so
-  it includes the upload of the input and the download of the outputs); *host qr* is the
-  spike's own unblocked f32 Householder on the CPU, the "else host" option of D9.
+- **time**: median of 20 calls after 3 warm-up calls, each read back with `into_data`.
+  *qr time* includes uploading A (in SOAP the factor is already on the device, so this
+  slightly overstates it) and downloading Q and R; *host qr* is the "else host" option of
+  D9 with the same round trip: A downloaded from the device, the spike's own unblocked f32
+  Householder on the CPU, Q and R uploaded and read back.
 
 ## Results
 
@@ -27,30 +29,30 @@ flex (`cargo run -p linalg-spike --release --bin linalg_check`):
 
 | n | qr backward | qr orth | qr fwd vs f64 | f32 host baseline (bwd / orth / fwd) | qr time | host qr time | svd σ err / σ₁ | svd residual | svd orth | svd time |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 12 | 2.3e-7 | 3.2e-7 | 2.3e-3 | 3.8e-7 / 3.1e-7 / 3.4e-4 | 0.62 ms | 0.01 ms | 1.2e-7 | 2.5e-7 | 1.0e-6 | 0.02 ms |
-| 32 | 2.1e-7 | 3.5e-7 | 2.2e-3 | 3.9e-7 / 7.7e-7 / 1.9e-3 | 1.18 ms | 0.07 ms | 1.7e-7 | 5.9e-7 | 7.7e-7 | 0.10 ms |
-| 128 | 4.1e-7 | 5.4e-7 | 2.9e-3 | 8.2e-7 / 1.1e-6 / 1.8e-3 | 4.26 ms | 3.19 ms | 6.7e-7 | 1.0e-6 | 1.8e-6 | 1.52 ms |
-| 144 | 4.1e-7 | 5.3e-7 | 2.1e-3 | 9.2e-7 / 1.4e-6 / 2.4e-3 | 5.03 ms | 4.56 ms | 5.5e-7 | 9.0e-7 | 1.6e-6 | 2.10 ms |
+| 12 | 2.3e-7 | 3.2e-7 | 2.3e-3 | 3.8e-7 / 3.1e-7 / 3.4e-4 | 0.49 ms | 0.01 ms | 1.2e-7 | 2.5e-7 | 1.0e-6 | 0.02 ms |
+| 32 | 2.1e-7 | 3.5e-7 | 2.2e-3 | 3.9e-7 / 7.7e-7 / 1.9e-3 | 0.60 ms | 0.05 ms | 1.7e-7 | 5.9e-7 | 7.7e-7 | 0.06 ms |
+| 128 | 4.1e-7 | 5.4e-7 | 2.9e-3 | 8.2e-7 / 1.1e-6 / 1.8e-3 | 4.10 ms | 3.29 ms | 6.7e-7 | 1.0e-6 | 1.8e-6 | 1.56 ms |
+| 144 | 4.1e-7 | 5.3e-7 | 2.1e-3 | 9.2e-7 / 1.4e-6 / 2.4e-3 | 5.11 ms | 4.56 ms | 5.5e-7 | 9.0e-7 | 1.6e-6 | 2.08 ms |
 
 metal (`--features metal`):
 
 | n | qr backward | qr orth | qr fwd vs f64 | f32 host baseline (bwd / orth / fwd) | qr time | host qr time | svd σ err / σ₁ | svd residual | svd orth | svd time |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 12 | 1.6e-7 | 4.2e-7 | 1.4e-3 | 3.8e-7 / 3.1e-7 / 3.4e-4 | 7.36 ms | 0.00 ms | 1.2e-7 | 2.5e-7 | 1.0e-6 | 0.13 ms |
-| 32 | 1.7e-7 | 3.5e-7 | 7.7e-4 | 3.9e-7 / 7.7e-7 / 1.9e-3 | 20.04 ms | 0.05 ms | 1.7e-7 | 5.9e-7 | 7.7e-7 | 0.16 ms |
-| 128 | 2.6e-7 | 4.1e-7 | 1.1e-3 | 8.2e-7 / 1.1e-6 / 1.8e-3 | 89.13 ms | 3.33 ms | 6.7e-7 | 1.0e-6 | 1.8e-6 | 1.70 ms |
-| 144 | 2.1e-7 | 5.2e-7 | 1.2e-3 | 9.2e-7 / 1.4e-6 / 2.4e-3 | 92.60 ms | 4.84 ms | 5.5e-7 | 9.0e-7 | 1.6e-6 | 2.33 ms |
+| 12 | 1.6e-7 | 4.2e-7 | 1.4e-3 | 3.8e-7 / 3.1e-7 / 3.4e-4 | 7.28 ms | 0.08 ms | 1.2e-7 | 2.5e-7 | 1.0e-6 | 0.10 ms |
+| 32 | 1.7e-7 | 3.5e-7 | 7.7e-4 | 3.9e-7 / 7.7e-7 / 1.9e-3 | 19.49 ms | 0.13 ms | 1.7e-7 | 5.9e-7 | 7.7e-7 | 0.15 ms |
+| 128 | 2.6e-7 | 4.1e-7 | 1.1e-3 | 8.2e-7 / 1.1e-6 / 1.8e-3 | 76.63 ms | 3.30 ms | 6.7e-7 | 1.0e-6 | 1.8e-6 | 1.65 ms |
+| 144 | 2.1e-7 | 5.2e-7 | 1.2e-3 | 9.2e-7 / 1.4e-6 / 2.4e-3 | 84.83 ms | 4.80 ms | 5.5e-7 | 9.0e-7 | 1.6e-6 | 2.23 ms |
 
 cuda (`--no-default-features --features cuda`, the VM): pending.
 
 Reading:
 - **Correct everywhere measured.** qr is backward stable and orthogonal to f32 level on both
-  backends; its forward error is within 7× of the f32 baseline at n = 12 and equal or
-  better above. svd's singular values are within 7e-7 · σ₁ of the f64 eigenvalues, with
+  backends; its forward error is within 7× of the f32 baseline at n = 12 and within 1.6×
+  above (better than the baseline on metal). svd's singular values are within 7e-7 · σ₁ of the f64 eigenvalues, with
   orthonormal U.
-- **Device qr is slow on metal**: 7–93 ms, 20–30× the host at n ≥ 128 and far more below
-  (many small kernels and a sync per Householder step). On flex Burn's qr is already host
-  code and costs about what the plain host loop does at n ≥ 128.
+- **Device qr is slow on metal**: 7–85 ms, 18–23× the host round trip at n ≥ 128 and 60–150× below
+  (lazy tensor ops, about 20 small kernels per column, n times). On flex Burn's qr runs on the CPU
+  and costs 1.1–1.2× the plain host loop at n ≥ 128.
 - **svd** is host code on every backend: ≤ 2.4 ms at n = 144, once per tensor.
 
 ## Constraint 1 (`src/bin/fingerprint.rs`)
@@ -63,6 +65,13 @@ three-epoch hybrid Gauss–Newton run (CG ≤ 5) on tiny 2D datasets, flex:
 | this branch, `linalg` on | `681d0cb622163b3d` | `22251275ef53a81e` | `84e63f28a21024db` |
 | `origin/main` 4d681d0, `linalg` off | `681d0cb622163b3d` | `22251275ef53a81e` | `84e63f28a21024db` |
 
+Enabling the feature changes nothing the crate compiles against otherwise, on any backend
+(checked in the Burn 0.23.0-pre.2 sources): `linalg = ["dep:burn-linalg", "burn-nn/linalg"]`;
+the `burn-core` features `burn-linalg` turns on (`default`, `fusion`, `extension`, `std`)
+are already on through `burn-signal`; `burn-nn/linalg` only adds `Initializer::Orthogonal`
+and the `cosine_embedding` and `triplet_margin` losses, none used here. The new compiled
+code is `burn-linalg` itself (and `gemm` under flex). The fingerprint checks this on flex.
+
 The `origin/main` row: a scratch worktree of `origin/main`, this spike's `Cargo.toml` and
 `fingerprint.rs` copied in (not `linalg_check.rs`, which needs the feature) and
 `spikes/linalg` added to its workspace members; then
@@ -71,7 +80,7 @@ The `origin/main` row: a scratch worktree of `origin/main`, this spike's `Cargo.
 ## D9, proposed
 
 The first basis by `svd` on the host (as recommended); the refreshes by **host** QR, not
-device `qr`, at least on metal: Burn's device qr is correct but 20–30× slower there than a
-host QR of the downloaded factor. The cuda row decides whether cuda keeps device `qr`;
-unless it is within about 2× of host there, use the host path on every backend (one code
-path).
+device `qr`, at least on metal: Burn's device qr is correct but 18–23× slower there
+(n ≥ 128) than a host QR of the downloaded factor, round trip included. The cuda row
+decides whether cuda keeps device `qr`; unless it is within about 2× of the host there,
+use the host path on every backend (one code path).

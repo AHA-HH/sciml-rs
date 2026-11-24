@@ -111,13 +111,16 @@ fn sign_fix<T: Float>(q: &mut [T], r: &mut [T], n: usize) {
 /// Eigenvalues of a symmetric matrix by cyclic Jacobi in f64, descending.
 fn jacobi_eigenvalues(a: &[f64], n: usize) -> Vec<f64> {
     let mut a = a.to_vec();
-    for _sweep in 0..100 {
-        let off: f64 = (0..n * n)
+    let off = |a: &[f64]| -> f64 {
+        (0..n * n)
             .filter(|ij| ij / n != ij % n)
             .map(|ij| a[ij] * a[ij])
-            .sum();
-        // absolute tolerance: valid because every P here has ‖P‖₂ = 1
-        if off < 1e-30 {
+            .sum()
+    };
+    // absolute tolerance: valid because every P here has ‖P‖₂ = 1
+    const TOL: f64 = 1e-30;
+    for _sweep in 0..100 {
+        if off(&a) < TOL {
             break;
         }
         for p in 0..n {
@@ -143,6 +146,7 @@ fn jacobi_eigenvalues(a: &[f64], n: usize) -> Vec<f64> {
             }
         }
     }
+    assert!(off(&a) < TOL, "Jacobi did not converge in 100 sweeps");
     let mut ev: Vec<f64> = (0..n).map(|i| a[i * n + i]).collect();
     ev.sort_by(|x, y| y.total_cmp(x));
     ev
