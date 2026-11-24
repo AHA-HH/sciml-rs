@@ -7,7 +7,9 @@ the proposal wins. Progress is logged in `docs/optimisers/progress.md`; each tas
 `docs/optimisers/gates/<milestone>.md`. Reading notes: `docs/optimisers/references.md`.
 
 Status: **planning.** Draft 0.1 written 2026-11-24, draft 0.2 (the Burgers replication as
-O1; the former O1–O4 renumbered O2–O5) the same day; nothing signed off. D0 first.
+O1; the former O1–O4 renumbered O2–O5) the same day, corrected after an independent check
+(#128). D0 and D2 signed off 2026-11-24; next CO0.1, CO0.2 and CO3.1 (CO0.1 and CO0.2 on
+the VM, at the author's go per run).
 
 ## How to read this file
 
@@ -37,9 +39,9 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 
 | ID | Decision | Proposal's recommendation | Prepared by | Needed by | Status |
 | --- | --- | --- | --- | --- | --- |
-| D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | open |
+| D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | signed off 2026-11-24: draft 0.2, with the corrections of #128, as the plan of record |
 | D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; CG cap 50 or 150 from CO0.1 | CO0.1 | CO4.1 | open |
-| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | open |
+| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both) |
 | D3 | L-BFGS's objective and weight decay | Φ at μ = 0 | – | CO2.1 | open |
 | D4 | L-BFGS's batch | one batch of 1,000; accumulation if memory requires | – | CO2.1 | open |
 | D5 | L-BFGS's settings | strong Wolfe, lr 1; history and `max_iter` from the pilot | CO2.2 | CO4.1 | open |
@@ -79,8 +81,9 @@ weight decay accounts for.
 - [ ] **CO1.1 The reference recipe.** `OptimizerConfig::AdamW` (Burn's `AdamWConfig`, ε
   1e-8), `TrainingConfig.lr_schedule` (`None` = today's cosine; a step variant halving every
   k epochs), an `FNOConfig` GELU option and a squared relative-L² option for the Adam path (both off by default), `OPTIMIZER=adamw`, `WEIGHT_DECAY` and the subsample rate as variables of
-  `train_burgers`, and `costs.json` for Burgers runs; the data split checked against Li et
-  al.'s `fourier_1d.py` and the epoch count confirmed. *Done when:* the O1 tests of proposal
+  `train_burgers` with n_train = 1,000 (1,024 today), and `costs.json` for Burgers runs;
+  s = 128 and the 1,000/100 split checked against Lu et al. 2022 and PETScML's scripts;
+  Burn's `StepLrSchedulerConfig` reused for the step schedule. *Done when:* the O1 tests of proposal
   §9 pass (the parameter count 549,569, AdamW at weight decay 0 equal to Adam at 0 under the
   same schedule, the step schedule's halvings); A1 on seed 42 on flex or metal against
   0.0014; constraint 1 shown (`train_burgers` and `train_darcy` with nothing set unchanged
@@ -130,7 +133,8 @@ piloted.
 - [ ] **CO3.3 The SOAP arm and pilot.** `OptimizerConfig::Soap`, `OPTIMIZER=soap`; resume
   exact; then the pilot of D6 on seed 42 at the equal-time budget. *Done when:* a flex smoke
   run and its resume, constraint 1 shown, the pilot table, D6 proposed. *Needs:* CO3.2,
-  CO0.1, D7, D13. *Machines:* the VM. *Sign-off:* D6.
+  CO0.1, D7, D13, the library objective's CM0.3 (`training/` changes are serial; not at
+  once with CO1.1, CO1.2 or CO2.1). *Machines:* the VM. *Sign-off:* D6.
 
 ## O4: The 2D comparison
 

@@ -25,7 +25,7 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   docs/operators/progress.md. Constraint 1: every existing FNO output stays bit for bit
   identical. Python (fixtures from 2.0.0) stays outside CI.
 - Objective optimisers (L-BFGS and SOAP against Adam and Gauss–Newton, 2D then 3D):
-  proposal docs/design/optimisers.md (draft 0.2, 2026-11-24, nothing signed off;
+  proposal docs/design/optimisers.md (draft 0.2, 2026-11-24; D0 and D2 signed off;
   adds the Burgers replication of PETScML (Zampini et al. 2024) as O1);
   milestones O0–O5, tasks `CO<m>.<n>`, decisions D0–D14 in docs/optimisers/roadmap.md;
   log docs/optimisers/progress.md; reading notes docs/optimisers/references.md.
