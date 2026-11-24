@@ -42,6 +42,25 @@ template:
 - 2D: not touched.
 - Follow-ups: D0 on draft 0.2; then CL0.1 (the zip64 check added to it), CL0.2, CL1.1.
 
+## 2026-11-24: CL1.1 CONVENTIONS 3D additions
+- Done: proposal §4 written into `docs/CONVENTIONS.md` §12 as a "Three dimensions
+  (version 3)" block ('ijk' storage, transfers along x, then y, then z, the 3D
+  Clenshaw–Curtis norm, the 3D boundary norm of proposal §3.5); `CONVENTION_VERSION` 2 → 3
+  in the header, §9 (with a History line) and `src/lib.rs`. Plan
+  `docs/laplace3d/tasks/CL1.1.md`.
+- Tests: none new (the conventions land before their code, CONVENTIONS §9; CL1.2 and
+  CL1.3 add theirs). `convention_version_matches_conventions_md` checks the bump.
+- Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo doc`, datagen clippy and tests).
+- Decisions: the additions signed off by the author 2026-11-24 on #122, with two answers
+  applied: §12 records the 2D boundary norm `metrics::poisson` already computes, and labels
+  its 2D-only statements. The Laplace boundary norm's denominator (‖u‖ or ‖g‖ on ∂Ω) is
+  deferred to the L4 gate (D6, D7).
+- Review: plan review by the `reviewer` agent; no code-quality review (docs and one
+  constant).
+- 2D: no numerical code changed; newly generated 2D sidecars record
+  `convention_version: 3`, metadata outside D2.
+- Follow-ups: CL1.2 and CL3.1 once #122 is merged.
+
 ## 2026-11-24: CL0.2 Rank-5 backend parity
 - Done: three GPU-against-Flex cases in `tests/gpu_parity.rs`: `grid_3d` (`FNO<5>` with no
   Fourier layers, so the grid channels are isolated; non-cubic shapes, one repeated after
