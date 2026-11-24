@@ -68,8 +68,8 @@ size and batch) and D5 (stages, sizes, names, storage) on evidence.
 
 ## VM runs
 cuda numbers (A100 80 GB), awaiting the author's go; no ssh from this session. About
-30 minutes in all (build 5–10 min; s = 64 epochs of 1000 samples at batch 20 are the long
-part). Commands in "Pending runs". They decide D4's batch at s = 64 and the cuda column of
+one hour in all, unmeasured on cuda (build 5–10 min; s = 64 epochs of 1000 samples are
+the long part). Commands in "Pending runs". They decide D4's batch at s = 64 and the cuda column of
 the table.
 
 ## Constraints and risks

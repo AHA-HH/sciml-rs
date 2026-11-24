@@ -1,6 +1,7 @@
 //! 3D CL0.1 (`docs/laplace3d/tasks/CL0.1.md`): time per epoch of `FNO<5>` (width 32,
 //! 4 layers) on synthetic data, through the real training path (`build_training_components`,
-//! `train_epoch`, `evaluate`). Peak memory is read outside the process (`REPORT.md`).
+//! `train_epoch`, `evaluate`). Peak memory is read outside the process (`run.sh`;
+//! method and results in `docs/laplace3d/results/cl0-1.md`).
 //!
 //! Usage: `cargo run --release -p fno3d-cost-spike --bin fno3d_cost [--features metal|cuda]
 //! -- <s> <modes> <batch> <n_train> <n_test>`; `BURN_DEVICE` picks the backend.
@@ -19,6 +20,8 @@ use sciml_rs::neural_operators::training::trainer::{build_training_components, t
 /// The 3D model of proposal §7: width 32, 4 layers, `modes` per axis, one data channel.
 fn model_config(modes: usize) -> FNOConfig {
     FNOConfig::new(vec![modes; 3], 1, 1)
+        .with_hidden_channels(32)
+        .with_n_layers(4)
 }
 
 /// `n` samples of `[s, s, s, 1]` inputs and `[s, s, s]` targets, xorshift values in
