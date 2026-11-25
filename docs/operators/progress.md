@@ -295,3 +295,37 @@ template:
   aggregator and Fourier rows point at CM1.6b and CM1.6c.
 - Follow-ups: CM1.6b's line (the review's F3, F4, F6, F7); CM1.6c (`FourierDiff`,
   `non_uniform_fd`); the §11 question.
+
+## 2026-11-25: CM1.6b Aggregators
+- Done: `losses/meta_losses.rs`: `WeightedSumLoss`, `FieldwiseAggregatorLoss` (a field is a
+  channel range on one axis, prediction and target sliced alike; 2.0.0 reshapes only the
+  prediction, the two agree on its one-channel `(N, C)` use), `SoftAdapt`, `Relobralo` (ρ
+  from a seeded `ChaCha8Rng`, or replayed by `forward_with_rho`), over `LossFn<R>`
+  closures; adaptive weights on the host in f64, constants in the aggregate as under
+  2.0.0's `no_grad`. CM1.6a's follow-ups: `Reduction::apply` and `root_zero_safe` in
+  `data_losses.rs`, shared by `LpLoss`, `SobolevLoss` and `PointwiseQuantileLoss`; one
+  `tests/flex_f64/` for the four f64 binaries; `Fixture::tensor(key, device)` public.
+  Fixtures `meta_losses_{f32,f64}` from `generate_losses.py`.
+- Tests: per step, the aggregate, the weights and d aggregate / d loss of SoftAdapt and
+  ReLoBRaLo (with and without weights; ReLoBRaLo also at α 0.9, β 0.5, τ 2, replaying
+  torch's draws, both branches of ρ), the weighted sum (default and given weights) and the
+  fieldwise loss: f32 ≤ 2.0e-7, f64 ≤ 2.0e-16 (D3 1e-5, 1e-12). Unit tests: the seeded
+  draw exact at β = 0 and 1 and reproducible, a hand-computed SoftAdapt step, panics.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (401 passed), `cargo test --features
+  datagen` (482 passed), `cargo doc --no-deps`, `generate_losses.py --check` (8 fixtures
+  the same), all pass; after the review fixes clippy, the loss unit and parity tests and
+  the fixture check again. Not run: `--features metal` (nothing backend-sensitive), a
+  build without `flex`.
+- Decisions: none.
+- Review: plan review PASS (advisories: the `#[allow(dead_code)]` on `mod parity_common`
+  in the loss binaries kept, as the plan says; `parity_losses_common` behind `flex` in the
+  f64 binary, done; weights checked once, done). Code quality APPROVE with findings: F1,
+  F2, F3 (weights only), F4–F8, F10 fixed; F9 (one device read per loss per step) left as
+  a note, harmless on the CPU.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 99edf66 and the branch,
+  each in its own build directory: `forward`, `phase5_epoch`, `gauss_newton_epoch`
+  byte-identical). CM1.6a's comparison shared one build directory between `main` and the
+  branch, so it did not show this; CM1.6a changed no FNO code.
+- Matrix: the aggregator row set to **have**.
+- Follow-ups: CM1.6c; the CONVENTIONS §11 question of CM1.6a (#154) stands.

@@ -13,8 +13,8 @@ once it is merged the optimisers tasks that change `training/` may start. CM0.4 
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
 answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
 CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.6 split 2026-11-25
-into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE). Next
-CM0.6, CM1.2, CM1.3, CM1.6b and CM1.6c.
+into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE); CM1.6b
+done 2026-11-25 (the aggregators). Next CM0.6, CM1.2, CM1.3 and CM1.6c.
 
 ## How to read this file
 
@@ -139,7 +139,7 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     `docs/operators/tasks/CM1.6a.md`; `losses/{differentiation,sobolev,pointwise}.rs`; parity
     `tests/parity_losses.rs` (f32, ≤ 1.7e-7), `tests/parity_losses_f64.rs` (≤ 6e-16);
     fixtures from `tools/parity/generate_losses.py`.
-  - [ ] **CM1.6b Aggregators.** `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`,
+  - [x] **CM1.6b Aggregators.** `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`,
     `Relobralo` (its Bernoulli draw taken from a seeded source). *Done when:* each against
     a fixture of a sequence of steps (the weights and the aggregated loss per step).
     *Needs:* CM0.5. Also CM1.6a's code-quality follow-ups: `Reduction::apply` for the three
@@ -147,7 +147,12 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     `data_losses.rs`, so with the bit-identity check); in the parity harness one
     `flex_f64` in `parity_common` (three copies), `Fixture::tensor` public (the copy in
     `parity_losses_common`), and with them the two `#[allow(dead_code)]` on the loss
-    binaries' harness modules gone (coordinate `parity_common` with CM1.1).
+    binaries' harness modules gone (coordinate `parity_common` with CM1.1). Done
+    2026-11-25: plan `docs/operators/tasks/CM1.6b.md`; `losses/meta_losses.rs`; parity per
+    step in `tests/parity_losses{,_f64}.rs` (≤ 2.0e-7 f32, ≤ 2.0e-16 f64); the follow-ups
+    done (`tests/flex_f64/` for the four f64 binaries), except the `#[allow(dead_code)]` on
+    `mod parity_common` in the two loss binaries, which use no parameter map (kept, see
+    the plan).
   - [ ] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
     continuation (that option with CM2.4), `non_uniform_fd`. *Done when:* each against
     fixtures. *Needs:* CM0.5.

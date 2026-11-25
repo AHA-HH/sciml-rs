@@ -149,7 +149,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `GridOperator`), `layers/spectral_convolution.rs`
   (SpectralConv, SpectralInit), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
-  `pointwise::{PointwiseQuantileLoss, mse_loss}`, parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
+  `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
+  `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; parity in
+  `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
@@ -255,7 +257,8 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each
   needs its own test binary, so keep such tests out of `src/`. `tests/gpu_parity.rs` holds
   the Burn bug repros and the 2D GPU replay check; only its `*_flex` twins run without a
-  GPU feature.
+  GPU feature. `tests/flex_f64/` is the one Flex-in-f64 device helper, included by the f64 test
+  binaries (`gauss_newton_f64`, `parity_*_f64`).
 - Examples are registered in `Cargo.toml`; hyperparameters are literals at the top of
   each file. Training writes `runs/<name>_<unix_secs>/`.
 - `datasets/` (.mat files and `datasets/poisson/`, see `datasets/README.md`) and `runs/` are

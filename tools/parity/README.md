@@ -73,3 +73,12 @@ a seeded pair `x`, `y` (2, 2, *grid) and a vector field `v` (2, D, *grid) on the
 `quantile.{sum,mean}`; `MSELoss` as `mse`; `LpLoss(d, p=2).rel` as `lp.rel`. `<bc>` is `per`
 (all periodic), `non` (none) or `mix` (x one-sided; D ≥ 2). Scalars are stored with shape
 (1,). The sidecar lists the settings; the Rust side is `tests/parity_losses*.rs`.
+
+`meta_losses_{f32,f64}` (CM1.6b), from the same script: `WeightedSumLoss([H1Loss(d=1),
+MSELoss()])` on a pair (2, 2, 32) with default and (0.3, 0.7) weights (`wsum.*`);
+`FieldwiseAggregatorLoss` on (16, 3), `u` channel 0 with `MSELoss`, `p` channel 2 with
+`PointwiseQuantileLoss(0.1)` (`fieldwise`); and `SoftAdapt` / `Relobralo` over 6 steps of 3
+seeded losses (`table`), with and without weights and Relobralo also at α = 0.9, β = 0.5,
+τ = 2: per step the aggregate, the weights and the gradient with respect to each loss
+(`<name>.{loss,weights,grad}`), and Relobralo's recorded Bernoulli draws (`<name>.rho`). The
+f64 fixture runs with torch's default dtype f64, so 2.0.0's buffers are f64 too.
