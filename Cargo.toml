@@ -59,6 +59,12 @@ name = "poisson_resolution"
 path = "examples/predict/poisson_resolution.rs"
 
 [[example]]
+name = "gn_profile"
+path = "examples/profile/gn_profile.rs"
+# its unit tests run under `cargo test` (optimisers CO0.2)
+test = true
+
+[[example]]
 name = "poisson_conditioning"
 path = "examples/predict/poisson_conditioning.rs"
 # its unit tests run under `cargo test`
@@ -83,6 +89,11 @@ required-features = ["mlflow"]
 [[example]]
 name = "generate_poisson"
 path = "examples/generate/poisson.rs"
+required-features = ["datagen"]
+
+[[example]]
+name = "generate_poisson3d"
+path = "examples/generate/poisson3d.rs"
 required-features = ["datagen"]
 
 # Backends are additive: `Device::default()` picks the highest-priority one

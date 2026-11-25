@@ -147,7 +147,14 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   per kind, built by name; `RunDir::any_model_config`),
   `models/predict.rs` (`predict_host`: batched inference to host f64, any rank, any
   `GridOperator`), `layers/spectral_convolution.rs`
-  (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
+  (SpectralConv, SpectralInit), `layers/{channel_mlp,skip,norm}.rs` (library CM1.3a:
+  2.0.0's `ChannelMlp`, `SkipKind`/`Skip<R>`, `AdaIn`; `layers/pointwise.rs`, the shared
+  `conv1x1`; activations are Burn's `ActivationConfig`, instance and group norm Burn's;
+  parity in `tests/parity_block_parts*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
+  `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
+  `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
+  `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; parity in
+  `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
@@ -175,6 +182,12 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `tests/gauss_newton_fno.rs` (helpers in `tests/gauss_newton_common/`), and the f64
   ones are `#[ignore]`d in `tests/gauss_newton_f64.rs` (flex's f64 rfft uses f32
   twiddles).
+- `optim/soap/` (optimisers CO3.2, any tensor rank; imports nothing from `models/` or
+  `training/`): `SoapConfig` (reference defaults; `init` a `ModuleOptimizer`), `Soap`, Burn's
+  per-parameter `Optimizer` (one factor per dimension, D8; first basis by Burn's host `svd`,
+  refreshes by a host f64 Householder QR, D9; M kept in the original space, V in the bases),
+  `SoapState` (`RecordState` by hand: Burn's derive works only inside `burn-optim`) and
+  `Factor`; tests in `soap/tests.rs`. Nothing calls it before CO3.3.
 - `runs` (`RunDir`, `EpochMetrics`, `RunCosts`) owns the run directory:
   `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
@@ -210,6 +223,10 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   validation oracle, test-only); `manufactured` (test-only fixtures).
 - `pde/poisson/grf3d` (3D laplace3d CL3.1): the 3D GRF, α = 3, ChaCha8 stream 3, separable
   evaluation; shares `grf::{TAU, K_MAX, sine_basis}`.
+- `pde/poisson/dataset3d` (laplace3d CL3.2): `generate_3d` / `write_split_3d`, the 3D splits
+  (`Split3d`, A3 labels, the 2D `SplitSpec` and `SidecarRecord`), named by
+  `catalogue::Poisson3dSet` (`poisson3d_n{n}_K{K}_{split}`, `GENERATED_3D`), driven by
+  `examples/generate/poisson3d.rs` (`generate_poisson3d [-- <n> ...]`).
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`
   (`generate`, `label_check`, `write_split`), driven by `examples/generate/poisson.rs`
   (`generate_poisson`), which writes `datasets/poisson/`.
@@ -249,7 +266,8 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each
   needs its own test binary, so keep such tests out of `src/`. `tests/gpu_parity.rs` holds
   the Burn bug repros and the 2D GPU replay check; only its `*_flex` twins run without a
-  GPU feature.
+  GPU feature. `tests/flex_f64/` is the one Flex-in-f64 device helper, included by the f64 test
+  binaries (`gauss_newton_f64`, `parity_*_f64`).
 - Examples are registered in `Cargo.toml`; hyperparameters are literals at the top of
   each file. Training writes `runs/<name>_<unix_secs>/`.
 - `datasets/` (.mat files and `datasets/poisson/`, see `datasets/README.md`) and `runs/` are

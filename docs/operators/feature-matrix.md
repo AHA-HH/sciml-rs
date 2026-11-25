@@ -14,7 +14,7 @@ ported with the task that needs it). *Task* is the roadmap task that sets the ro
 (`neuralop.models`, `neuralop.losses`, `neuralop.training`, `neuralop.data.datasets`); other
 items are imported by module path. From `neuralop` itself: `FNO`, `TFNO`, `get_model`,
 `Trainer`, `LpLoss`, `H1Loss`, `BurgersEqnLoss`, `ICLoss`, `WeightedSumLoss`, `Aggregator`,
-`Relobralo`, `SoftAdapt`, `FourierDiff`, `non_uniform_fd`, `FiniteDiff`. No row is **have**: no parity has been shown yet.
+`Relobralo`, `SoftAdapt`, `FourierDiff`, `non_uniform_fd`, `FiniteDiff`. Rows reach **have** as parity is shown (first: CM1.6a, 2026-11-25).
 
 ## Models
 
@@ -41,7 +41,7 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `SpectralConv` (legacy: corner weights, `fft_norm="backward"`, `incremental_n_modes`, `joint_factorization`), `SpectralConv1d`, `SpectralConv2d`, `SpectralConv3d`, `SubConv`, `get_contract_fun` | `layers/legacy_spectral_convolution.py` | `SpectralConv<R>`: corner weights, `backward`, dense only, no bias, Li et al.'s uniform init (`SpectralInit` also offers normal and symmetric uniform) | partial | CM1.1 |
+| `SpectralConv` (legacy: corner weights, `fft_norm="backward"`, `incremental_n_modes`, `joint_factorization`), `SpectralConv1d`, `SpectralConv2d`, `SpectralConv3d`, `SubConv`, `get_contract_fun` | `layers/legacy_spectral_convolution.py` | `SpectralConv<R>`: corner weights, `backward`, dense only, no bias, Li et al.'s uniform init (`SpectralInit` also offers normal and symmetric uniform). The dense layer (plus a test-only bias) matches 2.0.0's generic legacy `SpectralConv` in 1D–3D within D3 in f32 (CM1.1, `tests/parity_legacy_spectral_conv.rs`); missing: bias, `incremental_n_modes`, `joint_factorization`, factorised and separable weights, `resolution_scaling_factor`; the `SpectralConv1d/2d/3d` subclasses not fixtured | partial | CM1.1 |
 | `SpectralConv` (centred weights after `fftshift`, `fft_norm="forward"`, `max_n_modes`, separable, dense / Tucker / CP / TT, bias, `init_std="auto"` = √(2 / (in + out)), complex normal), `get_contract_fun` | `layers/spectral_convolution.py` | – | missing | CM1.2, CM2.1 |
 | `BaseSpectralConv` (base class) | `layers/base_spectral_conv.py` | – | missing (internal) | CM1.2 |
 | `einsum_complexhalf`, `einsum_complexhalf_two_input` (half-precision complex einsum) | `layers/einsum_utils.py` | – | missing (internal) | CM1.7 |
@@ -51,10 +51,10 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `FNOBlocks` (norm `None`, `instance_norm`, `group_norm`, `batch_norm`, `ada_in`; `fno_block_precision` `full`, `half`, `mixed`; `stabilizer` `None` or `tanh`; preactivation; `complex_data`), `SubModule` | `layers/fno_block.py` | inside `FNO`: spectral convolution plus 1×1 convolution, ReLU, no norm | partial | CM1.3 |
-| `ChannelMLP`, `LinearChannelMLP` | `layers/channel_mlp.py` | – | missing | CM1.3 |
-| `skip_connection` (`identity`, `linear`, `soft-gating`), `SoftGating`, `Flattened1dConv` | `layers/skip_connections.py` | linear 1×1 (`Conv1d`) | partial | CM1.3 |
-| `InstanceNorm`, `BatchNorm`, `AdaIN` (group norm is torch's `nn.GroupNorm`) | `layers/normalization_layers.py` | – | missing | CM1.3 |
+| `FNOBlocks` (norm `None`, `instance_norm`, `group_norm`, `batch_norm`, `ada_in`; `fno_block_precision` `full`, `half`, `mixed`; `stabilizer` `None` or `tanh`; preactivation; `complex_data`), `SubModule` | `layers/fno_block.py` | inside `FNO`: spectral convolution plus 1×1 convolution, ReLU, no norm. Its parts exist in `layers/` (CM1.3a); the options are CM1.3b | partial | CM1.3b |
+| `ChannelMLP`, `LinearChannelMLP` | `layers/channel_mlp.py` | `layers::channel_mlp::ChannelMlp` (any rank, any `ActivationConfig`, default GELU) matches `ChannelMLP` within D3 in f32 and f64, 1D and 3D (`tests/parity_block_parts{,_f64}.rs`); missing: dropout (default 0), `LinearChannelMLP` | partial | CM1.3a |
+| `skip_connection` (`identity`, `linear`, `soft-gating`), `SoftGating`, `Flattened1dConv` | `layers/skip_connections.py` | `layers::skip::{SkipKind, Skip<R>}`: identity, linear (bias-free 1×1) and soft gating match 2.0.0 within D3 in f32 and f64 (linear 3D, soft gating 2D); soft gating's bias (set by no 2.0.0 caller) left out | have | CM1.3a |
+| `InstanceNorm`, `BatchNorm`, `AdaIN` (group norm is torch's `nn.GroupNorm`) | `layers/normalization_layers.py` | `InstanceNorm`: Burn's, `affine = false` (1D); group norm: Burn's `GroupNorm` with one group (3D); `AdaIN`: `layers::norm::AdaIn`, the embedding a `forward` argument (2D); each within D3 in f32 and f64. Missing: `BatchNorm`, AdaIN's custom `mlp` | partial | CM1.3a |
 | `GridEmbeddingND` (FNO's default `positional_embedding="grid"`), `GridEmbedding2D`, `regular_grid_nd`, `regular_grid_2d`, `Embedding` (abstract base) | `layers/embeddings.py` | grid channels built by the model, j/(s − 1) on [0, 1] with the endpoint (CONVENTIONS §2); 2.0.0's `regular_grid_nd` is j/s on [0, 1) without it | partial | CM1.4 |
 | `SinusoidalEmbedding` (`transformer` or `nerf`), `RotaryEmbedding2D`, `rotate_half`, `apply_rotary_pos_emb` | `layers/embeddings.py` | – | missing | CM1.4 |
 | `DomainPadding` (symmetric, fraction of the resolution) | `layers/padding.py` | `FNOConfig::padding`: p zero cells appended at the end of each axis (CONVENTIONS §3) | partial | CM1.5 |
@@ -82,12 +82,12 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `LpLoss` (exported; `d`, `p`, `measure`, quadrature weights, `reduction` `sum` or `mean`, `abs`, `rel`) | `losses/data_losses.py` | `LpLoss`: `abs` (fixed uniform-mesh weight Π h_a^(1/p), h_a = 1/(s_a − 1)) and `rel`, integer p, `Reduction` `Mean`, `Sum`, `None`; no `measure` option or `quadrature` argument (CONVENTIONS §11) | partial | CM1.6 |
-| `H1Loss` (exported), `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss` | `losses/data_losses.py` | – | missing | CM1.6 |
-| `WeightedSumLoss` (exported), `FieldwiseAggregatorLoss` (exported), `Aggregator` (exported), `SoftAdapt` (exported), `Relobralo` (exported) | `losses/meta_losses.py` | – | missing | CM1.6 |
-| `FiniteDiff` (exported), `central_diff_1d`, `central_diff_2d`, `central_diff_3d` | `losses/differentiation.py` | – | missing | CM1.6 |
-| `FourierDiff` (exported; optional Fourier continuation) | `losses/differentiation.py` | – | missing | CM1.6 |
-| `non_uniform_fd` (exported), `get_non_uniform_fd_weights` | `losses/differentiation.py` | Chebyshev `diff_matrix`, `diff2_matrix` (`datagen`): a different, spectral method | missing | CM1.6 |
+| `LpLoss` (exported; `d`, `p`, `measure`, quadrature weights, `reduction` `sum` or `mean`, `abs`, `rel`) | `losses/data_losses.py` | `LpLoss`: `abs` (fixed uniform-mesh weight Π h_a^(1/p), h_a = 1/(s_a − 1)) and `rel`, integer p, `Reduction` `Mean`, `Sum`, `None`; no `measure` option or `quadrature` argument (CONVENTIONS §11). `rel` matches 2.0.0's `LpLoss.rel` up to 2.0.0's eps of 1e-8 in the denominator (6e-10 to 1.9e-9 in f64, CM1.6a); `abs` keeps §11's weight | partial | CM1.6a |
+| `H1Loss` (exported), `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss` | `losses/data_losses.py` | `SobolevLoss<D>` (`h1`, `hdiv`; `measure`, periodicity, `reduction` `Sum`/`Mean`/`None`, `eps`, `rel`, `abs`), `PointwiseQuantileLoss`, `mse_loss`; parity ≤ 1.7e-7 (f32), ≤ 6e-16 (f64). Not ported: the per-call `quadrature` (equal to `measure = quadrature · s`), `take_root=False`, `MSELoss`'s `dim` | have | CM1.6a |
+| `WeightedSumLoss` (exported), `FieldwiseAggregatorLoss` (exported), `Aggregator` (exported), `SoftAdapt` (exported), `Relobralo` (exported) | `losses/meta_losses.py` | `meta_losses::{WeightedSumLoss, FieldwiseAggregatorLoss, SoftAdapt, Relobralo}` over `LossFn<R>` closures; `Aggregator` is their shared per-loss weighting (`weights` by position); Relobralo's ρ from a seeded `ChaCha8Rng`, or replayed (`forward_with_rho`); parity per step (aggregate, weights, gradient) ≤ 2.0e-7 (f32), ≤ 2.0e-16 (f64). Fieldwise: a field is a channel range on one axis, prediction and target sliced alike (2.0.0 reshapes the prediction only; they agree on its one-channel `(N, C)` use); `field_losses` for 2.0.0's `logging` | have | CM1.6b |
+| `FiniteDiff` (exported), `central_diff_1d`, `central_diff_2d`, `central_diff_3d` | `losses/differentiation.py` | `FiniteDiff<D>`: `partial` (orders 1, 2; periodic or one-sided), `dx`/`dy`/`dz`, `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`, any D; the deprecated `central_diff_*` are `partial` per axis; the 1D gradient keeps its component axis; parity as `H1Loss` | have | CM1.6a |
+| `FourierDiff` (exported; optional Fourier continuation) | `losses/differentiation.py` | – | missing | CM1.6c |
+| `non_uniform_fd` (exported), `get_non_uniform_fd_weights` | `losses/differentiation.py` | Chebyshev `diff_matrix`, `diff2_matrix` (`datagen`): a different, spectral method | missing | CM1.6c |
 | `BurgersEqnLoss` (exported), `ICLoss` (exported), `PoissonInteriorLoss`, `PoissonBoundaryLoss`, `PoissonEqnLoss` | `losses/equation_losses.py` | – | missing | CM2.5 |
 
 ## Training

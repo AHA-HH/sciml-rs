@@ -50,7 +50,47 @@ files, absent from the wheel, differ).
 | --- | --- | --- | --- |
 | `fno1d_{f32,f64}` | `FNO(n_modes=(8,), in=1, out=1, hidden=8)`, 2.0.0's defaults otherwise; input (2, 1, 64) | 3,529 | 28 kB, 43 kB |
 | `fno2d_{f32,f64}` | `FNO(n_modes=(4, 4), in=1, out=1, hidden=8)`, 2.0.0's defaults otherwise; input (2, 1, 32, 32) | 7,129 | 58 kB, 103 kB |
+| `legacy_spectral_conv1d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(12,))` (`layers/legacy_spectral_convolution.py`), defaults otherwise (bias on); input (2, 3, 50) | 148 | 4 kB, 8 kB |
+| `legacy_spectral_conv2d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(8, 6))`; input (2, 3, 24, 21) | 580 | 32 kB, 62 kB |
+| `legacy_spectral_conv3d_{f32,f64}` | legacy `SpectralConv(2, 3, n_modes=(6, 4, 4))`; input (2, 2, 12, 10, 9) | 579 | 47 kB, 93 kB |
+| `channel_mlp1d_{f32,f64}` | `ChannelMLP(4, hidden_channels=2)`; input (2, 4, 7) | 22 | 2 kB, 3 kB |
+| `channel_mlp3d_{f32,f64}` | `ChannelMLP(3, out_channels=5, hidden_channels=4, n_layers=3, non_linearity=torch.tanh)`; input (2, 3, 5, 4, 3) | 61 | 6 kB, 10 kB |
+| `linear_skip3d_{f32,f64}` | `skip_connection(3, 5, n_dim=3, skip_type="linear")`; input (2, 3, 5, 4, 3) | 15 | 5 kB, 9 kB |
+| `soft_gating2d_{f32,f64}` | `skip_connection(4, 4, n_dim=2, skip_type="soft-gating")`, weight redrawn; input (2, 4, 6, 5) | 4 | 3 kB, 5 kB |
+| `instance_norm1d_{f32,f64}` | `InstanceNorm()`; input (2, 4, 9) | 0 | 1 kB, 2 kB |
+| `group_norm3d_{f32,f64}` | `nn.GroupNorm(1, 4)`, affine redrawn; input (2, 4, 5, 4, 3) | 8 | 5 kB, 9 kB |
+| `ada_in2d_{f32,f64}` | `AdaIN(embed_dim=3, in_channels=4)`, its embedding a seeded buffer (`embedding`); input (2, 4, 6, 5) | 6,152 | 28 kB, 55 kB |
+
+The legacy layer's `forward` builds its spectrum as `cfloat`, so its f64 fixtures are only
+f32-accurate (library CM1.1). tltorch stores its weights as real tensors with the trailing
+(re, im) axis, so their sidecars list no `complex_params`.
+
+Library CM1.3a: parts whose 2.0.0 initialisation is a constant (soft gating's ones, group
+norm's ones and zeros; `REDRAW`) have their parameters redrawn from the weight seed's normal,
+so their fixtures test the map. A function argument (`non_linearity`) is named in the sidecar
+by its `__name__`.
 
 Torch's CPU kernels can differ in the last bits between machines, so `--check` is a
 reproducibility check on one machine; the committed files are the reference, and the
 sidecar names the platform that wrote them.
+
+## Loss fixtures (CM1.6a)
+
+`generate_losses.py` (same `--check`) writes `tests/fixtures/parity/losses{1,2,3}d_{f32,f64}`:
+a seeded pair `x`, `y` (2, 2, *grid) and a vector field `v` (2, D, *grid) on the grids 32,
+16 × 12 and 8 × 6 × 5, drawn in f32 and cast for f64, and 2.0.0's outputs on them:
+`FiniteDiff` (h = 0.1, 0.2, 0.3) as `fd.d<axis><order>.<bc>` and
+`fd.{laplacian,gradient,divergence,curl}.<bc>`; `H1Loss` and `HdivLoss` (measure 1, 2, 0.5) as
+`{h1,hdiv}.{rel,abs}.<bc>.sum` and `h1.rel.per.mean`; `PointwiseQuantileLoss(alpha=0.1)` as
+`quantile.{sum,mean}`; `MSELoss` as `mse`; `LpLoss(d, p=2).rel` as `lp.rel`. `<bc>` is `per`
+(all periodic), `non` (none) or `mix` (x one-sided; D ≥ 2). Scalars are stored with shape
+(1,). The sidecar lists the settings; the Rust side is `tests/parity_losses*.rs`.
+
+`meta_losses_{f32,f64}` (CM1.6b), from the same script: `WeightedSumLoss([H1Loss(d=1),
+MSELoss()])` on a pair (2, 2, 32) with default and (0.3, 0.7) weights (`wsum.*`);
+`FieldwiseAggregatorLoss` on (16, 3), `u` channel 0 with `MSELoss`, `p` channel 2 with
+`PointwiseQuantileLoss(0.1)` (`fieldwise`); and `SoftAdapt` / `Relobralo` over 6 steps of 3
+seeded losses (`table`), with and without weights and Relobralo also at α = 0.9, β = 0.5,
+τ = 2: per step the aggregate, the weights and the gradient with respect to each loss
+(`<name>.{loss,weights,grad}`), and Relobralo's recorded Bernoulli draws (`<name>.rho`). The
+f64 fixture runs with torch's default dtype f64, so 2.0.0's buffers are f64 too.
