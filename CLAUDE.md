@@ -282,7 +282,7 @@ tests do not. `.cargo/config.toml` links with `lld` on aarch64 Linux. The option
 libfftw3, and OpenBLAS on Linux (Accelerate on macOS).
 
 GPU VM (2× A100, `ssh cricket`, repository at `~/sciml-rs`): `source ~/sciml-gpu.sh`
-before any `cargo` command. It activates the Spack environment in `env/vm-a100/` (NCCL
+before any `cargo` command (it also sets up `datagen` there: Spack FFTW, system OpenBLAS, `LIBCLANG_PATH`; env/vm-a100/README.md). It activates the Spack environment in `env/vm-a100/` (NCCL
 built for a CUDA the driver supports, gnuplot), which the system NCCL is not. Long runs
 go in tmux with a `tee` log under `logs/`. Runs of `/next-task` tasks each use a worktree
 of their own, `~/sciml-rs-wt/<id>` (`.claude/skills/next-task`, step 6), so parallel runs
