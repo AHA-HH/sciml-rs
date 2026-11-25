@@ -43,7 +43,7 @@ Tests only; no change under `src/`, no dependency, no convention.
     `input()`, `output()`, `param(name)` as `ArrayD<f64>` (f32 cast up exactly).
   - `Take::{Whole, Re, Im}` and a map entry `(2.0.0 name, Burn path, Take)`; `Re`/`Im`
     take one half of a complex tensor's trailing (re, im) axis.
-  - `load_into(module, fixture, map, dtype)`: builds the tensors under their Burn paths,
+  - `load_into(module, fixture, map)` (the precision from the fixture's `_f32`/`_f64`): builds the tensors under their Burn paths,
     `ModuleSnapshot::apply`, and panics unless every map entry applied, no module
     parameter is missing, no applied tensor is unused, and every `param.*` array of the
     fixture is used by the map (complex ones by both halves). Shapes are checked by `apply`.
@@ -51,7 +51,7 @@ Tests only; no change under `src/`, no dependency, no convention.
     any tensor: outputs now, gradients when a fixture carries them (CM0.2 writes none; the
     proposal asks for gradient fixtures only for custom backward parts, from CM3).
   - `D3_F32 = 1e-5`, `D3_F64 = 1e-12`.
-- `tests/parity_fno1d.rs`: `Fno1dRef`, a test-only module laid out as 2.0.0's 1D `FNO`
+- `tests/parity_common/fno1d.rs`: `Fno1dRef`, a test-only module laid out as 2.0.0's 1D `FNO`
   at its defaults, built from Burn's `Conv1d`, the crate's `SpectralConv<3>` (one corner
   in 1D, `modes = [5]` = 8 // 2 + 1) and a `Param` per spectral bias and soft gate: grid
   embedding (x_j = j / n, appended after the data channel), lifting channel MLP (2 → 16 →
@@ -79,7 +79,7 @@ spectral convolution (it is linear, so only where 1/n is applied differs); no re
 
 `/verify` (fmt, clippy default / `--examples` / `--all-targets` / `--features datagen
 --all-targets`, `cargo test`, `cargo test --features datagen`, `cargo doc --no-deps`);
-`cargo test --test parity_fno1d -- --include-ignored` for the f64 number. No `src/` change,
+`cargo test --test parity_fno1d_f64 -- --ignored` for the f64 number. No `src/` change,
 so the bit-identity dumps are not rerun (nothing they cover changes).
 
 ## VM runs

@@ -78,7 +78,9 @@ impl Fno1dRef {
     /// `x`: `[batch, 1, n]` → `[batch, 1, n]`.
     pub fn forward(&self, x: Tensor<3>) -> Tensor<3> {
         let [batch, _, n] = x.dims();
-        // GridEmbeddingND on [0, 1]: x_j = j / n, appended after the data.
+        // GridEmbeddingND on [0, 1]: x_j = j / n, appended after the data. 2.0.0 builds it
+        // in f32 and casts; here it is built in the run's dtype, the same only while j / n is
+        // exact in f32 (n a power of two, as the fixture's 64).
         let grid = Tensor::<1, Int>::arange(0..n as i64, &x.device())
             .float()
             .div_scalar(n as f64)

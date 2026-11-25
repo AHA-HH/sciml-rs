@@ -90,3 +90,11 @@ fn rel_max_error_is_relative_to_the_reference_scale() {
     // max |a − e| = 0.5, max |e| = 4.
     assert!((rel_max_error(actual, &expected) - 0.125).abs() < 1e-7);
 }
+
+#[test]
+#[should_panic(expected = "the output has a non-finite value")]
+fn rel_max_error_rejects_nan() {
+    let expected = ArrayD::from_shape_vec(IxDyn(&[1, 1, 2]), vec![1.0, 2.0]).unwrap();
+    let actual = Tensor::<3>::from_data([[[1.0_f32, f32::NAN]]], &Device::default());
+    rel_max_error(actual, &expected);
+}

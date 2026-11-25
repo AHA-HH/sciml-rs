@@ -241,7 +241,7 @@ pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: 
 /// reference's scale so that elements near zero do not dominate.
 ///
 /// # Panics
-/// If the shapes differ, or `expected` is all zeros.
+/// If the shapes differ, either side has a NaN or infinity, or `expected` is all zeros.
 pub fn rel_max_error<const R: usize>(actual: Tensor<R>, expected: &ArrayD<f64>) -> f64 {
     assert_eq!(actual.dims().as_slice(), expected.shape(), "shape");
     let actual = actual
@@ -249,6 +249,13 @@ pub fn rel_max_error<const R: usize>(actual: Tensor<R>, expected: &ArrayD<f64>) 
         .convert::<f64>()
         .try_into_vec::<f64>()
         .unwrap();
+    // f64::max skips NaN, so a non-finite value would otherwise pass unseen.
+    let finite = |v: &[f64]| v.iter().all(|x| x.is_finite());
+    assert!(finite(&actual), "the output has a non-finite value");
+    assert!(
+        finite(expected.as_slice().expect("standard layout")),
+        "the reference has a non-finite value"
+    );
     let scale = expected.iter().fold(0.0_f64, |m, e| m.max(e.abs()));
     assert!(scale > 0.0, "the reference is all zeros");
     let err = actual
