@@ -11,7 +11,9 @@ Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 
 the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed off):
 once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
-answered (moving imports is not editing a test). Next CM0.5 and CM0.6.
+answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
+CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). Next CM0.6, CM1.2
+(needs D5) and CM1.3.
 
 ## How to read this file
 
@@ -105,8 +107,13 @@ the feature matrix is verified.
 **Gate:** 2.0.0's `FNO` with its defaults and every option passes output parity; H1 and
 the aggregators exist; one training-parity run on the 2D Poisson baseline.
 
-- [ ] **CM1.1 Legacy spectral convolution parity.** 2.0.0's corner-layout layer against
-  `SpectralConv`, 1D to 3D. *Needs:* CM0.5.
+- [x] **CM1.1 Legacy spectral convolution parity.** 2.0.0's corner-layout layer against
+  `SpectralConv`, 1D to 3D. *Needs:* CM0.5. Done 2026-11-25: plan
+  `docs/operators/tasks/CM1.1.md`; fixtures `legacy_spectral_conv{1,2,3}d_{f32,f64}`;
+  `tests/parity_legacy_spectral_conv.rs` (f32, ≤ 4.7e-7), `_f64.rs` (`#[ignore]`d: 2.0.0's
+  legacy spectrum is `cfloat`, so its f64 reference is f32-accurate, ≤ 2.9e-7). CM0.5's
+  sidecar and grid follow-ups did not arise (no complex parameters in the sidecar, no grid
+  in a bare layer): they pass to CM1.2 and CM1.5.
 - [ ] **CM1.2 Centred layout, separable, `max_n_modes`.** The weight converter of proposal
   §6.3; separable weights; mode truncation below the stored maximum. *Needs:* CM1.1, D5.
 - [ ] **CM1.3 Block parts.** Channel MLP; linear, identity and soft-gating skips;

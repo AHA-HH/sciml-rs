@@ -102,7 +102,29 @@ None.
 
 ## Results
 
-(filled after the run)
+Flex, M2 Pro, `cargo test --test parity_legacy_spectral_conv` and
+`cargo test --test parity_legacy_spectral_conv_f64 -- --ignored`:
+
+| Fixture | Relative max error | D3 | |
+| --- | --- | --- | --- |
+| `legacy_spectral_conv1d_f32` | 2.116e-7 | 1e-5 | passes |
+| `legacy_spectral_conv2d_f32` | 4.722e-7 | 1e-5 | passes |
+| `legacy_spectral_conv3d_f32` | 3.053e-7 | 1e-5 | passes |
+| `legacy_spectral_conv1d_f64` | 1.588e-7 | 1e-12 | `#[ignore]`d |
+| `legacy_spectral_conv2d_f64` | 2.907e-7 | 1e-12 | `#[ignore]`d |
+| `legacy_spectral_conv3d_f64` | 2.498e-7 | 1e-12 | `#[ignore]`d |
+
+The f64 errors are at the f32 level, as the reference is (2.0.0's `cfloat` spectrum); Flex's
+f64 twiddles alone gave 1.2e-8 on CM0.5's 1D FNO. The 3D fixture with 2.0.0's corners
+loaded unpermuted fails D3 (`legacy_3d_corner_order_matters`).
+
+`generate.py --check`: all ten fixtures the same; the four CM0.2 fixtures unchanged by the
+regeneration.
+
+Beyond the plan: `fno1d.rs` and `legacy_conv.rs` are no longer modules of
+`tests/parity_common/mod.rs`; each test binary includes the reference model it uses with
+`#[path]`, since a model compiled into a binary that does not use it is dead code under
+`clippy -D warnings`. CM0.5's two test files change only in their `mod`/`use` lines.
 
 ## Open questions
 
