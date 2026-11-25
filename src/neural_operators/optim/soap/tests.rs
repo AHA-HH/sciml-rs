@@ -221,7 +221,8 @@ fn identity_basis_is_adam() {
 }
 
 /// f(W) = ½⟨E, A E B⟩, E = W − W*, Hessian B ⊗ A with rotated A and B of κ = 100 each: the
-/// first factors are (1 − β_s) G Gᵀ and (1 − β_s) Gᵀ G, and SOAP beats Adam at equal lr.
+/// first factors are (1 − β_s) G Gᵀ and (1 − β_s) Gᵀ G, and at the same decaying lr SOAP ends
+/// below 1 % of Adam's loss (1.6e-2 against 24 from 1.6e4 when written).
 #[test]
 fn kronecker_quadratic() {
     let (m, n) = (6, 5);
@@ -247,7 +248,9 @@ fn kronecker_quadratic() {
     };
 
     let soap = SoapConfig::new().with_weight_decay(0.0).build();
-    let (lr, steps) = (0.05, 200);
+    // lr 0.05 · 0.98ⁱ: at a constant lr both stall at the lr's noise floor and the bases
+    // cannot show.
+    let (lr, decay, steps) = (0.05, 0.98f64, 400);
 
     let g0 = grad(&w0);
     let (_, state) = soap.step(lr, tensor(&w0, [m, n]), tensor(&g0, [m, n]), None);
@@ -266,16 +269,16 @@ fn kronecker_quadratic() {
         assert!(err < 1e-5, "factor {k} relative error {err}");
     }
 
-    let run = |opt: &dyn Fn(Tensor<2>, Tensor<2>) -> Tensor<2>| {
+    let run = |opt: &dyn Fn(f64, Tensor<2>, Tensor<2>) -> Tensor<2>| {
         let mut w = tensor(&w0, [m, n]);
-        for _ in 0..steps {
+        for i in 0..steps {
             let g = tensor(&grad(&host(&w)), [m, n]);
-            w = opt(w, g);
+            w = opt(lr * decay.powi(i), w, g);
         }
         loss(&host(&w))
     };
     let soap_state = std::cell::RefCell::new(None);
-    let soap_loss = run(&|w, g| {
+    let soap_loss = run(&|lr, w, g| {
         let (w, s) = soap.step(lr, w, g, soap_state.take());
         soap_state.replace(s);
         w
@@ -286,18 +289,18 @@ fn kronecker_quadratic() {
         .with_epsilon(1e-8)
         .build();
     let adam_state = std::cell::RefCell::new(None);
-    let adam_loss = run(&|w, g| {
+    let adam_loss = run(&|lr, w, g| {
         let (w, s) = adam.step(lr, w, g, adam_state.take());
         adam_state.replace(s);
         w
     });
     let start = loss(&w0);
     assert!(
-        soap_loss < adam_loss,
-        "SOAP {soap_loss:.3e} not below Adam {adam_loss:.3e}"
+        soap_loss < 1e-2 * adam_loss,
+        "SOAP {soap_loss:.3e} not below 1 % of Adam's {adam_loss:.3e}"
     );
     assert!(
-        soap_loss < 1e-2 * start,
+        soap_loss < 1e-5 * start,
         "SOAP {soap_loss:.3e} against a start of {start:.3e}"
     );
 }
