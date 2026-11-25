@@ -138,7 +138,8 @@ is asked before it starts.
 - `costs.json` for Burgers is a new file; no existing output changes.
 
 ## Pending runs
-None yet.
+None. A1 on seed 42 ran on the Mac (metal) at the author's go, 2026-11-25:
+`docs/optimisers/results/CO1.1.md`.
 
 ## Open questions
 1. GELU's form. PETScML's network is DM-Haiku, whose `jax.nn.gelu` defaults to the tanh
