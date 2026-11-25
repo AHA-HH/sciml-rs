@@ -143,9 +143,10 @@ Then the run directories go to the Mac (`scp -r cricket:sciml-rs/runs/co0-1 runs
 the tables are made there by `poisson_matrix --by-optimizer`, one call per group (Adam
 equal, Adam long, each cap × budget), with `progress.txt` mapping specs to directories.
 
-**Total: about 13.2 GPU-hours** (Adam 5 × 0.24 h + 3 × 1.5 h; GN 6 × 0.25 h + 4 × 1.5 h),
-about 8 h wall on the two A100s if the side-by-side checks hold, 13 h if not; the fork's
-times, which Burn 0.23 may change (CO0.2 measures it).
+**Total: about 13.2 GPU-hours on the fork's times** (Adam 5 × 0.24 h + 3 × 1.5 h; GN
+6 × 0.25 h + 4 × 1.5 h), about 8 h wall on the two A100s if the side-by-side checks hold,
+13 h if not. **Superseded by stage 1:** Adam on Burn 0.23 takes about 3,070 s, so about 20
+GPU-hours with the 5,400 s budget kept, 47 with it scaled (open question 1).
 
 What it decides: B and E for every later pilot and the matrix (CO2.2, CO3.3, CO4.1); D1;
 whether Burn 0.23 reproduces Phase 10's arms.
@@ -160,7 +161,28 @@ whether Burn 0.23 reproduces Phase 10's arms.
 - One seed decides the cap (D1), as the roadmap plans; the decision is the author's.
 
 ## Pending runs
-Stages 1–3 above, at the author's go.
+Stage 1 started 2026-11-25 at the author's go (commit `29a21e2`): `adam:42` done alone on
+GPU 0; `adam:43` never ran (the script's copy race, fixed in `co0_1_runs.sh` since:
+two instances started together, and the second `cp` over the binary the first was
+running failed with "Text file busy"); `adam:44` ran alone on GPU 1, so the side-by-side
+check is still to make. Next: `adam:43` again, beside another run for the check, then
+45 and 46. Stages 2 and 3 wait for the open question below.
 
 ## Open questions
-None yet.
+1. **Adam is about 3.6× slower on Burn 0.23.** Seed 42: 3,067 s for 500 epochs (6.1 s
+   per epoch at the end, peak 3,048 MiB), against 859.4 s on the fork (Phase 10, same
+   settings, A100); final test L² 9.63e-3 (the fork's seed 42: 1.095e-2). CO0.2's first
+   attempt put a GN200 step at cap 50 only about 24 % slower. So B ≈ 3,070 s, not 860 s,
+   and 5,400 s is now 1.76 × B, not 6.3 × B; at equal time GN gets about 3.6 × the fork's
+   work against Adam. What it means for D2's long budget, put to the author before stage 2
+   (one seed so far; seed 44's run, alone on GPU 1, will confirm the epoch time):
+   - **A (recommended): keep 5,400 s.** The long GN runs stay comparable with Phase 10's
+     5,400 s runs (3.03e-3 at cap 150, 5.58e-3 at cap 50), since GN's speed barely moved;
+     E = round(5,400 × 500 / B) ≈ 880 epochs. The long budget then asks only how far each
+     arm goes in 1.5 h, no longer "Adam with 6.3× the time". About 20 GPU-hours in all
+     (equal time 11 runs × 0.85 h = 9.4; long 7 × 1.5 h = 10.5), about 11 h wall paired.
+   - **B: scale to 6.3 × B ≈ 19,300 s** (5.4 h per run), keeping D2's ratio: about 47
+     GPU-hours (long 7 × 5.4 h = 37.6), about 24 h wall paired; E stays 3,142 epochs.
+   - Either way, the slowdown is Burn 0.23's per-step overhead at batch 20 (GN at batch
+     200 barely slowed), so equal time now depends on the Burn version; worth a profile of
+     an Adam step beside CO0.2's GN profile (a roadmap line if the author wants it).

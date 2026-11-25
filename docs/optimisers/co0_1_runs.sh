@@ -35,7 +35,15 @@ cargo build --release --no-default-features --features cuda \
   --example train_poisson --example predict_poisson || exit 1
 BINDIR=$LOGDIR/bin-$(git rev-parse --short HEAD)
 mkdir -p "$BINDIR"
-cp "$CARGO_TARGET_DIR"/release/examples/{train_poisson,predict_poisson} "$BINDIR"/ || exit 1
+# two instances start together (one per GPU) and the first may already run the copy:
+# overwriting a running binary fails ("Text file busy"), so copy only when it differs, to a
+# temporary name, and rename it into place (the running process keeps the old inode)
+for b in train_poisson predict_poisson; do
+  src=$CARGO_TARGET_DIR/release/examples/$b
+  if ! cmp -s "$src" "$BINDIR/$b"; then
+    cp "$src" "$BINDIR/$b.tmp.$$" && mv -f "$BINDIR/$b.tmp.$$" "$BINDIR/$b" || exit 1
+  fi
+done
 BIN=$BINDIR/train_poisson
 echo "commit $(git rev-parse HEAD), GPU $GPU, started $(date -Is): $*" >> "$PROGRESS"
 
