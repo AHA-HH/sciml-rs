@@ -13,7 +13,8 @@
 //! The reference implementation is nikhilvyas/SOAP @a1e5535 (`soap.py`); this follows it
 //! except that the first moment is kept in the original space and projected each step (the
 //! paper's Algorithm 3; the reference keeps it in the basis and rotates it each step, the
-//! same up to round-off). Its options `merge_dims`, `precondition_1d`, `normalize_grads`
+//! same up to round-off; three projections per step, where the reference's projecting M out
+//! and back in every step makes four). Its options `merge_dims`, `precondition_1d`, `normalize_grads`
 //! and `correct_bias` are at their defaults (off, off, off, on) and not offered.
 //!
 //! Linear algebra on the host for every backend (decision D9): the first basis by Burn's
@@ -65,13 +66,23 @@ pub struct SoapConfig {
 impl SoapConfig {
     /// The bare [`Soap`], for [`ModuleOptimizer::with_group`]; [`init`](Self::init) is
     /// the whole-module optimiser.
+    ///
+    /// # Panics
+    /// If `precondition_frequency` is 0.
     pub fn build(&self) -> Soap {
+        assert!(
+            self.precondition_frequency > 0,
+            "SoapConfig: precondition_frequency must be at least 1"
+        );
         Soap {
             config: self.clone(),
         }
     }
 
     /// The whole-module optimiser.
+    ///
+    /// # Panics
+    /// As [`build`](Self::build).
     pub fn init(&self) -> ModuleOptimizer {
         ModuleOptimizer::from(self.build())
     }
@@ -152,7 +163,7 @@ impl Optimizer for Soap {
             tensor = tensor.mul_scalar(1.0 - lr * f64::from(c.weight_decay));
         }
 
-        let beta_s = f64::from(c.shampoo_beta.unwrap_or(c.beta_2));
+        let beta_s = self.shampoo_beta();
         for (k, f) in state.factors.iter_mut().enumerate() {
             if let Some(f) = f {
                 f.gram = f
@@ -188,13 +199,18 @@ impl Optimizer for Soap {
 }
 
 impl Soap {
+    /// The factors' moving-average rate β_s (β₂ unless set).
+    fn shampoo_beta(&self) -> f64 {
+        f64::from(self.config.shampoo_beta.unwrap_or(self.config.beta_2))
+    }
+
     /// The state after the first call: zero moments, and for each dimension that gets one,
     /// the factor (1 − β_s) Gₖ Gₖᵀ with its eigenbasis from Burn's host `svd` (decision D9;
     /// for a symmetric positive semidefinite matrix the left singular vectors are
     /// eigenvectors, in descending order).
     fn first_state<const D: usize>(&self, grad: Tensor<D>) -> SoapState<D> {
         let c = &self.config;
-        let beta_s = f64::from(c.shampoo_beta.unwrap_or(c.beta_2));
+        let beta_s = self.shampoo_beta();
         let dims = grad.dims();
         let factors = (0..D)
             .map(|k| {
@@ -250,9 +266,10 @@ fn refresh<const D: usize>(state: &mut SoapState<D>) {
     let device = state.moment_2.device();
     for (k, f) in state.factors.iter_mut().enumerate() {
         let Some(f) = f else { continue };
-        let n = f.gram.dims()[0];
-        let (order, basis) = host::refresh(&host::read(&f.gram), &host::read(&f.basis), n);
-        f.basis = Tensor::from_data(TensorData::new(basis, [n, n]), &device);
+        let (order, basis) = host::sorted_power_qr(&host::read(&f.gram), &host::read(&f.basis));
+        let n = order.len();
+        let basis = TensorData::new(basis.into_raw_vec_and_offset().0, [n, n]);
+        f.basis = Tensor::from_data(basis.convert_dtype(f.gram.dtype()), &device);
         let order: Vec<i64> = order.into_iter().map(|i| i as i64).collect();
         let order = Tensor::<1, Int>::from_data(TensorData::new(order, [n]), &device);
         state.moment_2 = state.moment_2.clone().select(k, order);
@@ -262,84 +279,62 @@ fn refresh<const D: usize>(state: &mut SoapState<D>) {
 /// The refresh's host arithmetic, in f64.
 mod host {
     use burn::prelude::*;
+    use ndarray::{Array1, Array2, ArrayViewMut2, Axis, s};
 
-    /// A square f32 matrix to the host, row-major, in f64.
-    pub(super) fn read(t: &Tensor<2>) -> Vec<f64> {
-        t.clone()
+    /// A matrix to the host, in f64.
+    pub(super) fn read(t: &Tensor<2>) -> Array2<f64> {
+        let [rows, cols] = t.dims();
+        let values = t
+            .clone()
             .into_data()
-            .convert::<f32>()
-            .try_to_vec::<f32>()
-            .expect("an f32 matrix")
-            .into_iter()
-            .map(f64::from)
-            .collect()
+            .convert::<f64>()
+            .try_to_vec::<f64>()
+            .expect("a float matrix");
+        Array2::from_shape_vec((rows, cols), values).expect("the tensor's shape")
     }
 
-    /// For n × n row-major `gram` (L) and `basis` (Q): the column order by descending
-    /// diag(QᵀLQ) and the Q of a Householder QR of L Q[:, order], rounded to f32.
-    pub(super) fn refresh(gram: &[f64], basis: &[f64], n: usize) -> (Vec<usize>, Vec<f32>) {
-        let lq = matmul(gram, basis, n);
-        let estimate: Vec<f64> = (0..n)
-            .map(|j| (0..n).map(|r| basis[r * n + j] * lq[r * n + j]).sum())
-            .collect();
-        let mut order: Vec<usize> = (0..n).collect();
+    /// For square `gram` (L) and `basis` (Q): the column order by descending diag(QᵀLQ), and
+    /// the Q of a Householder QR of L Q[:, order] (standard layout).
+    pub(super) fn sorted_power_qr(
+        gram: &Array2<f64>,
+        basis: &Array2<f64>,
+    ) -> (Vec<usize>, Array2<f64>) {
+        let estimate = (basis * &gram.dot(basis)).sum_axis(Axis(0));
+        let mut order: Vec<usize> = (0..estimate.len()).collect();
         order.sort_by(|&a, &b| estimate[b].total_cmp(&estimate[a]));
-        let sorted: Vec<f64> = (0..n * n)
-            .map(|idx| basis[(idx / n) * n + order[idx % n]])
-            .collect();
-        let q = householder_q(matmul(gram, &sorted, n), n);
-        (order, q.into_iter().map(|v| v as f32).collect())
+        let sorted = basis.select(Axis(1), &order);
+        (order, householder_q(gram.dot(&sorted)))
     }
 
-    fn matmul(a: &[f64], b: &[f64], n: usize) -> Vec<f64> {
-        let mut c = vec![0.0; n * n];
-        for i in 0..n {
-            for p in 0..n {
-                let a_ip = a[i * n + p];
-                for j in 0..n {
-                    c[i * n + j] += a_ip * b[p * n + j];
-                }
-            }
-        }
-        c
-    }
-
-    /// Q of the Householder QR of an n × n row-major matrix: orthogonal even when the
-    /// matrix is rank-deficient (a zero column leaves its reflector out).
-    fn householder_q(mut a: Vec<f64>, n: usize) -> Vec<f64> {
+    /// Q of the Householder QR of a square matrix: orthogonal even when the matrix is
+    /// rank-deficient (a zero column leaves its reflector out).
+    fn householder_q(mut a: Array2<f64>) -> Array2<f64> {
+        let n = a.nrows();
         let mut reflectors = Vec::with_capacity(n);
         for j in 0..n {
-            let mut v: Vec<f64> = (j..n).map(|i| a[i * n + j]).collect();
-            let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
-            v[0] += if v[0] >= 0.0 { norm } else { -norm };
-            let vv: f64 = v.iter().map(|x| x * x).sum();
-            if vv == 0.0 {
-                reflectors.push(None);
-                continue;
+            let mut v = a.slice(s![j.., j]).to_owned();
+            let norm = v.dot(&v).sqrt();
+            v[0] += norm.copysign(v[0]);
+            let vv = v.dot(&v);
+            if vv > 0.0 {
+                reflect(a.slice_mut(s![j.., ..]), &v, vv);
+                reflectors.push((j, v, vv));
             }
-            reflect(&mut a, &v, vv, j, n);
-            reflectors.push(Some((v, vv)));
         }
-        let mut q: Vec<f64> = (0..n * n)
-            .map(|idx| if idx / n == idx % n { 1.0 } else { 0.0 })
-            .collect();
-        for (j, r) in reflectors.iter().enumerate().rev() {
-            if let Some((v, vv)) = r {
-                reflect(&mut q, v, *vv, j, n);
-            }
+        let mut q = Array2::eye(n);
+        for (j, v, vv) in reflectors.iter().rev() {
+            reflect(q.slice_mut(s![*j.., ..]), v, *vv);
         }
         q
     }
 
-    /// Rows j.. of the n × n row-major `m` ← (I − 2 v vᵀ / vᵀv) times them.
-    fn reflect(m: &mut [f64], v: &[f64], vv: f64, j: usize, n: usize) {
-        for col in 0..n {
-            let dot: f64 = (j..n).map(|i| v[i - j] * m[i * n + col]).sum();
-            let s = 2.0 * dot / vv;
-            for i in j..n {
-                m[i * n + col] -= s * v[i - j];
-            }
-        }
+    /// m ← (I − 2 v vᵀ / vᵀv) m.
+    fn reflect(mut m: ArrayViewMut2<f64>, v: &Array1<f64>, vv: f64) {
+        let w = v.dot(&m) * (2.0 / vv);
+        m -= &v
+            .view()
+            .insert_axis(Axis(1))
+            .dot(&w.view().insert_axis(Axis(0)));
     }
 }
 

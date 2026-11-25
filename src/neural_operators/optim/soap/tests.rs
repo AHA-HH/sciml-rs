@@ -312,7 +312,9 @@ fn ranks_one_to_five() {
     fn check<const D: usize>(shape: [usize; D], seed: u64) {
         let mut rng = Rng(seed);
         let n: usize = shape.iter().product();
-        let (lr, wd, beta) = (1e-2, 1e-2, 0.95);
+        // wd · lr = 1e-2: decaying before the step instead of after moves the result by about
+        // 1e-2 of the update, far above the tolerance.
+        let (lr, wd, beta) = (1e-2, 1.0, 0.95);
         let soap = SoapConfig::new()
             .with_weight_decay(wd)
             .with_precondition_frequency(100)
@@ -435,14 +437,14 @@ fn refresh_against_f64() {
         .map(|(v, g)| beta * v + (1.0 - beta) * g * g)
         .collect();
     let mut q_want = Vec::new();
-    for k in 0..2 {
+    for (k, q) in q_old.iter().enumerate() {
         let f = s2.factors[k].as_ref().unwrap();
         let gram: Vec<f64> = host(&f.gram)
             .iter()
             .zip(mode_gram(&g3_h, &shape, k))
             .map(|(a, b)| beta * a + (1.0 - beta) * b)
             .collect();
-        let q = q_old[k].as_ref().unwrap();
+        let q = q.as_ref().unwrap();
         let lq = matmul(&gram, q, n, n, n);
         let est: Vec<f64> = (0..n)
             .map(|j| (0..n).map(|r| q[r * n + j] * lq[r * n + j]).sum())
@@ -529,4 +531,32 @@ fn record_round_trip() {
         ]
     };
     assert_eq!(bits(&model), bits(&twin));
+}
+
+/// A zero first gradient (a parameter outside the loss): zero factors, yet orthonormal
+/// bases, and the next steps stay finite.
+#[test]
+fn zero_first_gradient() {
+    let shape = [4, 3];
+    let soap = SoapConfig::new().with_precondition_frequency(1).build();
+    let w = tensor(&[0.5; 12], shape);
+    let (w, s) = soap.step(1e-2, w, tensor(&[0.0; 12], shape), None);
+    let s = s.unwrap();
+    for (k, f) in s.factors.iter().enumerate() {
+        let f = f.as_ref().unwrap();
+        assert_eq!(max_abs(&host(&f.gram)), 0.0);
+        let orth = orthogonality_error(&host(&f.basis), shape[k]);
+        assert!(orth < 1e-6, "basis {k}: max |QᵀQ − I| = {orth}");
+    }
+    let mut rng = Rng(41);
+    let (w, s) = soap.step(1e-2, w, tensor(&rng.vec(12), shape), Some(s));
+    let (w, _) = soap.step(1e-2, w, tensor(&rng.vec(12), shape), s);
+    assert!(host(&w).iter().all(|v| v.is_finite()));
+}
+
+/// A refresh frequency of 0 is refused when the optimiser is built.
+#[test]
+#[should_panic(expected = "precondition_frequency must be at least 1")]
+fn zero_frequency_panics() {
+    SoapConfig::new().with_precondition_frequency(0).build();
 }
