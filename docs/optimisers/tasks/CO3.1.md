@@ -83,4 +83,4 @@ build; decides whether D9's device `qr` holds on cuda. At the author's go.
   author's go, by the coordinating session; table in the report.
 
 ## Open questions
-- D9 (proposed in the report, for sign-off).
+- none. D9 signed off 2026-11-25: host `svd` first basis, host QR refreshes, every backend.

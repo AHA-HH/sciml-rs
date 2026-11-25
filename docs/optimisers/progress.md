@@ -73,10 +73,10 @@ template:
   datagen clippy and tests, metal `gpu_parity`, the spike's clippy (flex, metal) and runs
   (flex, metal; cuda on the VM 2026-11-25), the fingerprint on this branch and on
   `origin/main`.
-- Decisions: D9 proposed (host `svd` first basis, host QR refreshes on every backend), for
-  sign-off.
+- Decisions: D9 signed off 2026-11-25: host `svd` for the first basis and host QR for the
+  refreshes, on every backend.
 - Review: plan review PASS (wording fixes applied); code quality APPROVE, no blockers
   (plan amended for the svd metrics, like-for-like host timing, comments).
 - Adam and Gauss–Newton: unchanged bit for bit: equal fingerprints with `linalg` off
   (`origin/main` 4d681d0) and on, flex; the feature adds no code the crate uses (REPORT).
-- Follow-ups: D9's sign-off in this PR; then CO3.2 (also needs D8).
+- Follow-ups: CO3.2 (needs D8).

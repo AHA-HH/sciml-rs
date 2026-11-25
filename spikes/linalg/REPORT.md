@@ -88,7 +88,7 @@ The `origin/main` row: a scratch worktree of `origin/main`, this spike's `Cargo.
 `spikes/linalg` added to its workspace members; then
 `cargo run -p linalg-spike --release --bin fingerprint` in both checkouts.
 
-## D9, proposed
+## D9 (signed off 2026-11-25 as proposed here)
 
 The first basis by `svd` on the host (as recommended); the refreshes by **host** QR on
 every backend, not device `qr` (one code path). Burn's device qr is correct everywhere but
