@@ -208,6 +208,7 @@ fn main() {
     };
     let device = Device::default().autodiff();
     let (out, dir) = (PathBuf::from(out), PathBuf::from(dir));
+    create_output(&out).unwrap_or_else(|e| panic!("create {}: {e}", out.display()));
 
     let run = RunDir::open(&dir).unwrap_or_else(|e| panic!("open {}: {e}", dir.display()));
     let train_cfg = run
@@ -350,6 +351,15 @@ fn main() {
     println!("wrote {}", out.display());
 }
 
+/// Creates `out` (empty) and its parent directories, so that a path that cannot be written
+/// fails at startup rather than after the measurement (the VM run of 2026-11-25).
+fn create_output(out: &Path) -> std::io::Result<()> {
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(out, "")
+}
+
 /// CG on the step's system at the checkpoint's state, its products timed one by one. The
 /// curvature closure, the warm start and the `CgConfig` copy `GaussNewton::step`'s
 /// (`step.rs`), which keeps them private; keep them in step.
@@ -480,6 +490,17 @@ fn write_cap(report: &mut String, cap: usize, u: &Units, cg: &CgCosts, steps: &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The report's missing parent directories are created; a parent that is a file fails.
+    #[test]
+    fn create_output_makes_missing_parents() {
+        let root = std::env::temp_dir().join(format!("gn_profile_{}", std::process::id()));
+        let out = root.join("results/a/CO0.2-vm.md");
+        create_output(&out).expect("create");
+        assert!(out.is_file());
+        assert!(create_output(&out.join("below_a_file.md")).is_err());
+        std::fs::remove_dir_all(&root).expect("clean up");
+    }
 
     /// A `GnStep` with the given CG iterations, passes and adjoint check; the rest zero.
     fn step(cg_iterations: usize, forward: usize, backward: usize, adjoint: bool) -> GnStep {

@@ -100,14 +100,25 @@ finished), and runs before CO0.1's runs start or between two of them. At the aut
 ```sh
 ssh cricket
 tmux ls                                    # no other timed run
-ls ~/sciml-rs/runs/gauss_newton_followups/mu0_seeds/poisson_fno_n129_s64_p0_gn_1794488531
+ls ~/sciml-rs/runs/poisson_fno_n129_s64_p0_gn_1794488531
 cd ~/sciml-rs && git fetch origin
 git worktree add --detach ~/sciml-rs-wt/co0-2 origin/optimisers/co0-2
 cd ~/sciml-rs-wt/co0-2
 find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
 source ~/sciml-gpu.sh
 export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers
-tmux new -d -s co0-2 "cargo run --release --no-default-features --features cuda --example gn_profile -- docs/optimisers/results/CO0.2-vm.md ~/sciml-rs/runs/gauss_newton_followups/mu0_seeds/poisson_fno_n129_s64_p0_gn_1794488531 50 150 2>&1 | tee ~/sciml-rs/logs/co0-2.log"
+tmux new -d -s co0-2 "cargo run --release --no-default-features --features cuda --example gn_profile -- docs/optimisers/results/CO0.2-vm.md ~/sciml-rs/runs/poisson_fno_n129_s64_p0_gn_1794488531 50 150 2>&1 | tee ~/sciml-rs/logs/co0-2.log"
+```
+
+The rerun (the worktree exists from attempt 1; amended 2026-11-25):
+
+```sh
+ssh cricket
+tmux ls                                    # no other timed run
+cd ~/sciml-rs-wt/co0-2 && git fetch origin && git checkout --detach origin/optimisers/co0-2
+source ~/sciml-gpu.sh
+export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers
+tmux new -d -s co0-2 "cargo run --release --no-default-features --features cuda --example gn_profile -- docs/optimisers/results/CO0.2-vm.md ~/sciml-rs/runs/poisson_fno_n129_s64_p0_gn_1794488531 50 150 2>&1 | tee ~/sciml-rs/logs/co0-2.log"
 ```
 
 It decides nothing on its own: it fills the profile table and the savings list (the roadmap's
@@ -130,6 +141,17 @@ It decides nothing on its own: it fills the profile table and the savings list (
   worktree `~/sciml-rs-wt/co0-2`. It fills `docs/optimisers/results/CO0.2.md` (the profile
   at caps 50 and 150, passes per second against the fork's 17.4, the savings list), after
   which the task is ticked.
+
+Attempt 1 (2026-11-25, 12:05–12:15 UTC, alone, GPU 0, commit `f869110`) measured the units
+and the 20 steps but panicked writing the report: `docs/optimisers/results/` did not exist
+on the branch, so the phase tables were never written (log kept locally in
+`.agent-handoffs/co0-2-vm-attempt1.log`). Fixed: `gn_profile` now creates the output and
+its parent directories at startup (test `create_output_makes_missing_parents`), so a bad
+path fails before the measurement. The VM's copy of the run is at
+`~/sciml-rs/runs/poisson_fno_n129_s64_p0_gn_1794488531` (no `gauss_newton_followups/`
+layout there); the commands above use it. First reading from attempt 1's log: at cap 50 a
+step takes 14.4–14.9 s on Burn 0.23 (the first 17.4 s) against 11.88 s on the fork for the
+same steps, about 24 % slower. The rerun waits until CO0.1's stage-1 timed runs are done.
 
 Done on the Mac (metal, not reported as timings): smoke runs at caps 5 and 3 against the
 local copy of the reference run. The fork-era checkpoint loads on Burn 0.23; the tables are
