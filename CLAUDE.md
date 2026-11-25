@@ -142,6 +142,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   the training stack, with associated `Config`, `Input`, `Output` and `NAME`;
   `GridOperator<R>`, rank-R tensors in and out, which `training/`, `runs` and
   `predict_host` are generic over; the FNO-named functions stay as wrappers),
+  `models/registry.rs` (library CM0.4: `OperatorConfig::KIND`, the `kind` written first in
+  `model_cfg.json`, absent meaning `"fno"`; `ModelConfig` and `Model<R>`, one enum variant
+  per kind, built by name; `RunDir::any_model_config`),
   `models/predict.rs` (`predict_host`: batched inference to host f64, any rank, any
   `GridOperator`), `layers/spectral_convolution.rs`
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
@@ -236,7 +239,10 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
 - `spikes/`: standalone packages, never built by CI: Phase 0 measurements, and
   `metal_diag` (op-by-op GPU vs Flex diagnostics behind `upstream/burn/*`; a non-default
-  workspace member sharing the root's lock and Burn pin: `cargo test -p metal-diag-spike`).
+  workspace member sharing the root's lock and Burn pin: `cargo test -p metal-diag-spike`),
+  and `linalg` (optimisers CO3.1: Burn's `qr` and `svd` at SOAP's sizes, and the
+  constraint 1 fingerprint; a member the same way:
+  `cargo run -p linalg-spike --release --bin linalg_check`).
 - Unit tests sit in `#[cfg(test)] mod tests` in each file. `tests/spectral_init.rs` reseeds
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each
   needs its own test binary, so keep such tests out of `src/`. `tests/gpu_parity.rs` holds
@@ -297,9 +303,10 @@ An exact test filter needs the full module path:
 
 ## Burn
 - Burn is pinned exactly in `Cargo.toml` (`[workspace.dependencies]`): `burn = "=0.23.0-pre.2"`
-  from crates.io, a pre-release, features `autodiff, signal, store, train`. It replaced the
-  fork `ax1s-x1zz/burn` at `ddfa9af` on 2026-11-13 (the fork's Bluestein FFT is upstream
-  #5757); every 2D Phase 1–10 result was measured on the fork.
+  from crates.io, a pre-release, features `autodiff, linalg, signal, store, train`
+  (`linalg` since optimisers CO3.1). It replaced the fork `ax1s-x1zz/burn` at `ddfa9af`
+  on 2026-11-13 (the fork's Bluestein FFT is upstream #5757); every 2D Phase 1–10 result
+  was measured on the fork.
 - `cubek.toml` (repository root) sets `[matmul] allow_tf32 = false`: Burn 0.23's cuda matmuls
   default to TF32, which made the GPU 50× less accurate than Flex in `replay_2d_poisson`
   (1.6e-4; 1.4e-6 with it off). It is found by walking up from the working directory, so
