@@ -234,7 +234,7 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
 | Same at the 2D batch of 20 | 1128 MiB peak in all (Phase 5, s = 64) | about 5 GB; measured 5.87 GB peak in all (cuda, 12³) | about 35–40 GB; measured 30.6 GB peak in all (cuda, 12³) | – |
 | Time per epoch, 1000 + 200, batch 20, modes 12³ (measured) | 1.7 s (s = 64, cuda) | 11.4 s cuda, 60–66 s metal | 64.0 s cuda, 388–419 s metal (batch ≤ 4) | – |
 | Train split on the device, f32 | – | about 0.3 GB | about 2.1 GB | – |
-| Solver A3 per sample | – | 12 (n − 2)⁴ ≈ 1.1e7 flops | ≈ 1.9e8 | ≈ 3.1e9 |
+| Solver A3 per sample | – | 12 (n − 2)⁴ ≈ 1.1e7 flops; measured 0.38–0.49 ms (M2 Pro) | ≈ 1.9e8; measured 5.5–17.6 ms | ≈ 3.1e9 |
 
 - The unmarked figures are estimates from the formulas; the activation estimates scale
   the 2D measurement by the 64× point count. "Measured" figures are 3D CL0.1's
@@ -376,3 +376,6 @@ The 2D design and its references; `docs/CONVENTIONS.md`.
   change to the plan: Section 7 gives 3D CL0.1's measured figures beside the estimates (a
   time-per-epoch row; the time and zip64 bullets replaced by the results, C1); Section 8
   records R1 and R6 as retired and R3 as retired on metal, with cuda before CL4.2 (C2).
+- **Draft 0.2, amended at the 3D L2 gate (2026-11-25, `docs/laplace3d/gates/L2.md`).** No
+  change to the plan: Section 7's solver row gives 3D CL2.1's measured time per solve beside
+  the flop counts (C1).
