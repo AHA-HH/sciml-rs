@@ -135,12 +135,9 @@ It decides nothing on its own: it fills the profile table and the savings list (
 - 2D objective: no output changes; the run directory is only read.
 
 ## Pending runs
-- **The VM run** (section "VM runs"): waits for the author's go, alone on the VM (after
-  3D CL0.1's `co31-cl01`, before or between CO0.1's runs). tmux `co0-2`, log
-  `~/sciml-rs/logs/co0-2.log`, output `docs/optimisers/results/CO0.2-vm.md` in the VM
-  worktree `~/sciml-rs-wt/co0-2`. It fills `docs/optimisers/results/CO0.2.md` (the profile
-  at caps 50 and 150, passes per second against the fork's 17.4, the savings list), after
-  which the task is ticked.
+None. The VM rerun ran 2026-11-25, 13:58–14:06 UTC, alone on GPU 0, at `f893620` (exit
+0); its report is reproduced in `docs/optimisers/results/CO0.2.md`, with the comparison
+against the fork and the savings list.
 
 Attempt 1 (2026-11-25, 12:05–12:15 UTC, alone, GPU 0, commit `f869110`) measured the units
 and the 20 steps but panicked writing the report: `docs/optimisers/results/` did not exist
@@ -151,8 +148,7 @@ path fails before the measurement. The VM's copy of the run is at
 `~/sciml-rs/runs/poisson_fno_n129_s64_p0_gn_1794488531` (no `gauss_newton_followups/`
 layout there); the commands above use it. First reading from attempt 1's log: at cap 50 a
 step takes 14.4–14.9 s on Burn 0.23 (the first 17.4 s) against 11.88 s on the fork for the
-same steps, about 24 % slower. The rerun waits until CO0.1's stage-1 timed runs are done.
-
+same steps, about 24 % slower. 
 Done on the Mac (metal, not reported as timings): smoke runs at caps 5 and 3 against the
 local copy of the reference run. The fork-era checkpoint loads on Burn 0.23; the tables are
 written; at cap 5 the predicted step time is within −5.2 % to +6.5 % of the measured one per
