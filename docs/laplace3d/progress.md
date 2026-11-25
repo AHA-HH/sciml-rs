@@ -245,3 +245,19 @@ template:
   the Q2 follow-up.
 - 2D: not touched (no code).
 - Follow-ups: the L2 gate; CL3.2.
+
+## 2026-11-25: L2 gate
+- Done: gate report `docs/laplace3d/gates/L2.md`: A3 (CL2.1, #136) at the f64 floor on
+  manufactured solutions and `grf3d`'s closed form (≤ 4.3e-14 at n = 33, ≤ 3.3e-13 at
+  n = 65); met. The roadmap's L2 gate closed 2026-11-25.
+- Tests: none new. `cargo test --release --features datagen --lib solver_3d` on `636298b`
+  (Mac), 7 passed, every number of `results/cl2-1.md` reproduced; `main`'s CI green.
+- Checks: none beyond that (docs only: proposal §7 and Appendix A, roadmap, this log).
+- Decisions: signed off by the author 2026-11-25: the gate with C1 (§7's measured solve
+  time); Q1 the n = 129 floor measured before labelling (CL3.2); Q2 the 3D label check in
+  CL3.2, three `pde/poisson` doc fixes in CL3.3's first commit.
+- Review: thermo-nuclear review of CL2.1's commit APPROVE, A−, no blockers (report
+  git-ignored, `docs/code-quality/thermo-nuclear-review-2026-11-25-laplace3d-L2-gate.md`);
+  the report fact-checked by an independent agent, its corrections applied.
+- 2D: not touched (no code).
+- Follow-ups: CL3.2.
