@@ -92,14 +92,24 @@ fn with_bc<T: Clone, const R: usize>(a: T, b: T, rest: &[T]) -> [T; R] {
 }
 
 /// Learned spectral convolution over `R - 2` spatial axes.
+///
+/// The weights are stored per mode corner (CONVENTIONS §5). The modes used by
+/// [`forward`](Self::forward) may be fewer than the stored ones
+/// ([`with_modes`](Self::with_modes)), as `neuraloperator`'s `n_modes` below its
+/// `max_n_modes`.
 #[derive(Module, Debug)]
 pub struct SpectralConv<const R: usize> {
     /// One weight per mode corner; `len() == 2^(D-1)`.
-    /// Each is `[in_channels, out_channels, modes[0], .., modes[D-1]]`.
+    /// Each is `[in_channels, out_channels, stored[0], .., stored[D-1]]`, or
+    /// `[1, channels, stored..]` if `separable`; the stored modes are its extents.
     weights_re: Vec<Param<Tensor<R>>>,
     weights_im: Vec<Param<Tensor<R>>>,
-    /// Retained frequency count per spatial axis; `len() == R - 2`.
+    /// Retained frequency count per spatial axis, at most the stored count;
+    /// `len() == R - 2`.
     modes: Vec<usize>,
+    /// One weight per channel and mode (a diagonal channel map) instead of a
+    /// full `in_channels × out_channels` map.
+    separable: bool,
 }
 
 impl<const R: usize> SpectralConv<R> {
@@ -177,6 +187,54 @@ impl<const R: usize> SpectralConv<R> {
         modes: &[usize],
         init: SpectralInit,
     ) -> Self {
+        let distribution = init.distribution(in_channels, out_channels);
+        Self::draw(
+            device,
+            [in_channels, out_channels],
+            modes,
+            distribution,
+            false,
+        )
+    }
+
+    /// A separable layer: `channels` in and out, one complex weight per channel
+    /// and retained mode, multiplying each channel's spectrum on its own
+    /// (`neuraloperator`'s `separable=True`). The weights are drawn as for
+    /// `in_channels = out_channels = channels`.
+    ///
+    /// ```
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
+    ///
+    /// let device = Device::default();
+    /// let _conv = SpectralConv::<4>::new_separable(&device, 8, &[6, 4], SpectralInit::Normal);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `modes.len() != R - 2`.
+    pub fn new_separable(
+        device: &Device,
+        channels: usize,
+        modes: &[usize],
+        init: SpectralInit,
+    ) -> Self {
+        let distribution = init.distribution(channels, channels);
+        Self::draw(device, [1, channels], modes, distribution, true)
+    }
+
+    /// Draws every corner's weights, `[lead[0], lead[1], modes..]`.
+    ///
+    /// # Panics
+    ///
+    /// If `modes.len() != R - 2`.
+    fn draw(
+        device: &Device,
+        lead: [usize; 2],
+        modes: &[usize],
+        distribution: Distribution,
+        separable: bool,
+    ) -> Self {
         let () = Self::RANK_OK;
         assert_eq!(
             modes.len(),
@@ -186,12 +244,11 @@ impl<const R: usize> SpectralConv<R> {
         let modes = modes.to_vec();
         let num_corners = 1usize << (modes.len() - 1);
 
-        let shape: [usize; R] = with_bc(in_channels, out_channels, &modes);
+        let shape: [usize; R] = with_bc(lead[0], lead[1], &modes);
 
         // Draw order (per corner: real, then imaginary) is part of the
         // contract: with a fixed seed, `LiUniform` reproduces the weights of
         // earlier releases bit for bit.
-        let distribution = init.distribution(in_channels, out_channels);
         let mut weights_re = Vec::with_capacity(num_corners);
         let mut weights_im = Vec::with_capacity(num_corners);
         for _ in 0..num_corners {
@@ -211,7 +268,47 @@ impl<const R: usize> SpectralConv<R> {
             weights_re,
             weights_im,
             modes,
+            separable,
         }
+    }
+
+    /// The layer with `modes` retained per spatial axis, at most the stored
+    /// modes: `neuraloperator`'s `n_modes` below `max_n_modes`. On a non-last
+    /// axis the low corner keeps frequencies `0..m` and the high corner `-m..-1`
+    /// (the last `m` rows of its stored block); the last axis keeps `0..m`.
+    /// The weights are kept, so the modes can be raised again up to the stored
+    /// ones.
+    ///
+    /// ```
+    /// use burn::tensor::Device;
+    /// use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
+    ///
+    /// let device = Device::default();
+    /// let _conv = SpectralConv::<4>::new(&device, 4, 4, &[5, 8]).with_modes(&[3, 4]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `modes.len() != R - 2`, or a mode count exceeds the stored one.
+    pub fn with_modes(mut self, modes: &[usize]) -> Self {
+        assert_eq!(
+            modes.len(),
+            R - 2,
+            "modes must have one entry per spatial axis (R - 2)"
+        );
+        for (axis, (&m, &stored)) in modes.iter().zip(&self.stored_modes()).enumerate() {
+            assert!(
+                m <= stored,
+                "SpectralConv: modes[{axis}] = {m} exceeds the stored {stored}"
+            );
+        }
+        self.modes = modes.to_vec();
+        self
+    }
+
+    /// The stored mode counts: the weights' spatial extents.
+    fn stored_modes(&self) -> Vec<usize> {
+        self.weights_re[0].val().dims()[2..].to_vec()
     }
 
     /// Spatial-axis slices selecting one mode corner.
@@ -297,6 +394,20 @@ impl<const R: usize> SpectralConv<R> {
         )
     }
 
+    /// Per-channel complex product `(a + bi)(c + di)` of `x` `[B, C, modes..]`
+    /// and separable weights `[1, C, modes..]`, broadcast over the batch.
+    fn complex_product(
+        x_re: Tensor<R>,
+        x_im: Tensor<R>,
+        w_re: Tensor<R>,
+        w_im: Tensor<R>,
+    ) -> (Tensor<R>, Tensor<R>) {
+        (
+            x_re.clone() * w_re.clone() - x_im.clone() * w_im.clone(),
+            x_re * w_im + x_im * w_re,
+        )
+    }
+
     /// Forward N-d transform: real FFT on the last spatial axis, complex FFT on
     /// the rest. Halves the storage and the corner count versus a full complex
     /// transform, since a real signal's spectrum is Hermitian.
@@ -357,6 +468,9 @@ impl<const R: usize> SpectralConv<R> {
         let (batch, in_ch) = (orig_dims[0], orig_dims[1]);
         let out_ch = self.weights_re[0].val().dims()[1];
         let num_corners = self.weights_re.len();
+        let stored = self.stored_modes();
+        // Slice the weights only when truncated, so the default path is unchanged.
+        let truncated = stored != self.modes;
 
         let (x_ft_re, x_ft_im) = Self::fft_ctensor(x);
         // Post-transform extents - the last axis is now n/2 + 1.
@@ -377,12 +491,23 @@ impl<const R: usize> SpectralConv<R> {
             let x_re = x_ft_re.clone().slice(in_ranges.clone());
             let x_im = x_ft_im.clone().slice(in_ranges);
 
-            let (o_re, o_im) = Self::complex_multiplication(
-                x_re,
-                x_im,
-                self.weights_re[corner].val(),
-                self.weights_im[corner].val(),
-            );
+            let (mut w_re, mut w_im) =
+                (self.weights_re[corner].val(), self.weights_im[corner].val());
+            if truncated {
+                let lead = w_re.dims();
+                let w_ranges: [Range<usize>; R] = with_bc(
+                    0..lead[0],
+                    0..lead[1],
+                    &Self::corner_ranges(corner, &self.modes, &stored),
+                );
+                w_re = w_re.slice(w_ranges.clone());
+                w_im = w_im.slice(w_ranges);
+            }
+            let (o_re, o_im) = if self.separable {
+                Self::complex_product(x_re, x_im, w_re, w_im)
+            } else {
+                Self::complex_multiplication(x_re, x_im, w_re, w_im)
+            };
 
             let out_ranges: [Range<usize>; R] = with_bc(0..batch, 0..out_ch, &ranges);
 
@@ -856,5 +981,78 @@ mod tests {
     #[test]
     fn init_default_is_li_uniform() {
         assert_eq!(SpectralInit::default(), SpectralInit::LiUniform);
+    }
+
+    // --- truncation below the stored modes and separable weights (library CM1.2) ---
+
+    fn bits<const R: usize>(t: Tensor<R>) -> Vec<u32> {
+        let v = t.into_data().try_to_vec::<f32>().unwrap();
+        v.iter().map(|x| x.to_bits()).collect()
+    }
+
+    #[test]
+    fn with_modes_matches_layer_built_at_smaller_modes() {
+        let device = Device::default();
+        let (stored, active) = ([4, 3], [2, 2]);
+        let conv = SpectralConv::<4>::new(&device, 2, 3, &stored);
+        // The smaller layer holds each corner's retained block of the stored weights.
+        let mut small = SpectralConv::<4>::new(&device, 2, 3, &active);
+        for c in 0..conv.weights_re.len() {
+            let ranges: [Range<usize>; 4] = with_bc(
+                0..2,
+                0..3,
+                &SpectralConv::<4>::corner_ranges(c, &active, &stored),
+            );
+            small.weights_re[c] =
+                Param::from_tensor(conv.weights_re[c].val().slice(ranges.clone()));
+            small.weights_im[c] = Param::from_tensor(conv.weights_im[c].val().slice(ranges));
+        }
+        let x = Tensor::<4>::random([2, 2, 12, 9], Distribution::Normal(0.0, 1.0), &device);
+        let truncated = conv.with_modes(&active).forward(x.clone());
+        assert_eq!(bits(truncated), bits(small.forward(x)));
+    }
+
+    #[test]
+    fn with_modes_at_stored_modes_changes_nothing() {
+        let device = Device::default();
+        let conv = SpectralConv::<5>::new(&device, 2, 2, &[3, 2, 2]);
+        let x = Tensor::<5>::random([1, 2, 8, 6, 5], Distribution::Normal(0.0, 1.0), &device);
+        let before = conv.forward(x.clone());
+        assert_eq!(bits(conv.with_modes(&[3, 2, 2]).forward(x)), bits(before));
+    }
+
+    #[test]
+    #[should_panic(expected = "modes[1] = 4 exceeds the stored 3")]
+    fn with_modes_rejects_more_than_stored() {
+        let _ = SpectralConv::<4>::new(&Device::default(), 1, 1, &[4, 3]).with_modes(&[2, 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "one entry per spatial axis")]
+    fn with_modes_rejects_wrong_length() {
+        let _ = SpectralConv::<4>::new(&Device::default(), 1, 1, &[4, 3]).with_modes(&[2]);
+    }
+
+    /// A separable layer is the dense layer whose channel map is diagonal at every mode.
+    #[test]
+    fn separable_equals_dense_with_diagonal_weights() {
+        let device = Device::default();
+        let (c, modes) = (3, [3, 2]);
+        let sep = SpectralConv::<4>::new_separable(&device, c, &modes, SpectralInit::Normal);
+        let mut dense = SpectralConv::<4>::new(&device, c, c, &modes);
+        let eye = Tensor::<2>::eye(c, &device).reshape([c, c, 1, 1]);
+        for k in 0..sep.weights_re.len() {
+            // [C, C, 1, 1] * [1, C, m..]: entry (i, o) is δ_io w[o].
+            dense.weights_re[k] = Param::from_tensor(eye.clone() * sep.weights_re[k].val());
+            dense.weights_im[k] = Param::from_tensor(eye.clone() * sep.weights_im[k].val());
+        }
+        let x = Tensor::<4>::random([2, c, 10, 7], Distribution::Normal(0.0, 1.0), &device);
+        let (a, e) = (sep.forward(x.clone()), dense.forward(x));
+        let scale: f32 = e.clone().abs().max().into_scalar();
+        let err: f32 = (a - e).abs().max().into_scalar();
+        assert!(
+            err <= 1e-6 * scale,
+            "separable vs dense: {err:e} of {scale:e}"
+        );
     }
 }
