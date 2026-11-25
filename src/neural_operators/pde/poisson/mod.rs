@@ -4,10 +4,11 @@
 //! `sparse` (test-only) is solver C, the validation oracle that checks A; it never produces
 //! labels. [`grf`] samples the GRF forcings of design §3.3, and [`dataset`] turns them into
 //! labelled, checked splits (design §5.1). [`grf3d`] samples the 3D forcings (3D proposal
-//! §3.3).
+//! §3.3), and [`dataset3d`] the 3D splits (3D proposal §6).
 
 pub mod collocation;
 pub mod dataset;
+pub mod dataset3d;
 pub mod grf;
 pub mod grf3d;
 #[cfg(test)]
