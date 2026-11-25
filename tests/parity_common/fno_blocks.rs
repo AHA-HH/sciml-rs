@@ -28,12 +28,8 @@ pub struct Case {
     pub n_layers: usize,
     /// 2.0.0's `n_modes`; the crate keeps half per axis (CM1.1).
     pub n_modes: &'static [usize],
-    /// The block options on top of `FNOConfig`'s.
+    /// The block options on top of `FNOConfig`'s; the map follows them.
     pub options: fn(FNOConfig) -> FNOConfig,
-    /// The norm, for the map.
-    pub norm: Option<NormKind>,
-    /// AdaIN's `ada_in_features`, when the norm is AdaIN.
-    pub embed_dim: Option<usize>,
 }
 
 /// 2.0.0's defaults: GELU, the linear (bias-free) FNO skip, the channel MLP of expansion 0.5
@@ -62,8 +58,6 @@ pub const POST_1D: Case = Case {
     n_layers: 2,
     n_modes: &[8],
     options: defaults,
-    norm: None,
-    embed_dim: None,
 };
 pub const PRE_1D: Case = Case {
     stem: "fno_blocks_pre1d",
@@ -76,8 +70,6 @@ pub const INSTANCE_POST_2D: Case = Case {
     n_layers: 2,
     n_modes: &[6, 4],
     options: instance,
-    norm: Some(NormKind::Instance),
-    embed_dim: None,
 };
 pub const INSTANCE_PRE_2D: Case = Case {
     stem: "fno_blocks_instance_pre2d",
@@ -99,8 +91,6 @@ pub const GROUP_POST_3D: Case = Case {
                     .with_skip(Some(SkipKind::Linear)),
             ))
     },
-    norm: Some(NormKind::Group),
-    embed_dim: None,
 };
 pub const GROUP_PRE_3D: Case = Case {
     stem: "fno_blocks_group_pre3d",
@@ -120,8 +110,6 @@ pub const ADA_IN_POST_2D: Case = Case {
     n_layers: 1,
     n_modes: &[6, 4],
     options: ada_in,
-    norm: Some(NormKind::AdaIn { embed_dim: 2 }),
-    embed_dim: Some(2),
 };
 pub const ADA_IN_PRE_2D: Case = Case {
     stem: "fno_blocks_ada_in_pre2d",
@@ -145,9 +133,10 @@ fn corner(i: usize, d: usize) -> usize {
     (0..d - 1).fold(0, |c, j| c | ((i >> (d - 2 - j)) & 1) << j)
 }
 
-/// `case`'s map from 2.0.0's `FNOBlocksRun` names to the `Blocks` paths. Burn names an enum
+/// The map, for the block `options` build, from 2.0.0's `FNOBlocksRun` names to the `Blocks` paths. Burn names an enum
 /// module's parameters after the variant (`Linear`, `SoftGating`, `Group`, `AdaIn`).
-fn map(case: &Case, d: usize, options: &FNOConfig) -> Vec<MapEntry> {
+fn map(d: usize, options: &FNOConfig) -> Vec<MapEntry> {
+    let n_layers = options.n_layers;
     // Test-only: leaked so the harness's `&'static str` entries can be built in a loop.
     let s = |x: String| -> &'static str { x.leak() };
     let mut m = Vec::new();
@@ -167,7 +156,7 @@ fn map(case: &Case, d: usize, options: &FNOConfig) -> Vec<MapEntry> {
             Some(SkipKind::Identity) | None => {}
         }
     };
-    for l in 0..case.n_layers {
+    for l in 0..n_layers {
         for i in 0..1 << (d - 1) {
             let from = s(format!("fno_blocks.convs.{l}.weight.{i}.tensor"));
             let c = corner(i, d);
@@ -199,9 +188,9 @@ fn map(case: &Case, d: usize, options: &FNOConfig) -> Vec<MapEntry> {
             );
         }
     }
-    for k in 0..2 * case.n_layers {
+    for k in 0..2 * n_layers {
         let (from, to) = (format!("fno_blocks.norm.{k}"), format!("fno.norms.{k}"));
-        match case.norm {
+        match options.norm {
             Some(NormKind::Group) => {
                 m.push((
                     s(format!("{from}.weight")),
@@ -228,10 +217,18 @@ fn map(case: &Case, d: usize, options: &FNOConfig) -> Vec<MapEntry> {
             Some(NormKind::Instance) | None => {}
         }
     }
-    if case.embed_dim.is_some() {
+    if embed_dim(options).is_some() {
         m.push(("embedding", "embedding", Take::Whole));
     }
     m
+}
+
+/// AdaIN's embedding length, when the norm is AdaIN.
+fn embed_dim(options: &FNOConfig) -> Option<usize> {
+    match options.norm {
+        Some(NormKind::AdaIn { embed_dim }) => Some(embed_dim),
+        _ => None,
+    }
 }
 
 /// Runs `case`'s f32 fixture through the FNO's Fourier layers and returns the relative max
@@ -249,21 +246,14 @@ pub fn check<const R: usize>(case: &Case, device: &Device) -> f64 {
     );
     let mut blocks = Blocks::<R> {
         fno: config.init(device),
-        embedding: case
-            .embed_dim
-            .map(|e| Param::from_tensor(Tensor::zeros([e], device))),
+        embedding: embed_dim(&config).map(|e| Param::from_tensor(Tensor::zeros([e], device))),
     };
     let name = format!("{}_f32", case.stem);
     let mut fixture = Fixture::open(&name);
     // Every block path; the lifting `fc0` and projection `fc1`, `fc2` are not in the fixture.
     let filter = PathFilter::new()
         .with_regex(r"^(embedding|fno\.(conv|w|fno_skips|channel_mlp|channel_mlp_skips|norms)\.)");
-    load_into_part(
-        &mut blocks,
-        &mut fixture,
-        &map(case, d, &config),
-        Some(filter),
-    );
+    load_into_part(&mut blocks, &mut fixture, &map(d, &config), Some(filter));
     let embedding = blocks.embedding.as_ref().map(Param::val);
     let out = blocks
         .fno

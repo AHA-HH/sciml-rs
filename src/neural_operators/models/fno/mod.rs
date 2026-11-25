@@ -30,7 +30,8 @@ use crate::neural_operators::layers::{
 /// out, and a skip from the layer's input added to its output.
 #[derive(Config, Debug)]
 pub struct BlockMlpConfig {
-    /// Hidden width as a fraction of the layer's, rounded (2.0.0's `channel_mlp_expansion`).
+    /// Hidden width as a fraction of the layer's, rounded half to even as Python's `round`
+    /// (2.0.0's `channel_mlp_expansion`).
     #[config(default = 0.5)]
     pub expansion: f64,
     /// The skip added to the MLP's output (2.0.0's `channel_mlp_skip`); `None` is none.
@@ -59,7 +60,8 @@ pub struct FNOConfig {
     /// Output channels of the projection `fc2`. Any width builds; the trainer's
     /// `flatten_pair` accepts only 1.
     pub out_channels: usize,
-    /// Number of Fourier layers (a spectral convolution plus a pointwise convolution each).
+    /// Number of Fourier layers (a spectral convolution and a skip each, with the block
+    /// options' parts).
     #[config(default = 4)]
     pub n_layers: usize,
     /// Initialisation of every spectral layer's weights. `None` is the Li et
@@ -94,6 +96,8 @@ pub struct FNOConfig {
 pub struct FNO<const R: usize> {
     fc0: Linear,
     conv: Vec<SpectralConv<R>>,
+    /// The original FNO skip, a pointwise convolution with bias; empty when
+    /// [`FNOConfig::fno_skip`] is set (then `fno_skips` holds the skips).
     w: Vec<Conv1d>,
     fc1: Linear,
     fc2: Linear,
@@ -112,6 +116,10 @@ pub struct FNO<const R: usize> {
     norms: Vec<Norm>,
     activation: Activation,
     preactivation: bool,
+    /// Whether post-activation applies the activation a second time after the norm slot, as
+    /// 2.0.0 does; off only for ReLU without channel MLP or norm, where it would follow the
+    /// first directly and change nothing (`relu ∘ relu = relu`), so today's ops stay as they are.
+    repeat_activation: bool,
 }
 
 impl FNOConfig {
@@ -131,6 +139,7 @@ impl FNOConfig {
 
         let coord_channels = self.modes.len(); // D = R - 2, need to derive and input into layer
         let width = self.hidden_channels;
+        let activation = self.activation.clone().unwrap_or(ActivationConfig::Relu);
         fn layers<T>(n: usize, build: impl Fn() -> T) -> Vec<T> {
             (0..n).map(|_| build()).collect()
         }
@@ -168,7 +177,7 @@ impl FNOConfig {
             fno_skips: skips(self.fno_skip.as_ref()),
             channel_mlp: match &self.channel_mlp {
                 Some(mlp) => {
-                    let hidden = (width as f64 * mlp.expansion).round() as usize;
+                    let hidden = (width as f64 * mlp.expansion).round_ties_even() as usize;
                     layers(self.n_layers, || {
                         ChannelMlpConfig::new(width, width, hidden).init(device)
                     })
@@ -180,12 +189,11 @@ impl FNOConfig {
                 Some(kind) => layers(2 * self.n_layers, || kind.init(width, device)),
                 None => Vec::new(),
             },
-            activation: self
-                .activation
-                .clone()
-                .unwrap_or(ActivationConfig::Relu)
-                .init(device),
+            activation: activation.init(device),
             preactivation: self.preactivation.unwrap_or(false),
+            repeat_activation: self.channel_mlp.is_some()
+                || self.norm.is_some()
+                || !matches!(activation, ActivationConfig::Relu),
         }
     }
 }
@@ -324,56 +332,78 @@ impl<const R: usize> FNO<R> {
     /// modes do not fit the grid.
     pub fn fourier_layers(&self, mut x: Tensor<R>, embedding: Option<Tensor<1>>) -> Tensor<R> {
         let embedding = embedding.as_ref();
-        let norm = |k: usize, x: Tensor<R>| match self.norms.get(k) {
-            Some(norm) => norm.forward(x, embedding),
-            None => x,
-        };
-        // Without a channel MLP or norm, 2.0.0's post-activation applies the activation twice
-        // in a row; ReLU's second application changes nothing, so it is skipped.
-        let repeat = !self.channel_mlp.is_empty()
-            || !self.norms.is_empty()
-            || !matches!(self.activation, Activation::Relu(_));
-        let n = self.conv.len();
-        for idx in 0..n {
-            let last = idx == n - 1;
-            if self.preactivation {
-                x = norm(2 * idx, self.activation.forward(x));
-            }
-            let mlp_skip = self
-                .channel_mlp_skips
-                .get(idx)
-                .map(|skip| skip.forward(x.clone()));
-            let x_fno = self.conv[idx].forward(x.clone());
-            let x_fno = if self.preactivation {
-                x_fno
+        for idx in 0..self.conv.len() {
+            x = if self.preactivation {
+                self.pre_block(idx, x, embedding)
             } else {
-                norm(2 * idx, x_fno)
+                self.post_block(idx, x, embedding)
             };
-            let skip = match self.fno_skips.get(idx) {
-                Some(skip) => skip.forward(x),
-                None => conv1x1(&self.w[idx], x),
-            };
-            x = x_fno + skip;
-            if !last {
-                x = self.activation.forward(x);
-            }
-            if self.preactivation {
-                x = norm(2 * idx + 1, x);
-            }
-            if let Some(mlp) = self.channel_mlp.get(idx) {
-                x = mlp.forward(x);
-                if let Some(mlp_skip) = mlp_skip {
-                    x = x + mlp_skip;
-                }
-            }
-            if !self.preactivation {
-                x = norm(2 * idx + 1, x);
-                if !last && repeat {
-                    x = self.activation.forward(x);
-                }
-            }
         }
         x
+    }
+
+    /// Layer `idx`, 2.0.0's `forward_with_postactivation`. With every option absent:
+    /// `relu(conv(x) + w(x))`, the ReLU skipped after the last layer.
+    fn post_block(&self, idx: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
+        let last = idx + 1 == self.conv.len();
+        let mlp_skip = self.channel_mlp_skip(idx, &x);
+        let x_fno = self.norm(2 * idx, self.conv[idx].forward(x.clone()), embedding);
+        let mut x = x_fno + self.fno_skip(idx, x);
+        if !last {
+            x = self.activation.forward(x);
+        }
+        x = self.norm(2 * idx + 1, self.channel_mlp(idx, x, mlp_skip), embedding);
+        if !last && self.repeat_activation {
+            x = self.activation.forward(x);
+        }
+        x
+    }
+
+    /// Layer `idx`, 2.0.0's `forward_with_preactivation`.
+    fn pre_block(&self, idx: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
+        let last = idx + 1 == self.conv.len();
+        let x = self.norm(2 * idx, self.activation.forward(x), embedding);
+        let mlp_skip = self.channel_mlp_skip(idx, &x);
+        let mut x = self.conv[idx].forward(x.clone()) + self.fno_skip(idx, x);
+        if !last {
+            x = self.activation.forward(x);
+        }
+        let x = self.norm(2 * idx + 1, x, embedding);
+        self.channel_mlp(idx, x, mlp_skip)
+    }
+
+    /// Layer `idx`'s FNO skip: the configured one, or the original `w`.
+    fn fno_skip(&self, idx: usize, x: Tensor<R>) -> Tensor<R> {
+        match self.fno_skips.get(idx) {
+            Some(skip) => skip.forward(x),
+            None => conv1x1(&self.w[idx], x),
+        }
+    }
+
+    /// Layer `idx`'s channel-MLP skip of `x`, if it has one.
+    fn channel_mlp_skip(&self, idx: usize, x: &Tensor<R>) -> Option<Tensor<R>> {
+        self.channel_mlp_skips
+            .get(idx)
+            .map(|skip| skip.forward(x.clone()))
+    }
+
+    /// Layer `idx`'s channel MLP plus its skip, or `x` unchanged without an MLP.
+    fn channel_mlp(&self, idx: usize, x: Tensor<R>, skip: Option<Tensor<R>>) -> Tensor<R> {
+        let Some(mlp) = self.channel_mlp.get(idx) else {
+            return x;
+        };
+        match skip {
+            Some(skip) => mlp.forward(x) + skip,
+            None => mlp.forward(x),
+        }
+    }
+
+    /// Norm `k` (two per layer), or `x` unchanged without a norm.
+    fn norm(&self, k: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
+        match self.norms.get(k) {
+            Some(norm) => norm.forward(x, embedding),
+            None => x,
+        }
     }
 }
 

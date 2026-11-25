@@ -66,3 +66,28 @@ fn ada_in_forward_needs_an_embedding() {
     let x = Tensor::<4>::zeros([1, 8, 8, 1], &Device::default());
     ada_in_fno().forward(x);
 }
+
+/// Python's `round` takes a tie to the even neighbour: width 5 at expansion 0.5 has 2 hidden
+/// channels in 2.0.0, not 3. 5 → 2 → 5 with biases is 5·2 + 2 + 2·5 + 5 = 27 parameters.
+#[test]
+fn mlp_width_rounds_half_to_even() {
+    let fno: FNO<4> = config()
+        .with_hidden_channels(5)
+        .with_channel_mlp(Some(BlockMlpConfig::new()))
+        .init(&Device::default());
+    assert_eq!(fno.channel_mlp[0].num_params(), 27);
+}
+
+/// The second ReLU that post-activation skips without MLP or norm would change nothing:
+/// the block equals ReLU applied twice, bit for bit.
+#[test]
+fn skipped_relu_repeat_is_relu_twice() {
+    let device = Device::default();
+    let fno: FNO<4> = config().init(&device);
+    assert!(!fno.repeat_activation);
+    let x = Tensor::<4>::random([2, 6, 8, 8], Distribution::Default, &device);
+    let once = fno.fourier_layers(x.clone(), None);
+    let mut twice = fno.clone();
+    twice.repeat_activation = true;
+    assert_eq!(once.into_data(), twice.fourier_layers(x, None).into_data());
+}

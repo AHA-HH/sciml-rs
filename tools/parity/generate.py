@@ -129,6 +129,8 @@ def build(name, dtype):
     if name in REDRAW:
         with torch.no_grad():
             for p in model.parameters():
+                # shortcut: "constant" is read from the values, so a 1-element parameter is
+                # never redrawn; name the parameters if a constant scalar init appears.
                 if p.numel() > 1 and p.unique().numel() == 1:
                     p.copy_(torch.randn_like(p))
     x = torch.randn(shape, generator=torch.Generator().manual_seed(INPUT_SEED))
