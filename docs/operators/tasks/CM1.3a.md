@@ -22,7 +22,7 @@ equal to 2.0.0's own within D3.
   no FFT, so the f64 bound applies as signed off; a part that misses it is `#[ignore]`d with
   its error recorded, as D3 as amended allows, and named in the PR.
 - Constraint 1 (§1.4): every existing FNO output bit for bit identical. Only new modules and
-  two `pub mod` lines change under `src/`.
+  their `mod` lines in `layers/mod.rs` change under `src/`.
 
 ## Read first
 
@@ -59,7 +59,9 @@ of a norm and pre-activation belong to the block (CM1.3b).
   `in ≠ out` for identity and soft gating.
 - `src/neural_operators/layers/norm.rs` (new): `AdaInConfig`, `AdaIn`
   (`forward(x: [B, C, s..], embedding: [embed_dim])`).
-- `src/neural_operators/layers/mod.rs`: three `pub mod` lines.
+- `src/neural_operators/layers/pointwise.rs` (new, from the code-quality review): the
+  shared `conv1x1`, moved out of `channel_mlp.rs`.
+- `src/neural_operators/layers/mod.rs`: three `pub mod` lines and `mod pointwise`.
 - `tools/parity/generate.py`: the fixtures below; parameters redrawn from a seeded normal for
   parts whose 2.0.0 init is constant (soft gating's ones, group norm's ones and zeros), so
   the fixture tests the map; an `AdaIN` subclass that keeps its embedding as a buffer so the
@@ -128,6 +130,11 @@ Relative max error (Flex, M2 Pro), f32 / f64: `channel_mlp1d` 1.078e-7 / 0; `cha
 7.484e-8 / 1.859e-16; `linear_skip3d` 0 / 0; `soft_gating2d` 0 / 0; `instance_norm1d`
 8.773e-8 / 1.634e-16; `group_norm3d` 1.141e-7 / 4.249e-16; `ada_in2d` 1.881e-7 / 7.009e-16.
 Every f64 test runs (none `#[ignore]`d).
+
+Reading of the *Done when*: "across 1D to 3D" is met by the parts together (each part
+has one fixture, of one dimension; the code is rank-generic). The identity skip has no
+fixture: 2.0.0's is `nn.Identity`, and `skip::tests::identity_returns_its_input` checks it
+exactly.
 
 ## Open questions
 

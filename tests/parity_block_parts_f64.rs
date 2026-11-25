@@ -11,7 +11,7 @@ mod parity_common;
 use std::sync::OnceLock;
 
 #[cfg(feature = "flex")]
-use block_parts::{Part, check};
+use block_parts::*;
 #[cfg(feature = "flex")]
 use burn::{prelude::*, tensor::FloatDType};
 #[cfg(feature = "flex")]
@@ -33,48 +33,43 @@ fn flex_f64() -> Device {
 }
 
 #[cfg(feature = "flex")]
-fn f64(part: Part) {
-    check(part, F64, &flex_f64());
-}
-
-#[cfg(feature = "flex")]
 #[test]
 fn channel_mlp1d_f64_matches_2_0_0() {
-    f64(Part::ChannelMlp1d);
+    channel_mlp1d(F64, &flex_f64());
 }
 
 #[cfg(feature = "flex")]
 #[test]
 fn channel_mlp3d_f64_matches_2_0_0() {
-    f64(Part::ChannelMlp3d);
+    channel_mlp3d(F64, &flex_f64());
 }
 
 #[cfg(feature = "flex")]
 #[test]
 fn linear_skip3d_f64_matches_2_0_0() {
-    f64(Part::LinearSkip3d);
+    linear_skip3d(F64, &flex_f64());
 }
 
 #[cfg(feature = "flex")]
 #[test]
 fn soft_gating2d_f64_matches_2_0_0() {
-    f64(Part::SoftGating2d);
+    soft_gating2d(F64, &flex_f64());
 }
 
 #[cfg(feature = "flex")]
 #[test]
 fn instance_norm1d_f64_matches_2_0_0() {
-    f64(Part::InstanceNorm1d);
+    instance_norm1d(F64, &flex_f64());
 }
 
 #[cfg(feature = "flex")]
 #[test]
 fn group_norm3d_f64_matches_2_0_0() {
-    f64(Part::GroupNorm3d);
+    group_norm3d(F64, &flex_f64());
 }
 
 #[cfg(feature = "flex")]
 #[test]
 fn ada_in2d_f64_matches_2_0_0() {
-    f64(Part::AdaIn2d);
+    ada_in2d(F64, &flex_f64());
 }

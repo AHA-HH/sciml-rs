@@ -262,8 +262,15 @@ template:
 - Checks: see the PR (fmt, clippy ×5, `cargo test`, `cargo test --features datagen`,
   `cargo doc`, the bit-identity dumps against `main`, `generate.py --check`).
 - Decisions: none.
-- Review: see the PR.
+- Review: plan review PASS (advisories: the plan's `mod` count, the identity skip's
+  missing fixture and the 1D–3D reading, now in the plan). Code quality APPROVE with findings:
+  F1 `conv1x1` moved to `layers/pointwise.rs` (the FNO's copy goes in CM1.3b); F2 one function
+  per case; F4 the width assert in the match, `split_last`; F5 one `FCS` map; F6 docs; F3
+  (`flex_f64`, `Precision::suffix`) left to CM1.5, as the suffix would be dead code in
+  some binaries.
 - FNO: not touched (new modules only).
 - Matrix: `ChannelMLP` partial, skips have, norms partial (no `BatchNorm`), `FNOBlocks` to
   CM1.3b.
-- Follow-ups: CM1.3b (in the roadmap; may let `FNO::conv1x1_cf` share `conv1x1`).
+- Follow-ups: CM1.3b's line: the FNO's pointwise matmul replaced by
+  `layers::pointwise::conv1x1`. A `flex_f64` shared by the parity binaries stays with CM1.5
+  (CM0.5's line); this branch adds a fourth copy.

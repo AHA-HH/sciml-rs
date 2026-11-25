@@ -5,45 +5,41 @@
 mod block_parts;
 mod parity_common;
 
-use block_parts::{Part, check};
+use block_parts::*;
 use burn::prelude::*;
 use parity_common::Precision::F32;
 
-fn f32(part: Part) {
-    check(part, F32, &Device::default());
-}
-
 #[test]
 fn channel_mlp1d_f32_matches_2_0_0() {
-    f32(Part::ChannelMlp1d);
+    channel_mlp1d(F32, &Device::default());
 }
 
 #[test]
 fn channel_mlp3d_f32_matches_2_0_0() {
-    f32(Part::ChannelMlp3d);
+    channel_mlp3d(F32, &Device::default());
 }
 
 #[test]
 fn linear_skip3d_f32_matches_2_0_0() {
-    f32(Part::LinearSkip3d);
+    linear_skip3d(F32, &Device::default());
 }
 
 #[test]
 fn soft_gating2d_f32_matches_2_0_0() {
-    f32(Part::SoftGating2d);
+    soft_gating2d(F32, &Device::default());
 }
 
 #[test]
 fn instance_norm1d_f32_matches_2_0_0() {
-    f32(Part::InstanceNorm1d);
+    instance_norm1d(F32, &Device::default());
 }
 
 #[test]
 fn group_norm3d_f32_matches_2_0_0() {
-    f32(Part::GroupNorm3d);
+    group_norm3d(F32, &Device::default());
 }
 
 #[test]
 fn ada_in2d_f32_matches_2_0_0() {
-    f32(Part::AdaIn2d);
+    ada_in2d(F32, &Device::default());
 }

@@ -5,6 +5,7 @@
 // Burn's `#[derive(Config)]` writes `field: field` in the `new` it generates.
 #![allow(clippy::redundant_field_names)]
 
+use super::pointwise::conv1x1;
 use burn::{
     Tensor,
     config::Config,
@@ -72,40 +73,12 @@ impl ChannelMlp {
     /// # Panics
     /// If the input's channel axis (1) is not `in_channels` wide.
     pub fn forward<const R: usize>(&self, mut x: Tensor<R>) -> Tensor<R> {
-        let last = self.fcs.len() - 1;
-        for (i, fc) in self.fcs.iter().enumerate() {
-            x = conv1x1(fc, x);
-            if i < last {
-                x = self.activation.forward(x);
-            }
+        let (last, hidden) = self.fcs.split_last().expect("at least one layer");
+        for fc in hidden {
+            x = self.activation.forward(conv1x1(fc, x));
         }
-        x
+        conv1x1(last, x)
     }
-}
-
-/// A kernel-size-1 `Conv1d` on a channels-first `[B, I, s..]` tensor of any rank, as one
-/// batched matmul over the flattened grid: `y[b, o, n] = Σ_i w[o, i] · x[b, i, n] + bias[o]`,
-/// `[B, I, s..]` → `[B, O, s..]`. The flattening is free on a contiguous tensor.
-///
-/// # Panics
-/// If `conv`'s kernel size is not 1 or the input is not `I` channels wide.
-pub(crate) fn conv1x1<const R: usize>(conv: &Conv1d, x: Tensor<R>) -> Tensor<R> {
-    let [o, i, k] = conv.weight.dims();
-    assert_eq!(k, 1, "a pointwise convolution needs kernel size 1, got {k}");
-    let mut dims = x.dims();
-    assert_eq!(dims[1], i, "expected {i} input channels, got {}", dims[1]);
-    let n: usize = dims[2..].iter().product();
-    let y = conv
-        .weight
-        .val()
-        .reshape([1, o, i])
-        .matmul(x.reshape([dims[0], i, n]));
-    let y = match &conv.bias {
-        Some(bias) => y + bias.val().reshape([1, o, 1]),
-        None => y,
-    };
-    dims[1] = o;
-    y.reshape(dims)
 }
 
 #[cfg(test)]

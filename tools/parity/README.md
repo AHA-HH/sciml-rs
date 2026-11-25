@@ -62,13 +62,13 @@ files, absent from the wheel, differ).
 | `ada_in2d_{f32,f64}` | `AdaIN(embed_dim=3, in_channels=4)`, its embedding a seeded buffer (`embedding`); input (2, 4, 6, 5) | 6,152 | 28 kB, 55 kB |
 
 The legacy layer's `forward` builds its spectrum as `cfloat`, so its f64 fixtures are only
-f32-accurate (library CM1.1).
+f32-accurate (library CM1.1). tltorch stores its weights as real tensors with the trailing
+(re, im) axis, so their sidecars list no `complex_params`.
 
 Library CM1.3a: parts whose 2.0.0 initialisation is a constant (soft gating's ones, group
 norm's ones and zeros; `REDRAW`) have their parameters redrawn from the weight seed's normal,
 so their fixtures test the map. A function argument (`non_linearity`) is named in the sidecar
-by its `__name__`. tltorch stores its weights as real tensors with the trailing
-(re, im) axis, so their sidecars list no `complex_params`.
+by its `__name__`.
 
 Torch's CPU kernels can differ in the last bits between machines, so `--check` is a
 reproducibility check on one machine; the committed files are the reference, and the

@@ -131,7 +131,9 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     the channel MLP (expansion, skip), the norm and pre-activation, each absent meaning
     today's block. *Done when:* the CM0.3 bit-identity check passes against `main`; a block
     built from the options matches 2.0.0's `FNOBlocks` (with the legacy convolution) within
-    D3, post- and pre-activation, for each norm. *Needs:* CM1.3a.
+    D3, post- and pre-activation, for each norm; the FNO's own pointwise matmul
+    (`FNO::pointwise`, `conv1x1_cf`) replaced by `layers::pointwise::conv1x1` (CM1.3a review).
+    *Needs:* CM1.3a.
 - [ ] **CM1.4 Lifting, projection and embeddings.** Channel-MLP lifting and projection with
   their ratios; `GridEmbeddingND`, `SinusoidalEmbedding`, `RotaryEmbedding2D`. *Needs:*
   CM1.3a (the channel MLP).

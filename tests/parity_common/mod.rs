@@ -223,7 +223,8 @@ pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: 
         );
         assert!(
             complete,
-            "fixture {name}: `{from}` must be mapped once (Whole or Transposed) or once each Re and Im, got {parts:?}"
+            "fixture {name}: `{from}` must be mapped once (Whole or Transposed) or once each \
+             Re and Im, got {parts:?}"
         );
     }
 

@@ -5,5 +5,6 @@
 
 pub mod channel_mlp;
 pub mod norm;
+mod pointwise;
 pub mod skip;
 pub mod spectral_convolution;

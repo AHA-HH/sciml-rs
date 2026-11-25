@@ -2,7 +2,7 @@
 //! (`tools/parity/generate.py`, `channel_mlp1d` … `ada_in2d`): the crate's `ChannelMlp`,
 //! `Skip` and `AdaIn`, and Burn's `InstanceNorm` and `GroupNorm` as 2.0.0's block builds
 //! them. Each case builds its part, loads the fixture through a hand-written map and
-//! returns the output beside the reference.
+//! compares the output with the fixture's.
 
 use burn::{
     module::Param,
@@ -20,40 +20,6 @@ use sciml_rs::neural_operators::layers::{
 
 use crate::parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into};
 
-/// One part and its fixture, `<name>_{f32,f64}`.
-#[derive(Clone, Copy, Debug)]
-pub enum Part {
-    /// `ChannelMLP(4, hidden=2)`: GELU, two layers, out = in; 1D.
-    ChannelMlp1d,
-    /// `ChannelMLP(3, out=5, hidden=4, n_layers=3, non_linearity=torch.tanh)`; 3D.
-    ChannelMlp3d,
-    /// `skip_connection(3, 5, n_dim=3, skip_type="linear")`.
-    LinearSkip3d,
-    /// `skip_connection(4, 4, n_dim=2, skip_type="soft-gating")`, weight redrawn.
-    SoftGating2d,
-    /// 2.0.0's `InstanceNorm()`: no affine.
-    InstanceNorm1d,
-    /// `nn.GroupNorm(1, 4)`, as `FNOBlocks` builds it; affine redrawn.
-    GroupNorm3d,
-    /// `AdaIN(embed_dim=3, in_channels=4)`, its embedding in the fixture.
-    AdaIn2d,
-}
-
-impl Part {
-    /// The fixture's name without the precision suffix.
-    pub fn name(self) -> &'static str {
-        match self {
-            Part::ChannelMlp1d => "channel_mlp1d",
-            Part::ChannelMlp3d => "channel_mlp3d",
-            Part::LinearSkip3d => "linear_skip3d",
-            Part::SoftGating2d => "soft_gating2d",
-            Part::InstanceNorm1d => "instance_norm1d",
-            Part::GroupNorm3d => "group_norm3d",
-            Part::AdaIn2d => "ada_in2d",
-        }
-    }
-}
-
 /// 2.0.0's `AdaIN` with its embedding as a test-only parameter, so the fixture's
 /// `embedding` loads through the map like a weight.
 #[derive(Module, Debug)]
@@ -62,100 +28,108 @@ pub struct AdaInCase {
     pub embedding: Param<Tensor<1>>,
 }
 
-/// The relative max error of `part`'s fixture in `precision` on `device`, asserted within
-/// D3 and printed for the record.
-///
-/// # Panics
-/// If the load is incomplete or the error exceeds D3.
-pub fn check(part: Part, precision: Precision, device: &Device) -> f64 {
-    let suffix = match precision {
-        Precision::F32 => "f32",
-        Precision::F64 => "f64",
-    };
-    let name = format!("{}_{suffix}", part.name());
-    let mut fixture = Fixture::open(&name);
-    let err = match part {
-        Part::ChannelMlp1d => {
-            let mlp = ChannelMlpConfig::new(4, 4, 2).init(device);
-            run::<_, 3>(&name, mlp, &mut fixture, MLP2, device, ChannelMlp::forward)
-        }
-        Part::ChannelMlp3d => {
-            let mlp = ChannelMlpConfig::new(3, 5, 4)
-                .with_n_layers(3)
-                .with_activation(ActivationConfig::Tanh)
-                .init(device);
-            run::<_, 5>(&name, mlp, &mut fixture, MLP3, device, ChannelMlp::forward)
-        }
-        Part::LinearSkip3d => {
-            let skip = SkipKind::Linear.init::<5>(3, 5, device);
-            let map = &[("conv.weight", "Linear.weight", Take::Whole)];
-            run::<_, 5>(&name, skip, &mut fixture, map, device, Skip::forward)
-        }
-        Part::SoftGating2d => {
-            let skip = SkipKind::SoftGating.init::<4>(4, 4, device);
-            let map = &[("weight", "SoftGating", Take::Whole)];
-            run::<_, 4>(&name, skip, &mut fixture, map, device, Skip::forward)
-        }
-        Part::InstanceNorm1d => {
-            let norm = InstanceNormConfig::new(4).with_affine(false).init(device);
-            run::<_, 3>(
-                &name,
-                norm,
-                &mut fixture,
-                &[],
-                device,
-                InstanceNorm::forward,
-            )
-        }
-        Part::GroupNorm3d => {
-            let norm = GroupNormConfig::new(1, 4).init(device);
-            let map = &[
-                ("weight", "gamma", Take::Whole),
-                ("bias", "beta", Take::Whole),
-            ];
-            run::<_, 5>(&name, norm, &mut fixture, map, device, GroupNorm::forward)
-        }
-        Part::AdaIn2d => {
-            let case = AdaInCase {
-                norm: AdaInConfig::new(3, 4).init(device),
-                embedding: Param::from_tensor(Tensor::zeros([3], device)),
-            };
-            run::<_, 4>(&name, case, &mut fixture, ADA_IN, device, |c, x| {
-                c.norm.forward(x, c.embedding.val())
-            })
-        }
-    };
-    println!("{name}: relative max error {err:.3e}");
-    err
+// Each case: fixture `<case>_{f32,f64}` in `p`'s precision on `device`; returns the relative
+// max error, asserted within D3. Panics if the load is incomplete or the error exceeds D3.
+
+/// `ChannelMLP(4, hidden=2)`: GELU, two layers, out = in; 1D.
+pub fn channel_mlp1d(p: Precision, device: &Device) -> f64 {
+    let mlp = ChannelMlpConfig::new(4, 4, 2).init(device);
+    run::<_, 3>(
+        "channel_mlp1d",
+        p,
+        mlp,
+        &FCS[..4],
+        device,
+        ChannelMlp::forward,
+    )
 }
 
-/// Loads `fixture` into `module` through `map`, runs `forward` on its input and returns the
-/// relative max error against its output, asserted within D3.
+/// `ChannelMLP(3, out=5, hidden=4, n_layers=3, non_linearity=torch.tanh)`; 3D.
+pub fn channel_mlp3d(p: Precision, device: &Device) -> f64 {
+    let mlp = ChannelMlpConfig::new(3, 5, 4)
+        .with_n_layers(3)
+        .with_activation(ActivationConfig::Tanh)
+        .init(device);
+    run::<_, 5>("channel_mlp3d", p, mlp, FCS, device, ChannelMlp::forward)
+}
+
+/// `skip_connection(3, 5, n_dim=3, skip_type="linear")`. Burn names an enum module's
+/// parameters after the variant.
+pub fn linear_skip3d(p: Precision, device: &Device) -> f64 {
+    let skip = SkipKind::Linear.init::<5>(3, 5, device);
+    let map = &[("conv.weight", "Linear.weight", Take::Whole)];
+    run::<_, 5>("linear_skip3d", p, skip, map, device, Skip::forward)
+}
+
+/// `skip_connection(4, 4, n_dim=2, skip_type="soft-gating")`, weight redrawn.
+pub fn soft_gating2d(p: Precision, device: &Device) -> f64 {
+    let skip = SkipKind::SoftGating.init::<4>(4, 4, device);
+    let map = &[("weight", "SoftGating", Take::Whole)];
+    run::<_, 4>("soft_gating2d", p, skip, map, device, Skip::forward)
+}
+
+/// 2.0.0's `InstanceNorm()`: no affine; 1D.
+pub fn instance_norm1d(p: Precision, device: &Device) -> f64 {
+    let norm = InstanceNormConfig::new(4).with_affine(false).init(device);
+    run::<_, 3>(
+        "instance_norm1d",
+        p,
+        norm,
+        &[],
+        device,
+        InstanceNorm::forward,
+    )
+}
+
+/// `nn.GroupNorm(1, 4)`, as `FNOBlocks` builds it; affine redrawn; 3D.
+pub fn group_norm3d(p: Precision, device: &Device) -> f64 {
+    let norm = GroupNormConfig::new(1, 4).init(device);
+    let map = &[
+        ("weight", "gamma", Take::Whole),
+        ("bias", "beta", Take::Whole),
+    ];
+    run::<_, 5>("group_norm3d", p, norm, map, device, GroupNorm::forward)
+}
+
+/// `AdaIN(embed_dim=3, in_channels=4)`, its embedding in the fixture; 2D.
+pub fn ada_in2d(p: Precision, device: &Device) -> f64 {
+    let case = AdaInCase {
+        norm: AdaInConfig::new(3, 4).init(device),
+        embedding: Param::from_tensor(Tensor::zeros([3], device)),
+    };
+    run::<_, 4>("ada_in2d", p, case, ADA_IN, device, |c, x| {
+        c.norm.forward(x, c.embedding.val())
+    })
+}
+
+/// Opens `<case>_{f32,f64}`, loads it into `module` through `map`, runs `forward` on its
+/// input and returns the relative max error against its output, asserted within D3 and
+/// printed for the record.
 fn run<M: ModuleSnapshot, const R: usize>(
-    name: &str,
+    case: &str,
+    precision: Precision,
     mut module: M,
-    fixture: &mut Fixture,
     map: &[MapEntry],
     device: &Device,
     forward: impl Fn(&M, Tensor<R>) -> Tensor<R>,
 ) -> f64 {
-    load_into(&mut module, fixture, map);
+    let suffix = match precision {
+        Precision::F32 => "f32",
+        Precision::F64 => "f64",
+    };
+    let name = format!("{case}_{suffix}");
+    let mut fixture = Fixture::open(&name);
+    load_into(&mut module, &mut fixture, map);
     let out = forward(&module, fixture.input::<R>(device));
-    assert_parity(out, &fixture.output(), fixture.precision.d3(), name)
+    let err = assert_parity(out, &fixture.output(), precision.d3(), &name);
+    println!("{name}: relative max error {err:.3e}");
+    err
 }
 
-/// A two-layer `ChannelMLP`: 2.0.0's `fcs.k` are the crate's `fcs.k`.
+/// A `ChannelMLP`'s layers: 2.0.0's `fcs.k` are the crate's `fcs.k`. Two layers take the
+/// first four entries.
 #[rustfmt::skip]
-const MLP2: &[MapEntry] = &[
-    ("fcs.0.weight", "fcs.0.weight", Take::Whole),
-    ("fcs.0.bias", "fcs.0.bias", Take::Whole),
-    ("fcs.1.weight", "fcs.1.weight", Take::Whole),
-    ("fcs.1.bias", "fcs.1.bias", Take::Whole),
-];
-
-/// A three-layer `ChannelMLP`.
-#[rustfmt::skip]
-const MLP3: &[MapEntry] = &[
+const FCS: &[MapEntry] = &[
     ("fcs.0.weight", "fcs.0.weight", Take::Whole),
     ("fcs.0.bias", "fcs.0.bias", Take::Whole),
     ("fcs.1.weight", "fcs.1.weight", Take::Whole),

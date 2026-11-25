@@ -13,10 +13,10 @@ use burn::{
     tensor::Device,
 };
 
-use super::channel_mlp::conv1x1;
+use super::pointwise::conv1x1;
 
 /// Which skip connection, as 2.0.0's `skip_type`; [`SkipKind::init`] builds it.
-#[derive(Config, Debug, PartialEq, Eq)]
+#[derive(Config, Debug)]
 pub enum SkipKind {
     /// `"identity"`: the input unchanged.
     Identity,
@@ -52,20 +52,24 @@ impl SkipKind {
         out_channels: usize,
         device: &Device,
     ) -> Skip<R> {
-        if *self != SkipKind::Linear {
+        let same_width = || {
             assert_eq!(
                 in_channels, out_channels,
                 "a {self:?} skip keeps the width: in_channels must equal out_channels"
-            );
-        }
+            )
+        };
         match self {
-            SkipKind::Identity => Skip::Identity(Identity::new()),
+            SkipKind::Identity => {
+                same_width();
+                Skip::Identity(Identity::new())
+            }
             SkipKind::Linear => Skip::Linear(
                 Conv1dConfig::new(in_channels, out_channels, 1)
                     .with_bias(false)
                     .init(device),
             ),
             SkipKind::SoftGating => {
+                same_width();
                 let mut shape = [1; R];
                 shape[1] = in_channels;
                 Skip::SoftGating(Param::from_tensor(Tensor::ones(shape, device)))
