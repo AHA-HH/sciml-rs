@@ -125,12 +125,13 @@ decision below changes it. O1's Burgers and Darcy protocol is Section 3.1.
 
 - **Problem:** stage 3 (n = 129, K = 64), s = 64, p = 0, modes [12, 12], width 32, 4 layers,
   N = 1000, the 200 test samples; one A100 per run (the VM has two, so two runs at once).
-- **Seeds:** 42–46 (D2). Phase 10's seed 42 at μ = 0 lay outside Adam's range on the other
+- **Seeds (D2, amended 2026-11-25):** 42–46 at the equal-time budget, 42–44 at the long one. Phase 10's seed 42 at μ = 0 lay outside Adam's range on the other
   side from seeds 43 and 44, so three seeds cannot separate the arms.
 - **Budgets (D2):** *equal time*, the mean training time of O0's Adam reruns (Phase 10's
   was 859.4 s); and *long*, 5,400 s, where Phase 10's best Gauss–Newton run was measured.
   Every arm runs at both, so the long budget also answers whether Adam improves with
-  6.3× the time.
+  6.3× the time; three seeds there, since Adam's spread is small (1.04–1.10e-2 in Phase
+  10) and the long budget asks how far each arm goes, not the close equal-time question.
 - **Arms (D1, D3, D6):** Adam (Phase 5 settings, μ = 1e-4, batch 20); Gauss–Newton (GN200-D
   at μ = 0, the CG cap from O0); L-BFGS (full batch, Φ at μ = 0); SOAP (batch 20).
 - **Reported per run:** error 4 (fine grid) and error 3, final train and test L² and the
@@ -159,7 +160,7 @@ solvers for training regression problems in Scientific Machine Learning", arXiv 
 | Second-order | TR-GN, Steihaug–Toint CG ≤ 100 iterations, L-BFGS preconditioner (5 vectors), full batch, **f64** | our Gauss–Newton (D12), full batch, CG cap 100, **f32** (D10) |
 | Cost | oracle calls: a gradient 2, a GN product 2; "training times are always strongly correlated" with them; no timings | passes by Phase 10's rule (one forward or one backward on one batch; our central-difference JVP is two forwards where theirs is one), their oracle calls computed alongside, plus training time and updates |
 
-**The 2 × 2 (D11, D12).** Seeds 42–46, every cell:
+**The 2 × 2 (D11, D12).** Seeds 42–46 at equal time and 42–44 at the long budget (D2), every cell:
 
 | | weight decay 0 | weight decay 1e-4 |
 | --- | --- | --- |
@@ -185,8 +186,8 @@ hypothesis).
 the data split and the parameter count first, and goes on: the 2 × 2 is internally
 comparable either way.
 
-**Budgets.** Every cell at A1's mean training time (equal time) and at 6 × that (long), as
-Poisson's D2; AdamW's step schedule spans its epochs, so at the long budget AdamW runs
+**Budgets.** Every cell at A1's mean training time (equal time, seeds 42–46) and at 6 × that
+(long, seeds 42–44), as Poisson's D2; AdamW's step schedule spans its epochs, so at the long budget AdamW runs
 6 × the epochs with the halving every 6 × 100 (D11).
 
 **Darcy (extension, not a replication).** PETScML has no Darcy case. The same 2 × 2 on Li et
@@ -325,12 +326,12 @@ built; nothing else in the Adam path changes. `OPTIMIZER=soap` and the `_soap` r
   history; the full-batch forward and backward at N = 1,000 below Phase 10's full-batch GN
   peak (12,619–17,195 MiB); Phase 10's full-batch GN ran about 0.26 s per pass of 1,000 samples (5,413 s for 20,614
   passes), so about 0.5 s per closure evaluation, about 1,700 at the equal-time budget.
-- **The matrix (O4):** four arms × five seeds at about 900 s, and at 5,400 s (D2): about
-  5 h and 30 h of A100 time, half that on the VM's two A100s. With weight decay as a factor
-  (D13), twice that: about 10 h and 60 h.
+- **The matrix (O4):** four arms × five seeds at about 900 s, and × three seeds at 5,400 s
+  (D2): about 5 h and 18 h of A100 time, half that on the VM's two A100s. With weight decay
+  as a factor (D13), twice that: about 10 h and 36 h.
 - **O1 (Burgers):** not estimated. The model has 549,569 parameters (a quarter of the 2D
   FNO's) on 128 points; A1's 500 epochs set the equal-time budget, measured in CO1.3. Five
-  cells (A0, A1, G0, G1, G0-200) × five seeds × two budgets = 50 runs, 70 with the two
+  cells (A0, A1, G0, G1, G0-200) × (five seeds at equal time + three at the long budget) = 40 runs, 56 with the two
   coupled-Adam cells; Darcy adds 20 at equal time.
 
 ## 8. Risks
@@ -425,7 +426,7 @@ one after the other, never at once: CO1.1 first, then CO2.1; CO3.3, which adds t
 | --- | --- | --- |
 | D0 | This proposal as the plan of record | draft 0.2, after the author's review |
 | D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; the CG cap (50 or 150) chosen from O0's seed-42 runs at both budgets |
-| D2 | Seeds and budgets | seeds 42–46; equal time (O0's Adam mean) and 5,400 s, every arm at both |
+| D2 | Seeds and budgets | seeds 42–46 at equal time (O0's Adam mean), 42–44 at 5,400 s; every arm at both (amended 2026-11-25) |
 | D3 | L-BFGS's objective and weight decay | Φ at μ = 0, Gauss–Newton's objective |
 | D4 | L-BFGS's batch | full batch, one batch of 1,000; accumulation over batches of 20 if memory requires |
 | D5 | L-BFGS's settings | strong Wolfe, lr 1; history and `max_iter` from the pilot |
@@ -435,7 +436,7 @@ one after the other, never at once: CO1.1 first, then CO2.1; CO3.3, which adds t
 | D9 | Where SOAP's linear algebra runs | `linalg` enabled; first basis by host `svd`, refreshes by device `qr` if O3's first task passes, else host |
 | D10 | O1's fidelity to PETScML | their data, model (GELU, an `FNOConfig` option added in CO1.1), loss (eq. 6: a squared-loss option for the Adam path, added in CO1.1), metric and reference recipe (Section 3.1); f32 on cuda, not their f64; our Levenberg–Marquardt Gauss–Newton, not their trust region; reproduced if A1's mean over seeds 42–46 is within a factor 2 of 0.0014 |
 | D11 | O1's Adam arms | AdamW (decoupled), lr 1e-3 halved every 100 epochs, batch 20, 500 epochs, ε 1e-8, at weight decay 1e-4 (A1) and 0 (A0); at the long budget the epochs and the halving period scaled by 6; our Adam (coupled L2, cosine) at 0 and 1e-4 as two more cells (recommended: they separate coupled from decoupled decay) |
-| D12 | O1's Gauss–Newton arm | full batch (1,000), CG cap 100 (PETScML's), Phase 10's damping and backtracking, the Hutchinson diagonal (Phase 10's `-D`, fixed here so that O1 does not wait for D1), μ = 0 (G0) and 1e-4 (G1); and G0-200, G0 at batch 200 (Phase 10's GN200-D batch); seeds 42–46; both budgets of Section 3.1 |
+| D12 | O1's Gauss–Newton arm | full batch (1,000), CG cap 100 (PETScML's), Phase 10's damping and backtracking, the Hutchinson diagonal (Phase 10's `-D`, fixed here so that O1 does not wait for D1), μ = 0 (G0) and 1e-4 (G1); and G0-200, G0 at batch 200 (Phase 10's GN200-D batch); seeds 42–46 at equal time and 42–44 at the long budget (D2), as Section 3.1 |
 | D13 | Weight decay as a factor in O4 | every arm at weight decay 0 and 1e-4: L-BFGS with ½μ‖θ‖² in its closure (D3 becomes μ ∈ {0, 1e-4}), SOAP with decoupled decay at 0 and 1e-4 (D6's 1e-4 plus 0), Adam and Gauss–Newton at both; doubles O4's cost (Section 7) |
 | D14 | Burgers in O4 | the four arms of O4 also on O1's Burgers setting, at the equal-time budget only, seeds 42–46; PETScML ran L-BFGS there too (30 history vectors, Armijo backtracking), so L-BFGS's Burgers cell is a comparison point, a replication point only if that cell uses their settings |
 
@@ -484,3 +485,6 @@ one after the other, never at once: CO1.1 first, then CO2.1; CO3.3, which adds t
   paper; ε justified by Optax; PETScML's best-so-far, single-run metric recorded; Phase 10's
   best result and seed stated; Burn's step schedule reused; D14's L-BFGS cell a comparison
   point; CM0.3 added to CO3.3's Needs.
+- **D2 amended (2026-11-25).** Three seeds (42–44) instead of five at the 5,400 s budget, for
+  every arm (O0, O1's Burgers cells, O4); five stay at the equal-time budget. Section 3,
+  Section 3.1's budgets and Section 7's costs updated (O4's long budget 30 h → 18 h).

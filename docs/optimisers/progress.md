@@ -60,3 +60,14 @@ template:
 - Adam and Gauss–Newton: not touched.
 - Follow-ups: CO0.1 and CO0.2 (the VM, at the author's go per run) and CO3.1; CO3.2 after
   CO3.1; the tasks that change `training/` after the library's CM0.3.
+
+## 2026-11-25: D2 amended
+- Done: D2 amended by the author: seeds 42–44 (three) at the 5,400 s budget, 42–46 (five)
+  at the equal-time budget, for every arm. CO0.1, CO1.3, CO4.1 and the O1 and O4 gates
+  updated; proposal Sections 3, 3.1, 7, 12 and Appendix A.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D2 amended 2026-11-25.
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO0.1 at about 13 GPU-hours instead of 19; its plan checks that two timed runs
+  side by side keep a lone run's epoch times.
