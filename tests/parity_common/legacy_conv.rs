@@ -4,7 +4,7 @@
 //!
 //! The legacy layer keeps corner weights `(in, out, *[m // 2 for m in n_modes])`, stored by
 //! tltorch as real tensors with a trailing (re, im) axis, uses `fft_norm="backward"` as
-//! CONVENTIONS §4 does, and adds a bias `(1, out, 1, …)` after the inverse transform. Its
+//! CONVENTIONS §4 does, and adds a bias `(n_layers, out, 1, …)` (`n_layers` = 1 here) after the inverse transform. Its
 //! corners run in `itertools.product` order, axis 0 most significant; the crate's corner
 //! index has axis `j` in bit `j` (CONVENTIONS §5). The two agree in 1D and 2D; in 3D 2.0.0's
 //! `weight.1` (low axis 0, high axis 1) is corner 2 here and `weight.2` corner 1.
