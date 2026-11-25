@@ -112,11 +112,16 @@ fallback is generating on the Mac and copying the two n = 65 splits (5.3 GB) to 
   and the VM in CL0.1.
 
 ## Pending runs
-- n = 65 generation on the VM (the commands under "VM runs"): waits for the author's go
-  (D8 open) and for no timed run in tmux (optimisers CO0.1, `co0`). tmux session `cl3-2`,
-  log `~/sciml-rs/logs/cl3-2.log`. Decides the L3 gate's "written" for the training stage.
-  The n = 33 sets are written (Mac, 2026-11-25; `docs/laplace3d/results/cl3-2.md`).
-- Attempt 1 (2026-11-25 14:06, run by the coordinating session): the `datagen` build failed: clang-sys found no unversioned `libclang.so` (the VM has `/usr/lib64/libclang.so.19.1`). Fixed without root by a link `~/.local/lib/libclang/libclang.so -> /usr/lib64/libclang.so.19.1` and `LIBCLANG_PATH` (above). The generation is queued after the bisect's timed runs (about 15:00 UTC).
+None. The n = 33 sets were written on the Mac (2026-11-25). The n = 65 sets were written on
+the author's Mac at `075aa3c` and uploaded to the VM, SHA-256 identical
+(`docs/laplace3d/results/cl3-2.md`).
+- VM attempt 1 (2026-11-25 14:06, run by the coordinating session): the `datagen` build
+  failed because clang-sys found no unversioned `libclang.so` (the VM has
+  `/usr/lib64/libclang.so.19.1`). Fixed without root by a link
+  `~/.local/lib/libclang/libclang.so -> /usr/lib64/libclang.so.19.1` and `LIBCLANG_PATH`.
+- VM attempt 2: `rlst` needs FFTW (pkg-config), which is not installed on the VM. The
+  author then chose to generate on the Mac and upload (plan C).
 
 ## Open questions
-- D8 (open): n = 65 generation on the VM, as above. Asked in the PR.
+- D8: signed off at the L0 gate; for this task the author chose the Mac and an upload
+  (2026-11-25), since the VM cannot build `datagen` yet.

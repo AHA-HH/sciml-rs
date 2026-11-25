@@ -91,3 +91,67 @@ template:
 - Adam and Gauss–Newton: unchanged bit for bit: equal fingerprints with `linalg` off
   (`origin/main` 4d681d0) and on, flex; the feature adds no code the crate uses (REPORT).
 - Follow-ups: CO3.2 (needs D8).
+
+## 2026-11-25: D8, D10 and D11
+- Done: signed off by the author as recommended. D8: SOAP preconditions each tensor with one
+  Kronecker factor per dimension, re and im separately, biases on Adam. D10: O1 takes
+  PETScML's data, model (a GELU option), loss (eq. 6) and metric, with our Levenberg–Marquardt
+  Gauss–Newton in f32; their reference counts as reproduced when A1's mean is within a factor
+  2 of 0.0014. D11: AdamW, lr 1e-3 halved every 100 epochs, batch 20, 500 epochs, ε 1e-8,
+  at weight decay 1e-4 (A1) and 0 (A0), plus our coupled Adam at both.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D8, D10, D11 signed off 2026-11-25.
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO3.2 (SOAP) and CO1.1 (the Burgers recipe) are runnable; both change
+  different modules, but CO1.1 changes `training/`, so no other `training/` task beside it.
+
+## 2026-11-25: D3, D4, D7, D12 and D13
+- Done: signed off by the author, all as recommended. D3: L-BFGS minimises Φ, Gauss–Newton's
+  objective, at μ ∈ {0, 1e-4} as D13 widens it. D4: full batch, one batch of 1,000,
+  accumulation only if memory requires. D7: one forward and one backward per SOAP step and
+  per L-BFGS closure evaluation, SOAP's preconditioner work reported as time. D12: O1's
+  Gauss–Newton arm full batch, CG cap 100, Phase 10's damping and backtracking, the
+  Hutchinson diagonal, μ = 0 (G0) and 1e-4 (G1), and G0-200. D13: every arm of O4 at weight
+  decay 0 and 1e-4 (the long budget's cost about 18 h → 36 h).
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D3, D4, D7, D12, D13 signed off 2026-11-25.
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO1.2 after CO1.1; CO3.3 after CO3.2 and CO0.1; CO2.1 after CO1.1. They all
+  change `training/`, so one at a time (with CM0.6).
+
+## 2026-11-25: CO3.2 The SOAP optimiser
+- Done: `optim/soap/` (new; imports nothing from `models/` or `training/`): `SoapConfig`
+  (the reference defaults; `precondition_frequency` 0 refused), `Soap`, Burn's
+  per-parameter `Optimizer` for any rank, `SoapState` with `RecordState` written by hand
+  (Burn's derive works only inside `burn-optim`), `Factor`. Follows nikhilvyas/SOAP @a1e5535:
+  first call builds the factors and bases and moves nothing; bias correction, ε on √V,
+  decoupled decay after the step, factor EMA after it, refresh every f steps (sort by
+  diag(QᵀLQ), V permuted, one power step, QR). D8: one factor per dimension, rank 1 on Adam.
+  D9: first basis by Burn's host `svd`, refreshes by a host f64 Householder QR (ndarray).
+  Departure, declared: M kept in the original space (the paper's Algorithm 3; three
+  projections per step against the reference's four).
+- Tests: seven in `optim/soap/tests.rs`: identity bases (`max_precond_dim` 0) equal Burn's
+  Adam over 20 steps (1e-6); the Kronecker quadratic (first factors to 1e-5; SOAP 1.6e-7
+  against Adam 5.1e-2 from 2.0e2 at lr 0.05 · 0.98ⁱ, 400 steps, κ = 10 per factor; at
+  κ = 100 the factors are past f32 and the result depends on the backend); ranks 1–5 (factor EMA,
+  orthonormal bases, one step against host f64 at 3–7e-6 of the update); the refresh against
+  host f64 (first bases against the exact eigenvectors, refreshed bases against a
+  Gram–Schmidt QR, V permuted); the record round trip bit for bit across refreshes (flex;
+  on metal it fails about one run in six, see the plan's Outcome); a zero
+  first gradient; the frequency check. Mutations (Q for Qᵀ in the back-projection, V not
+  permuted, decay before the step) each fail a test.
+- Checks: see the PR (fmt, the clippy lines, `cargo test`, `cargo doc`, datagen clippy and
+  tests, the soap tests on metal).
+- Decisions: none new; D8, D9 applied. The author's answers to the PR's questions
+  (2026-11-25): no reference fixtures; resume bit for bit on flex, drift recorded on the
+  GPU; f32 kept, CO3.3 logs the factors' conditioning (CO3.3's roadmap line).
+- Review: plan review FAIL → fixed (`clippy::needless_range_loop` in the tests; advisories
+  taken: decay order now tested, zero-gradient test, frequency 0 refused, f64 host read);
+  code quality APPROVE, no blockers (F1 ndarray for the host QR, F4, F5, F6, F8 fixed; F2,
+  F3, F7 left, PR text).
+- Adam and Gauss–Newton: not touched (nothing calls the module; the existing suite unedited).
+- Follow-ups: CO3.3 (the arm, resume bit for bit on flex with the GPU drift recorded, the
+  factors' conditioning logged at the pilot; its roadmap line).
+

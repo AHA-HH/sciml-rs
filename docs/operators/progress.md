@@ -158,3 +158,140 @@ template:
 - Matrix: `BaseModel`, `get_model`/`available_models` set to have (infrastructure).
 - Follow-ups: CM2.1 (the second kind: its variants, the export's arm, `Model<R>` as a
   `Module` if needed; review F4); CM0.6 (`Operator::NAME`, on the author's answer).
+
+## 2026-11-25: D3 and the CM0.3 test-import question
+- Done: D3 signed off by the author as recommended: parity holds when the relative max
+  error is ≤ 1e-5 in f32 and ≤ 1e-12 in f64, on the CPU. The author's answer to CM0.3's
+  question: moving a test module's `use` lines into that module is not editing a test, so
+  CM0.6 moves the four `#[cfg(test)]` imports.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D3 signed off 2026-11-25.
+- FNO: not touched.
+- Matrix: unchanged.
+- Follow-ups: CM0.5 (the parity harness) and CM0.6 (the tidy-up) are runnable.
+
+## 2026-11-25: CM0.5 The parity harness
+- Done: `tests/parity_common/mod.rs`, the harness: `Fixture` (a CM0.2 `.npz`, its precision
+  from the name), `Take` (`Whole`, or the `Re`/`Im` half of a complex tensor's trailing
+  axis), `load_into` (a hand-written map of 2.0.0 names to Burn paths, applied with
+  `ModuleSnapshot::apply`; panics unless every fixture parameter is mapped, complex ones by
+  both halves, every entry applies and no module parameter is left out), `rel_max_error`
+  (max |a − e| / max |e|; panics on a NaN or infinity) and `assert_parity`, with D3's
+  bounds. `tests/parity_common/fno1d.rs`: `Fno1dRef`, 2.0.0's 1D `FNO` at its defaults in
+  test code (Burn `Conv1d` and `gelu`, the crate's `SpectralConv`), and its 44-entry map
+  of the fixture's 40 arrays.
+- Tests: `fno1d_f32_matches_2_0_0` (3.514e-7 ≤ 1e-5, Flex); `fno1d_f64_matches_2_0_0` in
+  its own binary, `#[ignore]`d (1.211e-8 > 1e-12: Flex's f64 `rfft` twiddles are f32); a
+  1e-3 weight shift fails parity; the load rejects an unmapped array, an unknown path and
+  half a complex tensor; the re/im split; `rel_max_error` on a hand-computed pair and on NaN.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test`, `cargo doc --no-deps` (all pass);
+  `cargo test --features datagen` (pass, run by the plan review before its NaN fix, which
+  changes only `tests/`). Not run: `--features metal` (no backend-sensitive change), the
+  bit-identity dumps (nothing under `src/` changes).
+- Decisions: none. Questions for the author in the PR: D3's f64 bound on the CPU while the
+  Flex bug stands; the reading of "relative max error".
+- Review: plan review FAIL on one blocker (`rel_max_error` let NaN through), fixed with a
+  test; its advisories (blanket `allow`, unused `d3`, plan text, grid dtype) fixed. Code
+  quality APPROVE with findings (F2, F4, F6, F7 and a nit fixed; F1, F3, F5, F8 in the
+  roadmap line).
+- FNO: not touched (tests only).
+- Matrix: unchanged (the mirror is test code; no row reaches **have**).
+- Follow-ups: in CM0.5's roadmap line (for CM0.6, CM1.1 and CM1.5).
+
+## 2026-11-25: D3 amended (CM0.5's questions)
+- Done: the author's answers to CM0.5's two questions (#148), as the coordinating session
+  recommended. "Relative max error" is max |a − e| / max |e| over the tensor, so elements
+  near zero do not dominate. f32 parity on the CPU is enough for M1 while Flex's f64 `rfft`
+  uses f32 twiddles (`upstream/burn/flex-f64-fft-f32-twiddles`): each f64 parity test is
+  `#[ignore]`d with its measured error recorded, as CM0.5 does (1.211e-8 for the 1D FNO).
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D3 amended 2026-11-25.
+- FNO: not touched.
+- Matrix: unchanged.
+- Follow-ups: CM1.1 runs to D3 as amended; the f64 bound returns when the upstream fix lands.
+
+## 2026-11-25: CM1.1 Legacy spectral convolution parity
+- Done: three configurations of 2.0.0's generic legacy `SpectralConv`
+  (`layers/legacy_spectral_convolution.py`, defaults, bias on) in `tools/parity/generate.py`,
+  in ≠ out and odd and non-power-of-two extents; fixtures
+  `legacy_spectral_conv{1,2,3}d_{f32,f64}`. `tests/parity_common/legacy_conv.rs`:
+  `LegacyConv<R>` (the crate's `SpectralConv<R>` plus a test-only bias) and the hand-written
+  maps; 2.0.0's corners run axis 0 most significant, so in 3D its `weight.1` and `weight.2`
+  are the crate's corners 2 and 1. The reference models (`fno1d.rs`, `legacy_conv.rs`) are no
+  longer modules of `parity_common/mod.rs`: each binary includes its own with `#[path]`, so
+  none compiles dead code (CM0.5's test files change only in `mod`/`use` lines).
+- Tests: `legacy_spectral_conv{1,2,3}d_f32_matches_2_0_0` (2.116e-7, 4.722e-7, 3.053e-7 ≤
+  1e-5, Flex, M2 Pro); `legacy_3d_corner_order_matters` (2.0.0's corner order unpermuted:
+  4.853e-1, fails D3); the f64 three `#[ignore]`d (1.588e-7, 2.907e-7, 2.498e-7): 2.0.0's
+  legacy `forward` builds its spectrum as `cfloat`, so its f64 output is f32-accurate
+  (7.8e-8 against numpy in f64, measured), whatever Burn does.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test`, `cargo test --features datagen`,
+  `cargo doc --no-deps` (all pass); `generate.py --check` (all ten fixtures the same, CM0.2's
+  four unchanged). Not run: `--features metal` and the bit-identity dumps (nothing under
+  `src/` changes).
+- Decisions: none. The author's answer on the review's F2 (2026-11-25): keep the legacy f64
+  tests `#[ignore]`d, as D3 as amended asks.
+- Review: plan review PASS (advisories fixed: the negative control prints its error, the bias
+  doc; the docs committed); code quality APPROVE with findings (F3, F4 fixed; F1, one
+  `flex_f64` for the f64 binaries, left to CM1.5 as CM0.5's line has it; F2 answered; F5
+  informational).
+- FNO: not touched (tests, fixtures and the generator only).
+- Matrix: the legacy `SpectralConv` row stays partial, its note naming what is at parity
+  and what is missing.
+- Follow-ups: CM0.5's sidecar and grid items pass to CM1.2 and CM1.5 (CM1.1's roadmap line);
+  `flex_f64` shared (CM1.5, now easy with `#[path]`).
+
+## 2026-11-25: D5
+- Done: D5 signed off by the author: A, as recommended. The spectral weights stay in the
+  corner layout internally (CONVENTIONS §5 unchanged); 2.0.0's centred weights are
+  converted when fixtures are loaded, the FFT normalisation and the mode counts included
+  (CM1.2). A centred layout may come later only as an opt-in option, off by default, in a
+  task of its own, if a need (checkpoint interchange with PyTorch) or a measured gain
+  appears. The outputs are the same either way: the layouts store the same coefficients.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D5 signed off 2026-11-25.
+- FNO: not touched.
+- Matrix: unchanged.
+- Follow-ups: CM1.2 runnable.
+
+## 2026-11-25: CM1.6a Finite differences and the data losses
+- Done: CM1.6 split into CM1.6a–c (roadmap). `losses/differentiation.rs`: `FiniteDiff<D>`,
+  one rank-generic stencil (`partial`, orders 1 and 2, periodic by `roll_dim` or one-sided
+  with 2.0.0's coefficients) for 2.0.0's eighteen per-dimension methods; `dx`/`dy`/`dz`,
+  `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`.
+  `losses/sobolev.rs`: `SobolevLoss<D>` (H1, Hdiv; 2.0.0's quadrature measure / s, which
+  is also the step, and eps in `rel`; zero subgradient at an exact match).
+  `losses/pointwise.rs`: `PointwiseQuantileLoss`, `mse_loss`. Fixtures
+  `losses{1,2,3}d_{f32,f64}` from `tools/parity/generate_losses.py` (beside CM1.1's
+  `generate.py`).
+- Tests: parity on every `FiniteDiff` operator, H1 and Hdiv (rel, abs; periodic, one-sided,
+  mixed; sum, mean), the quantile loss and MSE: f32 ≤ 1.7e-7 (D3 1e-5), f64 ≤ 6e-16 (D3
+  1e-12, its own binary as Flex's dtype is process-wide; no FFT, so not `#[ignore]`d).
+  `LpLoss::rel` against 2.0.0's: 9e-8 in f32, 6e-10 to 1.9e-9 in f64, 2.0.0's eps of 1e-8
+  in the denominator (the crate's has none, CONVENTIONS §11), bounded by 1e-8. A swapped
+  axis fails parity. Unit tests: sin within truncation error, one-sided ends exact on
+  polynomials, curl ∘ gradient ≈ 0, panics, hand-computed H1, MSE and quantile values,
+  exact matches with zero (MSE, Sobolev) or finite (quantile) gradients.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (381 passed), `cargo test --features
+  datagen` (462 passed), `cargo doc --no-deps`, `generate_losses.py --check` (six fixtures
+  the same): all pass. Not run: `--features metal` (no backend-sensitive change).
+- Decisions: none. Question for the author in the PR: should CONVENTIONS §11 record the
+  2.0.0 losses' quadrature and eps (outside §1–§6, no version bump)?
+- Review: plan review PASS (advisories: the lp.rel exception now on the roadmap line, an
+  exact-match test for `pointwise.rs`, CM2.5 needs CM1.6a, Panics docs; all done; the two
+  harness `allow`s stay until the follow-up below). Code quality APPROVE with findings: F1,
+  F2, F5, F8, F9 fixed; F3, F4, F6, F7 to CM1.6b's line.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` bb96d0e and on the
+  branch: `forward`, `phase5_epoch`, `gauss_newton_epoch` byte-identical); no existing
+  source file changed but `losses/mod.rs`.
+- Matrix: `H1Loss`/`HdivLoss`/`PointwiseQuantileLoss`/`MSELoss` and `FiniteDiff` set to
+  **have** (the first rows); `LpLoss` stays partial (rel parity up to eps); the
+  aggregator and Fourier rows point at CM1.6b and CM1.6c.
+- Follow-ups: CM1.6b's line (the review's F3, F4, F6, F7); CM1.6c (`FourierDiff`,
+  `non_uniform_fd`); the §11 question.

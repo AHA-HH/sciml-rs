@@ -229,6 +229,39 @@ template:
 - 2D: not touched (no code).
 - Follow-ups: the L0 and L2 gates; CL3.2 (D4 and D5 signed off with CL0.1, #123).
 
+## 2026-11-25: L0 gate
+- Done: gate report `docs/laplace3d/gates/L0.md`: proposal §7's cost model measured
+  (CL0.1: activations 10–43 % under §7, 30.6 GB peak at s = 64, batch 20, modes 12³; 64 s
+  per epoch on an A100; zip64 one file per split), rank-5 parity on metal (CL0.2), D4 and
+  D5 signed off; all met. The roadmap's L0 gate closed 2026-11-25.
+- Tests: none new. `main`'s CI green after #123 (run 45610871692).
+- Checks: none (docs only: proposal §7, §8 and Appendix A, roadmap, this log).
+- Decisions: signed off by the author 2026-11-25: the gate with C1 (§7's measured figures)
+  and C2 (§8's risk status); D8 as proposed (Q1); the `gpu_parity.rs` tidy-up a follow-up
+  under CL4.2 (Q2).
+- Review: thermo-nuclear review of the union of L0's two commits APPROVE, B+, no blockers
+  (report git-ignored,
+  `docs/code-quality/thermo-nuclear-review-2026-11-25-laplace3d-L0-gate.md`); findings 1–4 to
+  the Q2 follow-up.
+- 2D: not touched (no code).
+- Follow-ups: the L2 gate; CL3.2.
+
+## 2026-11-25: L2 gate
+- Done: gate report `docs/laplace3d/gates/L2.md`: A3 (CL2.1, #136) at the f64 floor on
+  manufactured solutions and `grf3d`'s closed form (≤ 4.3e-14 at n = 33, ≤ 3.3e-13 at
+  n = 65); met. The roadmap's L2 gate closed 2026-11-25.
+- Tests: none new. `cargo test --release --features datagen --lib solver_3d` on `636298b`
+  (Mac), 7 passed, every number of `results/cl2-1.md` reproduced; `main`'s CI green.
+- Checks: none beyond that (docs only: proposal §7 and Appendix A, roadmap, this log).
+- Decisions: signed off by the author 2026-11-25: the gate with C1 (§7's measured solve
+  time); Q1 the n = 129 floor measured before labelling (CL3.2); Q2 the 3D label check in
+  CL3.2, three `pde/poisson` doc fixes in CL3.3's first commit.
+- Review: thermo-nuclear review of CL2.1's commit APPROVE, A−, no blockers (report
+  git-ignored, `docs/code-quality/thermo-nuclear-review-2026-11-25-laplace3d-L2-gate.md`);
+  the report fact-checked by an independent agent, its corrections applied.
+- 2D: not touched (no code).
+- Follow-ups: CL3.2.
+
 ## 2026-11-25: CL3.2 3D dataset generation
 - Done: `pde/poisson/dataset3d.rs` (behind `datagen`): `generate_3d` (3D GRF of CL3.1,
   A3 labels of CL2.1, label check against the closed form, error 2 by the `_nd`
@@ -240,18 +273,22 @@ template:
 - Tests: 5 new (`generate_3d_matches_its_parts`, `label_check_3d_at_n65`,
   `label_check_3d_aborts`, `files_round_trip_3d`, `poisson3d_names`). The n = 33 sets
   written on the Mac (1000/200, 575 MB and 115 MB, under 5 s): label check max 7.4e-7
-  (recorded, as 2D at n = 33), error 2 max 4.8e-4; read back by Python's stdlib. n = 65 at
-  20 seeds: label check 3.9e-10 (enforced, ≤ 1e-8).
+  (recorded, as 2D at n = 33), error 2 max 4.8e-4; read back by Python's stdlib. The n = 65
+  sets (1000/200, 4.39 GB and 879 MB) generated on the author's Mac at `075aa3c` in 31 s:
+  label check max 6.2e-10 (enforced, ≤ 1e-8), error 2 max 5.4e-5; uploaded to the VM's
+  `~/sciml-rs/datasets/poisson/`, SHA-256 identical on both machines.
 - Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, datagen clippy,
   `cargo test` (354 passed), `cargo test --features datagen` (439 passed), `cargo doc`
-  (with and without datagen); not run: metal and gpu_parity (host ndarray only). Pending:
-  the n = 65 generation on the VM (D8, the author's go).
-- Decisions: D8 proposed (n = 65 generation on the VM). The plan's first draft enforced
+  (with and without datagen); not run: metal and gpu_parity (host ndarray only). VM
+  attempts 1 and 2 at n = 65 (2026-11-25) failed in the `datagen` build (libclang, then
+  FFTW); the VM's FFTW is a separate infrastructure task.
+- Decisions: the author chose to generate n = 65 on the Mac and upload it (2026-11-25), as
+  the VM cannot build `datagen` yet (D8 signed off at the L0 gate). The plan's first draft enforced
   the label check from n = 33 on a misread CL2.1 figure (K = (n − 1)/4); the 2D rule
   (n ≥ 65) is kept, on measurement.
 - Review: plan review PASS (advisories taken: the report, the assert order); code quality
-  APPROVE with findings, B+: F3, F4, F5, F8 taken; F1, F2 (shared label-check rule and
-  sidecar, editing 2D bodies) to CL3.4; F6, F7, F9 in the PR.
+  APPROVE with findings, B+: F3, F4, F5, F8 taken; F1 (one sidecar constructor) to CL3.4;
+  F2 (a shared label-check rule) not taken, per the L2 gate's Q2; F6, F7, F9 in the PR.
 - 2D: unchanged bit for bit: no 2D file, function body, constant or name edited (additions
   in `catalogue.rs` only); the whole 2D suite passes.
-- Follow-ups: CL3.4 (roadmap); the n = 65 VM run (this PR's pending run).
+- Follow-ups: CL3.4 (roadmap); `datagen` on the VM (FFTW), outside this objective.

@@ -6,13 +6,14 @@ proposal differ, the proposal wins. Progress is logged in `docs/laplace3d/progre
 each task's plan is `docs/laplace3d/tasks/<ID>.md`, written when it starts; each
 milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 
-Status: **L0's tasks done; L1 closed 2026-11-25 (`gates/L1.md`).** Draft 0.2 of the proposal
+Status: **L0, L1 and L2 closed 2026-11-25 (`gates/L0.md`, `gates/L1.md`, `gates/L2.md`).** Draft 0.2 of the proposal
 is the plan of record (D0–D3 signed off 2026-11-11, #117). Done: CL0.1 (rank-5 cost on the
 Mac and cuda, #123; D5 signed off 2026-11-24, D4 2026-11-25 on the cuda figures), CL0.2
 (rank-5 parity on metal), CL1.1–CL1.3 (CONVENTIONS version 3, N-D transfers, norms and
 errors, 2D bit for bit unchanged), CL2.1 (A3, `CollocationSolver3d`, f64 floor by n = 33),
-CL3.1 (the 3D GRF; D3 confirmed 2026-11-24), CL3.2 (the 3D datasets; n = 33 written
-2026-11-25, n = 65 on the VM pending). Next: the L0 and L2 gates, and CL3.3.
+CL3.1 (the 3D GRF; D3 confirmed 2026-11-24), CL3.2 (the 3D datasets of D5, n = 33 and 65,
+written 2026-11-25; n = 65 generated on the Mac and uploaded to the VM). D8 signed off at
+the L0 gate. Next: CL3.3.
 
 ## How to read this file
 
@@ -48,11 +49,15 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | D5 | Stages, sizes, names and storage | n = 33 (tests), 65 (training); 129 test-only if needed; 1000/200; `poisson3d_n{n}_K{K}_{split}`; precision and zip64 from CL0.1 | CL0.1 | CL3.2 | signed off 2026-11-24 (#123): n = 33 (tests and Mac runs), 65 (training), 129 test-only if the resolution study needs it; 1000 train / 200 test; `poisson3d_n{n}_K{K}_{split}`; f64, one `.npz` per split (zip64 verified on the Mac) |
 | D6 | Laplace input representation | – | L4 gate | CL5.1 | open |
 | D7 | Laplace boundary data family | face sine series (proposal §3.4) | L4 gate | CL5.1 | open |
-| D8 | Where runs happen | n = 33 on the Mac, n = 65 generation and training on one A100 80 GB | – | CL4.2 | open |
+| D8 | Where runs happen | n = 33 on the Mac, n = 65 generation and training on one A100 80 GB | L0 gate | CL4.2 | signed off 2026-11-25 (L0 gate, Q1): as proposed; n = 33 on the Mac for CL4.1's short runs and tests, any n = 33 baseline over seeds and n = 65 generation and training on one A100 80 GB each |
 
 ## L0: Sizing
 
-**Gate:** the cost model of proposal §7 measured; D4 and D5 put to the author.
+**Gate (closed 2026-11-25):** the cost model of proposal §7 measured; D4 and D5 put to the
+author. Report `docs/laplace3d/gates/L0.md`. Signed off by the author 2026-11-25: the gate,
+with corrections C1 (proposal §7's measured figures) and C2 (§8's risk status) applied; Q1
+D8 as proposed; Q2 the `gpu_parity.rs` tidy-up a follow-up for the next task that edits it
+(CL4.2).
 
 - [x] **CL0.1 Rank-5 FNO cost.** Peak memory and time per epoch of `FNO<5>` on random data
   at s = 32 and 64, modes 8³ and 12³, width 32, on flex, metal and cuda, at the batch sizes
@@ -100,7 +105,10 @@ in CL4.1"; C4 "fold into CL3.3"; corrections C1, C2, C3 and the 973-line count a
 
 ## L2: 3D reference solver
 
-**Gate:** A3 reaches the f64 floor on manufactured and closed-form solutions.
+**Gate (closed 2026-11-25):** A3 reaches the f64 floor on manufactured and closed-form
+solutions. Report `docs/laplace3d/gates/L2.md`. Signed off by the author 2026-11-25: the
+gate, with C1 (proposal §7's measured solve time) applied; Q1 "note in CL3.2" (n = 129);
+Q2 the 3D label check to CL3.2, the three doc fixes to CL3.3's first commit.
 
 - [x] **CL2.1 Collocation solver A3.** Fast diagonalisation in 3D (proposal §5).
   *Done when:* relative error (max norm and 3D CC norm) at the f64 floor by n = 33 on
@@ -119,8 +127,15 @@ in CL4.1"; C4 "fold into CL3.3"; corrections C1, C2, C3 and the 973-line count a
 - [x] **CL3.2 3D dataset generation.** Generation, label check against the closed form,
   catalogue names carrying the dimension; the n = 65 set generated on the VM. Near the
   three-module limit: split into CL3.2a/b when it starts if it exceeds it.
-  *Needs:* CL1.2, CL2.1, CL3.1, D3, D5. *Machines:* the VM (n = 65). Report:
-  `docs/laplace3d/results/cl3-2.md` (n = 65 on the VM pending the author's go, D8).
+  The 3D label check is a new function on `cc_rel_l2_error_nd`, sharing only
+  `LABEL_CHECK_MIN_N`, `LABEL_CHECK_TOL` and `LabelCheckError` with the 2D `label_check`,
+  whose body stays as it is (L2 gate Q2). An n = 129 set (D5, only if the resolution study
+  needs it) is labelled only after measuring A3's floor there against `grf3d`'s closed form,
+  with the label-check tolerance set from that measurement: the n = 33 → 65 trend puts it at
+  about 3e-13 to 2.5e-12 (L2 gate Q1).
+  *Needs:* CL1.2, CL2.1, CL3.1, D3, D5. *Machines:* the VM (n = 65). The n = 65 set was
+  generated on the Mac and uploaded to the VM (the author's choice, 2026-11-25: the VM's
+  `datagen` build lacks FFTW). Report: `docs/laplace3d/results/cl3-2.md`.
 - [ ] **CL3.3 3D loader.** The Poisson loader for 3D splits, T_cu at load time.
   *Done when:* also error 2 of the n = 65 test split at s = 32 and 64, against the 2D floor
   at the same s (proposal §9; L1 gate C3). First commit, no behaviour change (L1 gate C4):
@@ -129,13 +144,16 @@ in CL4.1"; C4 "fold into CL3.3"; corrections C1, C2, C3 and the 973-line count a
   citations at `transfer.rs:189`, `clencurt.rs:130/147/166`, `metrics/poisson/mod.rs:160`;
   one doc sentence per `_nd` contract (any rank in `chebyshev`, 2D or 3D in `metrics`);
   checked by the D2 tests and the datagen suite (CL2.1 uses `apply_nd`).
+  The same first commit fixes three docs in `pde/poisson` (L2 gate Q2): `IMAG_TOL`'s
+  "D_xx or D_yy" to "an interior D² block" (`collocation.rs:25–28`), the module doc
+  (`mod.rs:1`, 2D only), and the 115-column doc line (`collocation.rs:146`).
   *Needs:* CL1.2, CL3.2, D5.
-- [ ] **CL3.4 One label check and sidecar for 2D and 3D.** CL3.2 review F1, F2: extract the
-  label-check rule (`enforce_label_check`) and the `SidecarRecord` construction into
-  `pde/poisson/dataset.rs`, used by `dataset3d.rs`. *Done when:* `dataset3d.rs` holds no
-  copy of either; the 2D exact-bytes sidecar test (`files_round_trip`) and
-  `label_check_aborts` pass unedited (constraint 1). Edits 2D function bodies: the author's
-  go first. *Needs:* CL3.2.
+- [ ] **CL3.4 One sidecar constructor for 2D and 3D.** CL3.2 review F1: extract the
+  `SidecarRecord` construction into `pde/poisson/dataset.rs`, used by `dataset3d.rs`. (F2,
+  a shared label-check rule, is not taken: the L2 gate's Q2 keeps the 2D `label_check`
+  body as it is.) *Done when:* `dataset3d.rs` builds no sidecar field by field; the 2D
+  exact-bytes sidecar test (`files_round_trip`) passes unedited (constraint 1). Edits a 2D
+  function body: the author's go first. *Needs:* CL3.2.
 
 ## L4: 3D Poisson training and evaluation
 
@@ -154,6 +172,9 @@ in CL4.1"; C4 "fold into CL3.3"; corrections C1, C2, C3 and the 973-line count a
   with errors 2–5 against the 3D floor, and 2D Phase 5 at the same s as context (the
   input families differ, proposal §3.3). Before its first cuda run, CL0.2's cases run on
   cuda: `cargo test --release --no-default-features --features cuda --test gpu_parity`.
+  Follow-up (L0 gate Q2), for whichever task next edits `tests/gpu_parity.rs`: one gated
+  `mod gpu`, one `compare` helper, a named `Side` struct, and the qualified "zeroed entries
+  cannot hide" doc comment; test-only, no behaviour change.
   *Needs:* CL4.1, D8. *Machines:* the VM.
 
 ## L5: 3D Laplace
