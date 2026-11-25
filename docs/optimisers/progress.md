@@ -105,3 +105,34 @@ template:
 - Adam and Gauss–Newton: not touched.
 - Follow-ups: CO3.2 (SOAP) and CO1.1 (the Burgers recipe) are runnable; both change
   different modules, but CO1.1 changes `training/`, so no other `training/` task beside it.
+
+## 2026-11-25: CO3.2 The SOAP optimiser
+- Done: `optim/soap/` (new; imports nothing from `models/` or `training/`): `SoapConfig`
+  (the reference defaults; `precondition_frequency` 0 refused), `Soap`, Burn's
+  per-parameter `Optimizer` for any rank, `SoapState` with `RecordState` written by hand
+  (Burn's derive works only inside `burn-optim`), `Factor`. Follows nikhilvyas/SOAP @a1e5535:
+  first call builds the factors and bases and moves nothing; bias correction, ε on √V,
+  decoupled decay after the step, factor EMA after it, refresh every f steps (sort by
+  diag(QᵀLQ), V permuted, one power step, QR). D8: one factor per dimension, rank 1 on Adam.
+  D9: first basis by Burn's host `svd`, refreshes by a host f64 Householder QR (ndarray).
+  Departure, declared: M kept in the original space (the paper's Algorithm 3; three
+  projections per step against the reference's four).
+- Tests: seven in `optim/soap/tests.rs`: identity bases (`max_precond_dim` 0) equal Burn's
+  Adam over 20 steps (1e-6); the Kronecker quadratic (first factors to 1e-5; SOAP 1.6e-2
+  against Adam 24 from 1.6e4 at lr 0.05 · 0.98ⁱ, 400 steps); ranks 1–5 (factor EMA,
+  orthonormal bases, one step against host f64 at 3–7e-6 of the update); the refresh against
+  host f64 (first bases against the exact eigenvectors, refreshed bases against a
+  Gram–Schmidt QR, V permuted); the record round trip bit for bit across refreshes; a zero
+  first gradient; the frequency check. Mutations (Q for Qᵀ in the back-projection, V not
+  permuted, decay before the step) each fail a test.
+- Checks: see the PR (fmt, the clippy lines, `cargo test`, `cargo doc`, datagen clippy and
+  tests, the soap tests on metal).
+- Decisions: none new; D8, D9 applied.
+- Review: plan review FAIL → fixed (`clippy::needless_range_loop` in the tests; advisories
+  taken: decay order now tested, zero-gradient test, frequency 0 refused, f64 host read);
+  code quality APPROVE, no blockers (F1 ndarray for the host QR, F4, F5, F6, F8 fixed; F2,
+  F3, F7 left, PR text).
+- Adam and Gauss–Newton: not touched (nothing calls the module; the existing suite unedited).
+- Follow-ups: CO3.3 (the arm, `OptimizerConfig::Soap`, resume of a run, pilot); the
+  reference fixtures of proposal §9 (Python, outside CI) if the author wants them (PR
+  question 1).

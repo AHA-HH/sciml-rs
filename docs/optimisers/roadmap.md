@@ -12,6 +12,8 @@ O1; the former O1–O4 renumbered O2–O5) the same day, corrected after an inde
 constraint 1 shown, flex, metal and cuda measured; D9 signed off 2026-11-25. Next CO0.1 and
 CO0.2 (the VM, running at the author's go, 2026-11-25); D8, D10 and D11 signed off
 2026-11-25, so CO3.2 (SOAP) and CO1.1 (the Burgers recipe; after CM0.3, merged) are runnable.
+CO3.2 (2026-11-25): `optim/soap/`, SOAP as Burn's per-parameter `Optimizer`, the §9 tests
+passing; next for O3, CO3.3 (needs CO0.1, D7, D13, and no other `training/` task at once).
 
 ## How to read this file
 
@@ -129,7 +131,7 @@ piloted.
   128 (and 144) against an f64 host reference on flex, metal and cuda: error and time.
   *Done when:* the table; constraint 1 shown with the feature on; D9 proposed. *Needs:* –.
   *Machines:* the VM (cuda). *Sign-off:* D9.
-- [ ] **CO3.2 The SOAP optimiser.** `optim/soap/`: `SoapConfig`, `Soap` as a Burn
+- [x] **CO3.2 The SOAP optimiser.** (`docs/optimisers/tasks/CO3.2.md`) `optim/soap/`: `SoapConfig`, `Soap` as a Burn
   `Optimizer`, any tensor rank. *Done when:* the SOAP tests of proposal §9 pass (the
   identity-basis reduction to Adam, the quadratic, ranks 1–5, the refresh, record round
   trip). *Needs:* CO3.1, D8, D9.

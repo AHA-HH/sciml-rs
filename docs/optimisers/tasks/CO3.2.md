@@ -61,8 +61,8 @@ New module `src/neural_operators/optim/soap/` (imports nothing from `models/` or
     every f-th step the refresh;
   - refresh (D9, host for every backend): Lₖ, Qₖ downloaded; estimated eigenvalues
     diag(QₖᵀLₖQₖ), sorted descending, Qₖ's columns and V along k permuted to follow; one
-    power step S = LₖQₖ and a Householder QR of S on the host in f64, rounded to f32 and
-    uploaded. f64 for a ≤ 144 × 144 host QR costs nothing and is at least as accurate as f32.
+    power step S = LₖQₖ and a Householder QR of S on the host in f64 (ndarray), uploaded
+    in the factor's dtype. f64 for a ≤ 144 × 144 host QR costs nothing and is at least as accurate as f32.
   - mode products: unfold at the leading dimension, `matmul`, rotate the dimensions by
     one; D of them restore the order (the reference's `tensordot` loop).
 - No convention change, no dependency (`linalg` is already on, CO3.1), no `training/`
@@ -99,6 +99,8 @@ In `optim/soap/` unit tests, on the default device (flex in CI), f32:
    weight, a rank-1 bias, a rank-3 parameter), five steps, `into_bytes`, `from_bytes` into
    a fresh one, then five more steps across a refresh: parameters bit for bit equal to the
    uninterrupted run.
+6. **Edge cases** (added after the plan review): a zero first gradient gives zero factors,
+   orthonormal bases and finite steps; `precondition_frequency` 0 panics in `build`.
 
 ## Checks
 `/verify` (fmt, clippy lines, `cargo test`, `cargo doc`, datagen clippy and tests); the
@@ -117,6 +119,12 @@ None.
 
 ## Pending runs
 None.
+
+## Outcome
+Done 2026-11-25. The tests above pass (seven); the ranks test runs at weight decay 1 so
+lr · wd = 1e-2 and the decay's order is pinned (amended after the plan review). Mutations
+checked: Q for Qᵀ in the back-projection fails ranks and quadratic; V unpermuted fails the
+refresh test; decay before the step fails ranks (7e-3 against 1e-4).
 
 ## Open questions
 - Python fixtures from the reference implementation (proposal §9's last item): not in the
