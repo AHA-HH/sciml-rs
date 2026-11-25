@@ -20,6 +20,7 @@ import tensorly
 import tltorch
 import torch
 import torch_harmonics
+from neuralop.layers.legacy_spectral_convolution import SpectralConv as LegacySpectralConv
 from neuralop.models import FNO
 
 OUT = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "parity"
@@ -33,6 +34,10 @@ INPUT_SEED = 1
 CONFIGS = {
     "fno1d": (FNO, dict(n_modes=(8,), in_channels=1, out_channels=1, hidden_channels=8), (2, 1, 64)),
     "fno2d": (FNO, dict(n_modes=(4, 4), in_channels=1, out_channels=1, hidden_channels=8), (2, 1, 32, 32)),
+    # CM1.1: the legacy corner-layout layer, in ≠ out, odd and non-power-of-two extents.
+    "legacy_spectral_conv1d": (LegacySpectralConv, dict(in_channels=3, out_channels=4, n_modes=(12,)), (2, 3, 50)),
+    "legacy_spectral_conv2d": (LegacySpectralConv, dict(in_channels=3, out_channels=4, n_modes=(8, 6)), (2, 3, 24, 21)),
+    "legacy_spectral_conv3d": (LegacySpectralConv, dict(in_channels=2, out_channels=3, n_modes=(6, 4, 4)), (2, 2, 12, 10, 9)),
 }
 DTYPES = {"f32": torch.float32, "f64": torch.float64}
 PREFIX = "param."
