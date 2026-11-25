@@ -7,6 +7,7 @@ mod flex_f64;
 // Each test binary uses part of the shared harness.
 #[allow(dead_code)]
 mod parity_common;
+#[cfg(feature = "flex")]
 mod parity_losses_common;
 
 #[cfg(feature = "flex")]

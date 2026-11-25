@@ -105,13 +105,8 @@ impl LpLoss {
     }
 }
 
-/// Per-row Lp norm of `t: [batch, n_points]`, returning `[batch]`.
-///
-/// For `p >= 2` the final root `s^(1/p)` has an infinite derivative at
-/// `s = 0`, and backward would give `inf * 0 = NaN` at an exact match. Rows
-/// with `s == 0` therefore take the root of a constant 1 and are then set to
-/// 0, so their norm is exactly 0 with gradient 0 - the subgradient
-/// `torch.norm` uses. All other rows are computed exactly as before.
+/// Per-row Lp norm of `t: [batch, n_points]`, returning `[batch]`. For `p >= 2` the root
+/// is [`root_zero_safe`]'s: 0 with gradient 0 at an exact match.
 fn lp_norm(t: Tensor<2>, p: usize) -> Tensor<1> {
     // p=1: sum of abs. p=2: Euclidean norm. general p: p-norm.
     let sum = match p {
@@ -126,7 +121,9 @@ fn lp_norm(t: Tensor<2>, p: usize) -> Tensor<1> {
 }
 
 /// The p-th root of `sum` (`[n]`, non-negative) with value 0 and gradient 0 where
-/// `sum == 0`: those entries take the root of a constant 1 and are then set to 0.
+/// `sum == 0`. The root `s^(1/p)` has an infinite derivative at `s = 0`, so backward would
+/// give `inf * 0 = NaN` at an exact match; those entries take the root of a constant 1 and
+/// are then set to 0, the subgradient `torch.norm` uses. Other entries are unchanged.
 pub(super) fn root_zero_safe(sum: Tensor<1>, p: usize) -> Tensor<1> {
     let is_zero = sum.clone().equal_elem(0.0);
     let safe = sum.mask_fill(is_zero.clone(), 1.0);

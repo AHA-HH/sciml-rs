@@ -16,8 +16,9 @@ use rand_chacha::{
 };
 
 /// A loss of a prediction against a target, both of rank `R`, returning `[1]`: any of the
-/// crate's losses behind a closure, e.g. `Box::new(mse_loss)`.
-pub type LossFn<const R: usize> = Box<dyn Fn(Tensor<R>, Tensor<R>) -> Tensor<1>>;
+/// crate's losses behind a closure, e.g. `Box::new(mse_loss)`. `Send + Sync`, so the
+/// aggregators can be shared across threads.
+pub type LossFn<const R: usize> = Box<dyn Fn(Tensor<R>, Tensor<R>) -> Tensor<1> + Send + Sync>;
 
 /// 2.0.0's `WeightedSumLoss`: Σᵢ wᵢ Lᵢ(pred, truth).
 pub struct WeightedSumLoss<const R: usize> {
@@ -29,9 +30,10 @@ impl<const R: usize> WeightedSumLoss<R> {
     /// The losses with `weights`, or 1/n each when `None` (2.0.0's default).
     ///
     /// # Panics
-    /// If `weights` is given with a length other than the number of losses.
+    /// If there are no losses, or `weights` is given with a length other than their number.
     pub fn new(losses: Vec<LossFn<R>>, weights: Option<Vec<f64>>) -> Self {
         let n = losses.len();
+        assert!(n > 0, "WeightedSumLoss: no losses");
         let weights = weights.unwrap_or_else(|| vec![1.0 / n as f64; n]);
         assert_eq!(
             weights.len(),
@@ -46,20 +48,18 @@ impl<const R: usize> WeightedSumLoss<R> {
     /// The weighted sum on `pred` and `truth` (any shape the losses take). Returns `[1]`.
     ///
     /// # Panics
-    /// If there are no losses, or as the losses do.
+    /// If `terms` has been emptied, or as the losses do.
     pub fn loss(&self, pred: Tensor<R>, truth: Tensor<R>) -> Tensor<1> {
-        self.terms
+        sum(self
+            .terms
             .iter()
             .map(|(loss, w)| loss(pred.clone(), truth.clone()).mul_scalar(*w))
-            .reduce(|a, b| a + b)
-            .expect("WeightedSumLoss: no losses")
+            .collect())
     }
 }
 
 /// One output field of a [`FieldwiseAggregatorLoss`]: its channels on one axis and its loss.
 pub struct Field<const R: usize> {
-    /// The field's name (2.0.0's dict key).
-    pub name: String,
     /// The axis the channels are on.
     pub axis: usize,
     /// The field's channels on that axis.
@@ -91,7 +91,8 @@ impl<const R: usize> FieldwiseAggregatorLoss<R> {
         Self { fields }
     }
 
-    /// Each field's loss, in order. `pred`, `truth`: the same shape. Returns `[1]` each.
+    /// Each field's loss, in the order of `fields` (2.0.0 keys them by name). `pred`,
+    /// `truth`: the same shape. Returns `[1]` each.
     ///
     /// # Panics
     /// If a field's axis or channels lie outside the tensors, or as its loss does.
@@ -125,24 +126,22 @@ impl<const R: usize> FieldwiseAggregatorLoss<R> {
 pub struct SoftAdapt {
     /// Guards the divisions, default 1e-8.
     pub eps: f64,
-    /// Fixed per-loss weights applied first (2.0.0's `weights` dict, by position; `None`
-    /// is all 1).
-    pub weights: Option<Vec<f64>>,
-    num_losses: usize,
+    /// Fixed per-loss weights applied first (2.0.0's `weights` dict, by position, missing
+    /// ones 1); their number is the number of losses.
+    weights: Vec<f64>,
     prev: Vec<f64>,
 }
 
 impl SoftAdapt {
-    /// SoftAdapt over `num_losses` losses, eps 1e-8.
+    /// SoftAdapt over `num_losses` losses, eps 1e-8, with fixed per-loss `weights` (`None`:
+    /// all 1).
     ///
     /// # Panics
     /// If `weights` is given with a length other than `num_losses`.
     pub fn new(num_losses: usize, weights: Option<Vec<f64>>) -> Self {
-        check_weights(&weights, num_losses);
         Self {
             eps: 1e-8,
-            weights,
-            num_losses,
+            weights: fixed_weights(weights, num_losses),
             prev: Vec::new(),
         }
     }
@@ -150,25 +149,19 @@ impl SoftAdapt {
     /// The aggregate of `losses` (`[1]` each) at `step`, and the weights λ.
     ///
     /// # Panics
-    /// If the number of losses is not `num_losses`, or `step > 0` before any step 0.
+    /// If the number of losses differs from construction, or `step > 0` before any step 0.
     pub fn forward(&mut self, losses: Vec<Tensor<1>>, step: usize) -> (Tensor<1>, Vec<f64>) {
-        let losses = weigh(losses, &self.weights, self.num_losses);
+        let losses = weigh(losses, &self.weights);
         let values = scalars(&losses);
         if step == 0 {
             self.prev = values;
-            return (sum(losses), vec![1.0; self.num_losses]);
+            return (sum(losses), vec![1.0; self.weights.len()]);
         }
         assert!(
             !self.prev.is_empty(),
             "SoftAdapt: step {step} before step 0"
         );
-        let normalizer = max_ratio(&values, &self.prev, 1.0);
-        let lmbda: Vec<f64> = values
-            .iter()
-            .zip(&self.prev)
-            .map(|(l, p)| (l / (p + self.eps) - normalizer).exp())
-            .collect();
-        let scale = self.num_losses as f64 / (lmbda.iter().sum::<f64>() + self.eps);
+        let (lmbda, scale) = softmax_ratios(&values, &self.prev, 1.0, self.eps);
         let loss = weighted_sum(losses, &lmbda).mul_scalar(scale);
         self.prev = values;
         (loss, lmbda)
@@ -192,9 +185,8 @@ pub struct Relobralo {
     pub tau: f64,
     /// Guards the divisions, default 1e-8.
     pub eps: f64,
-    /// Fixed per-loss weights applied first, as [`SoftAdapt::weights`].
-    pub weights: Option<Vec<f64>>,
-    num_losses: usize,
+    /// Fixed per-loss weights applied first, as SoftAdapt's.
+    weights: Vec<f64>,
     init: Vec<f64>,
     prev: Vec<f64>,
     ema: Vec<f64>,
@@ -202,20 +194,18 @@ pub struct Relobralo {
 }
 
 impl Relobralo {
-    /// ReLoBRaLo over `num_losses` losses at 2.0.0's defaults, its draws of ρ from
-    /// `ChaCha8Rng::seed_from_u64(seed)`.
+    /// ReLoBRaLo over `num_losses` losses at 2.0.0's defaults, with fixed per-loss
+    /// `weights` (`None`: all 1), its draws of ρ from `ChaCha8Rng::seed_from_u64(seed)`.
     ///
     /// # Panics
     /// If `weights` is given with a length other than `num_losses`.
     pub fn new(num_losses: usize, weights: Option<Vec<f64>>, seed: u64) -> Self {
-        check_weights(&weights, num_losses);
         Self {
             alpha: 0.95,
             beta: 0.99,
             tau: 1.0,
             eps: 1e-8,
-            weights,
-            num_losses,
+            weights: fixed_weights(weights, num_losses),
             init: Vec::new(),
             prev: Vec::new(),
             ema: vec![1.0; num_losses],
@@ -238,14 +228,14 @@ impl Relobralo {
     /// sequence of draws.
     ///
     /// # Panics
-    /// If the number of losses is not `num_losses`, or `step > 0` before any step 0.
+    /// If the number of losses differs from construction, or `step > 0` before any step 0.
     pub fn forward_with_rho(
         &mut self,
         losses: Vec<Tensor<1>>,
         step: usize,
         rho: bool,
     ) -> (Tensor<1>, Vec<f64>) {
-        let losses = weigh(losses, &self.weights, self.num_losses);
+        let losses = weigh(losses, &self.weights);
         let values = scalars(&losses);
         if step == 0 {
             self.init = values.clone();
@@ -257,18 +247,12 @@ impl Relobralo {
             "Relobralo: step {step} before step 0"
         );
         let balance = |reference: &[f64]| {
-            let normalizer = max_ratio(&values, reference, self.tau);
-            let lmbda: Vec<f64> = values
-                .iter()
-                .zip(reference)
-                .map(|(l, r)| (l / (self.tau * r + self.eps) - normalizer).exp())
-                .collect();
-            let scale = self.num_losses as f64 / (lmbda.iter().sum::<f64>() + self.eps);
+            let (lmbda, scale) = softmax_ratios(&values, reference, self.tau, self.eps);
             lmbda.into_iter().map(|l| l * scale).collect::<Vec<f64>>()
         };
         let (lmbda_prev, lmbda_init) = (balance(&self.prev), balance(&self.init));
         let rho = if rho { 1.0 } else { 0.0 };
-        for i in 0..self.num_losses {
+        for i in 0..self.ema.len() {
             self.ema[i] = self.alpha * (rho * self.ema[i] + (1.0 - rho) * lmbda_init[i]);
             self.ema[i] += (1.0 - self.alpha) * lmbda_prev[i];
         }
@@ -278,33 +262,51 @@ impl Relobralo {
     }
 }
 
+/// The fixed per-loss weights, all 1 when `None` (a multiplication by 1 is exact).
+///
 /// # Panics
 /// If `weights` is given with a length other than `n`.
-fn check_weights(weights: &Option<Vec<f64>>, n: usize) {
-    if let Some(w) = weights {
-        assert_eq!(w.len(), n, "aggregator: {} weights for {n} losses", w.len());
-    }
+fn fixed_weights(weights: Option<Vec<f64>>, n: usize) -> Vec<f64> {
+    let weights = weights.unwrap_or_else(|| vec![1.0; n]);
+    assert_eq!(
+        weights.len(),
+        n,
+        "aggregator: {} weights for {n} losses",
+        weights.len()
+    );
+    weights
 }
 
 /// 2.0.0's `Aggregator.weigh_losses`: each loss times its weight.
 ///
 /// # Panics
-/// If the number of losses is not `n`.
-fn weigh(losses: Vec<Tensor<1>>, weights: &Option<Vec<f64>>, n: usize) -> Vec<Tensor<1>> {
+/// If the number of losses is not the number of weights.
+fn weigh(losses: Vec<Tensor<1>>, weights: &[f64]) -> Vec<Tensor<1>> {
+    let n = weights.len();
     assert_eq!(
         losses.len(),
         n,
         "aggregator: {} losses, expected {n}",
         losses.len()
     );
-    match weights {
-        None => losses,
-        Some(w) => losses
-            .into_iter()
-            .zip(w)
-            .map(|(l, w)| l.mul_scalar(*w))
-            .collect(),
-    }
+    losses
+        .into_iter()
+        .zip(weights)
+        .map(|(l, w)| l.mul_scalar(*w))
+        .collect()
+}
+
+/// The balancing weights of SoftAdapt (τ = 1) and ReLoBRaLo: λᵢ = exp(lᵢ / (τ rᵢ + eps) −
+/// maxⱼ lⱼ / (τ rⱼ)), the normaliser unguarded as in 2.0.0, and the scale n / (Σ λ + eps).
+fn softmax_ratios(values: &[f64], reference: &[f64], tau: f64, eps: f64) -> (Vec<f64>, f64) {
+    let normalizer = max_ratio(values, reference, tau);
+    let lmbda: Vec<f64> = values
+        .iter()
+        .zip(reference)
+        .map(|(l, r)| (l / (tau * r + eps) - normalizer).exp())
+        .collect();
+    let scale = values.len() as f64 / (lmbda.iter().sum::<f64>() + eps);
+    (lmbda, scale)
 }
 
 /// The losses' values, `[1]` each, on the host.

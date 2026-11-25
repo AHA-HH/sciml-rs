@@ -52,11 +52,6 @@ def boundaries(d):
     return out
 
 
-def arrays_no_grad(d, dtype):
-    with torch.no_grad():
-        return arrays(d, dtype)
-
-
 def periodic_kwargs(flags):
     return {f"periodic_in_{a}": p for a, p in zip(AXES, flags)}
 
@@ -104,7 +99,9 @@ def adaptive_run(cls, kwargs, table, dtype):
     buffers have the losses' precision."""
     previous = torch.get_default_dtype()
     torch.set_default_dtype(dtype)
-    agg = cls([torch.zeros(1)], len(LOSS_KEYS), **{k: (dict(v) if isinstance(v, dict) else v) for k, v in kwargs.items()})
+    # A copy of the weights dict: 2.0.0's weigh_losses adds the missing keys to it.
+    kwargs = {k: (dict(v) if isinstance(v, dict) else v) for k, v in kwargs.items()}
+    agg = cls([torch.zeros(1)], len(LOSS_KEYS), **kwargs)
     draws = []
     bernoulli = torch.bernoulli
 
@@ -213,6 +210,20 @@ def sidecar(d, dtype_name):
     }
 
 
+def emit(name, data, meta, check):
+    """Write fixture `name` and its sidecar, or with `check` compare them with the committed
+    ones; whether it succeeded."""
+    path = OUT / f"{name}.npz"
+    if check:
+        return same_as_committed(path, data, meta)
+    np.savez(path, **data)
+    path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
+    size = path.stat().st_size
+    assert size <= MAX_BYTES, f"{path.name}: {size} bytes"
+    print(f"{path.name}: {len(data)} arrays, {size} bytes")
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="compare with the committed fixtures")
@@ -221,26 +232,14 @@ def main():
     warnings.simplefilter("ignore", DeprecationWarning)
     OUT.mkdir(parents=True, exist_ok=True)
     failed = False
-    jobs = [
-        (f"losses{d}d_{n}", lambda d=d, t=t: arrays_no_grad(d, t), lambda d=d, n=n: sidecar(d, n))
-        for d in GRIDS
-        for n, t in DTYPES.items()
-    ] + [
-        (f"meta_losses_{n}", lambda t=t: meta_arrays(t), lambda n=n: meta_sidecar(n))
-        for n, t in DTYPES.items()
-    ]
-    for name, make_data, make_meta in jobs:
-        data = make_data()
-        meta = make_meta()
-        path = OUT / f"{name}.npz"
-        if check:
-            failed |= not same_as_committed(path, data, meta)
-            continue
-        np.savez(path, **data)
-        path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
-        size = path.stat().st_size
-        assert size <= MAX_BYTES, f"{path.name}: {size} bytes"
-        print(f"{path.name}: {len(data)} arrays, {size} bytes")
+    for d in GRIDS:
+        for dtype_name, dtype in DTYPES.items():
+            with torch.no_grad():
+                data = arrays(d, dtype)
+            failed |= not emit(f"losses{d}d_{dtype_name}", data, sidecar(d, dtype_name), check)
+    for dtype_name, dtype in DTYPES.items():
+        data = meta_arrays(dtype)
+        failed |= not emit(f"meta_losses_{dtype_name}", data, meta_sidecar(dtype_name), check)
     sys.exit(1 if failed else 0)
 
 

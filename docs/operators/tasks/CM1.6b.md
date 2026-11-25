@@ -49,7 +49,8 @@ step.
     per-loss `weights` (2.0.0's `Aggregator.weigh_losses`, its dict keyed by position;
     missing ones 1). `forward(losses, step)`, step 0 initialising, as 2.0.0.
   - `Relobralo`'s ρ ~ Bernoulli(β) drawn from a `ChaCha8Rng` seeded at construction
-    (`rand_chacha`, already a dependency; ρ = `next_u64` < β·2⁶⁴), and
+    (`rand_chacha`, already a dependency; ρ = 1 when a 53-bit uniform draw
+    `(next_u64 >> 11) · 2⁻⁵³` is below β, exact at β = 0 and 1), and
     `forward_with_rho(losses, step, rho)` to replay a given draw (the parity test replays
     torch's).
   - 2.0.0's `Aggregator` base class is the shared weighting; it gets no type of its own.
@@ -57,9 +58,9 @@ step.
   `SobolevLoss` and `PointwiseQuantileLoss`; `root_zero_safe(sum, p)`, `lp_norm`'s masked
   root, shared with `SobolevLoss`. Same ops in the same order, so `LpLoss` is bit-identical;
   the bit-identity dumps confirm it.
-- Harness (CM1.6a review F6, F7): `tests/parity_common/flex_f64.rs`, one `flex_f64`
-  included with `#[path]` by the four f64 binaries (CM1.1's pattern, so no f32 binary
-  compiles it); `Fixture::tensor(key, device)` public, replacing the copy in
+- Harness (CM1.6a review F6, F7): `tests/flex_f64/`, one `flex_f64` declared (behind
+  `flex`) by the four f64 binaries, `gauss_newton_f64` among them, so it sits beside
+  `parity_common/` rather than in it, and no f32 binary compiles it; `Fixture::tensor(key, device)` public, replacing the copy in
   `parity_losses_common`, which drops the `#[allow(dead_code)]` on that module. The
   `#[allow(dead_code)]` on `mod parity_common` in the two loss binaries stays: they use
   no parameter map (`load_into`, `Take`), and splitting the harness for that is out of
@@ -111,4 +112,6 @@ None.
 
 ## Open questions
 
-None yet.
+None. The roadmap line's "the two `#[allow(dead_code)]` … gone" is met for the one on
+`parity_losses_common`; the one on `mod parity_common` in each loss binary stays, as
+"Changes" says (the plan review accepted the reason; recorded in the PR and progress).

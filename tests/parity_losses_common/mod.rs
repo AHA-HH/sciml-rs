@@ -163,13 +163,11 @@ pub fn run_meta(name: &str, device: &Device) {
 
     let fieldwise = FieldwiseAggregatorLoss::new(vec![
         Field {
-            name: "u".into(),
             axis: 1,
             channels: 0..1,
             loss: Box::new(mse_loss),
         },
         Field {
-            name: "p".into(),
             axis: 1,
             channels: 2..3,
             loss: Box::new(|a, b| PointwiseQuantileLoss::new(ALPHA, Reduction::Sum).loss(a, b)),
