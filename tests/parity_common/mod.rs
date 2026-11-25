@@ -128,8 +128,7 @@ impl Fixture {
     /// The fixture's input, `(batch, channels, *grid)`, as a tensor on `device` in the
     /// fixture's precision.
     pub fn input<const R: usize>(&mut self, device: &Device) -> Tensor<R> {
-        let a = self.array("input");
-        self.tensor(&a, device)
+        self.tensor("input", device)
     }
 
     /// The fixture's output, `(batch, channels, *grid)`, on the host.
@@ -137,11 +136,12 @@ impl Fixture {
         self.array("output")
     }
 
-    /// `a` as a rank-`R` tensor on `device`, in the fixture's precision.
+    /// The array `key` as a rank-`R` tensor on `device`, in the fixture's precision.
     ///
     /// # Panics
-    /// If `a` is not of rank `R`.
-    fn tensor<const R: usize>(&self, a: &ArrayD<f64>, device: &Device) -> Tensor<R> {
+    /// If the fixture has no such array, or it is not of rank `R`.
+    pub fn tensor<const R: usize>(&mut self, key: &str, device: &Device) -> Tensor<R> {
+        let a = self.array(key);
         assert_eq!(
             a.ndim(),
             R,
@@ -149,7 +149,7 @@ impl Fixture {
             self.name,
             a.ndim()
         );
-        Tensor::from_data(self.data(a), device)
+        Tensor::from_data(self.data(&a), device)
     }
 
     fn data(&self, a: &ArrayD<f64>) -> TensorData {

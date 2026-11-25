@@ -3,7 +3,7 @@
 //! `tests/fixtures/parity/losses{1,2,3}d_{f32,f64}` (`tools/parity/generate_losses.py`).
 //! Used by `tests/parity_losses.rs` (f32) and `tests/parity_losses_f64.rs`.
 
-use burn::{prelude::*, tensor::TensorData};
+use burn::prelude::*;
 use sciml_rs::neural_operators::losses::{
     data_losses::{LpLoss, Reduction},
     differentiation::FiniteDiff,
@@ -11,7 +11,7 @@ use sciml_rs::neural_operators::losses::{
     sobolev::SobolevLoss,
 };
 
-use crate::parity_common::{Fixture, Precision, assert_parity};
+use crate::parity_common::{Fixture, assert_parity};
 
 /// The fixtures' finite-difference steps, domain measures and quantile level
 /// (`generate_losses.py`).
@@ -21,17 +21,6 @@ const ALPHA: f64 = 0.1;
 /// The bound on `lp.rel`: 2.0.0's eps of 1e-8 against norms ‖y‖ ≳ 1 (measured: 1.9e-9 at
 /// most, in f64).
 const LP_EPS_GAP: f64 = 1e-8;
-
-/// The fixture array `key` as a rank-`N` tensor in the fixture's precision.
-pub fn tensor<const N: usize>(fx: &mut Fixture, key: &str, device: &Device) -> Tensor<N> {
-    let a = fx.array(key);
-    let shape = a.shape().to_vec();
-    let data = match fx.precision {
-        Precision::F32 => TensorData::new(a.iter().map(|&v| v as f32).collect(), shape),
-        Precision::F64 => TensorData::new(a.iter().copied().collect(), shape),
-    };
-    Tensor::from_data(data, device)
-}
 
 /// An open fixture and the worst D3 error seen on it so far.
 struct Checks {
@@ -66,9 +55,9 @@ pub fn run<const D: usize, const R: usize, const G: usize, const V: usize>(
     device: &Device,
 ) {
     let mut fx = Fixture::open(name);
-    let x: Tensor<R> = tensor(&mut fx, "x", device);
-    let y: Tensor<R> = tensor(&mut fx, "y", device);
-    let v: Tensor<R> = tensor(&mut fx, "v", device);
+    let x: Tensor<R> = fx.tensor("x", device);
+    let y: Tensor<R> = fx.tensor("y", device);
+    let v: Tensor<R> = fx.tensor("v", device);
     let mut c = Checks { fx, worst: 0.0 };
     let h: [f64; D] = std::array::from_fn(|a| H[a]);
     let measure: [f64; D] = std::array::from_fn(|a| MEASURE[a]);

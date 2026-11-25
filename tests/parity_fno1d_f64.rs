@@ -2,32 +2,16 @@
 //! test binary because it configures Flex's process-wide float dtype to f64.
 
 #[cfg(feature = "flex")]
+mod flex_f64;
+#[cfg(feature = "flex")]
 #[path = "parity_common/fno1d.rs"]
 mod fno1d;
 mod parity_common;
 
 #[cfg(feature = "flex")]
-use std::sync::OnceLock;
-
-#[cfg(feature = "flex")]
-use burn::{prelude::*, tensor::FloatDType};
+use flex_f64::flex_f64;
 #[cfg(feature = "flex")]
 use parity_common::assert_parity;
-
-/// Flex configured for f64, once per process.
-#[cfg(feature = "flex")]
-fn flex_f64() -> Device {
-    static DEVICE: OnceLock<Device> = OnceLock::new();
-    DEVICE
-        .get_or_init(|| {
-            let mut device = Device::flex();
-            device
-                .configure(FloatDType::F64)
-                .expect("flex accepts f64 as its default float dtype");
-            device
-        })
-        .clone()
-}
 
 /// The f64 fixture within D3's f64 bound. Flex's f64 `rfft` multiplies by f32 twiddles
 /// (`tests/gauss_newton_f64.rs`), so this cannot reach 1e-12 until that is fixed upstream.

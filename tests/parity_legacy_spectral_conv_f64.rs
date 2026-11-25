@@ -7,34 +7,18 @@
 //! and Flex's f64 `rfft` uses f32 twiddles (`tests/gauss_newton_f64.rs`).
 
 #[cfg(feature = "flex")]
+mod flex_f64;
+#[cfg(feature = "flex")]
 #[path = "parity_common/legacy_conv.rs"]
 mod legacy_conv;
 mod parity_common;
 
 #[cfg(feature = "flex")]
-use std::sync::OnceLock;
-
-#[cfg(feature = "flex")]
-use burn::{prelude::*, tensor::FloatDType};
+use flex_f64::flex_f64;
 #[cfg(feature = "flex")]
 use legacy_conv::*;
 #[cfg(feature = "flex")]
 use parity_common::Precision::F64;
-
-/// Flex configured for f64, once per process.
-#[cfg(feature = "flex")]
-fn flex_f64() -> Device {
-    static DEVICE: OnceLock<Device> = OnceLock::new();
-    DEVICE
-        .get_or_init(|| {
-            let mut device = Device::flex();
-            device
-                .configure(FloatDType::F64)
-                .expect("flex accepts f64 as its default float dtype");
-            device
-        })
-        .clone()
-}
 
 #[cfg(feature = "flex")]
 #[test]

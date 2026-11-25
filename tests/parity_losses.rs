@@ -8,7 +8,7 @@ mod parity_losses_common;
 
 use burn::prelude::*;
 use parity_common::{Fixture, rel_max_error};
-use parity_losses_common::{run, tensor};
+use parity_losses_common::run;
 use sciml_rs::neural_operators::losses::differentiation::FiniteDiff;
 
 #[test]
@@ -31,7 +31,7 @@ fn losses3d_f32_match_2_0_0() {
 fn swapped_axes_fail_parity() {
     let device = Device::default();
     let mut fx = Fixture::open("losses2d_f32");
-    let x: Tensor<4> = tensor(&mut fx, "x", &device);
+    let x: Tensor<4> = fx.tensor("x", &device);
     // Equal steps, so only the axis differs.
     let fd = FiniteDiff {
         h: [0.1, 0.1],
