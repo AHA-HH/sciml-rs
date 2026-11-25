@@ -33,7 +33,10 @@ fn swapped_axes_fail_parity() {
     let mut fx = Fixture::open("losses2d_f32");
     let x: Tensor<4> = tensor(&mut fx, "x", &device);
     // Equal steps, so only the axis differs.
-    let fd = FiniteDiff::new([0.1, 0.1], [true, true]);
+    let fd = FiniteDiff {
+        h: [0.1, 0.1],
+        periodic: [true, true],
+    };
     let err = rel_max_error(fd.partial(x, 1, 1), &fx.array("fd.dx1.per"));
     assert!(err > 1e-1, "a swapped axis went unnoticed: {err:.3e}");
 }

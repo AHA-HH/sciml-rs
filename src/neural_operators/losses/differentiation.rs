@@ -24,15 +24,6 @@ pub struct FiniteDiff<const D: usize> {
 }
 
 impl<const D: usize> FiniteDiff<D> {
-    /// Finite differences with steps `h` and periodicity `periodic` per spatial axis.
-    ///
-    /// # Panics
-    /// If `D == 0`.
-    pub fn new(h: [f64; D], periodic: [bool; D]) -> Self {
-        assert!(D > 0, "FiniteDiff: at least one spatial axis");
-        Self { h, periodic }
-    }
-
     /// The derivative of order `order` (1 or 2) of `u` along spatial axis `axis` (0 = x).
     ///
     /// `u`: `[.., s_1, .., s_D]`; the result has the same shape.
@@ -86,28 +77,47 @@ impl<const D: usize> FiniteDiff<D> {
     }
 
     /// ∂u/∂x: [`partial`](Self::partial) on axis 0.
+    ///
+    /// # Panics
+    /// As [`partial`](Self::partial).
     pub fn dx<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
         self.partial(u, 0, order)
     }
 
     /// ∂u/∂y: [`partial`](Self::partial) on axis 1.
+    ///
+    /// # Panics
+    /// As [`partial`](Self::partial).
     pub fn dy<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
         self.partial(u, 1, order)
     }
 
     /// ∂u/∂z: [`partial`](Self::partial) on axis 2.
+    ///
+    /// # Panics
+    /// As [`partial`](Self::partial).
     pub fn dz<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
         self.partial(u, 2, order)
     }
 
-    /// The Laplacian Σₐ ∂²u/∂xₐ². `u`: `[.., s_1, .., s_D]`; the result has the same shape.
+    /// Σₐ ∂ᵏu/∂xₐᵏ over every spatial axis, k = `order`: for k = 1 the sum of the first
+    /// partials (2.0.0's `HdivLoss` term), for k = 2 the Laplacian. `u`: `[.., s_1, .., s_D]`;
+    /// the result has the same shape.
+    ///
+    /// # Panics
+    /// As [`partial`](Self::partial).
+    pub fn partial_sum<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
+        (1..D).fold(self.partial(u.clone(), 0, order), |acc, a| {
+            acc + self.partial(u.clone(), a, order)
+        })
+    }
+
+    /// The Laplacian Σₐ ∂²u/∂xₐ², [`partial_sum`](Self::partial_sum) of order 2.
     ///
     /// # Panics
     /// As [`partial`](Self::partial).
     pub fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
-        (1..D).fold(self.partial(u.clone(), 0, 2), |acc, a| {
-            acc + self.partial(u.clone(), a, 2)
-        })
+        self.partial_sum(u, 2)
     }
 
     /// The gradient: `u` `[.., s_1, .., s_D]` to `[.., D, s_1, .., s_D]`, the components
@@ -142,29 +152,33 @@ impl<const D: usize> FiniteDiff<D> {
             .squeeze_dim(c)
     }
 
-    /// The curl of a vector field `v` `[.., D, s_1, .., s_D]`: in 2D the scalar
-    /// ∂v₁/∂x − ∂v₀/∂y, `[.., s_1, s_2]` (`S = R − 1`); in 3D the vector
-    /// (∂v₂/∂y − ∂v₁/∂z, ∂v₀/∂z − ∂v₂/∂x, ∂v₁/∂x − ∂v₀/∂y), `[.., 3, s_1, s_2, s_3]` (`S = R`).
+    /// The 2D curl ∂v₁/∂x − ∂v₀/∂y of a vector field `v` `[.., 2, s_1, s_2]`, to
+    /// `[.., s_1, s_2]`.
     ///
     /// # Panics
-    /// If `D` is not 2 or 3, `S` is not the rank above, the component axis is not of length
-    /// `D`, or as [`partial`](Self::partial).
-    pub fn curl<const R: usize, const S: usize>(&self, v: Tensor<R>) -> Tensor<S> {
+    /// If `D != 2`, `S + 1 != R`, the component axis is not of length 2, or as
+    /// [`partial`](Self::partial).
+    pub fn curl_2d<const R: usize, const S: usize>(&self, v: Tensor<R>) -> Tensor<S> {
+        assert_eq!(D, 2, "FiniteDiff::curl_2d in {D}D");
+        assert_eq!(S + 1, R, "FiniteDiff::curl_2d: output rank must be R − 1");
         let c = self.component_axis(&v);
         let d = |i: usize, axis: usize| self.partial(v.clone().narrow(c, i, 1), axis, 1);
-        match D {
-            2 => {
-                assert_eq!(S + 1, R, "FiniteDiff::curl: 2D output rank must be R − 1");
-                (d(1, 0) - d(0, 1)).squeeze_dim(c)
-            }
-            3 => {
-                assert_eq!(S, R, "FiniteDiff::curl: 3D output rank must be R");
-                let parts = vec![d(2, 1) - d(1, 2), d(0, 2) - d(2, 0), d(1, 0) - d(0, 1)];
-                // S == R, checked above; the reshape only renames the rank.
-                Tensor::cat(parts, c).reshape(v.shape())
-            }
-            _ => panic!("FiniteDiff::curl: defined in 2D and 3D, not {D}D"),
-        }
+        (d(1, 0) - d(0, 1)).squeeze_dim(c)
+    }
+
+    /// The 3D curl (∂v₂/∂y − ∂v₁/∂z, ∂v₀/∂z − ∂v₂/∂x, ∂v₁/∂x − ∂v₀/∂y) of a vector field `v`
+    /// `[.., 3, s_1, s_2, s_3]`, the same shape.
+    ///
+    /// # Panics
+    /// If `D != 3`, the component axis is not of length 3, or as [`partial`](Self::partial).
+    pub fn curl_3d<const R: usize>(&self, v: Tensor<R>) -> Tensor<R> {
+        assert_eq!(D, 3, "FiniteDiff::curl_3d in {D}D");
+        let c = self.component_axis(&v);
+        let d = |i: usize, axis: usize| self.partial(v.clone().narrow(c, i, 1), axis, 1);
+        Tensor::cat(
+            vec![d(2, 1) - d(1, 2), d(0, 2) - d(2, 0), d(1, 0) - d(0, 1)],
+            c,
+        )
     }
 
     /// The axis of a vector field's components, just before the spatial axes.
@@ -208,7 +222,10 @@ mod tests {
         let h = 2.0 * PI / n as f64;
         let xs: Vec<f64> = (0..n).map(|i| i as f64 * h).collect();
         let u = row(xs.iter().map(|x| x.sin()).collect());
-        let fd = FiniteDiff::new([h], [true]);
+        let fd = FiniteDiff {
+            h: [h],
+            periodic: [true],
+        };
         let cos: Vec<f64> = xs.iter().map(|x| x.cos()).collect();
         let neg_sin: Vec<f64> = xs.iter().map(|x| -x.sin()).collect();
         let e1 = max_abs_diff(&values(fd.dx(u.clone(), 1)), &cos);
@@ -230,7 +247,10 @@ mod tests {
     fn one_sided_ends_exact_on_polynomials() {
         let h = 0.25;
         let xs: Vec<f64> = (0..7).map(|i| i as f64 * h).collect();
-        let fd = FiniteDiff::new([h], [false]);
+        let fd = FiniteDiff {
+            h: [h],
+            periodic: [false],
+        };
 
         let cubic = row(xs.iter().map(|x| x * x * x - 2.0 * x).collect());
         let d1 = values(fd.dx(cubic, 1));
@@ -254,7 +274,10 @@ mod tests {
         let data: Vec<f64> = (0..nx * ny).map(|k| ((k * 37 % 11) as f64).sin()).collect();
         let u: Tensor<3> =
             Tensor::from_data(TensorData::new(data, [1, nx, ny]), &Device::default());
-        let fd = FiniteDiff::new([0.1, 0.3], [true, true]);
+        let fd = FiniteDiff {
+            h: [0.1, 0.3],
+            periodic: [true, true],
+        };
         let lap = fd.laplacian(u.clone());
         let sum = fd.dx(u.clone(), 2) + fd.dy(u.clone(), 2);
         let err = (lap - sum).abs().max().into_scalar::<f64>();
@@ -262,7 +285,7 @@ mod tests {
 
         let grad: Tensor<4> = fd.gradient(u);
         assert_eq!(grad.dims(), [1, 2, nx, ny]);
-        let curl: Tensor<3> = fd.curl(grad);
+        let curl: Tensor<3> = fd.curl_2d(grad);
         let err = curl.abs().max().into_scalar::<f64>();
         assert!(err < 1e-4, "curl of a gradient: {err:e}");
     }
@@ -270,25 +293,41 @@ mod tests {
     #[test]
     #[should_panic(expected = "needs at least 4")]
     fn non_periodic_axis_needs_four_points() {
-        FiniteDiff::new([1.0], [false]).dx(row(vec![0.0, 1.0, 2.0]), 1);
+        FiniteDiff {
+            h: [1.0],
+            periodic: [false],
+        }
+        .dx(row(vec![0.0, 1.0, 2.0]), 1);
     }
 
     #[test]
     #[should_panic(expected = "axis 1 of 1")]
     fn axis_beyond_d_panics() {
-        FiniteDiff::new([1.0], [true]).dy(row(vec![0.0; 4]), 1);
+        FiniteDiff {
+            h: [1.0],
+            periodic: [true],
+        }
+        .dy(row(vec![0.0; 4]), 1);
     }
 
     #[test]
     #[should_panic(expected = "only 1 and 2")]
     fn third_order_panics() {
-        FiniteDiff::new([1.0], [true]).dx(row(vec![0.0; 4]), 3);
+        FiniteDiff {
+            h: [1.0],
+            periodic: [true],
+        }
+        .dx(row(vec![0.0; 4]), 3);
     }
 
     #[test]
-    #[should_panic(expected = "not 1D")]
+    #[should_panic(expected = "curl_2d in 1D")]
     fn curl_in_1d_panics() {
         let v: Tensor<3> = Tensor::zeros([1, 1, 4], &Device::default());
-        let _: Tensor<3> = FiniteDiff::new([1.0], [true]).curl(v);
+        let _: Tensor<3> = FiniteDiff {
+            h: [1.0],
+            periodic: [true],
+        }
+        .curl_2d(v);
     }
 }

@@ -99,7 +99,10 @@ impl<const D: usize> SobolevLoss<D> {
         h: [f64; D],
     ) -> (Tensor<1>, Tensor<1>) {
         assert_eq!(x.dims(), y.dims(), "SobolevLoss: x and y shapes differ");
-        let fd = FiniteDiff::new(h, self.periodic);
+        let fd = FiniteDiff {
+            h,
+            periodic: self.periodic,
+        };
         let dims = x.dims();
         let rows: usize = dims[..R - D].iter().product();
         let sum_sq = |t: Tensor<R>| {
@@ -108,26 +111,16 @@ impl<const D: usize> SobolevLoss<D> {
                 .sum_dim(1)
                 .reshape([rows])
         };
+        // The derivative terms of the norm: each first partial (H1), or their sum (Hdiv).
+        let derivatives = |t: Tensor<R>| match self.norm {
+            SobolevNorm::H1 => (0..D).map(|a| fd.partial(t.clone(), a, 1)).collect(),
+            SobolevNorm::Hdiv => vec![fd.partial_sum(t, 1)],
+        };
         let mut diff = sum_sq(x.clone() - y.clone());
         let mut ynorm = sum_sq(y.clone());
-        match self.norm {
-            SobolevNorm::H1 => {
-                for a in 0..D {
-                    let dy = fd.partial(y.clone(), a, 1);
-                    diff = diff + sum_sq(fd.partial(x.clone(), a, 1) - dy.clone());
-                    ynorm = ynorm + sum_sq(dy);
-                }
-            }
-            SobolevNorm::Hdiv => {
-                let div = |t: Tensor<R>| {
-                    (1..D).fold(fd.partial(t.clone(), 0, 1), |acc, a| {
-                        acc + fd.partial(t.clone(), a, 1)
-                    })
-                };
-                let div_y = div(y);
-                diff = diff + sum_sq(div(x) - div_y.clone());
-                ynorm = ynorm + sum_sq(div_y);
-            }
+        for (dx, dy) in derivatives(x).into_iter().zip(derivatives(y)) {
+            diff = diff + sum_sq(dx - dy.clone());
+            ynorm = ynorm + sum_sq(dy);
         }
         (diff, ynorm)
     }
@@ -157,8 +150,9 @@ mod tests {
         Tensor::from_data(TensorData::new(values.to_vec(), shape), &Device::default())
     }
 
-    /// One field of 4 periodic points, x = (1, 0, 0, 0), y = 0: by hand, h = 1/4, ∂x = (0, −2, 0, 2), so Σ (x − y)² + Σ (∂x − ∂y)² = 1 + 8 = 9 and
-    /// abs = √(9 / 4) = 1.5 (H1 and, in 1D, Hdiv alike).
+    /// One field of 4 periodic points, x = (1, 0, 0, 0), y = 0: by hand, h = 1/4,
+    /// ∂x = (0, −2, 0, 2), so Σ (x − y)² + Σ (∂x − ∂y)² = 1 + 8 = 9 and abs = √(9 / 4) = 1.5
+    /// (H1 and, in 1D, Hdiv alike).
     #[test]
     fn abs_known_value() {
         let x = field(&[1.0, 0.0, 0.0, 0.0], [1, 1, 4]);

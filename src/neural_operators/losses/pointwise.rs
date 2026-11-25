@@ -116,6 +116,25 @@ mod tests {
         assert!((v - 5.0 / 3.0).abs() < 1e-6, "{v}");
     }
 
+    /// At an exact match (ŷ = y for MSE, ŷ = |y| for the quantile loss) both are 0. MSE's
+    /// gradient is 0; the pinball loss has a kink at d = 0, so its gradient is only finite.
+    #[test]
+    fn exact_match_gives_zero_and_finite_gradient() {
+        let device = Device::default().autodiff();
+        let y = Tensor::<2>::from_data([[1.0, -2.0], [3.0, 0.5]], &device);
+        let x = y.clone().detach().require_grad();
+        let mse = mse_loss(x.clone(), y.clone().detach());
+        let g = x.grad(&mse.clone().backward()).unwrap();
+        assert_eq!(mse.into_scalar::<f64>(), 0.0);
+        assert_eq!(g.abs().max().into_scalar::<f64>(), 0.0);
+
+        let x = y.clone().abs().detach().require_grad();
+        let loss = PointwiseQuantileLoss::new(0.1, Reduction::Sum).loss(x.clone(), y.detach());
+        let g = x.grad(&loss.clone().backward()).unwrap();
+        assert_eq!(loss.into_scalar::<f64>(), 0.0);
+        assert!(g.abs().max().into_scalar::<f64>().is_finite());
+    }
+
     #[test]
     #[should_panic(expected = "outside (0, 1)")]
     fn quantile_rejects_alpha_one() {

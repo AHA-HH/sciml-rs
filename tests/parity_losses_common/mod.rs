@@ -33,10 +33,19 @@ pub fn tensor<const N: usize>(fx: &mut Fixture, key: &str, device: &Device) -> T
     Tensor::from_data(data, device)
 }
 
-/// Asserts `actual` matches the fixture's `key` within D3 and returns the error.
-fn check<const N: usize>(fx: &mut Fixture, actual: Tensor<N>, key: &str) -> f64 {
-    let expected = fx.array(key);
-    assert_parity(actual, &expected, fx.precision.d3(), key)
+/// An open fixture and the worst D3 error seen on it so far.
+struct Checks {
+    fx: Fixture,
+    worst: f64,
+}
+
+impl Checks {
+    /// Asserts `actual` matches the fixture's `key` within D3, and keeps the worst error.
+    fn check<const N: usize>(&mut self, actual: Tensor<N>, key: &str) {
+        let expected = self.fx.array(key);
+        let err = assert_parity(actual, &expected, self.fx.precision.d3(), key);
+        self.worst = self.worst.max(err);
+    }
 }
 
 /// Periodicity per axis by the fixture's boundary name: `per`, `non`, `mix` (x one-sided).
@@ -50,8 +59,8 @@ fn boundaries<const D: usize>() -> Vec<(&'static str, [bool; D])> {
     out
 }
 
-/// Every comparison of one fixture, on `device`. `R` = D + 2 (x, y, v), `G` = R + 1 (gradient), `V` =
-/// R − 1 (divergence; curl in 2D).
+/// Every comparison of one fixture, on `device`. `R` = D + 2 (x, y, v), `G` = R + 1
+/// (gradient), `V` = R − 1 (divergence; curl in 2D).
 pub fn run<const D: usize, const R: usize, const G: usize, const V: usize>(
     name: &str,
     device: &Device,
@@ -60,35 +69,35 @@ pub fn run<const D: usize, const R: usize, const G: usize, const V: usize>(
     let x: Tensor<R> = tensor(&mut fx, "x", device);
     let y: Tensor<R> = tensor(&mut fx, "y", device);
     let v: Tensor<R> = tensor(&mut fx, "v", device);
+    let mut c = Checks { fx, worst: 0.0 };
     let h: [f64; D] = std::array::from_fn(|a| H[a]);
     let measure: [f64; D] = std::array::from_fn(|a| MEASURE[a]);
-    let mut worst = 0.0_f64;
 
     for (bc, periodic) in boundaries::<D>() {
-        let fd = FiniteDiff::new(h, periodic);
+        let fd = FiniteDiff { h, periodic };
         for (a, axis) in ["x", "y", "z"].into_iter().take(D).enumerate() {
             for order in [1, 2] {
                 let key = format!("fd.d{axis}{order}.{bc}");
-                worst = worst.max(check(&mut fx, fd.partial(x.clone(), a, order), &key));
+                c.check(fd.partial(x.clone(), a, order), &key);
             }
         }
         let key = format!("fd.laplacian.{bc}");
-        worst = worst.max(check(&mut fx, fd.laplacian(x.clone()), &key));
+        c.check(fd.laplacian(x.clone()), &key);
         let grad: Tensor<G> = fd.gradient(x.clone());
         let key = format!("fd.gradient.{bc}");
         // 2.0.0's 1D gradient has no component axis; ours keeps one of length 1.
-        worst = worst.max(if D == 1 {
-            check(&mut fx, grad.reshape(x.dims()), &key)
+        if D == 1 {
+            c.check(grad.reshape(x.dims()), &key);
         } else {
-            check(&mut fx, grad, &key)
-        });
+            c.check(grad, &key);
+        }
         let key = format!("fd.divergence.{bc}");
-        worst = worst.max(check(&mut fx, fd.divergence::<R, V>(v.clone()), &key));
+        c.check(fd.divergence::<R, V>(v.clone()), &key);
         let key = format!("fd.curl.{bc}");
         if D == 2 {
-            worst = worst.max(check(&mut fx, fd.curl::<R, V>(v.clone()), &key));
+            c.check(fd.curl_2d::<R, V>(v.clone()), &key);
         } else if D == 3 {
-            worst = worst.max(check(&mut fx, fd.curl::<R, R>(v.clone()), &key));
+            c.check(fd.curl_3d(v.clone()), &key);
         }
 
         for (norm, loss) in [
@@ -101,9 +110,9 @@ pub fn run<const D: usize, const R: usize, const G: usize, const V: usize>(
                 ..loss
             };
             let key = format!("{norm}.rel.{bc}.sum");
-            worst = worst.max(check(&mut fx, loss.rel(x.clone(), y.clone()), &key));
+            c.check(loss.rel(x.clone(), y.clone()), &key);
             let key = format!("{norm}.abs.{bc}.sum");
-            worst = worst.max(check(&mut fx, loss.abs(x.clone(), y.clone()), &key));
+            c.check(loss.abs(x.clone(), y.clone()), &key);
         }
     }
     let h1_mean = SobolevLoss {
@@ -111,13 +120,13 @@ pub fn run<const D: usize, const R: usize, const G: usize, const V: usize>(
         ..SobolevLoss::<D>::h1(Reduction::Mean)
     };
     let out = h1_mean.rel(x.clone(), y.clone());
-    worst = worst.max(check(&mut fx, out, "h1.rel.per.mean"));
+    c.check(out, "h1.rel.per.mean");
 
     for (red, reduction) in [("sum", Reduction::Sum), ("mean", Reduction::Mean)] {
         let out = PointwiseQuantileLoss::new(ALPHA, reduction).loss(x.clone(), y.clone());
-        worst = worst.max(check(&mut fx, out, &format!("quantile.{red}")));
+        c.check(out, &format!("quantile.{red}"));
     }
-    worst = worst.max(check(&mut fx, mse_loss(x.clone(), y.clone()), "mse"));
+    c.check(mse_loss(x.clone(), y.clone()), "mse");
 
     // 2.0.0 reduces over batch and channel: flatten both into the crate's batch axis.
     let dims = x.dims();
@@ -126,9 +135,12 @@ pub fn run<const D: usize, const R: usize, const G: usize, const V: usize>(
     let out = LpLoss::new(2, Reduction::Sum).rel(flat(x), flat(y));
     // 2.0.0 divides by ‖y‖ + 1e-8, the crate by ‖y‖ (CONVENTIONS §11, constraint 1): a
     // relative gap of about 1e-8 / ‖y‖, inside the f32 bound but not the f64 one.
-    let expected = fx.array("lp.rel");
-    let tol = fx.precision.d3().max(LP_EPS_GAP);
+    let expected = c.fx.array("lp.rel");
+    let tol = c.fx.precision.d3().max(LP_EPS_GAP);
     let lp = assert_parity(out, &expected, tol, "lp.rel");
 
-    println!("{name}: worst relative max error {worst:.3e}; lp.rel {lp:.3e}");
+    println!(
+        "{name}: worst relative max error {:.3e}; lp.rel {lp:.3e}",
+        c.worst
+    );
 }
