@@ -158,9 +158,10 @@ fn train_epoch_with_loss<const R: usize, const RM1: usize, M: GridOperator<R>>(
 pub struct TrainingComponents<const R: usize, const RM1: usize, M = FNO<R>> {
     /// The freshly initialised model, on the autodiff device.
     pub model: M,
-    /// Adam with weight decay.
+    /// Adam with coupled weight decay, or AdamW when `TrainingConfig::optimizer` asks for it.
     pub optim: ModuleOptimizer,
-    /// Cosine annealing over [`TrainingConfig::schedule_steps`] steps, stepped once per batch.
+    /// Cosine annealing over [`TrainingConfig::schedule_steps`] steps, or the step schedule
+    /// of [`TrainingConfig::lr_schedule`]; stepped once per batch.
     pub scheduler: ModuleLrScheduler,
     /// Shuffled training batches on the autodiff device.
     pub train_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
@@ -202,8 +203,8 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
 ///
 /// # Panics
 ///
-/// If either dataset is empty, as `M::init`, or if `train_cfg.adam_epochs` is set without
-/// Gauss–Newton or outside 1..`epochs`.
+/// If either dataset is empty, as `M::init`, if `train_cfg.adam_epochs` is set without
+/// Gauss–Newton or outside 1..`epochs`, or if a step schedule's `every_epochs` is 0.
 pub fn build_components<M: GridOperator<R>, const R: usize, const RM1: usize, T: HostFloat>(
     model_cfg: &M::Config,
     train_cfg: &TrainingConfig,
@@ -242,7 +243,8 @@ pub fn build_components<M: GridOperator<R>, const R: usize, const RM1: usize, T:
             .with_epsilon(1e-8)
             .with_weight_decay(train_cfg.weight_decay)
             .init(),
-        _ => AdamConfig::new()
+        // a Gauss-Newton run builds Adam too: its hybrid epochs, or unused
+        Some(OptimizerConfig::Adam | OptimizerConfig::GaussNewton(_)) | None => AdamConfig::new()
             .with_epsilon(1e-8)
             .with_weight_decay(Some(WeightDecayConfig::new(train_cfg.weight_decay)))
             .init(),
@@ -1839,9 +1841,9 @@ mod tests {
         assert!(weights(&adamw) != weights(&adam), "AdamW trained as Adam");
     }
 
-    /// The step schedule halves the learning rate every `every_epochs` epochs: with 3
-    /// steps per epoch and `every_epochs` 2, the last step of epochs 0..5 runs at lr, lr,
-    /// lr/2, lr/2, lr/4, bit for bit.
+    /// The step schedule halves the learning rate every `every_epochs` epochs, at the
+    /// step that opens the epoch: with 3 steps per epoch and `every_epochs` 2, steps 0..15
+    /// run at lr (0–5), lr/2 (6–11) and lr/4 (12–14), bit for bit.
     #[test]
     fn step_schedule_halves_at_the_stated_epochs() {
         let lr = 1e-3;
@@ -1849,13 +1851,19 @@ mod tests {
             .with_epochs(5)
             .with_batch_size(2)
             .with_learning_rate(lr)
-            .with_optimizer(Some(OptimizerConfig::AdamW))
             .with_lr_schedule(Some(LrSchedule::Step { every_epochs: 2 }));
-        let [(_, metrics), _] = co1_1_pair(&cfg, &cfg, 5);
-        let got: Vec<u64> = metrics.iter().map(|m| m.current_lr.to_bits()).collect();
-        let want: Vec<u64> = [1.0, 1.0, 0.5, 0.5, 0.25]
-            .iter()
-            .map(|f| (lr * f).to_bits())
+        let mut c = build_training_components::<3, 2, _>(
+            &tiny_model_cfg(),
+            &cfg,
+            tiny_dataset(5),
+            tiny_dataset(3),
+            &Device::default().autodiff(),
+        );
+        let got: Vec<u64> = (0..15)
+            .map(|_| c.scheduler.step().base().to_bits())
+            .collect();
+        let want: Vec<u64> = (0..15)
+            .map(|i| (lr * 0.5_f64.powi(i / 6)).to_bits())
             .collect();
         assert_eq!(got, want);
     }
@@ -1881,6 +1889,38 @@ mod tests {
             weights(&squared) != weights(&summed),
             "the loss changed nothing"
         );
+    }
+
+    /// The step the trainer takes under the squared loss is one optimiser step on
+    /// `squared_rel_l2`'s gradient, taken by hand from the same model, batch and fresh
+    /// optimiser: equal weights (bit for bit on flex).
+    #[test]
+    fn squared_loss_steps_on_the_squared_objective() {
+        let cfg = TrainingConfig::new()
+            .with_epochs(1)
+            .with_batch_size(4)
+            .with_loss(Some(TrainLoss::SquaredRelL2));
+        let device = Device::default().autodiff();
+        let build = || {
+            build_training_components::<3, 2, _>(
+                &tiny_model_cfg(),
+                &cfg,
+                tiny_dataset(4),
+                tiny_dataset(3),
+                &device,
+            )
+        };
+        let trained = build();
+        let mut by_hand = build();
+        let model = trained.model.clone();
+        let (trained, _) = training_loop(trained, &cfg, None, &mut |_, _| {}, None, None);
+
+        let batch = by_hand.train_loader.iter().next().unwrap().unwrap();
+        let StepLoss { out, target, .. } = forward_loss(&model, batch, None);
+        let grads = GradientsParams::from_grads(squared_rel_l2(out, target).backward(), &model);
+        let lr = by_hand.scheduler.step();
+        let model = by_hand.optim.step(lr, model, grads);
+        assert_same_weights(&trained, &model);
     }
 
     /// The squared loss is for the one-device Adam path.

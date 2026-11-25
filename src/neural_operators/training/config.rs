@@ -7,7 +7,8 @@ use crate::neural_operators::optim::gauss_newton::GaussNewtonConfig;
 /// Which optimiser trains the model (Phase 10 T3).
 #[derive(Config, Debug)]
 pub enum OptimizerConfig {
-    /// Adam with weight decay and the cosine schedule, from [`TrainingConfig`]'s
+    /// Adam with coupled weight decay and the run's schedule (the cosine unless
+    /// [`TrainingConfig::lr_schedule`] says otherwise), from [`TrainingConfig`]'s
     /// learning-rate and weight-decay fields: the baseline.
     Adam,
     /// Damped Gauss–Newton ([`GaussNewton`](crate::neural_operators::optim::gauss_newton::GaussNewton)),
@@ -26,7 +27,7 @@ pub enum LrSchedule {
     /// [`TrainingConfig::learning_rate`] halved every `every_epochs` epochs (Burn's
     /// `StepLrSchedulerConfig`, stepped once per batch): PETScML's reference (D11).
     Step {
-        /// Epochs between two halvings.
+        /// Epochs between two halvings; at least 1, or building the run's components panics.
         every_epochs: usize,
     },
 }
@@ -54,13 +55,13 @@ pub struct TrainingConfig {
     /// Evaluation batch size; it does not change the test loss, which is a per-sample mean.
     #[config(default = 20)]
     pub test_batch_size: usize,
-    /// Initial (peak) learning rate of the cosine schedule.
+    /// Initial learning rate: the cosine's peak, or the step schedule's starting rate.
     #[config(default = 1e-3)]
     pub learning_rate: f64,
     /// f32 to match `WeightDecayConfig::penalty`, unlike the f64 types above.
     #[config(default = 1e-4)]
     pub weight_decay: f32,
-    /// Final learning rate of the cosine schedule.
+    /// Final learning rate of the cosine schedule; unused under [`LrSchedule::Step`].
     #[config(default = 1e-7)]
     pub min_lr: f64,
     /// Seeds the device RNG (weight initialisation) and the training loader's shuffle.
