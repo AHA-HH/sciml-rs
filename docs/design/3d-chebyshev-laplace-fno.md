@@ -239,8 +239,8 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
 - The unmarked figures are estimates from the formulas; the activation estimates scale
   the 2D measurement by the 64× point count. "Measured" figures are 3D CL0.1's
   (`docs/laplace3d/results/cl0-1.md`: Apple M2 Pro for flex and metal, one A100 80 GB for
-  cuda), which decided D4 and D8. The estimates are 10–43 % above the measured activations
-  and kept as bounds.
+  cuda), which decided D4 and D8. The measured activations are 10–43 % under the estimates,
+  which are kept as bounds.
 - The VM's GPUs are A100 80 GB (checked 2026-11-11) and it has about 500 GB of host memory,
   so s = 64 at batch 20 fits one GPU on these estimates; D4 fixes the batch with the
   model size. Loading n = 65 needs over 10 GB of host memory (f64 raw and transferred
@@ -264,7 +264,7 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
 - **R1:** GPU memory or epoch time at s = 64 with modes 12³ too large; mitigations: modes
   8³, a smaller batch or width, factorised spectral weights (D4; the library objective's
   CM2.1, `docs/operators/roadmap.md`). Retired at L0: batch 20, modes 12³ at s = 64 uses
-  30.6 GB, 36 % of an A100 80 GB, at 64 s per epoch.
+  30.6 GB (29,146 of an A100's 81,920 MiB, 36 %), at 64 s per epoch.
 - **R2:** generalising the 2D pieces changes a 2D output (constraint 1); caught by the
   in-process bit-identity tests of D2, with rank 2 routed to the existing code.
 - **R3:** Burn backend bugs at rank 5 (the Metal cat and fusion bugs seen in 2D);
