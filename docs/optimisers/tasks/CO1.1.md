@@ -36,6 +36,31 @@ Constraint 1 keeps `train_burgers` with nothing set as today (n_train 1,024, rat
 cells). `WEIGHT_DECAY` and `SUBSAMPLE` override. The roadmap's "n_train = 1,000" is read as
 the recipe's value, not the new default.
 
+## The source check (2026-11-25, plain HTTP)
+PETScML arXiv v1 (https://arxiv.org/html/2403.12188, §4.1.1); Lu et al. 2022 (arXiv
+2111.05512, §5.1, Table S1) and their code (`lu-group/deeponet-fno` @ `8096dda`,
+`src/burgers/fourier_1d.py`); Li et al.'s `fourier_1d.py` (a mirror, the original is gone
+from the official repository). PETScML's repository (gitlab.com/stefanozampini/petscml, HEAD
+`127a5fdf`, every branch) has **no Burgers or FNO script**; the PASC '24 version and the
+Zenodo data tarball could not be read.
+
+| | PETScML text | Lu et al. code | Li et al. code | O1 |
+| --- | --- | --- | --- | --- |
+| s | 128 of 8192, "following [44]" | rate `2**13 // 128` = 64 | rate 8 (s = 1024) | rate 64, s = 128 |
+| train | 1,000 | first 1,000 | first 1,000 | first 1,000 (our loader) |
+| test | 100 | **last 200** | last 100 | last 100 (our loader takes the last `n_test`) |
+| epochs | not stated (Fig. 1 ends near 500) | 500 | 500 | 500 |
+| schedule | lr 1e-3 halved every 100 epochs | step 100, γ 0.5 | step 50, γ 0.5 | step 100, γ 0.5 |
+| optimiser | "ADAMW", wd 1e-4, batch 20 | Adam, coupled L2 1e-4 | Adam, coupled L2 1e-4 | AdamW (D11), coupled Adam as extra cells |
+| ε | not stated | 1e-8 | 1e-8 | 1e-8 |
+| activation | GELU (DM-Haiku, JAX) | ReLU | GELU (PyTorch, erf form) | GELU (see the open question) |
+| loss | mean squared relative L² (eq. 6) | MSE | summed relative L² | squared option |
+| precision | f64 "unless otherwise stated" | f32 | f32 | f32 (D10) |
+
+So s = 128 and the 1,000/100 split are confirmed against PETScML's text, Lu et al. for s
+and Li et al. for the 100 test samples; PETScML mixes the two codes. Epochs and ε are not
+in PETScML's text; 500 and 1e-8 follow both codes.
+
 ## Read first
 - `training/config.rs` (`OptimizerConfig`, `TrainingConfig`), `training/trainer.rs`
   (`build_components`, `train_epoch`, `run_loop`), `training/step.rs` (`forward_loss`),
@@ -116,4 +141,10 @@ is asked before it starts.
 None yet.
 
 ## Open questions
-None yet.
+1. GELU's form. PETScML's network is DM-Haiku, whose `jax.nn.gelu` defaults to the tanh
+   approximation; Li et al.'s PyTorch `F.gelu` is the erf form. Their script is not public.
+   CO1.1 implements the erf form (Burn's `gelu`); the two differ by under 1e-3 in value.
+   For sign-off: keep erf, or switch to the tanh form (Burn's `gelu_approximate`).
+2. PETScML's "AdamW" is attributed to Li et al., whose code is Adam with a coupled L2 term.
+   D11 already runs both (AdamW cells A0, A1 and our coupled Adam cells), so nothing changes;
+   recorded for CO1.3's discussion of the reference.
