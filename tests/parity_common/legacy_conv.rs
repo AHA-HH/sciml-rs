@@ -13,7 +13,7 @@ use burn::{module::Param, prelude::*};
 use ndarray::ArrayD;
 use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
 
-use crate::parity_common::{Fixture, MapEntry, Take, load_into};
+use crate::parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into};
 
 /// 2.0.0's legacy layer: the spectral convolution, then the bias.
 #[derive(Module, Debug)]
@@ -48,12 +48,12 @@ macro_rules! corner {
             (
                 concat!("weight.", $i, ".tensor"),
                 concat!("conv.weights_re.", $c),
-                Take::Re,
+                crate::parity_common::Take::Re,
             ),
             (
                 concat!("weight.", $i, ".tensor"),
                 concat!("conv.weights_im.", $c),
-                Take::Im,
+                crate::parity_common::Take::Im,
             ),
         ]
     };
@@ -116,26 +116,39 @@ pub const CASE_3D: Case = Case {
     map: map_3d,
 };
 
-/// `case`'s fixture of precision `dtype` (`"f32"`, `"f64"`) loaded through `map`, its
-/// output on the fixture's input, the reference output and D3's bound.
-pub fn run_with<const R: usize>(
+/// The fixture's name: `case`'s stem and `_f32` or `_f64`.
+fn name(case: &Case, precision: Precision) -> String {
+    let dtype = match precision {
+        Precision::F32 => "f32",
+        Precision::F64 => "f64",
+    };
+    format!("{}_{dtype}", case.stem)
+}
+
+/// `case`'s fixture in `precision` loaded through `map`: the layer's output on the fixture's
+/// input, and the reference output.
+pub fn output<const R: usize>(
     case: &Case,
-    dtype: &str,
+    precision: Precision,
     map: &[MapEntry],
     device: &Device,
-) -> (Tensor<R>, ArrayD<f64>, f64) {
-    let mut fixture = Fixture::open(&format!("{}_{dtype}", case.stem));
+) -> (Tensor<R>, ArrayD<f64>) {
+    let mut fixture = Fixture::open(&name(case, precision));
     let mut layer = LegacyConv::<R>::new(device, case.in_channels, case.out_channels, case.modes);
     load_into(&mut layer, &mut fixture, map);
     let out = layer.forward(fixture.input(device));
-    (out, fixture.output(), fixture.precision.d3())
+    (out, fixture.output())
 }
 
-/// [`run_with`] through the case's own map.
-pub fn run<const R: usize>(
-    case: &Case,
-    dtype: &str,
-    device: &Device,
-) -> (Tensor<R>, ArrayD<f64>, f64) {
-    run_with(case, dtype, &(case.map)(), device)
+/// Asserts `case` in `precision`, through its own map, is within D3; prints and returns the
+/// error.
+///
+/// # Panics
+/// If the error exceeds D3's bound for `precision`.
+pub fn check<const R: usize>(case: &Case, precision: Precision, device: &Device) -> f64 {
+    let (out, reference) = output::<R>(case, precision, &(case.map)(), device);
+    let what = name(case, precision);
+    let err = assert_parity(out, &reference, precision.d3(), &what);
+    println!("{what}: relative max error {err:.3e}");
+    err
 }

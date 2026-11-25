@@ -19,7 +19,7 @@ use burn::{prelude::*, tensor::FloatDType};
 #[cfg(feature = "flex")]
 use legacy_conv::*;
 #[cfg(feature = "flex")]
-use parity_common::assert_parity;
+use parity_common::Precision::F64;
 
 /// Flex configured for f64, once per process.
 #[cfg(feature = "flex")]
@@ -40,25 +40,19 @@ fn flex_f64() -> Device {
 #[test]
 #[ignore = "2.0.0's legacy spectrum is cfloat, and flex's f64 rfft uses f32 twiddles"]
 fn legacy_spectral_conv1d_f64_matches_2_0_0() {
-    let (out, reference, d3) = run::<3>(&CASE_1D, "f64", &flex_f64());
-    let err = assert_parity(out, &reference, d3, "legacy_spectral_conv1d_f64");
-    println!("legacy_spectral_conv1d_f64: relative max error {err:.3e}");
+    check::<3>(&CASE_1D, F64, &flex_f64());
 }
 
 #[cfg(feature = "flex")]
 #[test]
 #[ignore = "2.0.0's legacy spectrum is cfloat, and flex's f64 rfft uses f32 twiddles"]
 fn legacy_spectral_conv2d_f64_matches_2_0_0() {
-    let (out, reference, d3) = run::<4>(&CASE_2D, "f64", &flex_f64());
-    let err = assert_parity(out, &reference, d3, "legacy_spectral_conv2d_f64");
-    println!("legacy_spectral_conv2d_f64: relative max error {err:.3e}");
+    check::<4>(&CASE_2D, F64, &flex_f64());
 }
 
 #[cfg(feature = "flex")]
 #[test]
 #[ignore = "2.0.0's legacy spectrum is cfloat, and flex's f64 rfft uses f32 twiddles"]
 fn legacy_spectral_conv3d_f64_matches_2_0_0() {
-    let (out, reference, d3) = run::<5>(&CASE_3D, "f64", &flex_f64());
-    let err = assert_parity(out, &reference, d3, "legacy_spectral_conv3d_f64");
-    println!("legacy_spectral_conv3d_f64: relative max error {err:.3e}");
+    check::<5>(&CASE_3D, F64, &flex_f64());
 }
