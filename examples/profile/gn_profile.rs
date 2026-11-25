@@ -20,6 +20,14 @@
 //!    ([`counts`]), times the unit costs give a predicted time beside the measured one.
 //!
 //! Writes the tables to the first argument. Timings are of this machine and backend only.
+//!
+//! Approximations: the backtracking's Φ forward is timed as a forward of the model without
+//! autodiff (`Module::valid`); the step's own (`select`) also shifts θ and rebuilds the
+//! model on the autodiff device with untracked parameters (`replace`, private). The metric
+//! forward of `train_epoch_gn` takes the same unit, though it computes `LpLoss`, not the
+//! residual. CG's in-place products are synced between the JVP and the VJP, which the step
+//! is not. What these miss lands in the "unexplained" row. The reference run's own passes
+//! per second (Phase 10, the fork) come from its `gn_steps.csv` by hand (the task's report).
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -35,8 +43,8 @@ use sciml_rs::neural_operators::{
         transforms::normalizers::FlatDecoder,
     },
     optim::gauss_newton::{
-        CgConfig, GaussNewton, GaussNewtonConfig, GnStep, LeastSquares, ParamVec, Preconditioner,
-        adjoint_error, cg, hutchinson_diagonal, jvp, params, vjp,
+        CgConfig, CgStop, GaussNewton, GaussNewtonConfig, GaussNewtonState, GnStep, LeastSquares,
+        ParamVec, Preconditioner, adjoint_error, cg, hutchinson_diagonal, jvp, params, vjp,
     },
     runs::RunDir,
     training::{config::OptimizerConfig, gn::FnoResidual},
@@ -51,12 +59,16 @@ const REPS: usize = 10;
 const STEPS: usize = 10;
 /// CG caps when none is given: D1's two candidates.
 const DEFAULT_CAPS: [usize; 2] = [50, 150];
+/// A mean gap between predicted and measured step time above this is flagged (the plan's
+/// question for the author).
+const GAP_FLAG: f64 = 0.15;
 
 /// What one step did, inferred from its `GnStep` and the optimiser's settings.
 #[derive(Debug, PartialEq)]
 struct Counts {
     /// Curvature products (J v then Jᵀ(J v)): CG's iterations, plus one for the initial
-    /// residual when CG starts warm.
+    /// residual when CG starts warm, plus one when it stops on negative curvature (that
+    /// product is made but no iteration counted, `cg`).
     products: usize,
     /// Whether the diagonal was re-estimated (`probes` VJPs).
     refresh: bool,
@@ -67,31 +79,32 @@ struct Counts {
 }
 
 /// The counts of `step`, made with `probes` Hutchinson probes per refresh (0 without the
-/// preconditioner). The step's passes are 1 + products + probes·refresh + adjoint
-/// backward and 1 + 3·products + probes·refresh + 3·adjoint + backtrack forward
-/// (`GaussNewton::step`); products is CG's iterations or one more.
+/// preconditioner) and `warm` true when the step's CG started from a warm start (the
+/// optimiser's state had one). The step's passes are 1 + products + probes·refresh +
+/// adjoint backward and 1 + 3·products + probes·refresh + 3·adjoint + backtrack forward
+/// (`GaussNewton::step`).
 ///
 /// # Panics
-/// If `probes` is 1 (a refresh and a warm start could not be told apart), or the passes
-/// fit no such decomposition.
-fn counts(step: &GnStep, probes: usize) -> Counts {
-    assert_ne!(
-        probes, 1,
-        "one probe per refresh is ambiguous with the warm start"
-    );
+/// If the backward passes leave anything but 0 or `probes` for the refresh, or the forward
+/// passes are too few.
+fn counts(step: &GnStep, probes: usize, warm: bool) -> Counts {
     let adjoint = step.adjoint_error.is_some();
     let a = usize::from(adjoint);
-    let extra = step
+    let products = step.cg_iterations
+        + usize::from(warm)
+        + usize::from(step.cg_stop == CgStop::NegativeCurvature);
+    let rest = step
         .backward_passes
-        .checked_sub(1 + step.cg_iterations + a)
+        .checked_sub(1 + products + a)
         .expect("too few backward passes for the gradient, CG and the adjoint check");
-    let refresh = probes > 0 && extra >= probes;
-    let warm = extra - if refresh { probes } else { 0 };
-    assert!(warm <= 1, "backward passes left unexplained: {warm}");
-    let products = step.cg_iterations + warm;
+    assert!(
+        rest == 0 || rest == probes,
+        "backward passes left unexplained: {rest} (probes {probes})"
+    );
+    let refresh = probes > 0 && rest == probes;
     let backtrack = step
         .forward_passes
-        .checked_sub(1 + 3 * products + if refresh { probes } else { 0 } + 3 * a)
+        .checked_sub(1 + 3 * products + rest + 3 * a)
         .expect("too few forward passes");
     Counts {
         products,
@@ -118,10 +131,11 @@ struct CgCosts {
     own: f64,
 }
 
-/// One real step: its counts and its measured time.
+/// One real step: its counts, its predicted phases ([`phases`]) and its measured time.
 struct Measured {
     step: GnStep,
     counts: Counts,
+    phases: [f64; 7],
     seconds: f64,
 }
 
@@ -174,7 +188,8 @@ fn squared_norm(t: Tensor<1>) -> f64 {
     t.powf_scalar(2.0).sum().into_scalar::<f64>()
 }
 
-/// (diag + λ + μ)^exponent, the step's diagonal preconditioner.
+/// (diag + λ + μ)^exponent, the step's diagonal preconditioner (a copy of
+/// `GaussNewton::preconditioner`'s last line, private in `step.rs`; keep them in step).
 fn preconditioner(d: &ParamVec, shift: f64, exponent: f64) -> ParamVec {
     d.from_flat_like(d.to_flat().add_scalar(shift).powf_scalar(exponent))
 }
@@ -308,13 +323,16 @@ fn main() {
             ..gn_cfg.clone()
         };
         let cg_costs = cg_in_place(&problem, &model, batch, &g, &state, precond.as_ref(), &cfg);
+        let warm_start = |gn: &GaussNewton| gn.state().warm_start.is_some();
         let mut gn = GaussNewton::from_state(cfg, state.clone());
         let mut current = model.clone();
         let mut steps = Vec::with_capacity(STEPS);
         for b in batches.iter().cycle().take(STEPS) {
+            let warm = warm_start(&gn);
             let ((next, step), seconds) = timed(&device, || gn.step(current, &problem, b));
             current = next;
-            let counts = counts(&step, probes);
+            let counts = counts(&step, probes, warm);
+            let phases = phases(&counts, &units, &cg_costs);
             println!(
                 "cap {cap}, step {}: {:.2} s, {} products, {} backtracking",
                 step.step, seconds, counts.products, counts.backtrack
@@ -322,6 +340,7 @@ fn main() {
             steps.push(Measured {
                 step,
                 counts,
+                phases,
                 seconds,
             });
         }
@@ -331,13 +350,15 @@ fn main() {
     println!("wrote {}", out.display());
 }
 
-/// CG on the step's system at the checkpoint's state, its products timed one by one.
+/// CG on the step's system at the checkpoint's state, its products timed one by one. The
+/// curvature closure, the warm start and the `CgConfig` copy `GaussNewton::step`'s
+/// (`step.rs`), which keeps them private; keep them in step.
 fn cg_in_place<M: Module, P: LeastSquares<M>>(
     problem: &P,
     model: &M,
     batch: &P::Batch,
     g: &ParamVec,
-    state: &sciml_rs::neural_operators::optim::gauss_newton::GaussNewtonState,
+    state: &GaussNewtonState,
     precond: Option<&ParamVec>,
     cfg: &GaussNewtonConfig,
 ) -> CgCosts {
@@ -392,7 +413,7 @@ fn write_cap(report: &mut String, cap: usize, u: &Units, cg: &CgCosts, steps: &[
     )
     .unwrap();
     for s in steps {
-        let predicted: f64 = phases(&s.counts, u, cg).iter().sum();
+        let predicted: f64 = s.phases.iter().sum();
         writeln!(
             report,
             "| {} | {} | {} | {} | {} | {} | {} | {:.3} | {:.3} | {:+.1} % |",
@@ -411,7 +432,7 @@ fn write_cap(report: &mut String, cap: usize, u: &Units, cg: &CgCosts, steps: &[
     }
     let measured = mean(steps, |s| s.seconds);
     let per_phase: Vec<f64> = (0..PHASES.len())
-        .map(|i| mean(steps, |s| phases(&s.counts, u, cg)[i]))
+        .map(|i| mean(steps, |s| s.phases[i]))
         .collect();
     let passes: f64 = steps
         .iter()
@@ -433,8 +454,8 @@ fn write_cap(report: &mut String, cap: usize, u: &Units, cg: &CgCosts, steps: &[
     let rest = measured - per_phase.iter().sum::<f64>();
     writeln!(
         report,
-        "| unexplained | {rest:.3} | {:.1} % |\n| **step, measured** | **{measured:.3}** | 100 % |\n\n\
-         Outside the step, `train_epoch_gn`'s metric forward adds {:.3} s per step. \
+        "| unexplained | {rest:.3} | {:.1} % |\n| **step, measured** | **{measured:.3}** | 100 % |\n\
+         | metric forward (`train_epoch_gn`, 1 per step, outside the step) | {:.3} | – |\n\n\
          Passes per second of the steps: {:.2} ({} steps, {:.0} passes, {:.1} s).",
         100.0 * rest / measured,
         u.forward,
@@ -444,12 +465,21 @@ fn write_cap(report: &mut String, cap: usize, u: &Units, cg: &CgCosts, steps: &[
         measured * steps.len() as f64
     )
     .unwrap();
+    if rest.abs() > GAP_FLAG * measured {
+        writeln!(
+            report,
+            "\n**Flag:** the unit costs explain the mean step only to {:.1} % (above {:.0} %); \
+             a question for the author (an in-library timer).",
+            100.0 * rest / measured,
+            100.0 * GAP_FLAG
+        )
+        .unwrap();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sciml_rs::neural_operators::optim::gauss_newton::CgStop;
 
     /// A `GnStep` with the given CG iterations, passes and adjoint check; the rest zero.
     fn step(cg_iterations: usize, forward: usize, backward: usize, adjoint: bool) -> GnStep {
@@ -481,7 +511,7 @@ mod tests {
     fn counts_of_phase10_rows() {
         // step 0: cold start, refresh, adjoint check, one backtracking forward
         assert_eq!(
-            counts(&step(8, 39, 20, true), 10),
+            counts(&step(8, 39, 20, true), 10, false),
             Counts {
                 products: 8,
                 refresh: true,
@@ -491,7 +521,7 @@ mod tests {
         );
         // step 70: warm start, refresh, adjoint check
         assert_eq!(
-            counts(&step(50, 168, 63, true), 10),
+            counts(&step(50, 168, 63, true), 10, true),
             Counts {
                 products: 51,
                 refresh: true,
@@ -501,7 +531,7 @@ mod tests {
         );
         // step 71: warm start only
         assert_eq!(
-            counts(&step(50, 155, 52, false), 10),
+            counts(&step(50, 155, 52, false), 10, true),
             Counts {
                 products: 51,
                 refresh: false,
@@ -516,7 +546,7 @@ mod tests {
     fn counts_without_preconditioner() {
         // 1 + 3·5 + 3 forward, 1 + 5 backward
         assert_eq!(
-            counts(&step(4, 19, 6, false), 0),
+            counts(&step(4, 19, 6, false), 0, true),
             Counts {
                 products: 5,
                 refresh: false,
@@ -529,7 +559,24 @@ mod tests {
     #[test]
     #[should_panic(expected = "unexplained")]
     fn counts_reject_unexplained_backwards() {
-        counts(&step(4, 30, 9, false), 0);
+        counts(&step(4, 30, 9, false), 0, true);
+    }
+
+    /// An adjoint check without a refresh, and a negative-curvature stop's uncounted
+    /// product: 1 + 3·(3 + 1 + 1) + 3 + 2 forward, 1 + 5 + 1 backward.
+    #[test]
+    fn counts_adjoint_without_refresh_and_negative_curvature() {
+        let mut s = step(3, 21, 7, true);
+        s.cg_stop = CgStop::NegativeCurvature;
+        assert_eq!(
+            counts(&s, 10, true),
+            Counts {
+                products: 5,
+                refresh: false,
+                adjoint: true,
+                backtrack: 2
+            }
+        );
     }
 
     /// The phases sum to the predicted time by hand.

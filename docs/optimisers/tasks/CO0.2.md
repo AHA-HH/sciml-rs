@@ -50,14 +50,21 @@ the profile may propose changes to Gauss–Newton; they are not part of this obj
      own work per iteration = (CG's time − the products') / iterations.
   3. **Real steps**, per cap: 10 `GaussNewton::step`s from the checkpoint's state, cycling
      the split's batches, each timed (synced) with its `GnStep`. Per step, the counts
-     (CG iterations; refresh and adjoint check from the passes; backtracking forwards =
-     forward passes − 1 − probes·refresh − 3·CG − 3·adjoint) times the unit costs give a
-     predicted time; the gap to the measured time is reported.
+     (curvature products = CG's iterations, plus one when CG starts warm, known from the
+     optimiser's state before the step, plus one on a negative-curvature stop; the
+     adjoint check from `GnStep`; the refresh from the backward passes; backtracking
+     forwards = forward passes − 1 − 3·products − probes·refresh − 3·adjoint) times the unit
+     costs give a predicted time; the gap to the measured time is reported.
   4. **The profile table**: per phase (gradient, Hutchinson refresh, CG's JVPs, CG's VJPs,
      CG's own work, backtracking, adjoint check, the metric forward, unexplained), the mean
-     count and time per step and its share; and passes per second of the real steps
-     against the same quantity from the reference run's `gn_steps.csv` (Σ passes / Σ
-     `wall_time_s`, its last 10 steps and all of them).
+     count and time per step and its share; and passes per second of the real steps.
+     **Amended 2026-11-25 (plan review):** the reference run's own passes per second (Σ
+     passes / Σ `wall_time_s` of its `gn_steps.csv`, its last 10 steps and all of them)
+     are computed in the report by one `awk` line, not by the example: run-file names
+     appear only in `runs/` (root `CLAUDE.md`), whose per-row reader would be new code in
+     the library objective's CM0.4 lane. On the Mac's copy of the run: all 80 steps 17.36
+     passes per second, 11.12 s per step; the last 10 (cap 50 reached on each) 17.41, 12.03
+     s per step (11.88 s without a refresh).
 - The report `docs/optimisers/results/CO0.2.md`: the example's tables, the comparison with
   Phase 10's 17.3 passes per second (`costs.json`'s definition, the whole training loop) and
   the list of where passes could be saved.
@@ -66,8 +73,10 @@ the profile may propose changes to Gauss–Newton; they are not part of this obj
 ## Tests that prove it
 - Unit tests in the example (run by `cargo test`): the per-step decomposition from a
   `GnStep`'s counts against hand-computed counts for a refresh step, an adjoint step and a
-  plain one (refresh and adjoint inferred correctly, backtracking forwards ≥ 1); the
-  `gn_steps.csv` reader on a two-row literal (passes per second by hand).
+  plain one, from three rows of the reference run's `gn_steps.csv` (steps 0, 70, 71); an
+  adjoint check without a refresh and a negative-curvature stop; a step without the
+  preconditioner; unexplained backward passes rejected; the phases by hand. (The
+  `gn_steps.csv` reader and its test were dropped by the amendment above.)
 - The measurement itself is validated by its reconciliation: predicted against measured step
   time; a gap above 15 % on the mean is reported as such and is a question for the author
   (an in-library, off-by-default timer would then be the follow-up).
