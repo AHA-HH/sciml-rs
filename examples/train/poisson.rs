@@ -53,6 +53,13 @@
 //! follow-ups: μ = 0, a higher CG cap). `WEIGHT_DECAY` overrides Adam's literal of that
 //! name (Phase 10 follow-up: Adam at μ = 0, the control for GN at μ = 0).
 //!
+//! `EPOCHS` overrides the literal of that name for an Adam run, the cosine schedule
+//! spanning the new count: Adam at a longer budget is Adam given more epochs, since a time
+//! budget would stop it partway down its schedule (optimisers CO0.1). Saved in
+//! `train_cfg.json`, so `--resume` keeps it:
+//! EPOCHS=3142 cargo run --release --no-default-features --features cuda \
+//!     --example train_poisson -- 0 129 64 43
+//!
 //! With Gauss–Newton, `GN_BATCH_SIZE` overrides the literal of that name (T4's full batch
 //! is the subset's N), and `TIME_BUDGET_S` stops the run after the first epoch that ends
 //! at or over that many seconds of training (`TrainingConfig::time_budget_s`; G4's equal
@@ -362,8 +369,16 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         weight_decay.is_finite() && weight_decay >= 0.0,
         "WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
     );
+    let epochs = env_var("EPOCHS").unwrap_or(EPOCHS);
+    // Adam's long budget is more epochs, its cosine schedule spanning them; Gauss-Newton
+    // stops by TIME_BUDGET_S, and a hybrid run's Adam half is fixed at HYBRID_ADAM_EPOCHS
+    assert!(
+        !gn || epochs == EPOCHS,
+        "EPOCHS is for Adam runs; Gauss-Newton runs take TIME_BUDGET_S"
+    );
+    assert!(epochs > 0, "EPOCHS must be positive");
     let train_cfg = TrainingConfig::new()
-        .with_epochs(EPOCHS)
+        .with_epochs(epochs)
         .with_time_budget_s(time_budget_s)
         .with_batch_size(batch_size)
         .with_learning_rate(LEARNING_RATE)
