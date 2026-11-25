@@ -155,3 +155,27 @@ template:
 - Follow-ups: CO3.3 (the arm, resume bit for bit on flex with the GPU drift recorded, the
   factors' conditioning logged at the pilot; its roadmap line).
 
+## 2026-11-25: CO0.2 Cost profile of a Gauss–Newton step
+- Done: `gn_profile` (`examples/profile/gn_profile.rs`): from a Gauss–Newton run's
+  checkpoint, the unit costs of a step's parts (synced medians), CG in place with its
+  products timed, and real steps at each CG cap with predicted against measured time and
+  the profile table; no library code. Report `docs/optimisers/results/CO0.2.md`: one
+  GN200-D step on Burn 0.23 (A100, cuda) at cap 50 takes 15.3 s, 13.7 passes per second,
+  against the fork's 11.88 s and 17.4 (1.29× slower per step); CG's curvature products are
+  98 % of it (JVPs 41 %, VJPs 40 %, CG's own work 21 %); predicted and measured agree to
+  −3.8 % (cap 50) and −0.6 % (cap 150) on the mean. Plan `docs/optimisers/tasks/CO0.2.md`
+  (amended: the fork's passes per second by `awk` over `gn_steps.csv`).
+- Tests: the example's 6 unit tests (the step decomposition on three Phase 10 rows, an
+  adjoint step without refresh and a negative-curvature stop, no preconditioner,
+  unexplained passes rejected, the phases by hand, the output's directories created).
+- Checks: ran fmt, the three clippy runs, `cargo test`, `cargo doc` (all pass); metal smoke
+  runs; the VM run (cuda, alone, 2026-11-25 13:58–14:06 UTC, `f893620`). Attempt 1
+  (12:05 UTC) measured but failed to write its report (missing directory; fixed).
+- Decisions: none.
+- Review: plan review FAIL → fixed (the `gn_steps.csv` reader replaced by the plan's
+  amendment); code quality APPROVE with findings (fixed: exact warm start, the
+  negative-curvature product, phases once per step, source comments, the approximations
+  documented, the metric row and gap flag).
+- Adam and Gauss–Newton: not touched (no library file changed).
+- Follow-ups: the savings list of the report (for later work, nothing changed here); the
+  1.29× per-step slowdown against the fork goes with CO0.1's bisect of Adam's 3.5×.

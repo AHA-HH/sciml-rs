@@ -296,6 +296,36 @@ template:
 - Follow-ups: CM1.6b's line (the review's F3, F4, F6, F7); CM1.6c (`FourierDiff`,
   `non_uniform_fd`); the §11 question.
 
+## 2026-11-25: CM1.3a The parts
+- Done: CM1.3 split into CM1.3a (the parts) and CM1.3b (the FNO's block options); CM1.4 now
+  needs CM1.3a, CM1.5 also CM1.3b. `layers/channel_mlp.rs` (`ChannelMlpConfig`,
+  `ChannelMlp`: 2.0.0's `ChannelMLP`, any rank, the activation a Burn `ActivationConfig`,
+  default GELU; `conv1x1`, a kernel-1 `Conv1d` as one matmul), `layers/skip.rs` (`SkipKind`,
+  `Skip<R>`: identity, bias-free linear, soft gating), `layers/norm.rs` (`AdaInConfig`,
+  `AdaIn`, the embedding a `forward` argument). Instance and group norm are Burn's, tested.
+  Seven 2.0.0 fixtures (`channel_mlp{1,3}d`, `linear_skip3d`, `soft_gating2d`,
+  `instance_norm1d`, `group_norm3d`, `ada_in2d`), constant initialisations redrawn; the
+  harness gains `Take::Transposed` (torch `Linear` weights).
+- Tests: the seven parts in f32 (`tests/parity_block_parts.rs`, ≤ 1.9e-7) and f64
+  (`tests/parity_block_parts_f64.rs`, ≤ 7.1e-16; none ignored: no FFT); unit tests of each
+  module (a channel MLP by hand, soft gating per channel, AdaIN's scale and shift, widths,
+  the panics).
+- Checks: see the PR (fmt, clippy ×5, `cargo test`, `cargo test --features datagen`,
+  `cargo doc`, the bit-identity dumps against `main`, `generate.py --check`).
+- Decisions: none.
+- Review: plan review PASS (advisories: the plan's `mod` count, the identity skip's
+  missing fixture and the 1D–3D reading, now in the plan). Code quality APPROVE with findings:
+  F1 `conv1x1` moved to `layers/pointwise.rs` (the FNO's copy goes in CM1.3b); F2 one function
+  per case; F4 the width assert in the match, `split_last`; F5 one `FCS` map; F6 docs; F3
+  (`flex_f64`, `Precision::suffix`) left to CM1.6b's harness tidy, as the suffix would be
+  dead code in some binaries.
+- FNO: not touched (new modules only).
+- Matrix: `ChannelMLP` partial, skips have, norms partial (no `BatchNorm`), `FNOBlocks` to
+  CM1.3b.
+- Follow-ups: CM1.3b's line: the FNO's pointwise matmul replaced by
+  `layers::pointwise::conv1x1`. One `flex_f64` in `parity_common`: CM1.6b's line (this branch
+  adds a fourth copy, `tests/parity_block_parts_f64.rs`).
+
 ## 2026-11-25: CM1.6b Aggregators
 - Done: `losses/meta_losses.rs`: `WeightedSumLoss`, `FieldwiseAggregatorLoss` (a field is a
   channel range on one axis, prediction and target sliced alike; 2.0.0 reshapes only the
