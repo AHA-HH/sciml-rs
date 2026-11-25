@@ -108,8 +108,8 @@ pub enum Norm {
     Instance(InstanceNorm),
     /// Burn's `GroupNorm` with one group, eps 1e-5.
     Group(GroupNorm),
-    /// The crate's [`AdaIn`].
-    AdaIn(AdaIn),
+    /// The crate's [`AdaIn`], boxed: its MLP makes it far larger than the other variants.
+    AdaIn(Box<AdaIn>),
 }
 
 impl NormKind {
@@ -122,9 +122,9 @@ impl NormKind {
                     .init(device),
             ),
             NormKind::Group => Norm::Group(GroupNormConfig::new(1, channels).init(device)),
-            NormKind::AdaIn { embed_dim } => {
-                Norm::AdaIn(AdaInConfig::new(*embed_dim, channels).init(device))
-            }
+            NormKind::AdaIn { embed_dim } => Norm::AdaIn(Box::new(
+                AdaInConfig::new(*embed_dim, channels).init(device),
+            )),
         }
     }
 }
