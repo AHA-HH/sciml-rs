@@ -1,7 +1,8 @@
 # Learning the 3D Poisson and Laplace solution operators on a Chebyshev grid: design proposal
 
-Draft 0.2, 2026-11-11. A proposal for review, not a plan: nothing here is signed off, and no
-convention changes. It carries the 2D objective
+Draft 0.2, 2026-11-11. The plan of record (D0, 2026-11-11); the decisions taken are in
+`docs/laplace3d/roadmap.md`, and Section 4's CONVENTIONS additions are in
+`docs/CONVENTIONS.md` §12 since version 3 (3D CL1.1). It carries the 2D objective
 (`docs/design/2d-chebyshev-poisson-fno.md`, "the 2D design") to three dimensions: first
 3D Poisson with homogeneous Dirichlet data, the direct extension, then 3D Laplace with
 boundary data. Section 12 lists the decisions the proposal needs from the author.
@@ -69,7 +70,8 @@ the existing 2D code, not against stored bit patterns.
   D2 and its eigendecomposition (`interior_d2`, `real_eig`) are private to
   `pde/poisson/collocation` and work on RLST 2D arrays: reusable inside that module, or
   made `pub(crate)` by CL2.1.
-- **2D-only (`Array2`, `Array3` of 2D samples), to generalise or extend:**
+- **2D-only (`Array2`, `Array3` of 2D samples), to generalise or extend** (the state
+  before L1; Section 6 says what L1 added):
   `transfer::apply`, `Transfers` (including `to_uniform_all`), `clencurt::cc_norm_sq`,
   `cc_rel_l2_error`, `cc_rel_l2_error_weighted`, `pde/poisson/{collocation, grf, dataset,
   manufactured, sparse}`, `metrics/poisson`, `data/loaders/poisson`, `data/catalogue`
@@ -205,9 +207,12 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
 ## 6. Software architecture
 
 - **Generalise (constraint 1):** `transfer::apply`/`Transfers`, `cc_norm_sq`,
-  `cc_rel_l2_error` and `metrics/poisson` take rank 2 or 3. Rank 2 calls the existing 2D
-  code unchanged; rank 3 uses an apply-along-an-axis helper. Each has an in-process test
-  that the 2D path's output equals the existing function's bit for bit (D1, D2).
+  `cc_rel_l2_error` and `metrics/poisson` take rank 2 or 3. As built in L1: the 2D
+  functions stay as they are, and `_nd` siblings (`apply_nd`, `Transfers::to_*_nd`,
+  `cc_*_nd`, `poisson_errors_nd`) route rank 2 to them; the transfers and norms take any
+  rank through an apply-along-an-axis helper, the errors 2D or 3D fields. Each has an
+  in-process test that the 2D path's output equals the existing function's bit for bit
+  (D1, D2).
 - **Extend:** the collocation solver and GRF get 3D entry points sharing the 1D pieces;
   the dataset writer and `data/catalogue` get 3D set names carrying the dimension
   (`poisson3d_n{n}_K{K}_{split}`, so no 3D set takes a 2D name); the Poisson loader gets 3D
@@ -349,3 +354,7 @@ The 2D design and its references; `docs/CONVENTIONS.md`.
     training example; 3D MLflow export a non-goal.
   - Roadmap dependencies added (CL2.1 and CL3.2 need CL1.2, CL3.2 needs D5, CL4.1 needs
     CL0.2; L0 → L3 and L1 → L4 in Section 10).
+- **Draft 0.2, amended at the 3D L1 gate (2026-11-25, `docs/laplace3d/gates/L1.md`).** No
+  change to the plan: the header states the plan of record (C1); Section 6 records the
+  `_nd` siblings L1 built, and Section 2's 2D-only list is marked as the state before L1
+  (C2). Section 9's 3D error-2 check is now in CL3.3's *Done when* (C3, roadmap).
