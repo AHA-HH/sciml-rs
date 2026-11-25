@@ -359,3 +359,33 @@ template:
   branch, so it did not show this; CM1.6a changed no FNO code.
 - Matrix: the aggregator row set to **have**.
 - Follow-ups: CM1.6c; the CONVENTIONS §11 question of CM1.6a (#154) stands.
+
+## 2026-11-25: CM1.2 Centred layout, separable, `max_n_modes`
+- Done: `SpectralConv::new_separable` (weights `[1, C, modes..]`, an element-wise complex
+  product) and `with_modes` (modes below the stored ones: low `0..m`, high the last `m` rows,
+  last axis `0..m`), both off by default; the converter `centred_to_corners` of 2.0.0's
+  centred weights to corners at fixture load, with `Fixture::replace` (D5), in
+  `tests/parity_common/centred_conv.rs`; seven centred fixtures `spectral_conv*_{f32,f64}`.
+  `fft_norm="forward"` needs no conversion (one forward and one inverse at the same N).
+  2.0.0's centred layer applies `fftshift` twice, so on an odd extent of a non-last axis its
+  output spectrum moves by one bin: not representable in corners (numpy check in the plan).
+- Tests: six f32 parity tests within D3 (2.6e-7 to 4.0e-7, Flex, M2 Pro), including an odd
+  count (7; 5 in 3D), `fft_norm="backward"`, separable and stored (10, 8) used (6, 4); the
+  odd extent fails as expected (1.771); unconverted halves fail (1.029); the converter's
+  exact values; six layer unit tests; the f64 six `#[ignore]`d (1.5e-7 to 2.7e-7).
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test`, `cargo test --features datagen`,
+  `cargo doc --no-deps`, the layer tests and `gpu_parity` under `--features metal` (pass,
+  27 and 9; the separable truncation test compares to 1e-6, since Metal rounds the strided
+  slice a few ulps apart), `generate.py` (the ten earlier fixtures unchanged); all in the
+  task's own build directory. `cargo test --features datagen` failed once on
+  `fno::tests::grid::grid_controls_1d` and passed alone (twice) and on a full rerun: it seeds
+  Flex's process-wide RNG while other tests draw from it (pre-existing).
+- Decisions: D5 signed off 2026-11-25 (#153), applied as signed off.
+- Review: plan review PASS (advisories fixed: doc wording, a separable truncation test);
+  code quality APPROVE with findings (one presumptive blocker, the file over 1,000 lines with
+  its tests, waived; L1, D2 and the doc slip fixed; M1, B1 and the split are follow-ups).
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` and the branch, `cmp`
+  same for the forward, the Phase 5-shaped epoch and the Gauss–Newton epoch).
+- Matrix: the centred `SpectralConv` row set to partial.
+- Follow-ups: in CM1.2's roadmap line (for CM1.5 and CM1.8).

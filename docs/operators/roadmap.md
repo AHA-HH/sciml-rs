@@ -7,15 +7,16 @@ each task's plan is `docs/operators/tasks/<ID>.md`, written when it starts; each
 milestone's gate report is `docs/operators/gates/<milestone>.md`; the feature matrix is
 `docs/operators/feature-matrix.md`.
 
-Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 (draft 0.1 as
-the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed off):
-once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
+Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 (draft 0.1
+as the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed
+off): once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
 answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
 CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.6 split 2026-11-25
 into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE). CM1.3
 split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. CM1.6b done
-2026-11-25 (the aggregators). Next CM0.6, CM1.2, CM1.3b, CM1.4 and CM1.6c.
+2026-11-25 (the aggregators). CM1.2 done 2026-11-25 (the centred layer, separable, modes
+below the stored maximum). Next CM0.6, CM1.3b, CM1.4 and CM1.6c.
 
 ## How to read this file
 
@@ -116,8 +117,21 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   legacy spectrum is `cfloat`, so its f64 reference is f32-accurate, ≤ 2.9e-7). CM0.5's
   sidecar and grid follow-ups did not arise (no complex parameters in the sidecar, no grid
   in a bare layer): they pass to CM1.2 and CM1.5.
-- [ ] **CM1.2 Centred layout, separable, `max_n_modes`.** The weight converter of proposal
+- [x] **CM1.2 Centred layout, separable, `max_n_modes`.** The weight converter of proposal
   §6.3; separable weights; mode truncation below the stored maximum. *Needs:* CM1.1, D5.
+  Done 2026-11-25: plan `docs/operators/tasks/CM1.2.md`; `SpectralConv::new_separable` and
+  `with_modes`; the converter `centred_to_corners` at fixture load
+  (`tests/parity_common/centred_conv.rs`); fixtures `spectral_conv*_{f32,f64}`;
+  `tests/parity_spectral_conv.rs` (f32, ≤ 4.0e-7), `_f64.rs` (`#[ignore]`d, ≤ 2.8e-7). Not
+  representable in corners: a grid of odd extent on a non-last axis (2.0.0 shifts its output
+  spectrum by one bin there), and the cases the plan lists. For CM1.5: wire `separable` and
+  `max_n_modes` into `FNOConfig` (off by default), and run FNO parity on even grids only.
+  For CM1.8: an odd centred mode count's zero row is a trainable weight, so training parity
+  at odd counts needs it masked (or even counts only). Code-quality follow-ups for CM1.5: one
+  shared `#[path]` file for the biased test layer of
+  `legacy_conv.rs` and `centred_conv.rs`; converted arrays passed to `load_into` so
+  `Fixture`'s fields are private again; `layers/spectral_convolution.rs` (now over 1,000
+  lines with its tests) split as `optim/soap/` is.
 - **CM1.3 Block parts.** Channel MLP; linear, identity and soft-gating skips;
   instance, group and AdaIN norms; pre-activation; the activation choice. *Needs:* CM1.1.
   Split 2026-11-25 (parts in `layers/`, then the FNO's block options):
