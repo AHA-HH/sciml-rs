@@ -1,0 +1,42 @@
+{
+  "config": "losses2d",
+  "dtype": "f64",
+  "input_seed": 2,
+  "grid": [
+    16,
+    12
+  ],
+  "finite_diff_h": [
+    0.1,
+    0.2
+  ],
+  "measure": [
+    1.0,
+    2.0
+  ],
+  "quantile_alpha": 0.1,
+  "boundaries": {
+    "per": [
+      true,
+      true
+    ],
+    "non": [
+      false,
+      false
+    ],
+    "mix": [
+      false,
+      true
+    ]
+  },
+  "keys": "fd.d<axis><order>.<bc>, fd.{laplacian,gradient,divergence,curl}.<bc>, {h1,hdiv}.{rel,abs}.<bc>.sum, h1.rel.per.mean, quantile.{sum,mean}, mse, lp.rel",
+  "inputs": "x, y on (2, 2, *grid); v on (2, D, *grid); drawn in f32, then cast",
+  "mode": "CPU, deterministic algorithms",
+  "versions": {
+    "python": "3.12.12",
+    "neuraloperator": "2.0.0",
+    "torch": "2.9.0",
+    "numpy": "2.3.4"
+  },
+  "platform": "Darwin arm64"
+}
