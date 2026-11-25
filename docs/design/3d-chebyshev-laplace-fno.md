@@ -221,7 +221,7 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
 - **New:** a 3D training example `train_poisson3d` (`FNO<5>`; not a rank switch in
   `train_poisson`, which stays as it is), 3D predict and evaluation examples.
 
-## 7. Cost and memory model (initial estimates)
+## 7. Cost and memory model (estimates, and L0's measurements)
 
 | Quantity | 2D (measured or stated) | 3D, n = 33 (s = 32) | 3D, n = 65 (s = 64) | 3D, n = 129 |
 | --- | --- | --- | --- | --- |
@@ -229,24 +229,33 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
 | Storage, f + u, f64, 1200 samples | about 80 MB (n = 65) | about 0.69 GB | about 5.3 GB | about 41 GB |
 | Spectral parameters, width 32, 4 layers, modes 12 per axis | 2 359 296 (2 corners) | about 56.6 M (4 corners) | about 56.6 M | – |
 | Same, modes 8 per axis | – | about 16.8 M | about 16.8 M | – |
-| Parameters in total (fc0, w, fc1, fc2 added), modes 12 / 8 | 2 368 001 (Phase 5) | 56 631 841 / 16 785 953 | same | – |
-| Activations kept for backward, f32, per sample | about 30 MB (s = 64) | about 0.25 GB | about 1.6–2 GB | – |
-| Same at the 2D batch of 20 | 1128 MiB peak in all (Phase 5, s = 64) | about 5 GB | about 35–40 GB | – |
+| Parameters in total (fc0, w, fc1, fc2 added), modes 12 / 8 | 2 368 001 (Phase 5) | 56 631 841 / 16 785 953 (measured, exact) | same | – |
+| Activations kept for backward, f32, per sample | about 30 MB (s = 64) | about 0.25 GB; measured 0.15 (flex), 0.17 (cuda) GB | about 1.6–2 GB; measured 1.15–1.19 (flex), 1.44 (cuda) GB | – |
+| Same at the 2D batch of 20 | 1128 MiB peak in all (Phase 5, s = 64) | about 5 GB; measured 5.87 GB peak in all (cuda, 12³) | about 35–40 GB; measured 30.6 GB peak in all (cuda, 12³) | – |
+| Time per epoch, 1000 + 200, batch 20, modes 12³ (measured) | 1.7 s (s = 64, cuda) | 11.4 s cuda, 60–66 s metal | 64.0 s cuda, 388–419 s metal (batch ≤ 4) | – |
 | Train split on the device, f32 | – | about 0.3 GB | about 2.1 GB | – |
 | Solver A3 per sample | – | 12 (n − 2)⁴ ≈ 1.1e7 flops | ≈ 1.9e8 | ≈ 3.1e9 |
 
-- Estimates from the formulas, not measured; L0 measures memory and time per epoch on
-  metal and cuda. The activation figures scale the 2D measurement by the 64× point count
-  and are the ones that decide R1, D4 and D8.
+- The unmarked figures are estimates from the formulas; the activation estimates scale
+  the 2D measurement by the 64× point count. "Measured" figures are 3D CL0.1's
+  (`docs/laplace3d/results/cl0-1.md`: Apple M2 Pro for flex and metal, one A100 80 GB for
+  cuda), which decided D4 and D8. The measured activations are 10–43 % under the estimates,
+  which are kept as bounds.
 - The VM's GPUs are A100 80 GB (checked 2026-11-11) and it has about 500 GB of host memory,
   so s = 64 at batch 20 fits one GPU on these estimates; D4 fixes the batch with the
   model size. Loading n = 65 needs over 10 GB of host memory (f64 raw and transferred
   copies), more than is comfortable on the Mac.
-- Time per epoch is not estimated: 2D at s = 64 is 1.7 s and host-bound, and 3D has 64×
-  the points. CL0.1 measures it.
+- Time per epoch was not estimated; measured, it is the constraint rather than memory:
+  s = 64 is compute-bound on cuda (64 s whatever the batch or the modes), s = 32
+  overhead-bound (batch 10 → 20 halves it), and the modes cost at most 11 %. 500 epochs at
+  batch 20 take about 1.6 h (s = 32) and 8.9 h (s = 64) on an A100, about 8 h and 55 h on
+  metal.
 - The n = 65 set (about 5.3 GB, train held in memory while written) is generated on the VM
   (`datagen` needs FFTW and OpenBLAS there). Files above 4 GiB need zip64 in the npz
-  writer and reader: CL0.1 checks it, or the split is stored in several files.
+  writer and reader. Measured (CL0.1): a 4.09 GiB `.npz` written as `write_split` writes
+  it round-trips bit for bit on the Mac and the VM, so one file per split. The limit is
+  per member: zip 6 refuses one field above 4 GiB unless `large_file` is set, which at
+  n = 65 in f64 is 1955 samples.
 - n = 129 is out of scope for training; a test-only set at 129 may serve a resolution study
   (D5).
 
@@ -254,17 +263,22 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
 
 - **R1:** GPU memory or epoch time at s = 64 with modes 12³ too large; mitigations: modes
   8³, a smaller batch or width, factorised spectral weights (D4; the library objective's
-  CM2.1, `docs/operators/roadmap.md`).
+  CM2.1, `docs/operators/roadmap.md`). Retired at L0: batch 20, modes 12³ at s = 64 uses
+  30.6 GB (29,146 of an A100's 81,920 MiB, 36 %), at 64 s per epoch.
 - **R2:** generalising the 2D pieces changes a 2D output (constraint 1); caught by the
   in-process bit-identity tests of D2, with rank 2 routed to the existing code.
 - **R3:** Burn backend bugs at rank 5 (the Metal cat and fusion bugs seen in 2D);
-  `tests/gpu_parity.rs` gains 3D cases (CL0.2) before 3D trains on metal.
+  `tests/gpu_parity.rs` gains 3D cases (CL0.2) before 3D trains on metal. Retired on metal
+  at L0 (all pass, worst error 1.5e-6 against 1e-5); on cuda the cases run before CL4.2's
+  first cuda run.
 - **R4:** the GRF truncation (Section 3.3); with α = 3 every stage meets ε_K ≤ 5e-3. If
   the author keeps α = 2 (D3), the tolerance moves to u and f's truncation error stays at
   10–20 %.
 - **R5 (L5):** boundary data that do not vanish on the edges bring edge singularities
   (Section 3.4); the face sine series avoids them.
 - **R6:** a 3D n = 65 split above 4 GiB meets a zip64 limit in the npz path (Section 7).
+  Retired at L0 for D5's sizes (one 4.09 GiB file round-trips bit for bit). The residual:
+  one field above 4 GiB (n = 65 beyond 1955 samples) needs zip's `large_file` or two files.
 
 ## 9. Validation
 
@@ -358,3 +372,7 @@ The 2D design and its references; `docs/CONVENTIONS.md`.
   change to the plan: the header states the plan of record (C1); Section 6 records the
   `_nd` siblings L1 built, and Section 2's 2D-only list is marked as the state before L1
   (C2). Section 9's 3D error-2 check is now in CL3.3's *Done when* (C3, roadmap).
+- **Draft 0.2, amended at the 3D L0 gate (2026-11-25, `docs/laplace3d/gates/L0.md`).** No
+  change to the plan: Section 7 gives 3D CL0.1's measured figures beside the estimates (a
+  time-per-epoch row; the time and zip64 bullets replaced by the results, C1); Section 8
+  records R1 and R6 as retired and R3 as retired on metal, with cuda before CL4.2 (C2).

@@ -228,3 +228,20 @@ template:
   corrections applied.
 - 2D: not touched (no code).
 - Follow-ups: the L0 and L2 gates; CL3.2 (D4 and D5 signed off with CL0.1, #123).
+
+## 2026-11-25: L0 gate
+- Done: gate report `docs/laplace3d/gates/L0.md`: proposal §7's cost model measured
+  (CL0.1: activations 10–43 % under §7, 30.6 GB peak at s = 64, batch 20, modes 12³; 64 s
+  per epoch on an A100; zip64 one file per split), rank-5 parity on metal (CL0.2), D4 and
+  D5 signed off; all met. The roadmap's L0 gate closed 2026-11-25.
+- Tests: none new. `main`'s CI green after #123 (run 45610871692).
+- Checks: none (docs only: proposal §7, §8 and Appendix A, roadmap, this log).
+- Decisions: signed off by the author 2026-11-25: the gate with C1 (§7's measured figures)
+  and C2 (§8's risk status); D8 as proposed (Q1); the `gpu_parity.rs` tidy-up a follow-up
+  under CL4.2 (Q2).
+- Review: thermo-nuclear review of the union of L0's two commits APPROVE, B+, no blockers
+  (report git-ignored,
+  `docs/code-quality/thermo-nuclear-review-2026-11-25-laplace3d-L0-gate.md`); findings 1–4 to
+  the Q2 follow-up.
+- 2D: not touched (no code).
+- Follow-ups: the L2 gate; CL3.2.
