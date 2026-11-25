@@ -11,7 +11,9 @@ Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 
 the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed off):
 once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
-answered (moving imports is not editing a test). Next CM0.5 and CM0.6.
+answered (moving imports is not editing a test). Next CM0.5 and CM0.6. CM1.6 split
+2026-11-25 into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile,
+MSE). Next CM1.6b and CM1.6c (both runnable); CM1.1 in progress.
 
 ## How to read this file
 
@@ -121,15 +123,25 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
   `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
   (over 1,000 lines across three loss families):
-  - [ ] **CM1.6a Finite differences and the data losses.** `FiniteDiff` (first and second
+  - [x] **CM1.6a Finite differences and the data losses.** `FiniteDiff` (first and second
     derivatives, periodic or one-sided boundaries, 1D–3D; gradient, Laplacian,
     divergence, curl), `H1Loss`, `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss`; the
     relative `LpLoss` against 2.0.0's. *Done when:* each against 2.0.0 fixtures within D3
-    (f32; f64 too, no FFT involved). *Needs:* CM0.5.
+    (f32; f64 too, no FFT involved; `LpLoss::rel` within 1e-8 in f64, as 2.0.0 adds
+    eps = 1e-8 to its denominator and the crate's, fixed by CONVENTIONS §11 and constraint 1,
+    does not). *Needs:* CM0.5. Done 2026-11-25: plan
+    `docs/operators/tasks/CM1.6a.md`; `losses/{differentiation,sobolev,pointwise}.rs`; parity
+    `tests/parity_losses.rs` (f32, ≤ 1.7e-7), `tests/parity_losses_f64.rs` (≤ 6e-16);
+    fixtures from `tools/parity/generate_losses.py`.
   - [ ] **CM1.6b Aggregators.** `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`,
     `Relobralo` (its Bernoulli draw taken from a seeded source). *Done when:* each against
     a fixture of a sequence of steps (the weights and the aggregated loss per step).
-    *Needs:* CM0.5.
+    *Needs:* CM0.5. Also CM1.6a's code-quality follow-ups: `Reduction::apply` for the three
+    copies of the reduction match, and `sqrt_zero_safe` shared with `lp_norm` (both in
+    `data_losses.rs`, so with the bit-identity check); in the parity harness one
+    `flex_f64` in `parity_common` (three copies), `Fixture::tensor` public (the copy in
+    `parity_losses_common`), and with them the two `#[allow(dead_code)]` on the loss
+    binaries' harness modules gone (coordinate `parity_common` with CM1.1).
   - [ ] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
     continuation (that option with CM2.4), `non_uniform_fd`. *Done when:* each against
     fixtures. *Needs:* CM0.5.
@@ -152,7 +164,8 @@ The order of M2 and M3 is set at the M1 gate (D6).
 - [ ] **CM2.3 LocalNO.** Differential and DISCO convolutions, `local_no_block`. *Needs:* M1.
 - [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1.
 - [ ] **CM2.5 Equation losses (PINO).** `equation_losses` on CM1.6's derivatives; the
-  crate's Chebyshev differentiation as a second path. *Needs:* CM1.6.
+  crate's Chebyshev differentiation as a second path. *Needs:* CM1.6a (2.0.0's
+  `equation_losses` imports only `FiniteDiff`).
 - [ ] **CM2.6 UQNO.** *Needs:* M1, CM1.6a (quantile loss).
 - [ ] **CM2.7 Divergence-free spectral projection.** *Needs:* M1.
 

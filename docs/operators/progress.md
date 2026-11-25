@@ -212,3 +212,40 @@ template:
 - FNO: not touched.
 - Matrix: unchanged.
 - Follow-ups: CM1.1 runs to D3 as amended; the f64 bound returns when the upstream fix lands.
+
+## 2026-11-25: CM1.6a Finite differences and the data losses
+- Done: CM1.6 split into CM1.6a–c (roadmap). `losses/differentiation.rs`: `FiniteDiff<D>`,
+  one rank-generic stencil (`partial`, orders 1 and 2, periodic by `roll_dim` or one-sided
+  with 2.0.0's coefficients) for 2.0.0's eighteen per-dimension methods; `dx`/`dy`/`dz`,
+  `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`.
+  `losses/sobolev.rs`: `SobolevLoss<D>` (H1, Hdiv; 2.0.0's quadrature measure / s, which
+  is also the step, and eps in `rel`; zero subgradient at an exact match).
+  `losses/pointwise.rs`: `PointwiseQuantileLoss`, `mse_loss`. Fixtures
+  `losses{1,2,3}d_{f32,f64}` from `tools/parity/generate_losses.py` (beside CM1.1's
+  `generate.py`).
+- Tests: parity on every `FiniteDiff` operator, H1 and Hdiv (rel, abs; periodic, one-sided,
+  mixed; sum, mean), the quantile loss and MSE: f32 ≤ 1.7e-7 (D3 1e-5), f64 ≤ 6e-16 (D3
+  1e-12, its own binary as Flex's dtype is process-wide; no FFT, so not `#[ignore]`d).
+  `LpLoss::rel` against 2.0.0's: 9e-8 in f32, 6e-10 to 1.9e-9 in f64, 2.0.0's eps of 1e-8
+  in the denominator (the crate's has none, CONVENTIONS §11), bounded by 1e-8. A swapped
+  axis fails parity. Unit tests: sin within truncation error, one-sided ends exact on
+  polynomials, curl ∘ gradient ≈ 0, panics, hand-computed H1, MSE and quantile values,
+  exact matches with zero (MSE, Sobolev) or finite (quantile) gradients.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (381 passed), `cargo test --features
+  datagen` (462 passed), `cargo doc --no-deps`, `generate_losses.py --check` (six fixtures
+  the same): all pass. Not run: `--features metal` (no backend-sensitive change).
+- Decisions: none. Question for the author in the PR: should CONVENTIONS §11 record the
+  2.0.0 losses' quadrature and eps (outside §1–§6, no version bump)?
+- Review: plan review PASS (advisories: the lp.rel exception now on the roadmap line, an
+  exact-match test for `pointwise.rs`, CM2.5 needs CM1.6a, Panics docs; all done; the two
+  harness `allow`s stay until the follow-up below). Code quality APPROVE with findings: F1,
+  F2, F5, F8, F9 fixed; F3, F4, F6, F7 to CM1.6b's line.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` bb96d0e and on the
+  branch: `forward`, `phase5_epoch`, `gauss_newton_epoch` byte-identical); no existing
+  source file changed but `losses/mod.rs`.
+- Matrix: `H1Loss`/`HdivLoss`/`PointwiseQuantileLoss`/`MSELoss` and `FiniteDiff` set to
+  **have** (the first rows); `LpLoss` stays partial (rel parity up to eps); the
+  aggregator and Fourier rows point at CM1.6b and CM1.6c.
+- Follow-ups: CM1.6b's line (the review's F3, F4, F6, F7); CM1.6c (`FourierDiff`,
+  `non_uniform_fd`); the §11 question.

@@ -54,3 +54,15 @@ files, absent from the wheel, differ).
 Torch's CPU kernels can differ in the last bits between machines, so `--check` is a
 reproducibility check on one machine; the committed files are the reference, and the
 sidecar names the platform that wrote them.
+
+## Loss fixtures (CM1.6a)
+
+`generate_losses.py` (same `--check`) writes `tests/fixtures/parity/losses{1,2,3}d_{f32,f64}`:
+a seeded pair `x`, `y` (2, 2, *grid) and a vector field `v` (2, D, *grid) on the grids 32,
+16 × 12 and 8 × 6 × 5, drawn in f32 and cast for f64, and 2.0.0's outputs on them:
+`FiniteDiff` (h = 0.1, 0.2, 0.3) as `fd.d<axis><order>.<bc>` and
+`fd.{laplacian,gradient,divergence,curl}.<bc>`; `H1Loss` and `HdivLoss` (measure 1, 2, 0.5) as
+`{h1,hdiv}.{rel,abs}.<bc>.sum` and `h1.rel.per.mean`; `PointwiseQuantileLoss(alpha=0.1)` as
+`quantile.{sum,mean}`; `MSELoss` as `mse`; `LpLoss(d, p=2).rel` as `lp.rel`. `<bc>` is `per`
+(all periodic), `non` (none) or `mix` (x one-sided; D ≥ 2). Scalars are stored with shape
+(1,). The sidecar lists the settings; the Rust side is `tests/parity_losses*.rs`.

@@ -14,7 +14,7 @@ ported with the task that needs it). *Task* is the roadmap task that sets the ro
 (`neuralop.models`, `neuralop.losses`, `neuralop.training`, `neuralop.data.datasets`); other
 items are imported by module path. From `neuralop` itself: `FNO`, `TFNO`, `get_model`,
 `Trainer`, `LpLoss`, `H1Loss`, `BurgersEqnLoss`, `ICLoss`, `WeightedSumLoss`, `Aggregator`,
-`Relobralo`, `SoftAdapt`, `FourierDiff`, `non_uniform_fd`, `FiniteDiff`. No row is **have**: no parity has been shown yet.
+`Relobralo`, `SoftAdapt`, `FourierDiff`, `non_uniform_fd`, `FiniteDiff`. Rows reach **have** as parity is shown (first: CM1.6a, 2026-11-25).
 
 ## Models
 
@@ -82,12 +82,12 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `LpLoss` (exported; `d`, `p`, `measure`, quadrature weights, `reduction` `sum` or `mean`, `abs`, `rel`) | `losses/data_losses.py` | `LpLoss`: `abs` (fixed uniform-mesh weight Π h_a^(1/p), h_a = 1/(s_a − 1)) and `rel`, integer p, `Reduction` `Mean`, `Sum`, `None`; no `measure` option or `quadrature` argument (CONVENTIONS §11) | partial | CM1.6 |
-| `H1Loss` (exported), `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss` | `losses/data_losses.py` | – | missing | CM1.6 |
-| `WeightedSumLoss` (exported), `FieldwiseAggregatorLoss` (exported), `Aggregator` (exported), `SoftAdapt` (exported), `Relobralo` (exported) | `losses/meta_losses.py` | – | missing | CM1.6 |
-| `FiniteDiff` (exported), `central_diff_1d`, `central_diff_2d`, `central_diff_3d` | `losses/differentiation.py` | – | missing | CM1.6 |
-| `FourierDiff` (exported; optional Fourier continuation) | `losses/differentiation.py` | – | missing | CM1.6 |
-| `non_uniform_fd` (exported), `get_non_uniform_fd_weights` | `losses/differentiation.py` | Chebyshev `diff_matrix`, `diff2_matrix` (`datagen`): a different, spectral method | missing | CM1.6 |
+| `LpLoss` (exported; `d`, `p`, `measure`, quadrature weights, `reduction` `sum` or `mean`, `abs`, `rel`) | `losses/data_losses.py` | `LpLoss`: `abs` (fixed uniform-mesh weight Π h_a^(1/p), h_a = 1/(s_a − 1)) and `rel`, integer p, `Reduction` `Mean`, `Sum`, `None`; no `measure` option or `quadrature` argument (CONVENTIONS §11). `rel` matches 2.0.0's `LpLoss.rel` up to 2.0.0's eps of 1e-8 in the denominator (6e-10 to 1.9e-9 in f64, CM1.6a); `abs` keeps §11's weight | partial | CM1.6a |
+| `H1Loss` (exported), `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss` | `losses/data_losses.py` | `SobolevLoss<D>` (`h1`, `hdiv`; `measure`, periodicity, `reduction` `Sum`/`Mean`/`None`, `eps`, `rel`, `abs`), `PointwiseQuantileLoss`, `mse_loss`; parity ≤ 1.7e-7 (f32), ≤ 6e-16 (f64). Not ported: the per-call `quadrature` (equal to `measure = quadrature · s`), `take_root=False`, `MSELoss`'s `dim` | have | CM1.6a |
+| `WeightedSumLoss` (exported), `FieldwiseAggregatorLoss` (exported), `Aggregator` (exported), `SoftAdapt` (exported), `Relobralo` (exported) | `losses/meta_losses.py` | – | missing | CM1.6b |
+| `FiniteDiff` (exported), `central_diff_1d`, `central_diff_2d`, `central_diff_3d` | `losses/differentiation.py` | `FiniteDiff<D>`: `partial` (orders 1, 2; periodic or one-sided), `dx`/`dy`/`dz`, `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`, any D; the deprecated `central_diff_*` are `partial` per axis; the 1D gradient keeps its component axis; parity as `H1Loss` | have | CM1.6a |
+| `FourierDiff` (exported; optional Fourier continuation) | `losses/differentiation.py` | – | missing | CM1.6c |
+| `non_uniform_fd` (exported), `get_non_uniform_fd_weights` | `losses/differentiation.py` | Chebyshev `diff_matrix`, `diff2_matrix` (`datagen`): a different, spectral method | missing | CM1.6c |
 | `BurgersEqnLoss` (exported), `ICLoss` (exported), `PoissonInteriorLoss`, `PoissonBoundaryLoss`, `PoissonEqnLoss` | `losses/equation_losses.py` | – | missing | CM2.5 |
 
 ## Training

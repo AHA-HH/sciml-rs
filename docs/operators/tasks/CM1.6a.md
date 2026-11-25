@@ -35,8 +35,9 @@ MSE) in `losses/`, each matching 2.0.0's output on committed fixtures within D3.
 - `src/neural_operators/losses/differentiation.rs` (new): `FiniteDiff<const D: usize>`
   with `h: [f64; D]` and `periodic: [bool; D]`; `partial(u, axis, order)` for order 1 or 2
   on the spatial axis `axis` (0 = x, the first of the last D axes of `u`); `dx`, `dy`, `dz`;
-  `laplacian`; `gradient` (components stacked at axis −D−1); `divergence` (components at
-  axis −D−1); `curl` (D = 2: scalar; D = 3: vector). One rank-generic stencil along an axis
+  `partial_sum` and `laplacian`; `gradient` (components stacked at axis −D−1);
+  `divergence` (components at axis −D−1); `curl_2d` (scalar) and `curl_3d` (vector); the
+  public fields `h` and `periodic`, no constructor. One rank-generic stencil along an axis
   replaces 2.0.0's eighteen per-dimension methods: periodic by `roll_dim`, otherwise
   central inside and 2.0.0's one-sided third-order (first derivative) and second-order
   four-point (second derivative) formulas at the ends. D is any positive number for the
@@ -60,15 +61,18 @@ MSE) in `losses/`, each matching 2.0.0's output on committed fixtures within D3.
 - Not ported (each in the matrix row): the per-call `quadrature` argument (it equals
   `measure = quadrature · s`), `take_root=False`, `MSELoss`'s `dim`; `gradient` in 1D keeps
   its component axis (2.0.0's `FiniteDiff.gradient` drops it in 1D only).
-- `LpLoss` is not edited (constraint 1). Its `rel` is compared against 2.0.0's `LpLoss.rel`
-  (which adds eps = 1e-8 to the denominator, far inside D3 at these norms); its `abs` keeps
-  CONVENTIONS §11's h_a = 1/(s_a − 1) and stays **partial**.
+- `LpLoss` is not edited (constraint 1). Its `rel` is compared against 2.0.0's `LpLoss.rel`,
+  which adds eps = 1e-8 to the denominator: inside D3 in f32, but in f64 a gap of about
+  1e-8 / ‖y‖ (measured 6e-10 to 1.9e-9), so `lp.rel` is checked against 1e-8 and the gap
+  recorded. Its `abs` keeps CONVENTIONS §11's h_a = 1/(s_a − 1); the row stays **partial**.
 - Conventions: none changed. The new losses follow 2.0.0's quadrature (measure / s), not
   §11's `LpLoss` weight; whether §11 should record them is a question in the PR.
 
 ## Tests that prove it
 
-- Parity (`tests/parity_losses.rs`), for D = 1, 2, 3 in f32 (1e-5) and f64 (1e-12), on
+- Parity (`tests/parity_losses.rs` in f32, 1e-5; `tests/parity_losses_f64.rs` in f64,
+  1e-12, its own binary because Flex's float dtype is set process-wide; the shared runner
+  `tests/parity_losses_common/`), for D = 1, 2, 3, on
   2.0.0's outputs for one seeded pair `x`, `y` of shape (2, 2, grid), grids 32, 16×12,
   8×6×5 (non-square so an axis mix-up fails), and a vector field `v` (2, D, grid):
   - `FiniteDiff` with h = (0.1, 0.2, 0.3): first and second derivative on every axis,
@@ -102,7 +106,8 @@ None.
   lines); `LpLoss`, the trainer and the FNO are untouched, so FNO outputs cannot change.
   `/verify`'s bit-identity check confirms it.
 - `training/` is not touched (the optimisers lane, CO1.1, owns it now).
-- Coordination with CM1.1: own fixture names (`losses*`), own generator file; README and
+- Coordination with CM1.1: own fixture names (`losses*`), own generator file, own test
+  helper (`tests/parity_losses_common/`, `parity_common/` unchanged); README and
   `progress.md` conflicts resolved by keeping both.
 - Risk: 2.0.0's one-sided formulas need four points per non-periodic axis; the fixtures'
   smallest axis is 5.
@@ -113,4 +118,7 @@ None.
 
 ## Open questions
 
-None yet.
+1. CONVENTIONS §11 covers only `LpLoss`. Should it record the 2.0.0 losses' quadrature
+   (h_a = measure_a / s_a, also the finite-difference step) and `rel`'s eps? §11 lies
+   outside §1–§6, so no `CONVENTION_VERSION` bump. Proposed: yes, as a short paragraph in
+   a follow-up docs PR.
