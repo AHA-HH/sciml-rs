@@ -1,0 +1,52 @@
+{
+  "config": "meta_losses",
+  "dtype": "f32",
+  "input_seed": 3,
+  "rho_seed": 4,
+  "steps": 6,
+  "loss_keys": [
+    "a",
+    "b",
+    "c"
+  ],
+  "adaptive": {
+    "softadapt": {
+      "class": "SoftAdapt",
+      "kwargs": {}
+    },
+    "softadapt_w": {
+      "class": "SoftAdapt",
+      "kwargs": {
+        "weights": {
+          "b": 2.0
+        }
+      }
+    },
+    "relobralo": {
+      "class": "Relobralo",
+      "kwargs": {}
+    },
+    "relobralo_w": {
+      "class": "Relobralo",
+      "kwargs": {
+        "alpha": 0.9,
+        "beta": 0.5,
+        "tau": 2.0,
+        "weights": {
+          "c": 0.5
+        }
+      }
+    }
+  },
+  "weighted_sum": "WeightedSumLoss([H1Loss(d=1), MSELoss()]), weights None and [0.3, 0.7], on x, y (2, 2, 32)",
+  "fieldwise": "u: MSELoss on [:, 0:1], p: PointwiseQuantileLoss(alpha=0.1) on [:, 2:3], on pred, truth (16, 3)",
+  "keys": "x, y, pred, truth, table (steps, 3); wsum.{default,weighted}; fieldwise; <adaptive>.{loss,weights,grad}; relobralo*.rho (the draws of steps 1..)",
+  "default_dtype": "torch's default dtype set to the fixture's while the aggregators run",
+  "versions": {
+    "python": "3.12.12",
+    "neuraloperator": "2.0.0",
+    "torch": "2.9.0",
+    "numpy": "2.3.4"
+  },
+  "platform": "Darwin arm64"
+}

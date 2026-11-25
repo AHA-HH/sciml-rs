@@ -1,12 +1,14 @@
 //! Library CM1.6a: `FiniteDiff`, the Sobolev losses (H1, Hdiv), `PointwiseQuantileLoss`,
 //! `mse_loss` and `LpLoss::rel` against `neuraloperator` 2.0.0's, on the fixtures
-//! `tests/fixtures/parity/losses{1,2,3}d_{f32,f64}` (`tools/parity/generate_losses.py`).
+//! `tests/fixtures/parity/losses{1,2,3}d_{f32,f64}`; CM1.6b: the aggregators on
+//! `meta_losses_{f32,f64}` (both written by `tools/parity/generate_losses.py`).
 //! Used by `tests/parity_losses.rs` (f32) and `tests/parity_losses_f64.rs`.
 
-use burn::prelude::*;
+use burn::{prelude::*, tensor::TensorData};
 use sciml_rs::neural_operators::losses::{
     data_losses::{LpLoss, Reduction},
     differentiation::FiniteDiff,
+    meta_losses::{Field, FieldwiseAggregatorLoss, LossFn, Relobralo, SoftAdapt, WeightedSumLoss},
     pointwise::{PointwiseQuantileLoss, mse_loss},
     sobolev::SobolevLoss,
 };
@@ -132,4 +134,96 @@ pub fn run<const D: usize, const R: usize, const G: usize, const V: usize>(
         "{name}: worst relative max error {:.3e}; lp.rel {lp:.3e}",
         c.worst
     );
+}
+
+/// The aggregator comparisons of `meta_losses_<precision>` (CM1.6b), on `device`; the
+/// adaptive ones on its autodiff form, for the gradient with respect to each loss.
+pub fn run_meta(name: &str, device: &Device) {
+    let mut fx = Fixture::open(name);
+    let x: Tensor<3> = fx.tensor("x", device);
+    let y: Tensor<3> = fx.tensor("y", device);
+    let pred: Tensor<2> = fx.tensor("pred", device);
+    let truth: Tensor<2> = fx.tensor("truth", device);
+    let rho_default = fx.array("relobralo.rho");
+    let rho_w = fx.array("relobralo_w.rho");
+    let ad = device.clone().autodiff();
+    let table: Tensor<2> = fx.tensor("table", &ad);
+    let mut c = Checks { fx, worst: 0.0 };
+
+    let pair = || -> Vec<LossFn<3>> {
+        vec![
+            Box::new(|a, b| SobolevLoss::<1>::h1(Reduction::Sum).rel(a, b)),
+            Box::new(mse_loss),
+        ]
+    };
+    let out = WeightedSumLoss::new(pair(), None).loss(x.clone(), y.clone());
+    c.check(out, "wsum.default");
+    let out = WeightedSumLoss::new(pair(), Some(vec![0.3, 0.7])).loss(x, y);
+    c.check(out, "wsum.weighted");
+
+    let fieldwise = FieldwiseAggregatorLoss::new(vec![
+        Field {
+            name: "u".into(),
+            axis: 1,
+            channels: 0..1,
+            loss: Box::new(mse_loss),
+        },
+        Field {
+            name: "p".into(),
+            axis: 1,
+            channels: 2..3,
+            loss: Box::new(|a, b| PointwiseQuantileLoss::new(ALPHA, Reduction::Sum).loss(a, b)),
+        },
+    ]);
+    c.check(fieldwise.loss(pred, truth), "fieldwise");
+
+    let mut soft = SoftAdapt::new(3, None);
+    adaptive(&mut c, &table, "softadapt", |l, s| soft.forward(l, s));
+    let mut soft = SoftAdapt::new(3, Some(vec![1.0, 2.0, 1.0]));
+    adaptive(&mut c, &table, "softadapt_w", |l, s| soft.forward(l, s));
+
+    // torch's recorded draws for steps 1.. replace the seeded ones.
+    let rho = |draws: &ndarray::ArrayD<f64>, s: usize| s > 0 && draws[[s - 1]] == 1.0;
+    let mut relo = Relobralo::new(3, None, 0);
+    adaptive(&mut c, &table, "relobralo", |l, s| {
+        relo.forward_with_rho(l, s, rho(&rho_default, s))
+    });
+    let mut relo = Relobralo::new(3, Some(vec![1.0, 1.0, 0.5]), 0);
+    (relo.alpha, relo.beta, relo.tau) = (0.9, 0.5, 2.0);
+    adaptive(&mut c, &table, "relobralo_w", |l, s| {
+        relo.forward_with_rho(l, s, rho(&rho_w, s))
+    });
+
+    println!("{name}: worst relative max error {:.3e}", c.worst);
+}
+
+/// Runs an adaptive aggregator over the rows of `table` (`[steps, losses]`), each loss a
+/// leaf, and checks `<name>.loss`, `<name>.weights` and `<name>.grad` (d aggregate / d loss).
+fn adaptive(
+    c: &mut Checks,
+    table: &Tensor<2>,
+    name: &str,
+    mut step: impl FnMut(Vec<Tensor<1>>, usize) -> (Tensor<1>, Vec<f64>),
+) {
+    let [steps, n] = table.dims();
+    let (mut loss, mut weights, mut grads) = (vec![], vec![], vec![]);
+    for s in 0..steps {
+        let leaves: Vec<Tensor<1>> = (0..n)
+            .map(|i| {
+                let l: Tensor<1> = table.clone().slice([s..s + 1, i..i + 1]).reshape([1]);
+                l.detach().require_grad()
+            })
+            .collect();
+        let (out, w) = step(leaves.clone(), s);
+        let g = out.backward();
+        grads.extend(leaves.iter().map(|l| l.grad(&g).unwrap().into_scalar::<f64>()));
+        loss.push(out.into_scalar::<f64>());
+        weights.extend(w);
+    }
+    let device = table.device();
+    let host = |v: Vec<f64>| Tensor::<2>::from_data(TensorData::new(v, [steps, n]), &device);
+    let loss = Tensor::<1>::from_data(TensorData::new(loss, [steps]), &device);
+    c.check(loss, &format!("{name}.loss"));
+    c.check(host(weights), &format!("{name}.weights"));
+    c.check(host(grads), &format!("{name}.grad"));
 }
