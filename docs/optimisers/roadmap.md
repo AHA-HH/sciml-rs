@@ -8,8 +8,9 @@ the proposal wins. Progress is logged in `docs/optimisers/progress.md`; each tas
 
 Status: **planning.** Draft 0.1 written 2026-11-24, draft 0.2 (the Burgers replication as
 O1; the former O1–O4 renumbered O2–O5) the same day, corrected after an independent check
-(#128). D0 and D2 signed off 2026-11-24; next CO0.1, CO0.2 and CO3.1 (CO0.1 and CO0.2 on
-the VM, at the author's go per run).
+(#128). D0 and D2 signed off 2026-11-24 (D2 amended 2026-11-25). 2026-11-25: CO0.1's code
+and run plan in its PR (draft), its VM runs waiting for the author's go
+(`docs/optimisers/tasks/CO0.1.md`); next CO0.2 and CO3.1.
 
 ## How to read this file
 

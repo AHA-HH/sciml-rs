@@ -71,3 +71,23 @@ template:
 - Adam and Gauss–Newton: not touched.
 - Follow-ups: CO0.1 at about 13 GPU-hours instead of 19; its plan checks that two timed runs
   side by side keep a lone run's epoch times.
+
+## 2026-11-25: CO0.1 Reference arms on Burn 0.23 (code and run plan; runs pending)
+- Done: the run plan (`docs/optimisers/tasks/CO0.1.md`): Adam on seeds 42–46 at 500
+  epochs (giving the equal-time budget B), Adam on 42–44 at the long budget, GN200-D at
+  μ = 0 with CG caps 50 and 150 on seed 42 at both budgets, then the chosen cap on 43–46
+  and 43–44; about 13.2 GPU-hours, 7 h wall on two A100s if the side-by-side checks hold.
+  `EPOCHS` in `train_poisson` for Adam runs only: Adam's long budget is E = round(5,400 ×
+  500 / B) epochs, the cosine schedule spanning them, since a time budget would cut the
+  schedule. The run script `docs/optimisers/co0_1_runs.sh` (Phase 7's pattern).
+- Tests: with `EPOCHS` unset, `train_cfg.json`, `model_cfg.json` and `data_cfg.json` byte
+  for byte equal to `origin/main`'s binary (flex, `-- 0 129 64`); `EPOCHS=3` saved as
+  `epochs: 3`; with `OPTIMIZER=gauss-newton` it panics.
+- Checks: ran fmt, clippy (lib, examples, all targets), `cargo test`, `cargo doc`, `bash -n`
+  on the script; pending: every VM run (stages 1–3 of the plan).
+- Decisions: none signed off; D1 is proposed after stage 2.
+- Review: see the PR.
+- Adam and Gauss–Newton: unchanged bit for bit (configs identical with `EPOCHS` unset; the
+  example's configs are its only input to training).
+- Follow-ups: `poisson_matrix --by-optimizer` labels arms by batch and preconditioner only
+  (cap and budget merge); CO4.1's extension of the tool covers it.
