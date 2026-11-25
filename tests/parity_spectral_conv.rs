@@ -62,6 +62,7 @@ fn centred_layout_needs_conversion() {
     );
 }
 
+// Here, not in `centred_conv.rs`: the f64 binary would not use it (dead code).
 /// [`CASE_2D`] on a 23-point grid, which corners cannot represent: on an odd-extent axis
 /// 2.0.0 applies `fftshift` (not `ifftshift`) before the inverse, moving its output
 /// spectrum by one bin.

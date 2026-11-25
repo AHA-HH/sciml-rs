@@ -8,7 +8,7 @@
 //! `ModuleSnapshot::collect` names it) and which part of it to take.
 //!
 //! A parameter whose layout differs from the crate's is converted when the fixture is
-//! loaded, through `Fixture::replaced` (2.0.0's centred spectral weights: CM1.2's
+//! loaded, into `Fixture::replaced` (2.0.0's centred spectral weights: CM1.2's
 //! `centred_conv.rs`, D5).
 //!
 //! The reference models beside this file (`fno1d.rs`, `legacy_conv.rs`) are included only by

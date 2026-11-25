@@ -396,7 +396,7 @@ impl<const R: usize> SpectralConv<R> {
 
     /// Per-channel complex product `(a + bi)(c + di)` of `x` `[B, C, modes..]`
     /// and separable weights `[1, C, modes..]`, broadcast over the batch.
-    fn complex_product(
+    fn separable_multiplication(
         x_re: Tensor<R>,
         x_im: Tensor<R>,
         w_re: Tensor<R>,
@@ -504,7 +504,7 @@ impl<const R: usize> SpectralConv<R> {
                 w_im = w_im.slice(w_ranges);
             }
             let (o_re, o_im) = if self.separable {
-                Self::complex_product(x_re, x_im, w_re, w_im)
+                Self::separable_multiplication(x_re, x_im, w_re, w_im)
             } else {
                 Self::complex_multiplication(x_re, x_im, w_re, w_im)
             };
@@ -1031,6 +1031,28 @@ mod tests {
     #[should_panic(expected = "one entry per spatial axis")]
     fn with_modes_rejects_wrong_length() {
         let _ = SpectralConv::<4>::new(&Device::default(), 1, 1, &[4, 3]).with_modes(&[2]);
+    }
+
+    /// Truncation applies to separable weights as to dense ones.
+    #[test]
+    fn with_modes_truncates_separable_weights() {
+        let device = Device::default();
+        let (stored, active) = ([4, 3], [3, 2]);
+        let conv = SpectralConv::<4>::new_separable(&device, 2, &stored, SpectralInit::Normal);
+        let mut small = SpectralConv::<4>::new_separable(&device, 2, &active, SpectralInit::Normal);
+        for c in 0..conv.weights_re.len() {
+            let ranges: [Range<usize>; 4] = with_bc(
+                0..1,
+                0..2,
+                &SpectralConv::<4>::corner_ranges(c, &active, &stored),
+            );
+            small.weights_re[c] =
+                Param::from_tensor(conv.weights_re[c].val().slice(ranges.clone()));
+            small.weights_im[c] = Param::from_tensor(conv.weights_im[c].val().slice(ranges));
+        }
+        let x = Tensor::<4>::random([2, 2, 12, 9], Distribution::Normal(0.0, 1.0), &device);
+        let truncated = conv.with_modes(&active).forward(x.clone());
+        assert_eq!(bits(truncated), bits(small.forward(x)));
     }
 
     /// A separable layer is the dense layer whose channel map is diagonal at every mode.
