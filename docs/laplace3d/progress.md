@@ -228,3 +228,30 @@ template:
   corrections applied.
 - 2D: not touched (no code).
 - Follow-ups: the L0 and L2 gates; CL3.2 (D4 and D5 signed off with CL0.1, #123).
+
+## 2026-11-25: CL3.2 3D dataset generation
+- Done: `pde/poisson/dataset3d.rs` (behind `datagen`): `generate_3d` (3D GRF of CL3.1,
+  A3 labels of CL2.1, label check against the closed form, error 2 by the `_nd`
+  transfers), `label_check_3d`, `write_split_3d` (one `.npz` per split, f64, `f`, `u`
+  `[N, n, n, n]` 'ijk', `x`, `y`, `z`; the 2D `SidecarRecord` with the 3D α, RNG, ε_K);
+  `catalogue::Poisson3dSet` (`poisson3d_n{n}_K{K}_{split}`) and `GENERATED_3D`;
+  `examples/generate/poisson3d.rs` (`generate_poisson3d [-- <n> ...]`). Plan
+  `docs/laplace3d/tasks/CL3.2.md`, report `docs/laplace3d/results/cl3-2.md`.
+- Tests: 5 new (`generate_3d_matches_its_parts`, `label_check_3d_at_n65`,
+  `label_check_3d_aborts`, `files_round_trip_3d`, `poisson3d_names`). The n = 33 sets
+  written on the Mac (1000/200, 575 MB and 115 MB, under 5 s): label check max 7.4e-7
+  (recorded, as 2D at n = 33), error 2 max 4.8e-4; read back by Python's stdlib. n = 65 at
+  20 seeds: label check 3.9e-10 (enforced, ≤ 1e-8).
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, datagen clippy,
+  `cargo test` (354 passed), `cargo test --features datagen` (439 passed), `cargo doc`
+  (with and without datagen); not run: metal and gpu_parity (host ndarray only). Pending:
+  the n = 65 generation on the VM (D8, the author's go).
+- Decisions: D8 proposed (n = 65 generation on the VM). The plan's first draft enforced
+  the label check from n = 33 on a misread CL2.1 figure (K = (n − 1)/4); the 2D rule
+  (n ≥ 65) is kept, on measurement.
+- Review: plan review PASS (advisories taken: the report, the assert order); code quality
+  APPROVE with findings, B+: F3, F4, F5, F8 taken; F1, F2 (shared label-check rule and
+  sidecar, editing 2D bodies) to CL3.4; F6, F7, F9 in the PR.
+- 2D: unchanged bit for bit: no 2D file, function body, constant or name edited (additions
+  in `catalogue.rs` only); the whole 2D suite passes.
+- Follow-ups: CL3.4 (roadmap); the n = 65 VM run (this PR's pending run).

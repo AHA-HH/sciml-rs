@@ -15,7 +15,6 @@
 use sciml_rs::neural_operators::data::catalogue::{GENERATED_3D, SPLITS};
 use sciml_rs::neural_operators::pde::poisson::dataset::SplitSpec;
 use sciml_rs::neural_operators::pde::poisson::dataset3d::{generate_3d, write_split_3d};
-use sciml_rs::neural_operators::pde::poisson::grf::k_default;
 use sciml_rs::neural_operators::utils::backend::git_commit;
 use std::path::Path;
 
@@ -57,7 +56,8 @@ fn main() {
         {
             let spec = SplitSpec {
                 n: set.n,
-                k: (set.k != k_default(set.n)).then_some(set.k),
+                // GENERATED_3D is at K(n) (catalogue test `poisson3d_names`), so no explicit K
+                k: None,
                 base_seed,
                 count,
             };

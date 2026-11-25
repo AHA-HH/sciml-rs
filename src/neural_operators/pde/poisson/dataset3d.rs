@@ -60,7 +60,7 @@ pub struct Split3d {
 
 impl Split3d {
     /// The catalogue set this split belongs to: its n and the K in effect.
-    pub fn set(&self) -> Poisson3dSet {
+    fn set(&self) -> Poisson3dSet {
         Poisson3dSet {
             n: self.spec.n,
             k: self.k,
@@ -86,9 +86,9 @@ pub fn label_check_3d(
     sample: usize,
     seed: u64,
 ) -> Result<f64, LabelCheckError> {
-    let error = cc_rel_l2_error_nd(u_a, u_series);
     let n = u_a.dim().0;
     assert_eq!(u_a.dim(), (n, n, n), "label_check_3d: fields must be cubes");
+    let error = cc_rel_l2_error_nd(u_a, u_series);
     if n >= LABEL_CHECK_MIN_N && (error.is_nan() || error > LABEL_CHECK_TOL) {
         return Err(LabelCheckError {
             sample,
@@ -164,11 +164,13 @@ pub fn generate_3d(spec: &SplitSpec) -> Result<Split3d, LabelCheckError> {
 }
 
 /// Writes a 3D split to `dir` as `{stem}.npz` and `{stem}.json`, the stem
-/// [`Poisson3dSet::stem`] of [`Split3d::set`]. Creates `dir` if needed and overwrites
+/// [`Poisson3dSet::stem`] of the split's n and K in effect. Creates `dir` if needed and overwrites
 /// existing files.
 ///
 /// The `.npz` holds `f` and `u` (`[N, n, n, n]`, f64, 'ijk') and the CGL nodes `x`, `y` and
-/// `z` (`[n]`, each [`Split3d::x`]), uncompressed (zip64 above 4 GiB). The sidecar is a
+/// `z` (`[n]`, each [`Split3d::x`]), uncompressed: zip64 lets the archive pass 4 GiB, but each array must stay below 4 GiB
+/// (the `zip` writer refuses a larger member; at n = 65 that is N ≤ 1954, well above
+/// D5's 1000). The sidecar is a
 /// [`SidecarRecord`] as in 2D, with the 3D α ([`ALPHA`]), RNG ([`RNG`]) and ε_K
 /// ([`eps_k`]). `name` is the split's name, e.g. `"train"`. Returns the two paths.
 ///
@@ -235,6 +237,7 @@ pub fn write_split_3d(
 mod tests {
     use super::*;
     use crate::neural_operators::data::io::readers::npz::NpzFileReader;
+    use crate::neural_operators::pde::poisson::grf::k_default;
     use ndarray::{Array3, s};
 
     /// u_A3 and u_series for one seed, n, K.
@@ -306,7 +309,7 @@ mod tests {
     #[test]
     fn label_check_3d_aborts() {
         for (n, enforced) in [(65, true), (33, false)] {
-            let [ua, us] = a3_and_series(n, (n - 1) / 2, 4);
+            let [ua, us] = a3_and_series(n, k_default(n), 4);
             assert!(label_check_3d(ua.view(), us.view(), 3, 4).is_ok());
             let mut corrupted = ua.clone();
             let c = n / 2;

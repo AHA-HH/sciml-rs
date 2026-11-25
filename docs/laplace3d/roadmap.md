@@ -11,7 +11,8 @@ is the plan of record (D0–D3 signed off 2026-11-11, #117). Done: CL0.1 (rank-5
 Mac and cuda, #123; D5 signed off 2026-11-24, D4 2026-11-25 on the cuda figures), CL0.2
 (rank-5 parity on metal), CL1.1–CL1.3 (CONVENTIONS version 3, N-D transfers, norms and
 errors, 2D bit for bit unchanged), CL2.1 (A3, `CollocationSolver3d`, f64 floor by n = 33),
-CL3.1 (the 3D GRF; D3 confirmed 2026-11-24). Next: the L0 and L2 gates, and CL3.2.
+CL3.1 (the 3D GRF; D3 confirmed 2026-11-24), CL3.2 (the 3D datasets; n = 33 written
+2026-11-25, n = 65 on the VM pending). Next: the L0 and L2 gates, and CL3.3.
 
 ## How to read this file
 
@@ -115,10 +116,11 @@ in CL4.1"; C4 "fold into CL3.3"; corrections C1, C2, C3 and the 973-line count a
   ε_K for K = 8, 16, 32. *Done when:* the evaluation matches a direct sum on a small case;
   the ε_K table; D3 re-proposed. *Needs:* CL1.1. *Sign-off:* D3. Report:
   `docs/laplace3d/results/cl3-1.md`.
-- [ ] **CL3.2 3D dataset generation.** Generation, label check against the closed form,
+- [x] **CL3.2 3D dataset generation.** Generation, label check against the closed form,
   catalogue names carrying the dimension; the n = 65 set generated on the VM. Near the
   three-module limit: split into CL3.2a/b when it starts if it exceeds it.
-  *Needs:* CL1.2, CL2.1, CL3.1, D3, D5. *Machines:* the VM (n = 65).
+  *Needs:* CL1.2, CL2.1, CL3.1, D3, D5. *Machines:* the VM (n = 65). Report:
+  `docs/laplace3d/results/cl3-2.md` (n = 65 on the VM pending the author's go, D8).
 - [ ] **CL3.3 3D loader.** The Poisson loader for 3D splits, T_cu at load time.
   *Done when:* also error 2 of the n = 65 test split at s = 32 and 64, against the 2D floor
   at the same s (proposal §9; L1 gate C3). First commit, no behaviour change (L1 gate C4):
@@ -128,6 +130,12 @@ in CL4.1"; C4 "fold into CL3.3"; corrections C1, C2, C3 and the 973-line count a
   one doc sentence per `_nd` contract (any rank in `chebyshev`, 2D or 3D in `metrics`);
   checked by the D2 tests and the datagen suite (CL2.1 uses `apply_nd`).
   *Needs:* CL1.2, CL3.2, D5.
+- [ ] **CL3.4 One label check and sidecar for 2D and 3D.** CL3.2 review F1, F2: extract the
+  label-check rule (`enforce_label_check`) and the `SidecarRecord` construction into
+  `pde/poisson/dataset.rs`, used by `dataset3d.rs`. *Done when:* `dataset3d.rs` holds no
+  copy of either; the 2D exact-bytes sidecar test (`files_round_trip`) and
+  `label_check_aborts` pass unedited (constraint 1). Edits 2D function bodies: the author's
+  go first. *Needs:* CL3.2.
 
 ## L4: 3D Poisson training and evaluation
 

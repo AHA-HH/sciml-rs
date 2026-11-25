@@ -111,7 +111,10 @@ fallback is generating on the Mac and copying the two n = 65 splits (5.3 GB) to 
   and the VM in CL0.1.
 
 ## Pending runs
-<filled in step 6>
+- n = 65 generation on the VM (the commands under "VM runs"): waits for the author's go
+  (D8 open) and for no timed run in tmux (optimisers CO0.1, `co0`). tmux session `cl3-2`,
+  log `~/sciml-rs/logs/cl3-2.log`. Decides the L3 gate's "written" for the training stage.
+  The n = 33 sets are written (Mac, 2026-11-25; `docs/laplace3d/results/cl3-2.md`).
 
 ## Open questions
 - D8 (open): n = 65 generation on the VM, as above. Asked in the PR.
