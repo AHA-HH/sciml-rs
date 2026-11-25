@@ -100,6 +100,17 @@ None.
 
 None.
 
+## Results
+
+- `fno1d_f32`: relative max error 3.514e-7 (D3: 1e-5), Flex, M2 Pro. Passes.
+- `fno1d_f64`: 1.211e-8 (D3: 1e-12), Flex with f64; `#[ignore]`d, the Flex f64 `rfft`
+  twiddle bug (f32-accurate FFT).
+
 ## Open questions
 
-None.
+1. D3's f64 bound cannot be shown on the CPU for anything with an FFT while Flex's f64
+   `rfft` uses f32 twiddles (1.2e-8 here). CM1.1 has *Needs* D3: is f32 parity on the CPU
+   enough for M1 until the upstream fix, with each f64 test `#[ignore]`d and its measured
+   error recorded, as here?
+2. The harness reads D3's "relative max error" as max |a − e| / max |e| over the tensor.
+   Confirm, or name the elementwise form.
