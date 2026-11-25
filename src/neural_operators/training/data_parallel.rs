@@ -30,7 +30,7 @@
 
 use burn::{
     data::dataloader::DataLoader,
-    module::{Module, ModuleVisitor, Param},
+    module::{ModuleVisitor, Param},
     optim::{
         GradientsParams, ModuleOptimizer,
         lr_scheduler::module_lr_scheduler::{ModuleLearningRate, ModuleLrScheduler},
@@ -45,13 +45,17 @@ use crate::neural_operators::{
         batcher::Batch, dataset::OperatorDataset, device_batcher::device_loader,
         host_float::HostFloat, transforms::normalizers::FlatDecoder,
     },
-    models::fno::FNO,
+    models::operator::GridOperator,
     training::{
         config::TrainingConfig,
         step::{StepLoss, forward_loss},
         trainer::{EpochMeans, accumulate},
     },
 };
+
+// for the tests' `use super::*`, written when the epoch took the FNO
+#[cfg(test)]
+use {crate::neural_operators::models::fno::FNO, burn::module::Module};
 
 /// A device beyond the first in a data-parallel run, with its copy of the training split.
 pub struct Replica<const R: usize, const RM1: usize> {
@@ -90,17 +94,17 @@ pub fn replicas<const R: usize, const RM1: usize, T: HostFloat>(
 }
 
 /// The working state of the replicas after the first: model, optimiser, decoder and loader.
-pub(crate) struct Peers<const R: usize, const RM1: usize> {
-    models: Vec<FNO<R>>,
+pub(crate) struct Peers<const R: usize, const RM1: usize, M> {
+    models: Vec<M>,
     optims: Vec<ModuleOptimizer>,
     decoders: Vec<Option<FlatDecoder>>,
     loaders: Vec<Arc<dyn DataLoader<Batch<R, RM1>>>>,
 }
 
-impl<const R: usize, const RM1: usize> Peers<R, RM1> {
+impl<const R: usize, const RM1: usize, M: GridOperator<R>> Peers<R, RM1, M> {
     /// Copies of the first replica's `model`, `optim` and `decoder` on each replica's device.
     pub(crate) fn new(
-        model: &FNO<R>,
+        model: &M,
         optim: &ModuleOptimizer,
         decoder: Option<&FlatDecoder>,
         replicas: &[Replica<R, RM1>],
@@ -133,7 +137,7 @@ pub(crate) fn shard(b: usize, n: usize, d: usize) -> Range<usize> {
 /// and the shard's share of the batch MSE (its MSE times its share of the rows) and its
 /// summed relative L², both `[1]`; no losses for an empty shard.
 fn shard_grads<const R: usize, const RM1: usize>(
-    model: &FNO<R>,
+    model: &impl GridOperator<R>,
     batch: Batch<R, RM1>,
     rows: Range<usize>,
     decoder: Option<&FlatDecoder>,
@@ -203,8 +207,8 @@ fn sum_across<const D: usize>(shards: Vec<Tensor<D>>, devices: &[Device]) -> Vec
 /// The shards' gradients for one batch per device (`batches[d]` on device d, all the same
 /// batch), summed over the devices: one [`GradientsParams`] per device, every one the
 /// full-batch gradient, and each device's losses ([`shard_grads`]).
-fn summed_grads<const R: usize, const RM1: usize>(
-    models: &[&FNO<R>],
+fn summed_grads<const R: usize, const RM1: usize, M: GridOperator<R>>(
+    models: &[&M],
     batches: Vec<Batch<R, RM1>>,
     decoders: &[Option<&FlatDecoder>],
 ) -> (Vec<GradientsParams>, Vec<Option<(Tensor<1>, Tensor<1>)>>) {
@@ -235,14 +239,14 @@ fn summed_grads<const R: usize, const RM1: usize>(
 /// # Panics
 ///
 /// As [`train_epoch`](super::trainer::train_epoch).
-pub(crate) fn train_epoch_parallel<const R: usize, const RM1: usize>(
-    mut model: FNO<R>,
+pub(crate) fn train_epoch_parallel<const R: usize, const RM1: usize, M: GridOperator<R>>(
+    mut model: M,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
     optim: &mut ModuleOptimizer,
     scheduler: &mut ModuleLrScheduler,
     decoder: Option<&FlatDecoder>,
-    peers: &mut Peers<R, RM1>,
-) -> (FNO<R>, EpochMeans) {
+    peers: &mut Peers<R, RM1, M>,
+) -> (M, EpochMeans) {
     let mut iters: Vec<_> = once(loader)
         .chain(&peers.loaders)
         .map(|l| l.iter())
@@ -263,7 +267,7 @@ pub(crate) fn train_epoch_parallel<const R: usize, const RM1: usize>(
             .into_iter()
             .map(|b| b.expect("dataset error during training"))
             .collect();
-        let models: Vec<&FNO<R>> = once(&model).chain(&peers.models).collect();
+        let models: Vec<&M> = once(&model).chain(&peers.models).collect();
         let (grads, losses) = summed_grads(&models, batches, &decoders);
         for (sum, loss) in sums.iter_mut().zip(losses) {
             if let Some((mse, l2)) = loss {

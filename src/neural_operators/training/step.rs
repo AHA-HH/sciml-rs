@@ -9,8 +9,12 @@ use std::sync::Arc;
 use crate::neural_operators::{
     data::{batcher::Batch, transforms::normalizers::FlatDecoder},
     losses::data_losses::{LpLoss, Reduction},
-    models::fno::FNO,
+    models::operator::GridOperator,
 };
+
+// for the tests' `use super::*`, written when the step took the FNO
+#[cfg(test)]
+use crate::neural_operators::models::fno::FNO;
 
 /// Collapse model output (rank `IR`, trailing channel axis) and target
 /// (rank `RM1 = R - 1`) to the rank-2 pair `LpLoss` requires.
@@ -93,7 +97,7 @@ pub(crate) struct StepLoss {
 ///
 /// If the output has more than one channel ([`flatten_pair`]).
 pub(crate) fn forward_loss<const R: usize, const RM1: usize>(
-    model: &FNO<R>,
+    model: &impl GridOperator<R>,
     batch: Batch<R, RM1>,
     decoder: Option<&FlatDecoder>,
 ) -> StepLoss {
@@ -123,7 +127,7 @@ pub(crate) fn forward_loss<const R: usize, const RM1: usize>(
 /// # Panics
 /// If `loader` yields no batches.
 pub fn evaluate<const R: usize, const RM1: usize>(
-    model: &FNO<R>,
+    model: &impl GridOperator<R>,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
     decoder: Option<&FlatDecoder>,
 ) -> f32 {

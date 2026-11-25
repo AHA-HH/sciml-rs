@@ -42,7 +42,7 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | --- | --- | --- | --- | --- | --- |
 | D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | signed off 2026-11-24: draft 0.2, with the corrections of #128, as the plan of record |
 | D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; CG cap 50 or 150 from CO0.1 | CO0.1 | CO4.1 | open |
-| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both) |
+| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both); amended 2026-11-25 by the author: seeds 42–44 at 5,400 s, 42–46 at equal time |
 | D3 | L-BFGS's objective and weight decay | Φ at μ = 0 | – | CO2.1 | open |
 | D4 | L-BFGS's batch | one batch of 1,000; accumulation if memory requires | – | CO2.1 | open |
 | D5 | L-BFGS's settings | strong Wolfe, lr 1; history and `max_iter` from the pilot | CO2.2 | CO4.1 | open |
@@ -62,9 +62,10 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 set; D1 put to the author; where a Gauss–Newton step's time goes.
 
 - [ ] **CO0.1 Reference arms on Burn 0.23.** Adam (Phase 5 settings) on seeds 42–46, 500
-  epochs, giving the equal-time budget; Adam at 5,400 s on seeds 42–46; GN200-D at μ = 0
-  with CG cap 50 and 150 on seed 42 at both budgets, then the chosen cap on seeds 42–46 at
-  both. *Done when:* a results table (`docs/optimisers/results/CO0.1.md`) against Phase 10's
+  epochs, giving the equal-time budget; Adam at 5,400 s on seeds 42–44; GN200-D at μ = 0
+  with CG cap 50 and 150 on seed 42 at both budgets, then the chosen cap on seeds 43–46 at
+  equal time and 43–44 at 5,400 s (D2). Timed runs side by side on the two GPUs only after a
+  check that the epoch times match a run alone (the step is host-bound, Phase 9 T3). *Done when:* a results table (`docs/optimisers/results/CO0.1.md`) against Phase 10's
   fork-era numbers, and D1 proposed. *Needs:* D2. *Machines:* the VM. *Sign-off:* D1.
 - [ ] **CO0.2 Cost profile of a Gauss–Newton step.** Time per phase of one GN200-D step
   (the gradient, CG's JVPs and VJPs, backtracking, the Hutchinson refresh), passes per
@@ -75,8 +76,8 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
 ## O1: The Burgers replication and the Darcy extension
 
 **Gate:** PETScML's Burgers reference reproduced (D10's band) or the gap explained; the
-2 × 2 {AdamW, Gauss–Newton} × {weight decay 0, 1e-4} on Burgers over five seeds at both
-budgets; the same on Darcy at equal time; the verdict on how much of PETScML's gap the
+2 × 2 {AdamW, Gauss–Newton} × {weight decay 0, 1e-4} on Burgers over five seeds at equal time and
+three at the long budget (D2); the same on Darcy at equal time; the verdict on how much of PETScML's gap the
 weight decay accounts for.
 
 - [ ] **CO1.1 The reference recipe.** `OptimizerConfig::AdamW` (Burn's `AdamWConfig`, ε
@@ -95,8 +96,8 @@ weight decay accounts for.
   on a rank-3 batch; `gn_steps.csv` and passes written. *Done when:* a flex smoke run of G0
   and G1 on Burgers and of G0 on Darcy, a resume of one; constraint 1 shown. *Needs:*
   CO1.1, D12.
-- [ ] **CO1.3 The Burgers 2 × 2.** A0, A1, G0, G1 and G0-200 (G0 at batch 200, D12) on seeds 42–46 at A1's mean time and at
-  6 × it (proposal §3.1); the coupled-Adam cells if D11 keeps them. *Done when:*
+- [ ] **CO1.3 The Burgers 2 × 2.** A0, A1, G0, G1 and G0-200 (G0 at batch 200, D12) on seeds 42–46 at A1's mean time and
+  42–44 at 6 × it (proposal §3.1, D2); the coupled-Adam cells if D11 keeps them. *Done when:*
   `docs/optimisers/results/CO1.3.md`: test L² per cell (mean and range), against epochs,
   passes, PETScML's oracle calls and time; A1 against D10's band; the verdict on A1 → G0
   split into A1 → A0 (weight decay) and A0 → G0 (the optimiser). *Needs:* CO1.2.
@@ -139,10 +140,11 @@ piloted.
 
 ## O4: The 2D comparison
 
-**Gate:** the four arms compared over five seeds at both budgets; results written.
+**Gate:** the four arms compared over five seeds at equal time and three at the long budget;
+results written.
 
-- [ ] **CO4.1 The matrix.** Adam, GN (D1), L-BFGS (D5), SOAP (D6), seeds 42–46, both
-  budgets (reusing CO0.1's Adam and GN runs); `poisson_matrix --by-optimizer` extended to
+- [ ] **CO4.1 The matrix.** Adam, GN (D1), L-BFGS (D5), SOAP (D6), seeds 42–46 at equal
+  time and 42–44 at 5,400 s (D2) (reusing CO0.1's Adam and GN runs); `poisson_matrix --by-optimizer` extended to
   the new arms; each arm at weight decay 0 and 1e-4 if D13 is taken, and the four arms on
   Burgers at equal time if D14 is. *Done when:* `docs/optimisers/results/CO4.1.md` with
   error 4 against time and passes per arm, and the equal-time verdict with its spread; with

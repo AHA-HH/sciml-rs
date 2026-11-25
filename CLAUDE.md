@@ -90,13 +90,15 @@ Tensor rank is a compile-time parameter, so the spatial dimension D is fixed by 
   questions are pending). Merging, pushing to `main`, force-pushing, rewriting history,
   deleting branches and closing PRs still need a yes in the current message.
 - `main` is protected on GitHub (2026-11-11): changes only by PR, the CI jobs
-  `run-tests`, `run-tests-datagen` and `style-checks` green, the branch up to date with
-  `main`. Merged branches are deleted. The rules do not bind admins, by the author's
+  `run-tests`, `run-tests-datagen` and `style-checks` green. Since 2026-11-24 the branch
+  need not be up to date with `main` (`strict` off, the author's choice): GitHub still
+  refuses a PR with conflicts, and CI on every push to `main` catches a combination that
+  breaks. Merged branches are deleted. The rules do not bind admins, by the author's
   choice: the author may merge past them with `gh pr merge --admin` (e.g. when an apt
   mirror outage fails `run-tests-datagen` on a PR it cannot judge); never suggest
   changing that. `.claude/settings.json` denies pushing to `main`, force-pushing,
   deleting remote branches, and `gh pr merge` / `gh pr close`, so no session can merge or
-  push to `main`: the author runs those (`! <command>` in the prompt). Bring a stale PR branch up to date by merging `origin/main` into it,
+  push to `main`: the author runs those (`! <command>` in the prompt). Resolve a PR branch's conflicts with `main` by merging `origin/main` into it,
   never by rebasing. Branch from `origin/main` with `git switch --no-track -c`, never
   checking out `main` (worktrees).
 - Default flow: make the change, run the checks, report exactly which ones ran and what
@@ -135,8 +137,13 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `-D warnings` rejects an undocumented public item.
 
 ## Layout
-- `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO; tests in `tests/{reference,padding,grid,checkpoint}.rs`), `models/predict.rs`
-  (`predict_host`: batched inference to host f64, any rank), `layers/spectral_convolution.rs`
+- `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO; tests in `tests/{reference,padding,grid,checkpoint}.rs`),
+  `models/operator.rs` (library CM0.3, D4: `Operator`, the trait every model implements for
+  the training stack, with associated `Config`, `Input`, `Output` and `NAME`;
+  `GridOperator<R>`, rank-R tensors in and out, which `training/`, `runs` and
+  `predict_host` are generic over; the FNO-named functions stay as wrappers),
+  `models/predict.rs` (`predict_host`: batched inference to host f64, any rank, any
+  `GridOperator`), `layers/spectral_convolution.rs`
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
@@ -193,8 +200,11 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
 - `chebyshev/clencurt` is ungated (ndarray only): `clencurt` (closed-form Clenshaw–Curtis
   weights, Trefethen) and `cc_rel_l2_error` (relative CC-L² error on the CGL tensor grid).
 - `src/neural_operators/pde/poisson/` (behind `datagen`): `collocation`
-  (`CollocationSolver`, solver A, fast diagonalisation); `sparse` (`SparseSolver`, solver C,
-  Q1 + unpreconditioned CG, validation oracle, test-only); `manufactured` (test-only fixtures).
+  (`CollocationSolver`, solver A, fast diagonalisation; `CollocationSolver3d`, A3, its 3D
+  form, laplace3d CL2.1); `sparse` (`SparseSolver`, solver C, Q1 + unpreconditioned CG,
+  validation oracle, test-only); `manufactured` (test-only fixtures).
+- `pde/poisson/grf3d` (3D laplace3d CL3.1): the 3D GRF, α = 3, ChaCha8 stream 3, separable
+  evaluation; shares `grf::{TAU, K_MAX, sine_basis}`.
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`
   (`generate`, `label_check`, `write_split`), driven by `examples/generate/poisson.rs`
   (`generate_poisson`), which writes `datasets/poisson/`.

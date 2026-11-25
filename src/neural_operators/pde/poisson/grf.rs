@@ -191,7 +191,7 @@ pub fn evaluate(c: ArrayView2<f64>, xs: ArrayView1<f64>, ys: ArrayView1<f64>) ->
 }
 
 /// S[i, k − 1] = sin(kπ(x_i + 1)/2), shape `[xs.len(), k]`.
-fn sine_basis(xs: ArrayView1<f64>, k: usize) -> Array2<f64> {
+pub(super) fn sine_basis(xs: ArrayView1<f64>, k: usize) -> Array2<f64> {
     Array2::from_shape_fn((xs.len(), k), |(i, j)| {
         ((j + 1) as f64 * PI * (xs[i] + 1.0) / 2.0).sin()
     })

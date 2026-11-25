@@ -1,8 +1,9 @@
 //! Manufactured solutions of design §4.3 and grid helpers, shared by the solver tests.
 //!
-//! Each pair has u = 0 on ∂[−1, 1]² and f = −Δu in closed form.
+//! Each pair has u = 0 on ∂[−1, 1]² (∂[−1, 1]³ for the 3D pairs of 3D proposal §5) and
+//! f = −Δu in closed form.
 
-use ndarray::Array2;
+use ndarray::{Array, Array2, Array3, Dimension};
 use std::f64::consts::PI;
 
 use crate::neural_operators::chebyshev::nodes;
@@ -94,10 +95,53 @@ pub(super) fn sample(nx: usize, ny: usize, g: impl Fn(f64, f64) -> f64) -> Array
 }
 
 /// max |a − b| / max |b|.
-pub(super) fn rel_max(a: &Array2<f64>, b: &Array2<f64>) -> f64 {
+pub(super) fn rel_max<D: Dimension>(a: &Array<f64, D>, b: &Array<f64, D>) -> f64 {
     let err = a
         .iter()
         .zip(b)
         .fold(0.0_f64, |m, (p, q)| m.max((p - q).abs()));
     err / b.iter().fold(0.0_f64, |m, q| m.max(q.abs()))
+}
+
+// ---- 3D pairs for A3 (3D proposal §5) ----
+
+pub(super) type Field3 = fn(f64, f64, f64) -> f64;
+
+/// A 3D manufactured pair: u and f = −Δu.
+pub(super) struct Manufactured3 {
+    pub(super) name: &'static str,
+    pub(super) u: Field3,
+    pub(super) f: Field3,
+}
+
+pub(super) const SIN3: Manufactured3 = Manufactured3 {
+    name: "sin πx sin πy sin πz",
+    u: |x, y, z| (PI * x).sin() * (PI * y).sin() * (PI * z).sin(),
+    f: |x, y, z| 3.0 * PI * PI * (PI * x).sin() * (PI * y).sin() * (PI * z).sin(),
+};
+pub(super) const MODES3: Manufactured3 = Manufactured3 {
+    name: "sin πx sin 2πy sin 3πz",
+    u: |x, y, z| (PI * x).sin() * (2.0 * PI * y).sin() * (3.0 * PI * z).sin(),
+    f: |x, y, z| 14.0 * PI * PI * (PI * x).sin() * (2.0 * PI * y).sin() * (3.0 * PI * z).sin(),
+};
+/// Neither a polynomial nor a sine product: u = (1 − x²) eˣ (1 − y²)(1 − z²).
+pub(super) const EXP3: Manufactured3 = Manufactured3 {
+    name: "(1−x²)eˣ(1−y²)(1−z²)",
+    u: |x, y, z| (1.0 - x * x) * x.exp() * (1.0 - y * y) * (1.0 - z * z),
+    f: |x, y, z| {
+        let (bx, by, bz) = (1.0 - x * x, 1.0 - y * y, 1.0 - z * z);
+        x.exp() * ((x * x + 4.0 * x + 1.0) * by * bz + 2.0 * bx * (by + bz))
+    },
+};
+/// Exact along x at any n ≥ 3; resolved along y by 17 nodes, along z only by 33.
+pub(super) const ANISO3: Manufactured3 = Manufactured3 {
+    name: "(1−x²) sin πy sin 3πz",
+    u: |x, y, z| (1.0 - x * x) * (PI * y).sin() * (3.0 * PI * z).sin(),
+    f: |x, y, z| (PI * y).sin() * (3.0 * PI * z).sin() * (2.0 + 10.0 * PI * PI * (1.0 - x * x)),
+};
+
+/// `g` on the `[nx, ny, nz]` CGL grid, 'ijk'.
+pub(super) fn sample3(nx: usize, ny: usize, nz: usize, g: Field3) -> Array3<f64> {
+    let (x, y, z) = (nodes(nx), nodes(ny), nodes(nz));
+    Array3::from_shape_fn((nx, ny, nz), |(i, j, k)| g(x[i], y[j], z[k]))
 }

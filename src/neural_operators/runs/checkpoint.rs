@@ -12,13 +12,14 @@ use std::io;
 
 use burn::{
     lr_scheduler::LrSchedulerRecord,
+    module::Module,
     optim::OptimizerRecord,
     store::{BurnpackStore, ModuleSnapshot},
     tensor::{Bytes, Device},
 };
 
 use crate::neural_operators::{
-    models::fno::{FNO, FNOConfig},
+    models::{fno::FNO, operator::Operator},
     optim::gauss_newton::GaussNewtonState,
 };
 
@@ -36,14 +37,18 @@ pub struct CheckpointState {
     pub training_time_s: f64,
 }
 
-/// A checkpoint read back by [`RunDir::checkpoint`](super::RunDir::checkpoint): the state,
-/// the model, and the optimiser and scheduler records to load into freshly built ones
+/// An FNO's checkpoint, read back by [`RunDir::checkpoint`](super::RunDir::checkpoint).
+pub type Checkpoint<const R: usize> = OperatorCheckpoint<FNO<R>>;
+
+/// A checkpoint of a run of the operator `M`, read back by
+/// [`RunDir::checkpoint_of`](super::RunDir::checkpoint_of): the state, the model, and the
+/// optimiser and scheduler records to load into freshly built ones
 /// (`ModuleOptimizer::load_record`, `ModuleLrScheduler::load_record`).
-pub struct Checkpoint<const R: usize> {
+pub struct OperatorCheckpoint<M> {
     /// Where the run stands.
     pub state: CheckpointState,
     /// The model after epoch `state.next_epoch - 1`, on the device it was read onto.
-    pub model: FNO<R>,
+    pub model: M,
     /// Adam's per-parameter moments and step counts, keyed by the model's `ParamId`s.
     pub optim: OptimizerRecord,
     /// The cosine schedule's position (`current_iter`).
@@ -53,9 +58,9 @@ pub struct Checkpoint<const R: usize> {
 }
 
 /// Encodes a checkpoint as the bytes of `checkpoint.bin`.
-pub(super) fn encode<const R: usize>(
+pub(super) fn encode(
     state: &CheckpointState,
-    model: &FNO<R>,
+    model: &impl Module,
     optim: OptimizerRecord,
     scheduler: LrSchedulerRecord,
     gn: Option<&GaussNewtonState>,
@@ -81,16 +86,17 @@ pub(super) fn encode<const R: usize>(
     Ok(out)
 }
 
-/// Decodes `checkpoint.bin`, building the model from `model_cfg` on `device`.
+/// Decodes `checkpoint.bin`, building the model from `model_cfg` on `device` (`M::init`,
+/// whose weights the checkpoint's then replace).
 ///
 /// # Errors
 /// [`io::ErrorKind::InvalidData`] for a wrong magic, a truncated file or trailing bytes;
 /// Burn's errors for a blob that doesn't parse or doesn't fit the architecture.
-pub(super) fn decode<const R: usize>(
+pub(super) fn decode<M: Operator>(
     bytes: &[u8],
-    model_cfg: &FNOConfig,
+    model_cfg: &M::Config,
     device: &Device,
-) -> Result<Checkpoint<R>, Box<dyn Error>> {
+) -> Result<OperatorCheckpoint<M>, Box<dyn Error>> {
     let mut rest = bytes;
     if take(&mut rest, 8)? != MAGIC {
         return Err(invalid("not a checkpoint file").into());
@@ -116,9 +122,9 @@ pub(super) fn decode<const R: usize>(
         Some(state)
     };
 
-    let mut model = model_cfg.init::<R>(device);
+    let mut model = M::init(model_cfg, device);
     model.load_from(&mut BurnpackStore::from_bytes(Some(weights)))?;
-    Ok(Checkpoint {
+    Ok(OperatorCheckpoint {
         state,
         model,
         optim: OptimizerRecord::from_bytes(optim)?,

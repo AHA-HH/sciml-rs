@@ -38,3 +38,88 @@ template:
 - Matrix: unchanged.
 - Follow-ups: CM0.1 and CM0.2 (no Rust, can run beside the 3D tasks); CM0.3 before the
   optimisers tasks that change `training/`.
+
+## 2026-11-24: CM0.1 Feature matrix at 2.0.0
+- Done: `feature-matrix.md` read from the source of tag 2.0.0 (`b307030`): every public
+  top-level class and function of `neuralop/` (tests excluded) in a table row with its
+  source path, the sciml-rs counterpart, a status and a task; an appendix of 186
+  signatures with defaults, extracted with `ast`. New against the seed: `data/transforms`,
+  `mpu`, `utils.py`, `BatchNorm`, the equation-loss classes, the differentiation APIs, the
+  registry's contents (UNO and CODANO are not in `get_model`). Corrected: 2.0.0's Burgers
+  dataset is space-time, so not the crate's Burgers task (missing, not partial).
+- Tests: an independent agent re-read its own clone of the tag and checked every row and
+  signature: 183 of 185 signatures exact, one item missing from the appendix, an
+  inconsistent "exported" rule, two wrong parentheticals and three thin sciml-rs cells;
+  all fixed. A second pass found one more (`LocalNO` does need torch_harmonics: the DISCO
+  module builds a dict from names it failed to import); fixed, and nothing else remained
+  (the "exported" marks match all five `__init__.py` files; 186 signatures exact).
+- Checks: ran the independent row check (twice); `/verify` not run: docs only, no Rust
+  check applies and CI's `changes` filter skips its jobs. Pending none.
+- Decisions: none taken; questions for sign-off in the PR (scope of the not-planned rows,
+  owners for the rows without a task, proposal §3 and CM1.3 corrections).
+- Review: plan review PASS, no blocker; its findings fixed (this entry's evidence, the
+  normaliser's eps, the legend's qualified statuses) or put to the author (owners of the
+  "–" rows); code-quality review skipped (docs only).
+- FNO: not touched.
+- Matrix: every row set.
+- Follow-ups: owners for the "–" rows (datasets, transforms, utilities): no roadmap line
+  until the author answers the PR's question 2.
+
+## 2026-11-24: CM0.2 Pinned Python environment and fixture generator
+- Done: `tools/parity/`, a uv project (Python 3.12, `uv.lock`) pinning `neuraloperator`
+  2.0.0 (PyPI wheel, its Python code identical to the tag's), torch 2.9.0, tensorly 0.9.0,
+  tensorly-torch 0.5.0, torch-harmonics 0.7.4 (the tag's `doc` pin), numpy 2.3.4;
+  `generate.py` writes 2.0.0's `FNO` (defaults but sizes) as `.npz` (input, output,
+  `param.<name>`, complex as a trailing (re, im) axis) with a `.json` sidecar:
+  `fno1d` (P = 3,529) and `fno2d` (P = 7,129), each in f32 and f64, 28–103 kB.
+- Tests: the generator asserts P ≤ 10⁴, size ≤ 1 MB and f32/f64-only arrays, and reloads
+  each file into a zeroed fresh model, reproducing the output bit for bit; `--check`
+  regenerates and compares arrays and sidecars bit for bit (passes).
+- Checks: ran `uv sync --locked`, `generate.py`, `generate.py --check`, the wheel-against-tag
+  diff; the reviewer ran `cargo fmt --check`, clippy (default, `--all-targets`,
+  `datagen`), `cargo test`, `cargo test --features datagen`, `cargo doc` (all pass); metal
+  not run (no Rust changed).
+- Decisions: D8 (fixture size) signed off 2026-11-24 as recommended (P ≲ 10⁴, under about
+  1 MB per fixture).
+- Review: plan review PASS (advisories fixed: round trip from zeroed weights, strict load,
+  sidecars in `--check`); code quality APPROVE with findings (F1–F3 fixed; F4, F5 left in
+  the PR text).
+- FNO: not touched (no Rust changed).
+- Matrix: no rows (environment only).
+- Follow-ups: CM0.5 reads these fixtures (the CM0.5 line).
+
+## 2026-11-24: CM0.3 The operator trait and a generic stack
+- Done: D4 signed off by the author (option A: a generic trait with associated config and
+  input types, static dispatch, no trait objects). `models/operator.rs`: `Operator`
+  (`Config`, `Input`, `Output`, `NAME`, `init`, `forward`) and `GridOperator<R>` (rank-R
+  tensors in and out, a blanket impl); `FNO<R>` implements it. Generic over the operator:
+  `train_epoch`, `training_loop`, `train_components`, the new `train` and
+  `build_components`, the data-parallel epoch, `train_epoch_gn` and `FnoResidual`'s
+  `LeastSquares` impl, `evaluate`, `predict_host`, `RunDir::save_weights`,
+  `save_checkpoint(_gn)`, the new `load_model` and `checkpoint_of`, `OperatorCheckpoint<M>`;
+  `EpochObserver` and `TrainingComponents` take `M = FNO<R>`. The FNO-named functions stay
+  as wrappers, so every existing caller compiles unchanged; file formats unchanged.
+- Tests: `tests/fno_bit_identity.rs` (ignored by default; release): a fixed Phase 5 FNO
+  forward, one Phase 5-shaped Adam epoch (two batches, checkpoint, reload, `predict_host`)
+  and one Gauss–Newton epoch (with its checkpointed state), dumped as bytes; the same file
+  run on an export of `main` and on the branch gives byte-identical dumps (65,536,
+  28,481,592 and 22,476 bytes). Files are compared by content: Burnpack and
+  `GaussNewtonState::to_bytes` record random `ParamId`s, so even `main` never writes the
+  same bytes twice. `models/operator.rs`: the trait's forward is the FNO's; a test-only
+  second operator trains, checkpoints, reloads and predicts through the generic stack.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (305 lib + integration, all pass),
+  `cargo test --features datagen` (379 lib, all pass), `cargo doc --no-deps` (no
+  warnings), `cargo test --features metal --test gpu_parity` (9 pass) and `--features metal --lib`
+  (305 pass; built at 851b6e4, later commits change only tests and docs); the main-against-
+  branch `cmp` (twice, and independently by the plan reviewer). No hunk inside any
+  existing test module; `tests/` only gains the new file.
+- Decisions: D4 signed off 2026-11-24. Question for the author in the PR: does moving a
+  test module's imports count as editing a test (CM0.6)?
+- Review: plan review PASS (one blocker, a test comparing two seeded inits under Flex's
+  process-wide RNG, fixed; advisories taken: two batches, the GN state, comment fixes, the
+  CM0.4 sentence); code quality APPROVE with 7 findings, no blockers (F6 fixed; F7 and the
+  checkpoint naming in the plan; F1–F5 to CM0.6).
+- FNO: unchanged bit for bit (the dumps above against `main`).
+- Matrix: `BaseModel`, `Trainer`, training state set (partial; CM0.3's part done).
+- Follow-ups: CM0.4 (also the MLflow export's model config); CM0.6 (the review's F1–F5).

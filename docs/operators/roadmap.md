@@ -8,8 +8,9 @@ milestone's gate report is `docs/operators/gates/<milestone>.md`; the feature ma
 `docs/operators/feature-matrix.md`.
 
 Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 (draft 0.1 as
-the plan of record); next CM0.1 and CM0.2. CM0.3 lands before the optimisers tasks that
-change `training/`.
+the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed off):
+once it is merged the optimisers tasks that change `training/` may start. Next CM0.4, then
+CM0.6; CM0.5 needs D3.
 
 ## How to read this file
 
@@ -42,38 +43,50 @@ The proposal's Section 12. Recorded when the author takes them:
 | D1 | Reference version | `neuraloperator` 2.0.0 | – | CM0.1 | signed off 2026-11-11: "its neuraloperator and the major release 2.0.0" |
 | D2 | Where the Python side lives | `tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/` | – | CM0.2 | signed off 2026-11-24: as recommended (`tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/`) |
 | D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | open |
-| D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | open |
+| D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | signed off 2026-11-24: option A as recommended (a generic trait with associated config and input types, static dispatch, no trait objects; `docs/operators/tasks/CM0.3.md`) |
 | D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | open |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |
 | D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | open |
-| D8 | Fixture size | tiny models, under about 1 MB per fixture | CM0.2 | CM0.2 | open |
+| D8 | Fixture size | tiny models, under about 1 MB per fixture | CM0.2 | CM0.2 | signed off 2026-11-24: as recommended (tiny models, P ≲ 10⁴, under about 1 MB per fixture) |
 
 ## M0: Foundations
 
 **Gate:** the stack is model-agnostic with the FNO unchanged; a fixture round trip works;
 the feature matrix is verified.
 
-- [ ] **CM0.1 Feature matrix at 2.0.0.** Fill `feature-matrix.md` from the tag's source
+- [x] **CM0.1 Feature matrix at 2.0.0.** Fill `feature-matrix.md` from the tag's source
   (every public model, layer, loss, training feature and dataset, with its options and
   defaults). *Done when:* every row has a status and a source path, checked by an agent
-  independent of the writer. *Needs:* D1.
-- [ ] **CM0.2 Pinned Python environment and fixture generator.** `tools/parity/`:
+  independent of the writer. *Needs:* D1. Done 2026-11-24: plan `docs/operators/tasks/CM0.1.md`.
+- [x] **CM0.2 Pinned Python environment and fixture generator.** `tools/parity/`:
   `neuraloperator` 2.0.0 with torch, tensorly, tltorch and torch_harmonics pinned in a
   lock file; a generator writing weights, input and output of a named configuration to
   `.npz`. *Done when:* a 1D and a 2D FNO fixture written, sizes within D8. *Needs:* D2,
-  D8.
-- [ ] **CM0.3 The operator trait and a generic stack.** Proposal §6.1: trainer, evaluate,
+  D8. Plan `docs/operators/tasks/CM0.2.md`; environment and generator `tools/parity/`
+  (README); fixtures `tests/fixtures/parity/fno{1d,2d}_{f32,f64}`. Done 2026-11-24.
+- [x] **CM0.3 The operator trait and a generic stack.** Proposal §6.1: trainer, evaluate,
   `predict_host`, checkpoints, the epoch observer, the run directory's weights and the
   Gauss–Newton residual generic over the trait; `FNO<R>` implements it. *Done when:* every
   existing test passes unedited, and a fixed FNO forward and one Phase 5 epoch are bit for
-  bit unchanged. *Needs:* D4. *Sign-off:* D4.
+  bit unchanged. *Needs:* D4. *Sign-off:* D4. Done 2026-11-24: plan
+  `docs/operators/tasks/CM0.3.md`; `models/operator.rs`; bit identity
+  `tests/fno_bit_identity.rs`, compared against `main` by `/verify`.
 - [ ] **CM0.4 The registry.** Proposal §6.2: `kind` in `model_cfg.json`, absent meaning
   the FNO. *Done when:* every existing run directory loads unchanged; a model builds by
-  name. *Needs:* CM0.3.
+  name. *Needs:* CM0.3. Also the MLflow export's
+  model config (`tracking/builder` reads `model_cfg.json` as `FNOConfig`; CM0.3 left it).
 - [ ] **CM0.5 The parity harness.** A test helper that loads a fixture by parameter-name
   map into a module and compares outputs (and gradients) within D3. *Done when:* the
   CM0.2 1D fixture passes through a hand-written map. *Needs:* CM0.2, D3.
   *Sign-off:* D3.
+- [ ] **CM0.6 Tidy after the generic stack.** The CM0.3 code-quality review's findings
+  (`docs/operators/progress.md`, CM0.3): one name per concept for the FNO wrappers
+  (`train_fno`, `build_training_components`, `load_fno`, `checkpoint`, `Checkpoint`) and
+  their generic twins (keep, deprecate or retire); `FnoResidual` renamed for any operator;
+  the `#[cfg(test)]` imports that keep the old test modules' `use super::*` compiling
+  moved into those modules; `training/trainer.rs`'s test module split out. *Done when:*
+  the same bit-identity check as CM0.3 passes against `main`. *Needs:* CM0.3, and the
+  author's answer on whether moving a test module's imports edits a test (CM0.3 PR).
 
 ## M1: The FNO family
 

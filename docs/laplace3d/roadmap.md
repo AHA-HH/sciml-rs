@@ -9,7 +9,11 @@ milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 Status: **L0 and L1 under way.** Draft 0.2 of the proposal is the plan of record (D0–D3
 signed off 2026-11-11, #117). 2026-11-24: CL1.1 (the CONVENTIONS 3D additions) signed off
 by the author and merged (#122); CL0.2 done (rank-5 parity on metal, no Burn bug found);
-CL0.1 measured on the Mac (#123, the cuda run waits for the VM); next CL1.2 and CL3.1.
+CL0.1 measured on the Mac (#123, the cuda run waits for the VM); CL1.2 (transfers and
+CC norms for any rank) done; CL3.1 done (the 3D GRF, `pde/poisson/grf3d`; D3 confirmed 2026-11-24 on
+its ε_K table); CL1.3 (errors 2–5 for 2D or 3D fields) done, so L1's tasks are all done;
+CL2.1 done (A3, `CollocationSolver3d`, f64 floor by n = 33; 0.4 ms per solve at n = 33,
+5–18 ms at 65 on the Mac); next the L1 gate, then CL3.2.
 
 ## How to read this file
 
@@ -40,7 +44,7 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | signed off 2026-11-11: draft 0.2 as the plan of record |
 | D1 | Generalise the 2D pieces or copy them | generalise, rank 2 routed to the existing code | – | CL1.2 | signed off 2026-11-11: generalise, rank 2 routed to the existing code |
 | D2 | What "bit for bit unchanged" covers for 2D, and how it is checked | the numerical outputs (proposal §9), not metadata; in-process old-against-new tests on fixed 2D inputs, plus the whole 2D suite | – | CL1.2 | signed off 2026-11-11: numbers only, in process (the numerical outputs of proposal §9, not metadata; in-process old-against-new tests on fixed 2D inputs, plus the whole 2D suite) |
-| D3 | GRF parameters and K in 3D | τ = 3, α = 3, K(n) = (n − 1)/2, ε_K ≤ 5e-3 on f; alternative α = 2 with the tolerance on u | CL3.1 | CL3.2 | signed off 2026-11-11: τ = 3, α = 3 |
+| D3 | GRF parameters and K in 3D | τ = 3, α = 3, K(n) = (n − 1)/2, ε_K ≤ 5e-3 on f; alternative α = 2 with the tolerance on u | CL3.1 | CL3.2 | signed off 2026-11-11: τ = 3, α = 3; confirmed 2026-11-24 on CL3.1's measured ε_K table (#132), as recommended |
 | D4 | Model size and batch at s = 32 and 64 | width 32, 4 layers, modes 8³ unless 12³ fits; batch 20 unless memory says less | CL0.1 | CL4.1 | open |
 | D5 | Stages, sizes, names and storage | n = 33 (tests), 65 (training); 129 test-only if needed; 1000/200; `poisson3d_n{n}_K{K}_{split}`; precision and zip64 from CL0.1 | CL0.1 | CL3.2 | open |
 | D6 | Laplace input representation | – | L4 gate | CL5.1 | open |
@@ -73,29 +77,42 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
   the 2D boundary norm recorded in §12 and the 2D-only statements labelled. Deferred to the
   L4 gate (D6, D7): whether the Laplace boundary norm is relative to ‖u‖ (as written) or to
   ‖g‖ on ∂Ω.
-- [ ] **CL1.2 N-D transfers and quadrature.** `transfer::apply`/`Transfers` and
+- [x] **CL1.2 N-D transfers and quadrature.** `transfer::apply`/`Transfers` and
   `cc_rel_l2_error` for any rank. *Done when:* 3D round-trip and CC-norm tests against
   closed forms; the 2D outputs bit for bit unchanged by D2's test. *Needs:* CL1.1, D1, D2.
-- [ ] **CL1.3 N-D errors.** `metrics/poisson` errors 2–5 for any rank, error 5 over six
+  Report: `docs/laplace3d/tasks/CL1.2.md` and `progress.md` (2026-11-24): `apply_nd`,
+  `Transfers::{to_uniform_nd, to_cheb_nd, to_uniform_all_nd}`, `cc_norm_sq_nd`,
+  `cc_rel_l2_error_nd`, `cc_rel_l2_error_weighted_nd`, rank 2 routed to the 2D functions.
+  Follow-ups: the 3D test names go into CONVENTIONS §12 "Verification" with CL1.3's (a
+  CONVENTIONS edit, for sign-off); `chebyshev/transfer.rs` is 970 lines, so the next task
+  that edits it first moves its tests to `transfer/tests.rs`.
+- [x] **CL1.3 N-D errors.** `metrics/poisson` errors 2–5 for any rank, error 5 over six
   faces (proposal §3.5). *Done when:* 3D errors on synthetic fields against direct
   computation; 2D unchanged by D2's test. *Needs:* CL1.2.
+  Report: `docs/laplace3d/tasks/CL1.3.md` and `progress.md` (2026-11-24):
+  `poisson_errors_nd` for 2D or 3D fields (the ranks CONVENTIONS §12 defines), 2D routed
+  to `poisson_errors`; `metrics/poisson` is now a folder, its tests in `poisson/tests.rs`.
+  Follow-up: the 3D test names in CONVENTIONS §12 "Verification" (with CL1.2's, for
+  sign-off).
 
 ## L2: 3D reference solver
 
 **Gate:** A3 reaches the f64 floor on manufactured and closed-form solutions.
 
-- [ ] **CL2.1 Collocation solver A3.** Fast diagonalisation in 3D (proposal §5).
+- [x] **CL2.1 Collocation solver A3.** Fast diagonalisation in 3D (proposal §5).
   *Done when:* relative error (max norm and 3D CC norm) at the f64 floor by n = 33 on
   manufactured solutions and on sine-series closed forms (a test-only 3D series
-  evaluator, or CL3.1's); time per solve at n = 33 and 65. *Needs:* CL1.1, CL1.2.
+  evaluator, or CL3.1's); time per solve at n = 33 and 65. *Needs:* CL1.1, CL1.2. Report:
+  `docs/laplace3d/results/cl2-1.md`.
 
 ## L3: 3D GRF and datasets
 
 **Gate:** the 3D datasets of D5 written, label-checked, loadable.
 
-- [ ] **CL3.1 3D GRF.** Separable evaluation (proposal §3.3), nested draws, the 3D S_K;
+- [x] **CL3.1 3D GRF.** Separable evaluation (proposal §3.3), nested draws, the 3D S_K;
   ε_K for K = 8, 16, 32. *Done when:* the evaluation matches a direct sum on a small case;
-  the ε_K table; D3 re-proposed. *Needs:* CL1.1. *Sign-off:* D3.
+  the ε_K table; D3 re-proposed. *Needs:* CL1.1. *Sign-off:* D3. Report:
+  `docs/laplace3d/results/cl3-1.md`.
 - [ ] **CL3.2 3D dataset generation.** Generation, label check against the closed form,
   catalogue names carrying the dimension; the n = 65 set generated on the VM. Near the
   three-module limit: split into CL3.2a/b when it starts if it exceeds it.
@@ -110,7 +127,10 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 - [ ] **CL4.1 3D training and prediction examples.** `train_poisson3d` and the 3D predict
   example (`train_poisson` unchanged). *Done when:* a short run at n = 33 on the Mac writes
   a run directory that the 3D predict example evaluates. Near the three-module limit: split
-  when it starts if it exceeds it. *Needs:* CL0.2, CL1.3, CL3.3, D4.
+  when it starts if it exceeds it. *Needs:* CL0.2, CL1.3, CL3.3, D4. The 3D `evaluate` and
+  errors record are new 3D types (proposal §6); with them, consider one per-sample loop in
+  `metrics/poisson` for 2D and 3D, keeping a frozen copy of today's `poisson_errors` as
+  the D2 oracle, and passing max |u| to `boundary_errors_nd` (CL1.3 review F1, N2).
 - [ ] **CL4.2 3D baseline.** Training at n = 65 over seeds. *Done when:* the results table
   with errors 2–5 against the 3D floor, and 2D Phase 5 at the same s as context (the
   input families differ, proposal §3.3). Before its first cuda run, CL0.2's cases run on
