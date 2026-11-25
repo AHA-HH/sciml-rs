@@ -95,4 +95,5 @@ None.
 
 ## Open questions
 
-None yet.
+1. `Operator::NAME` is now always its config's `KIND` (review F3): keep it, documented as
+   never overridden, or retire it in CM0.6? It is in D4's text and `CLAUDE.md`.

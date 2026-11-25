@@ -34,8 +34,8 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | `GINO` (exported) | `models/gino.py` | – | missing | CM3.4 |
 | `FNOGNO` (exported) | `models/fnogno.py` | – | missing | CM3.4 |
 | `CODANO` (exported) | `models/codano.py` | – | missing | CM3.5 |
-| `BaseModel` (registry, saves init arguments) | `models/base_model.py` | `Operator` (`models/operator.rs`): config saved as `model_cfg.json`, `init`, `forward`, `NAME`; the registry is CM0.4 | partial | CM0.3, CM0.4 |
-| `get_model` (exported), `available_models` | `models/base_model.py` | – | missing | CM0.4 |
+| `BaseModel` (registry, saves init arguments) | `models/base_model.py` | `Operator` (`models/operator.rs`): config saved as `model_cfg.json` with its `kind` (`OperatorConfig::KIND`, `models/registry.rs`), `init`, `forward`, `NAME` | have (infrastructure, no output to compare) | CM0.3, CM0.4 |
+| `get_model` (exported), `available_models` | `models/base_model.py` | `ModelConfig::from_json` (by `kind`, absent meaning the FNO) and `Model<R>::init` (`models/registry.rs`); `KINDS` | have (infrastructure, no output to compare) | CM0.4 |
 
 ## Layers: spectral convolutions
 
