@@ -117,9 +117,22 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
 - [ ] **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
   Darcy- and Burgers-shaped inputs; resampling (`resolution_scaling_factor`) and domain
   padding. *Needs:* CM1.2, CM1.4.
-- [ ] **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
+- **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
-  `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5.
+  `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
+  (over 1,000 lines across three loss families):
+  - [ ] **CM1.6a Finite differences and the data losses.** `FiniteDiff` (first and second
+    derivatives, periodic or one-sided boundaries, 1D–3D; gradient, Laplacian,
+    divergence, curl), `H1Loss`, `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss`; the
+    relative `LpLoss` against 2.0.0's. *Done when:* each against 2.0.0 fixtures within D3
+    (f32; f64 too, no FFT involved). *Needs:* CM0.5.
+  - [ ] **CM1.6b Aggregators.** `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`,
+    `Relobralo` (its Bernoulli draw taken from a seeded source). *Done when:* each against
+    a fixture of a sequence of steps (the weights and the aggregated loss per step).
+    *Needs:* CM0.5.
+  - [ ] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
+    continuation (that option with CM2.4), `non_uniform_fd`. *Done when:* each against
+    fixtures. *Needs:* CM0.5.
 - [ ] **CM1.7 Training features.** Incremental modes and resolution, AdamW as 2.0.0's,
   mixed precision, multigrid patching. *Needs:* CM0.3, CM1.5.
 - [ ] **CM1.8 Training parity on the 2D Poisson baseline.** The protocol of proposal §5,
@@ -140,7 +153,7 @@ The order of M2 and M3 is set at the M1 gate (D6).
 - [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1.
 - [ ] **CM2.5 Equation losses (PINO).** `equation_losses` on CM1.6's derivatives; the
   crate's Chebyshev differentiation as a second path. *Needs:* CM1.6.
-- [ ] **CM2.6 UQNO.** *Needs:* M1, CM1.6 (quantile loss).
+- [ ] **CM2.6 UQNO.** *Needs:* M1, CM1.6a (quantile loss).
 - [ ] **CM2.7 Divergence-free spectral projection.** *Needs:* M1.
 
 ## M3: The costly operators
