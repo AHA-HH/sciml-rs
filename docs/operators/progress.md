@@ -212,3 +212,35 @@ template:
 - FNO: not touched.
 - Matrix: unchanged.
 - Follow-ups: CM1.1 runs to D3 as amended; the f64 bound returns when the upstream fix lands.
+
+## 2026-11-25: CM1.1 Legacy spectral convolution parity
+- Done: three configurations of 2.0.0's generic legacy `SpectralConv`
+  (`layers/legacy_spectral_convolution.py`, defaults, bias on) in `tools/parity/generate.py`,
+  in ≠ out and odd and non-power-of-two extents; fixtures
+  `legacy_spectral_conv{1,2,3}d_{f32,f64}`. `tests/parity_common/legacy_conv.rs`:
+  `LegacyConv<R>` (the crate's `SpectralConv<R>` plus a test-only bias) and the hand-written
+  maps; 2.0.0's corners run axis 0 most significant, so in 3D its `weight.1` and `weight.2`
+  are the crate's corners 2 and 1. The reference models (`fno1d.rs`, `legacy_conv.rs`) are no
+  longer modules of `parity_common/mod.rs`: each binary includes its own with `#[path]`, so
+  none compiles dead code (CM0.5's test files change only in `mod`/`use` lines).
+- Tests: `legacy_spectral_conv{1,2,3}d_f32_matches_2_0_0` (2.116e-7, 4.722e-7, 3.053e-7 ≤
+  1e-5, Flex, M2 Pro); `legacy_3d_corner_order_matters` (2.0.0's corner order unpermuted:
+  4.853e-1, fails D3); the f64 three `#[ignore]`d (1.588e-7, 2.907e-7, 2.498e-7): 2.0.0's
+  legacy `forward` builds its spectrum as `cfloat`, so its f64 output is f32-accurate
+  (7.8e-8 against numpy in f64, measured), whatever Burn does.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test`, `cargo test --features datagen`,
+  `cargo doc --no-deps` (all pass); `generate.py --check` (all ten fixtures the same, CM0.2's
+  four unchanged). Not run: `--features metal` and the bit-identity dumps (nothing under
+  `src/` changes).
+- Decisions: none. The author's answer on the review's F2 (2026-11-25): keep the legacy f64
+  tests `#[ignore]`d, as D3 as amended asks.
+- Review: plan review PASS (advisories fixed: the negative control prints its error, the bias
+  doc; the docs committed); code quality APPROVE with findings (F3, F4 fixed; F1, one
+  `flex_f64` for the f64 binaries, left to CM1.5 as CM0.5's line has it; F2 answered; F5
+  informational).
+- FNO: not touched (tests, fixtures and the generator only).
+- Matrix: the legacy `SpectralConv` row stays partial, its note naming what is at parity
+  and what is missing.
+- Follow-ups: CM0.5's sidecar and grid items pass to CM1.2 and CM1.5 (CM1.1's roadmap line);
+  `flex_f64` shared (CM1.5, now easy with `#[path]`).

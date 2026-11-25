@@ -1,6 +1,9 @@
 //! Library CM0.5 in f64: CM0.2's `fno1d_f64` fixture through the parity harness. Its own
 //! test binary because it configures Flex's process-wide float dtype to f64.
 
+#[cfg(feature = "flex")]
+#[path = "parity_common/fno1d.rs"]
+mod fno1d;
 mod parity_common;
 
 #[cfg(feature = "flex")]
@@ -9,7 +12,7 @@ use std::sync::OnceLock;
 #[cfg(feature = "flex")]
 use burn::{prelude::*, tensor::FloatDType};
 #[cfg(feature = "flex")]
-use parity_common::{assert_parity, fno1d};
+use parity_common::assert_parity;
 
 /// Flex configured for f64, once per process.
 #[cfg(feature = "flex")]

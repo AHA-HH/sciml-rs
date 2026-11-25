@@ -2,11 +2,14 @@
 //! the hand-written map of `parity_common::fno1d`; and the harness's own checks. The f64
 //! fixture is `tests/parity_fno1d_f64.rs`.
 
+#[path = "parity_common/fno1d.rs"]
+mod fno1d;
 mod parity_common;
 
 use burn::prelude::*;
+use fno1d::*;
 use ndarray::{ArrayD, IxDyn};
-use parity_common::{fno1d::*, *};
+use parity_common::*;
 
 /// The acceptance test: the f32 fixture within D3's f32 bound.
 #[test]
