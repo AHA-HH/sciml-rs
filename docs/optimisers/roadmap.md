@@ -42,7 +42,7 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | --- | --- | --- | --- | --- | --- |
 | D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | signed off 2026-11-24: draft 0.2, with the corrections of #128, as the plan of record |
 | D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; CG cap 50 or 150 from CO0.1 | CO0.1 | CO4.1 | open |
-| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both); amended 2026-11-25 by the author: seeds 42–44 at 5,400 s, 42–46 at equal time |
+| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both); amended 2026-11-25 by the author: seeds 42–44 at 5,400 s, 42–46 at equal time; 2026-11-25, after Adam measured about 3.6× slower on Burn 0.23 (CO0.1): keep 5,400 s |
 | D3 | L-BFGS's objective and weight decay | Φ at μ = 0 | – | CO2.1 | open |
 | D4 | L-BFGS's batch | one batch of 1,000; accumulation if memory requires | – | CO2.1 | open |
 | D5 | L-BFGS's settings | strong Wolfe, lr 1; history and `max_iter` from the pilot | CO2.2 | CO4.1 | open |
@@ -72,6 +72,13 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   second on Burn 0.23 against Phase 10's. *Done when:* the profile table and a short list of
   where passes could be saved (for later work; nothing changed here). *Needs:* –.
   *Machines:* the VM.
+- [ ] **CO0.3 Cost profile of an Adam step.** Time per phase of one Adam step at batch 20
+  (forward, backward, the optimiser update, the loader, the per-epoch evaluation and
+  checkpoint) on Burn 0.23 against the fork, to explain why CO0.1's Adam epoch took about
+  3.6× the fork's time (3,067 s for 500 epochs against 859.4 s) while a GN200 step slowed
+  about 24 %. *Done when:* the profile table and where the extra time goes (nothing changed
+  here; a fix, if any, is a later task, since it would move the equal-time budget).
+  *Needs:* –. *Machines:* the VM.
 
 ## O1: The Burgers replication and the Darcy extension
 

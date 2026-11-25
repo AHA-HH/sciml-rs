@@ -169,7 +169,8 @@ check is still to make. Next: `adam:43` again, beside another run for the check,
 45 and 46. Stages 2 and 3 wait for the open question below.
 
 ## Open questions
-1. **Adam is about 3.6× slower on Burn 0.23.** Seed 42: 3,067 s for 500 epochs (6.1 s
+1. **Answered 2026-11-25 by the author: keep 5,400 s** (D2 amended; option A below), and
+   the Adam step profile added to the roadmap as CO0.3. **Adam is about 3.6× slower on Burn 0.23.** Seed 42: 3,067 s for 500 epochs (6.1 s
    per epoch at the end, peak 3,048 MiB), against 859.4 s on the fork (Phase 10, same
    settings, A100); final test L² 9.63e-3 (the fork's seed 42: 1.095e-2). CO0.2's first
    attempt put a GN200 step at cap 50 only about 24 % slower. So B ≈ 3,070 s, not 860 s,
