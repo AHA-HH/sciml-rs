@@ -9,8 +9,8 @@ milestone's gate report is `docs/operators/gates/<milestone>.md`; the feature ma
 
 Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 (draft 0.1 as
 the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed off):
-once it is merged the optimisers tasks that change `training/` may start. Next CM0.4, then
-CM0.6; CM0.5 needs D3.
+once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
+2026-11-25 (the registry). Next CM0.6; CM0.5 needs D3.
 
 ## How to read this file
 
@@ -71,10 +71,11 @@ the feature matrix is verified.
   bit unchanged. *Needs:* D4. *Sign-off:* D4. Done 2026-11-24: plan
   `docs/operators/tasks/CM0.3.md`; `models/operator.rs`; bit identity
   `tests/fno_bit_identity.rs`, compared against `main` by `/verify`.
-- [ ] **CM0.4 The registry.** Proposal §6.2: `kind` in `model_cfg.json`, absent meaning
+- [x] **CM0.4 The registry.** Proposal §6.2: `kind` in `model_cfg.json`, absent meaning
   the FNO. *Done when:* every existing run directory loads unchanged; a model builds by
   name. *Needs:* CM0.3. Also the MLflow export's
   model config (`tracking/builder` reads `model_cfg.json` as `FNOConfig`; CM0.3 left it).
+  Done 2026-11-25: plan `docs/operators/tasks/CM0.4.md`; `models/registry.rs`.
 - [ ] **CM0.5 The parity harness.** A test helper that loads a fixture by parameter-name
   map into a module and compares outputs (and gradients) within D3. *Done when:* the
   CM0.2 1D fixture passes through a hand-written map. *Needs:* CM0.2, D3.
@@ -119,7 +120,10 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
 The order of M2 and M3 is set at the M1 gate (D6).
 
 - [ ] **CM2.1 TFNO.** Tucker, CP and tensor-train factorised spectral weights, factorised
-  and reconstructed contractions, with gradient parity. *Needs:* M1.
+  and reconstructed contractions, with gradient parity. *Needs:* M1. As the second
+  registered kind: its `ModelConfig` and `Model` variants, the MLflow export's arm
+  (`tracking/builder`), and, if a run must load by name, `Model<R>` as a Burn `Module`
+  (CM0.4 review F4).
 - [ ] **CM2.2 UNO.** Resolution-changing blocks on `resample`. *Needs:* M1.
 - [ ] **CM2.3 LocalNO.** Differential and DISCO convolutions, `local_no_block`. *Needs:* M1.
 - [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1.

@@ -142,6 +142,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   the training stack, with associated `Config`, `Input`, `Output` and `NAME`;
   `GridOperator<R>`, rank-R tensors in and out, which `training/`, `runs` and
   `predict_host` are generic over; the FNO-named functions stay as wrappers),
+  `models/registry.rs` (library CM0.4: `OperatorConfig::KIND`, the `kind` written first in
+  `model_cfg.json`, absent meaning `"fno"`; `ModelConfig` and `Model<R>`, one enum variant
+  per kind, built by name; `RunDir::any_model_config`),
   `models/predict.rs` (`predict_host`: batched inference to host f64, any rank, any
   `GridOperator`), `layers/spectral_convolution.rs`
   (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for

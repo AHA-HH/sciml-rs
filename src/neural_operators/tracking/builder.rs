@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 use crate::neural_operators::{
     data::loaders::poisson::PoissonConfig,
     metrics::poisson::{ERRORS_JSON, PoissonErrorsRecord},
+    models::registry::ModelConfig,
     runs::{EpochMetrics, RunCosts, RunDir},
 };
 
@@ -73,7 +74,8 @@ pub struct Request {
 /// the end is the start plus `training_time_s` from `costs.json`, when present, else
 /// `now_ms`. `now_ms` is also every metric's timestamp.
 ///
-/// Reads `run` only: the configs as `FNOConfig`, `TrainingConfig` and `PoissonConfig`,
+/// Reads `run` only: the configs as a registered model's (`model_cfg.json` by its `kind`,
+/// the FNO without one), `TrainingConfig` and `PoissonConfig`,
 /// `metrics.csv`, and `costs.json` and `errors.json` when present.
 ///
 /// # Errors
@@ -117,7 +119,8 @@ pub fn start_requests(
     now_ms: i64,
 ) -> Result<Vec<Request>, Box<dyn Error>> {
     let name = dir_name(run)?;
-    let model = run.model_config()?;
+    // one arm per registered kind: a new kind must say here what it exports
+    let ModelConfig::Fno(model) = run.any_model_config()?;
     let train = run.training_config()?;
     let data: PoissonConfig = run.data_config()?;
     let costs = run.costs()?;
@@ -785,5 +788,30 @@ mod tests {
         assert_eq!(number(f64::INFINITY), "Infinity");
         assert_eq!(number(f64::NEG_INFINITY), "-Infinity");
         assert_eq!(number(0.5), 0.5);
+    }
+
+    /// An export of a run written before CM0.4 (`model_cfg.json` without `kind`) and of
+    /// the same run written since give the same tags and params.
+    #[test]
+    fn the_kind_field_leaves_the_export_unchanged() {
+        let name = "poisson_fno_n129_s64_p0_1793188648";
+        let tagged = fresh_run("kind_tagged", name);
+        let plain = fresh_run("kind_plain", name);
+        for run in [&tagged, &plain] {
+            run.save_configs(&model(), &TrainingConfig::new(), &data(true))
+                .unwrap();
+        }
+        model().save(plain.path().join("model_cfg.json")).unwrap();
+        let read = |run: &RunDir| std::fs::read_to_string(run.path().join("model_cfg.json"));
+        assert!(read(&tagged).unwrap().contains("\"kind\""));
+        assert!(!read(&plain).unwrap().contains("\"kind\""));
+
+        assert_eq!(
+            start_requests(&tagged, "5", 1_000).unwrap(),
+            start_requests(&plain, "5", 1_000).unwrap()
+        );
+        for run in [tagged, plain] {
+            std::fs::remove_dir_all(run.path().parent().unwrap()).unwrap();
+        }
     }
 }
