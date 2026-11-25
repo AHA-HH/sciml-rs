@@ -5,12 +5,14 @@
 //!
 //! Static dispatch, as for the [`Operator`] trait (D4): [`ModelConfig`] and [`Model`] are
 //! enums with one variant per kind, so adding a kind is a compile error at every `match`
-//! that must handle it. Rank stays a compile-time parameter (`Model<R>`).
+//! on them. [`KINDS`] and [`ModelConfig::from_json`]'s arms are kept by hand; a test
+//! round-trips every variant through both. Rank stays a compile-time parameter
+//! (`Model<R>`).
 
 // see `models/fno/mod.rs`: Burn's `#[derive(Config)]` writes `field: field`
 #![allow(clippy::redundant_field_names)]
 
-use std::error::Error;
+use std::{error::Error, path::Path};
 
 use burn::{
     config::Config,
@@ -24,7 +26,7 @@ use crate::neural_operators::models::{
 };
 
 /// The kind a `model_cfg.json` without a `kind` field reads as.
-pub const DEFAULT_KIND: &str = "fno";
+pub const DEFAULT_KIND: &str = FNOConfig::KIND;
 
 /// Every registered kind, in the order of [`ModelConfig`]'s variants.
 pub const KINDS: &[&str] = &[FNOConfig::KIND];
@@ -61,16 +63,26 @@ impl ModelConfig {
     /// If `json` doesn't parse, its kind isn't registered, or it doesn't parse as that
     /// kind's config.
     pub fn from_json(json: &str) -> Result<Self, Box<dyn Error>> {
-        let kind = kind_of(json)?;
-        if kind == FNOConfig::KIND {
-            Ok(Self::Fno(FNOConfig::load_binary(json.as_bytes())?))
-        } else {
-            Err(format!(
+        match kind_of(json)?.as_str() {
+            FNOConfig::KIND => Ok(Self::Fno(FNOConfig::load_binary(json.as_bytes())?)),
+            kind => Err(format!(
                 "unknown model kind `{kind}`; registered: {}",
                 KINDS.join(", ")
             )
-            .into())
+            .into()),
         }
+    }
+
+    /// Reads the `model_cfg.json` at `path` ([`from_json`](Self::from_json)).
+    ///
+    /// # Errors
+    /// If the file can't be read, or as [`from_json`](Self::from_json); the message starts
+    /// with the path.
+    pub fn load(path: &Path) -> Result<Self, Box<dyn Error>> {
+        std::fs::read_to_string(path)
+            .map_err(Box::<dyn Error>::from)
+            .and_then(|json| Self::from_json(&json))
+            .map_err(|e| format!("{}: {e}", path.display()).into())
     }
 }
 
@@ -106,16 +118,21 @@ impl<const R: usize> Model<R> {
 }
 
 /// A `model_cfg.json`'s kind: its `kind` field, or [`DEFAULT_KIND`] without one.
-pub(crate) fn kind_of(json: &str) -> Result<String, Box<dyn Error>> {
-    Ok(KindField::load_binary(json.as_bytes())?
-        .kind
-        .unwrap_or_else(|| DEFAULT_KIND.to_string()))
+fn kind_of(json: &str) -> Result<String, Box<dyn Error>> {
+    Ok(KindField::load_binary(json.as_bytes())?.kind())
 }
 
 /// The `kind` field alone; every other field is ignored.
 #[derive(Config, Debug)]
-struct KindField {
+pub(crate) struct KindField {
     kind: Option<String>,
+}
+
+impl KindField {
+    /// The kind, or [`DEFAULT_KIND`] without one.
+    pub(crate) fn kind(self) -> String {
+        self.kind.unwrap_or_else(|| DEFAULT_KIND.to_string())
+    }
 }
 
 /// `model_cfg.json` as written since CM0.4: `kind` first, then the config's own fields.
@@ -154,6 +171,20 @@ mod tests {
         FNOConfig::new(vec![2], 1, 1)
             .with_hidden_channels(4)
             .with_n_layers(1)
+    }
+
+    /// Every variant, written as `model_cfg.json` and read back by its kind.
+    #[test]
+    fn every_kind_round_trips_through_from_json() {
+        let every = [ModelConfig::Fno(fno_cfg())];
+        assert_eq!(KINDS.len(), every.len());
+        for config in every {
+            let json = match &config {
+                ModelConfig::Fno(c) => config_to_json(&Tagged::new(c)),
+            };
+            assert!(KINDS.contains(&config.kind()));
+            assert_eq!(ModelConfig::from_json(&json).unwrap().kind(), config.kind());
+        }
     }
 
     #[test]

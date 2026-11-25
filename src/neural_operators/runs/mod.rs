@@ -54,7 +54,7 @@ use crate::neural_operators::{
     models::{
         fno::{FNO, FNOConfig},
         operator::Operator,
-        registry::{ModelConfig, OperatorConfig, Tagged, kind_of},
+        registry::{KindField, ModelConfig, OperatorConfig, Tagged},
     },
     optim::gauss_newton::GaussNewtonState,
     training::config::TrainingConfig,
@@ -294,19 +294,14 @@ impl RunDir {
     /// # Errors
     /// If the file can't be read or parsed, or its kind isn't registered.
     pub fn any_model_config(&self) -> Result<ModelConfig, Box<dyn Error>> {
-        let path = self.path.join(MODEL_CFG);
-        let json =
-            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        ModelConfig::from_json(&json).map_err(|e| format!("{}: {e}", path.display()).into())
+        ModelConfig::load(&self.path.join(MODEL_CFG))
     }
 
     /// `model_cfg.json` as `C`, after checking that its kind is `C`'s.
     fn model_config_of<C: OperatorConfig>(&self) -> Result<C, Box<dyn Error>> {
-        let path = self.path.join(MODEL_CFG);
-        let json =
-            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let kind = kind_of(&json).map_err(|e| format!("{}: {e}", path.display()))?;
+        let kind = self.load_config::<KindField>(MODEL_CFG)?.kind();
         if kind != C::KIND {
+            let path = self.path.join(MODEL_CFG);
             return Err(format!(
                 "{}: a model of kind `{kind}`, not `{}`",
                 path.display(),
@@ -314,7 +309,7 @@ impl RunDir {
             )
             .into());
         }
-        C::load_binary(json.as_bytes()).map_err(|e| format!("{}: {e}", path.display()).into())
+        self.load_config(MODEL_CFG)
     }
 
     /// The training config, from `train_cfg.json`.

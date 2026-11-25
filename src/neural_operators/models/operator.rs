@@ -25,7 +25,8 @@ pub trait Operator: Module {
     /// What [`forward`](Operator::forward) returns.
     type Output;
     /// The operator's name in the registry (CM0.4): its config's
-    /// [`KIND`](OperatorConfig::KIND).
+    /// [`KIND`](OperatorConfig::KIND). Never overridden: the registry and
+    /// `model_cfg.json` know the operator by `KIND`.
     const NAME: &'static str = <Self::Config as OperatorConfig>::KIND;
 
     /// A freshly initialised operator on `device`, drawn from the device's RNG.
