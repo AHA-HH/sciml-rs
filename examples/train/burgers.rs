@@ -89,6 +89,12 @@ fn main() {
         // No domain padding: Burgers is periodic, and Li et al.'s fourier_1d.py
         // does not pad either
         padding: None,
+        // 2.0.0's block options (library CM1.3b); None keeps today's block
+        activation: None,
+        fno_skip: None,
+        channel_mlp: None,
+        norm: None,
+        preactivation: None,
     };
 
     // Set the training configuration, defaults not overridden: seed = 42, test_batch_size = 20

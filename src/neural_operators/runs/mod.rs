@@ -506,6 +506,11 @@ mod tests {
             n_layers: 1,
             spectral_init: None,
             padding: Some(2),
+            activation: None,
+            fno_skip: None,
+            channel_mlp: None,
+            norm: None,
+            preactivation: None,
         }
     }
 

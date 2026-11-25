@@ -1,5 +1,6 @@
 //! Shared test helpers for `FNO`: the reference forwards, input builders and the grid oracle.
 
+mod blocks;
 mod checkpoint;
 mod grid;
 mod padding;
@@ -113,15 +114,15 @@ fn reference_forward_padded<const R: usize>(m: &FNO<R>, x: Tensor<R>, pad: Pad) 
 
 /// `FNO::forward` exactly as it was before padding existed.
 fn pre_padding_forward<const R: usize>(m: &FNO<R>, x: Tensor<R>) -> Tensor<R> {
-    let mut x = FNO::<R>::linear_cf(&m.fc0, to_channels_first(x));
+    let mut x = linear_cf(&m.fc0, to_channels_first(x));
     let n = m.conv.len();
     for idx in 0..n {
         let x1 = m.conv[idx].forward(x.clone());
-        let x2 = FNO::<R>::conv1x1_cf(&m.w[idx], x);
+        let x2 = conv1x1(&m.w[idx], x);
         x = if idx == n - 1 { x1 + x2 } else { relu(x1 + x2) };
     }
-    let x = relu(FNO::<R>::linear_cf(&m.fc1, x));
-    let x = FNO::<R>::linear_cf(&m.fc2, x);
+    let x = relu(linear_cf(&m.fc1, x));
+    let x = linear_cf(&m.fc2, x);
     to_channels_last(x)
 }
 
