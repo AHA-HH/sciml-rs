@@ -56,16 +56,17 @@ ReLU only (today's ops unchanged), and applied for any other activation (2.0.0's
   `activation: Option<ActivationConfig>` (`None`: ReLU), `fno_skip: Option<SkipKind>`
   (`None`: today's pointwise convolution with bias, `w`), `channel_mlp:
   Option<BlockMlpConfig>` (`None`: none; `BlockMlpConfig { expansion = 0.5, skip =
-  Some(SoftGating) }`, 2.0.0's defaults, its MLP 2.0.0's two-layer GELU `ChannelMLP`),
+  Some(SoftGating) }`, 2.0.0's defaults, the hidden width rounded half to even as Python's
+  `round`, its MLP 2.0.0's two-layer GELU `ChannelMLP`),
   `norm: Option<NormKind>`, `preactivation: Option<bool>`. `FNO` gains fields after the
   existing ones, empty or constant when the options are absent, so checkpoint paths and
-  parameter order are unchanged: `fno_skips`, `channel_mlp`, `mlp_skips`, `norms` (two per
-  layer), `activation`, `preactivation`. New `FNO::fourier_layers(x, embedding)` (the
+  parameter order are unchanged: `fno_skips`, `channel_mlp`, `channel_mlp_skips`, `norms` (two per
+  layer), `activation`, `preactivation`, `repeat_activation`. New `FNO::fourier_layers(x, embedding)` (the
   layers alone, channels-first, 2.0.0's `FNOBlocks` over every index) and
   `FNO::forward_with_embedding` (AdaIN); `forward` calls `fourier_layers(x, None)`.
   The projection's ReLU (`fc1`) is unchanged: lifting and projection are CM1.4's.
 - Tests: `tests/parity_common/fno_blocks.rs` (cases and maps), `tests/parity_fno_blocks.rs`
-  (f32), `tests/parity_fno_blocks_f64.rs` (`#[ignore]`d: an FFT); `load_into_part` in the
+  (f32 only: no f64 fixtures, see Results); `load_into_part` in the
   harness, a `load_into` restricted by a `PathFilter` to the block's paths (fixtures carry no
   lifting or projection), the completeness check unchanged for those paths.
 - `tools/parity/generate.py`: `FNOBlocks` fixtures, the legacy convolution with
@@ -88,11 +89,11 @@ ReLU only (today's ops unchanged), and applied for any other activation (2.0.0's
   | `fno_blocks_instance_post2d`, `_pre2d` | instance norm | (2, 4, 12, 10) |
   | `fno_blocks_group_post3d` | group norm, soft-gating FNO skip, linear MLP skip, expansion 1 | (2, 4, 8, 7, 6) |
   | `fno_blocks_group_pre3d` | group norm, identity skips | (2, 4, 8, 7, 6) |
-  | `fno_blocks_ada_in_post2d`, `_pre2d` | AdaIN, embed_dim 3, one seeded embedding | (2, 4, 12, 10) |
+  | `fno_blocks_ada_in_post2d`, `_pre2d` | AdaIN, embed_dim 2, one seeded embedding; one layer, 2 channels (D8) | (2, 2, 12, 10) |
   | `fno_blocks_plain1d` | no MLP, no norm, tanh, soft-gating skip (2.0.0's repeated activation) | (2, 4, 20) |
 
 - Unit tests: ReLU's skipped repeat is the same output as applying it (a no-MLP, no-norm
-  FNO); `forward` panics for an AdaIN FNO without an embedding; `linear_cf` against
+  FNO); the MLP's hidden width rounds half to even (width 5 → 2); `forward` panics for an AdaIN FNO without an embedding; `linear_cf` against
   `Linear::forward`; old JSON without the new fields loads as `None` (existing test).
 
 ## Checks
@@ -120,6 +121,23 @@ None.
 ## Pending runs
 
 None.
+
+## Results
+
+Relative max error (Flex, M2 Pro, f32): `post1d` 7.4e-8, `pre1d` 1.5e-7, `instance_post2d`
+4.1e-7, `instance_pre2d` 2.3e-7, `group_post3d` 2.0e-7, `group_pre3d` 1.2e-6,
+`ada_in_post2d` 2.3e-6, `ada_in_pre2d` 2.0e-7, `plain1d` 2.3e-7 (D3: 1e-5).
+
+Departures from the plan as first written:
+- No f64 fixtures or f64 test binary: the legacy layer computes its spectrum in `cfloat` and
+  returns f32 (without a bias nothing promotes it), so an f64 reference would be
+  f32-accurate, and torch refuses a group norm with f64 parameters on its f32 output
+  (`F32_ONLY` in `generate.py`). D3 as amended needs f32 parity only.
+- AdaIN's MLP is 512 wide, so two layers of 4 channels put the fixture at 25,460 parameters,
+  over D8's 10⁴: its fixtures have one layer, 2 channels and `embed_dim` 2 (7,285). The
+  between-layer activation and layer 1's norms are covered by the other fixtures.
+- 2.0.0's `FNOBlocks` passes the new `SpectralConv`'s keywords to `conv_module`; the
+  generator's `legacy_conv` drops them (all at their defaults).
 
 ## Open questions
 
