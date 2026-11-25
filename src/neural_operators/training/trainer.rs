@@ -1,10 +1,10 @@
-//! Generic FNO training loop: the components, one training epoch, the loop with its
-//! per-epoch observer, and [`train_fno`], the one entry point every PDE trains through.
+//! The training loop, generic over the operator ([`GridOperator`], library CM0.3): the
+//! components, one training epoch, the loop with its per-epoch observer, [`train`], and
+//! [`train_fno`], the FNO's entry point every PDE trains through.
 
 use burn::{
     data::dataloader::DataLoader,
     lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
-    module::Module,
     optim::{
         AdamConfig, GradientsParams, ModuleOptimizer,
         decay::WeightDecayConfig,
@@ -12,6 +12,10 @@ use burn::{
     },
     prelude::*,
 };
+
+// for the tests' `use super::*`, written when the loop took the FNO
+#[cfg(test)]
+use burn::module::Module;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,9 +28,12 @@ use crate::neural_operators::{
         host_float::HostFloat,
         transforms::normalizers::{FlatDecoder, UnitGaussianNormalizer},
     },
-    models::fno::{FNO, FNOConfig},
+    models::{
+        fno::{FNO, FNOConfig},
+        operator::GridOperator,
+    },
     optim::gauss_newton::GaussNewton,
-    runs::{Checkpoint, CheckpointState, EpochMetrics, GnStepRecord, RunDir},
+    runs::{CheckpointState, EpochMetrics, GnStepRecord, OperatorCheckpoint, RunDir},
     training::{
         config::TrainingConfig,
         data_parallel::{Peers, Replica, train_epoch_parallel},
@@ -65,13 +72,13 @@ pub(crate) fn accumulate(sum: Option<Tensor<1>>, x: Tensor<1>) -> Option<Tensor<
 ///
 /// If the loader yields no batches or a failed one, or if the model has more than one
 /// output channel ([`flatten_pair`](crate::neural_operators::training::step::flatten_pair)).
-pub fn train_epoch<const R: usize, const RM1: usize>(
-    mut model: FNO<R>,
+pub fn train_epoch<const R: usize, const RM1: usize, M: GridOperator<R>>(
+    mut model: M,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
     optim: &mut ModuleOptimizer,
     scheduler: &mut ModuleLrScheduler,
     decoder: Option<&FlatDecoder>,
-) -> (FNO<R>, EpochMeans) {
+) -> (M, EpochMeans) {
     let mut mse_sum_tensor = None;
     let mut l2_sum_tensor = None;
     let mut n_batches = 0_usize;
@@ -126,10 +133,11 @@ pub fn train_epoch<const R: usize, const RM1: usize>(
     )
 }
 
-/// Everything [`training_loop`] needs, built by [`build_training_components`].
-pub struct TrainingComponents<const R: usize, const RM1: usize> {
+/// Everything [`training_loop`] needs, built by [`build_components`]
+/// ([`build_training_components`] for the FNO, the default `M`).
+pub struct TrainingComponents<const R: usize, const RM1: usize, M = FNO<R>> {
     /// The freshly initialised model, on the autodiff device.
-    pub model: FNO<R>,
+    pub model: M,
     /// Adam with weight decay.
     pub optim: ModuleOptimizer,
     /// Cosine annealing over [`TrainingConfig::schedule_steps`] steps, stepped once per batch.
@@ -148,7 +156,23 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
     pub gn: Option<GaussNewton>,
 }
 
-/// Builds the model, optimizer, schedule and loaders.
+/// [`build_components`] for the FNO.
+///
+/// # Panics
+///
+/// As [`build_components`], and if `model_cfg.modes.len() + 2 != R` (`FNOConfig::init`).
+pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>(
+    model_cfg: &FNOConfig,
+    train_cfg: &TrainingConfig,
+    train_data: OperatorDataset<T>,
+    test_data: OperatorDataset<T>,
+    device: &Device,
+) -> TrainingComponents<R, RM1> {
+    build_components::<FNO<R>, R, RM1, T>(model_cfg, train_cfg, train_data, test_data, device)
+}
+
+/// Builds the model (`M::init` from `model_cfg`, after seeding `device` with
+/// `train_cfg.seed`), optimizer, schedule and loaders.
 ///
 /// Both splits are uploaded to `device` once and stay there for the whole
 /// run (see [`device_loader`]), so they must fit in device memory.
@@ -158,15 +182,15 @@ pub struct TrainingComponents<const R: usize, const RM1: usize> {
 ///
 /// # Panics
 ///
-/// If either dataset is empty, if `model_cfg.modes.len() + 2 != R` (`FNOConfig::init`), or
-/// if `train_cfg.adam_epochs` is set without Gauss–Newton or outside 1..`epochs`.
-pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>(
-    model_cfg: &FNOConfig,
+/// If either dataset is empty, as `M::init`, or if `train_cfg.adam_epochs` is set without
+/// Gauss–Newton or outside 1..`epochs`.
+pub fn build_components<M: GridOperator<R>, const R: usize, const RM1: usize, T: HostFloat>(
+    model_cfg: &M::Config,
     train_cfg: &TrainingConfig,
     train_data: OperatorDataset<T>,
     test_data: OperatorDataset<T>,
     device: &Device,
-) -> TrainingComponents<R, RM1> {
+) -> TrainingComponents<R, RM1, M> {
     let (n_train, n_test) = (train_data.len(), test_data.len());
     assert!(
         n_train > 0 && n_test > 0,
@@ -190,8 +214,7 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
     // because model.valid() returns an FNO on Metal rather than Autodiff<Metal>.
     let eval_device = device.clone().inner();
 
-    // `init` checks `modes.len() + 2 == R`.
-    let model = model_cfg.init::<R>(device);
+    let model = M::init(model_cfg, device);
 
     let optim: ModuleOptimizer = AdamConfig::new()
         .with_epsilon(1e-8)
@@ -237,12 +260,12 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
 ///
 /// A plain closure rather than a trait: call sites pass `&mut |m, model| ...`, and two
 /// observers combine as two calls in one closure (see [`train_fno`]). The model is for
-/// checkpointing (Phase 5); nothing reads it yet.
-pub type EpochObserver<'a, const R: usize> = dyn FnMut(&EpochMetrics, &FNO<R>) + 'a;
+/// checkpointing (Phase 5); nothing reads it yet. `M` is the model, the FNO by default.
+pub type EpochObserver<'a, const R: usize, M = FNO<R>> = dyn FnMut(&EpochMetrics, &M) + 'a;
 
 /// The default observer: prints the epoch's metrics, wall time included, to stdout, one
 /// line per epoch.
-pub fn print_epoch<const R: usize>(m: &EpochMetrics, _model: &FNO<R>) {
+pub fn print_epoch<M>(m: &EpochMetrics, _model: &M) {
     println!("{}", epoch_line(m));
 }
 
@@ -296,14 +319,14 @@ fn epoch_line(m: &EpochMetrics) -> String {
 /// As [`train_epoch`] and [`evaluate`]; if `k` is 0; if a checkpoint cannot be written;
 /// for Gauss–Newton with replicas (data-parallel Gauss–Newton is out of scope), or a
 /// `resume` whose optimiser state does not match the components'.
-pub fn training_loop<const R: usize, const RM1: usize>(
-    components: TrainingComponents<R, RM1>,
+pub fn training_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
+    components: TrainingComponents<R, RM1, M>,
     train_cfg: &TrainingConfig,
     decoder: Option<&FlatDecoder>,
-    on_epoch: &mut EpochObserver<'_, R>,
+    on_epoch: &mut EpochObserver<'_, R, M>,
     checkpoints: Option<(&RunDir, usize)>,
-    resume: Option<Checkpoint<R>>,
-) -> (FNO<R>, Vec<EpochMetrics>) {
+    resume: Option<OperatorCheckpoint<M>>,
+) -> (M, Vec<EpochMetrics>) {
     run_loop(
         components,
         train_cfg,
@@ -317,15 +340,15 @@ pub fn training_loop<const R: usize, const RM1: usize>(
 
 /// [`training_loop`] with `on_gn_step`, called after each Gauss–Newton step with its row
 /// (never for Adam).
-fn run_loop<const R: usize, const RM1: usize>(
-    mut components: TrainingComponents<R, RM1>,
+fn run_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
+    mut components: TrainingComponents<R, RM1, M>,
     train_cfg: &TrainingConfig,
     decoder: Option<&FlatDecoder>,
-    on_epoch: &mut EpochObserver<'_, R>,
+    on_epoch: &mut EpochObserver<'_, R, M>,
     on_gn_step: &mut dyn FnMut(&GnStepRecord),
     checkpoints: Option<(&RunDir, usize)>,
-    resume: Option<Checkpoint<R>>,
-) -> (FNO<R>, Vec<EpochMetrics>) {
+    resume: Option<OperatorCheckpoint<M>>,
+) -> (M, Vec<EpochMetrics>) {
     assert!(
         components.gn.is_none() || components.replicas.is_empty(),
         "Gauss-Newton trains on one device: data-parallel Gauss-Newton is out of scope"
@@ -447,7 +470,8 @@ fn run_loop<const R: usize, const RM1: usize>(
     (model, metrics)
 }
 
-/// Trains an FNO on any dataset: builds the components and runs [`training_loop`].
+/// Trains an operator `M` on any dataset: builds the components ([`build_components`])
+/// and runs [`training_loop`].
 ///
 /// After each epoch it prints the console line ([`print_epoch`]) and appends the epoch's
 /// row to `run`'s `metrics.csv` ([`RunDir::append_metrics`]), so the run directory must
@@ -466,10 +490,29 @@ fn run_loop<const R: usize, const RM1: usize>(
 ///
 /// # Panics
 ///
-/// - From [`build_training_components`]: if either dataset is empty, or if
-///   `model_cfg.modes.len() + 2 != R` (`FNOConfig::init`).
-/// - At the first step, if `model_cfg.out_channels != 1`
+/// - From [`build_components`]: if either dataset is empty, or as `M::init`.
+/// - At the first step, if the model has more than one output channel
 ///   ([`flatten_pair`](crate::neural_operators::training::step::flatten_pair)).
+pub fn train<M: GridOperator<R>, const R: usize, const RM1: usize, T: HostFloat>(
+    train_data: OperatorDataset<T>,
+    test_data: OperatorDataset<T>,
+    y_norm: Option<&UnitGaussianNormalizer>,
+    model_cfg: &M::Config,
+    train_cfg: &TrainingConfig,
+    device: &Device,
+    run: &RunDir,
+) -> (M, Vec<EpochMetrics>) {
+    let components =
+        build_components::<M, R, RM1, T>(model_cfg, train_cfg, train_data, test_data, device);
+    train_components(components, y_norm, train_cfg, device, run, None, None, None)
+}
+
+/// [`train`] for the FNO.
+///
+/// # Panics
+///
+/// As [`train`]: also if `model_cfg.modes.len() + 2 != R` (`FNOConfig::init`), or at the
+/// first step if `model_cfg.out_channels != 1`.
 pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
     train_data: OperatorDataset<T>,
     test_data: OperatorDataset<T>,
@@ -479,12 +522,12 @@ pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
     device: &Device,
     run: &RunDir,
 ) -> (FNO<R>, Vec<EpochMetrics>) {
-    let components =
-        build_training_components::<R, RM1, T>(model_cfg, train_cfg, train_data, test_data, device);
-    train_components(components, y_norm, train_cfg, device, run, None, None, None)
+    train::<FNO<R>, R, RM1, T>(
+        train_data, test_data, y_norm, model_cfg, train_cfg, device, run,
+    )
 }
 
-/// [`train_fno`] after [`build_training_components`], with checkpoints and resume: prints
+/// [`train`] after [`build_components`], with checkpoints and resume: prints
 /// each epoch's line, appends its `metrics.csv` row to `run`, and runs [`training_loop`].
 ///
 /// `checkpoint_every`, if `Some(k)`, writes `run`'s checkpoint after every k-th epoch and
@@ -503,18 +546,18 @@ pub fn train_fno<const R: usize, const RM1: usize, T: HostFloat>(
 // one more than clippy's 7: the optional observer (Phase 8 T1) joins the run's own
 // arguments; a struct for them would change every caller for one optional hook
 #[allow(clippy::too_many_arguments)]
-pub fn train_components<const R: usize, const RM1: usize>(
-    components: TrainingComponents<R, RM1>,
+pub fn train_components<const R: usize, const RM1: usize, M: GridOperator<R>>(
+    components: TrainingComponents<R, RM1, M>,
     y_norm: Option<&UnitGaussianNormalizer>,
     train_cfg: &TrainingConfig,
     device: &Device,
     run: &RunDir,
     checkpoint_every: Option<usize>,
-    resume: Option<Checkpoint<R>>,
-    mut also: Option<&mut EpochObserver<'_, R>>,
-) -> (FNO<R>, Vec<EpochMetrics>) {
+    resume: Option<OperatorCheckpoint<M>>,
+    mut also: Option<&mut EpochObserver<'_, R, M>>,
+) -> (M, Vec<EpochMetrics>) {
     let start = Instant::now();
-    let mut on_epoch = |m: &EpochMetrics, model: &FNO<R>| {
+    let mut on_epoch = |m: &EpochMetrics, model: &M| {
         print_epoch(m, model);
         if let Err(e) = run.append_metrics(m) {
             eprintln!(

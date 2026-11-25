@@ -1,6 +1,6 @@
 # Conventions
 
-`CONVENTION_VERSION = 2`.
+`CONVENTION_VERSION = 3`.
 
 This file is the single source of truth for tensor layouts, coordinate grids, padding,
 Fourier transforms, mode truncation and weight initialisation in `sciml-rs`, and records
@@ -206,7 +206,7 @@ a published PyTorch/NumPy value), with its tolerance stated relative to that ref
 
 ## 9. Versioning
 
-`CONVENTION_VERSION = 2`. Any change to §1–§6 bumps it: those sections fix parameter
+`CONVENTION_VERSION = 3`. Any change to §1–§6 bumps it: those sections fix parameter
 names and shapes, the grid-channel order, the spectral layout and the initialisation draw
 order, which saved checkpoints depend on. A design document that needs a new convention
 proposes it as a diff to this file, and the change lands here before any code that
@@ -218,6 +218,12 @@ the code that implements it in the same pull request.
 History: version 2 (Phase 5 T2) lets §12's uniform size s differ from n − 1 and names the
 restriction R. Every version 1 dataset file is still valid at version 2: its s = n − 1
 grid and T_cu are unchanged, and the loaders do not check a sidecar's version.
+Version 3 (3D CL1.1, proposal `docs/design/3d-chebyshev-laplace-fno.md` §4) adds §12's
+three-dimensional statements, records the 2D boundary norm the code already used
+(`metrics::poisson`, Phase 4) and labels the 2D-only statements; no existing statement
+changes meaning. Every version 1 and 2 dataset
+file is still valid at version 3; a 2D sidecar's `convention_version` is metadata, outside
+the 3D objective's bit identity of 2D outputs (its decision D2).
 
 ## 10. Data normalisation
 
@@ -279,7 +285,7 @@ and the uniform size rule were measured in Phase 0 T3 (`spikes/transfers/REPORT.
 restriction in Phase 5 T1 (`spikes/transfer_floor/REPORT.md`). §12 was written before the
 code that implements it (§9); its tests landed in Phase 1 T1, Phase 2 T1 and Phase 5 T2.
 
-- Domain Ω = [−1, 1]². The model's coordinates ξ ∈ [0, 1] (§2) map to it by x = 2ξ − 1.
+- Domain Ω = [−1, 1]² (2D; 3D below). The model's coordinates ξ ∈ [0, 1] (§2) map to it by x = 2ξ − 1.
 - Chebyshev–Gauss–Lobatto nodes, n per axis (n = 2^k + 1), in **ascending** order, both
   endpoints included:
 
@@ -289,7 +295,7 @@ code that implements it (§9); its tests landed in Phase 1 T1, Phase 2 T1 and Ph
 
   RLST's `chebychev_points(Kind::Second, n)` is descending; the tests reverse it to
   compare.
-- Fields are stored 'ij': `F[i, j] = f(x_i, y_j)`, the first spatial axis is x and the
+- Fields are stored 'ij' (2D): `F[i, j] = f(x_i, y_j)`, the first spatial axis is x and the
   second is y, as in §2 (x_a varies along axis a). The same holds on the uniform grid.
 - Uniform grid (the learning grid): s points per axis, both endpoints included, so it is
   §2's grid mapped to Ω. s is chosen per dataset load, independently of n, with
@@ -302,7 +308,7 @@ code that implements it (§9); its tests landed in Phase 1 T1, Phase 2 T1 and Ph
 
 - Both transfers are rational barycentric interpolants with nodes z_k and weights w_k,
   evaluated as dense 1D matrices per (n, s), built once in f64 and applied along each
-  axis, T F Tᵀ. A target equal to a node takes that node's value.
+  axis, T F Tᵀ in 2D. A target equal to a node takes that node's value.
 
   ```math
   p(x) = \frac{\sum_k \frac{w_k}{x - z_k}\, f_k}{\sum_k \frac{w_k}{x - z_k}}
@@ -328,15 +334,60 @@ code that implements it (§9); its tests landed in Phase 1 T1, Phase 2 T1 and Ph
   d is chosen on the solution u, the field T_uc acts on (design §12, decision 8). It is the
   prolongation P at every s (decision 30, D1).
 - Norms on the Chebyshev grid use tensor-product Clenshaw–Curtis weights w_i, exact for
-  polynomials of degree ≤ n − 1:
+  polynomials of degree ≤ n − 1; in 2D:
 
   ```math
   \lVert v \rVert_{L^2(\Omega)}^2 \approx \sum_{i, j} w_i\, w_j\, v(x_i, y_j)^2
   ```
 
   Norms on the uniform grid stay `LpLoss` (§11).
+- Boundary norm (error 5, 2D; `metrics::poisson`): the sum over the four edges of each
+  edge's integral with the 1D Clenshaw–Curtis weights w_a. A corner node belongs to both
+  its edges and is counted once per edge. The relative boundary RMS normalises by the
+  perimeter 8 against the area 4, with û = T_uc(prediction) on the edges' CGL nodes:
+
+  ```math
+  e_5 = \frac{\sqrt{\tfrac{1}{8} \sum_{\text{edges}} \sum_{a} w_a\, \hat u^2}}
+             {\sqrt{\tfrac{1}{4} \sum_{i, j} w_i\, w_j\, u^2}}
+  ```
+
+  The max ratio max_∂Ω |û| / max_Ω |u| on the CGL nodes is reported beside it.
 - Reference data (nodes, transfer matrices, solver output, dataset files) are f64 on the
   host; the model sees f32 after normalisation (§8, §10).
+
+### Three dimensions (version 3)
+
+The 3D objective (design `docs/design/3d-chebyshev-laplace-fno.md`) uses the same grids on
+Ω = [−1, 1]³ in place of [−1, 1]². The nodes, the uniform grid, s and the 1D transfer
+matrices above hold per axis; these statements replace the 2D formulas (T F Tᵀ, the sum
+over i, j, the four edges) at rank 3 and apply to rank 3 only. §1 and §2 are already rank-generic: an `FNO<5>` gets
+`[data, z, y, x]`.
+
+- Fields are stored 'ijk': `F[i, j, k] = f(x_i, y_j, z_k)`, the axes x, y, z in that
+  order, on the CGL grid and the uniform grid alike, n (or s) points on every axis.
+- Transfers apply the same 1D matrix T (T_cu, R or T_uc) along x, then y, then z, the
+  order of the 2D T F Tᵀ (along x, then y).
+- The Clenshaw–Curtis norm takes the tensor weights over three axes:
+
+  ```math
+  \lVert v \rVert_{L^2(\Omega)}^2 \approx \sum_{i, j, k} w_i\, w_j\, w_k\, v(x_i, y_j, z_k)^2
+  ```
+
+- Boundary norm (error 5 in 3D): the sum over the six faces of each face's integral with
+  2D tensor Clenshaw–Curtis weights in the face's two coordinates. A node on an edge or
+  a corner belongs to every face that contains it and is counted once per face, so each
+  face's quadrature is complete on its own. The relative boundary RMS normalises by the
+  total face area 24 against the volume 8, with (a, b) the face's nodes in its two
+  coordinates and û taken there:
+
+  ```math
+  e_5 = \frac{\sqrt{\tfrac{1}{24} \sum_{\text{faces}} \sum_{a, b} w_a\, w_b\, \hat u^2}}
+             {\sqrt{\tfrac{1}{8} \sum_{i, j, k} w_i\, w_j\, w_k\, u^2}}
+  ```
+
+  For Laplace, û² becomes (û − g)², with g the boundary data, in the same norm.
+
+The tests of these statements land with the code that implements them (3D CL1.2, CL1.3).
 
 ### Verification
 Tests marked † need the `datagen` feature (named `chebyshev` before Phase 4s T16).
@@ -353,3 +404,4 @@ Tests marked † need the `datagen` feature (named `chebyshev` before Phase 4s T
   `transfers_preserve_ij_layout_at_any_s`, `transfers_with_s_panic_below_min_s`,
   `transfers_with_s_panic_below_min_n`; `transfers_round_trip_matches_manual_recipe`
   keeps `Transfers::new` bit for bit.
+- 2D boundary norm (`metrics::poisson`): `boundary_offset_is_measured`.

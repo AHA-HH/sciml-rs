@@ -67,7 +67,8 @@ size and batch) and D5 (stages, sizes, names, storage) on evidence.
 - The measurement runs below, release builds.
 
 ## VM runs
-cuda numbers (A100 80 GB), awaiting the author's go; no ssh from this session. About
+cuda numbers (A100 80 GB). Run 2026-11-25 at the author's go, by the coordinating session
+("Pending runs" below, done). About
 one hour in all, unmeasured on cuda (build 5–10 min; s = 64 epochs of 1000 samples are
 the long part). Commands in "Pending runs". They decide D4's batch at s = 64 and the cuda column of
 the table.
@@ -81,8 +82,9 @@ the table.
   (stated in the table).
 
 ## Pending runs
-- **cuda matrix and zip64 on the VM** (not run: this session has no ssh; awaiting the
-  author's go). tmux session `cl0-1`, log `~/sciml-rs/logs/cl0-1.log`, worktree
+None. Done 2026-11-25 (10:35–10:52 UTC, 17.5 min, GPU 0, commit `4a90772`, every
+configuration exit 0); results in `docs/laplace3d/results/cl0-1.md`. As run:
+- **cuda matrix and zip64 on the VM**. tmux session `cl0-1`, log `~/sciml-rs/logs/cl0-1.log`, worktree
   `~/sciml-rs-wt/cl0-1`, about one hour. Decides the cuda column, batch 20 at s = 64 (D4)
   and the zip64 check on Linux. Commands:
   ```sh
@@ -98,6 +100,7 @@ the table.
   No datasets are needed, so the dataset links of the skill's step 6 are skipped.
 
 ## Open questions
-- D4 and D5 as proposed in `docs/laplace3d/results/cl0-1.md` (author's sign-off).
+- D4 as proposed in `docs/laplace3d/results/cl0-1.md`, confirmed by the cuda run (author's
+  sign-off). D5 signed off.
 - metal's peak footprint is contaminated by autotune and is not used for D4; the cuda
-  reading replaces it. Accept flex's slope as the activation figure until then?
+  reading now replaces flex's slope.

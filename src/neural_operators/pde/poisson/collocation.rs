@@ -12,12 +12,15 @@
 //! V⁻¹ comes from the left eigenvectors, not from an LU-based inverse: OpenBLAS's
 //! threaded `getrf` (m·n ≥ 10⁴, so n ≥ 103 here) can put a scratch array on the calling
 //! thread's stack and overflow a 2 MB thread, as test and rayon worker threads have.
+//!
+//! [`CollocationSolver3d`] is A3, the same method on [−1, 1]³ (3D proposal §5): one
+//! interior D² eigendecomposition per axis and mode products along the three axes.
 
-use ndarray::{Array2, ArrayView2, s};
+use ndarray::{Array2, Array3, ArrayView2, ArrayView3, s};
 use rlst::dense::linalg::lapack::eigenvalue_decomposition::EigMode;
 use rlst::{DynArray, EigenvalueDecomposition};
 
-use crate::neural_operators::chebyshev::diff2_matrix;
+use crate::neural_operators::chebyshev::{apply_nd, diff2_matrix};
 
 /// Largest imaginary part accepted in the eigendecomposition of D_xx or D_yy: relative
 /// to the largest |λ| for eigenvalues, absolute for the entries of the unit-norm
@@ -136,6 +139,100 @@ impl CollocationSolver {
     }
 }
 
+/// Collocation solver A3 for −Δu = f on [−1, 1]³, u = 0 on the boundary, on an
+/// `[n_x, n_y, n_z]` CGL grid stored 'ijk' (CONVENTIONS §12; 3D proposal §5).
+///
+/// The 2D solver with a third axis: with D_aa = V_a Λ_a V_a⁻¹ per axis,
+/// u = −(V_x ⊗ V_y ⊗ V_z)(Λ_x ⊕ Λ_y ⊕ Λ_z)⁻¹(V_x⁻¹ ⊗ V_y⁻¹ ⊗ V_z⁻¹) f on the interior
+/// nodes, six mode products ([`apply_nd`]) and a pointwise division, about 12 (n − 2)⁴
+/// flops. Built once per grid size; every solve reuses the eigendecompositions.
+pub struct CollocationSolver3d {
+    /// `[n_x, n_y, n_z]`.
+    shape: [usize; 3],
+    /// V_a per axis, `[n_a − 2, n_a − 2]`.
+    v: [Array2<f64>; 3],
+    /// V_a⁻¹ per axis, `[n_a − 2, n_a − 2]`.
+    v_inv: [Array2<f64>; 3],
+    /// 1 / −(λ_i + μ_j + ν_k), `[n_x − 2, n_y − 2, n_z − 2]`.
+    inv_denom: Array3<f64>,
+}
+
+impl std::fmt::Debug for CollocationSolver3d {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CollocationSolver3d")
+            .field("shape", &self.shape)
+            .finish_non_exhaustive()
+    }
+}
+
+impl CollocationSolver3d {
+    /// Builds the solver for an `[n_x, n_y, n_z]` CGL grid: eigendecomposes the interior
+    /// block of [`diff2_matrix`] along each axis, O(n³) once.
+    ///
+    /// # Panics
+    /// If any of `nx`, `ny`, `nz` is below 3 (no interior nodes), or as
+    /// [`CollocationSolver::new`] for each eigendecomposition.
+    pub fn new(nx: usize, ny: usize, nz: usize) -> Self {
+        let shape = [nx, ny, nz];
+        assert!(
+            shape.iter().all(|&n| n >= 3),
+            "CollocationSolver3d::new: nx, ny and nz must be >= 3 (interior nodes), got {shape:?}"
+        );
+        let eig = shape.map(|n| real_eig(&interior_d2(n)));
+        let inv_denom = Array3::from_shape_fn((nx - 2, ny - 2, nz - 2), |(i, j, k)| {
+            -1.0 / (eig[0].lam[i] + eig[1].lam[j] + eig[2].lam[k])
+        });
+        Self {
+            shape,
+            v: eig.each_ref().map(|e| from_dyn(&e.v)),
+            v_inv: eig.each_ref().map(|e| from_dyn(&e.v_inv)),
+            inv_denom,
+        }
+    }
+
+    /// Solves on the interior nodes: Ĝ = f ×₁ V_x⁻¹ ×₂ V_y⁻¹ ×₃ V_z⁻¹,
+    /// Û = Ĝ ⊙ (1 / −(λ_i + μ_j + ν_k)), u = Û ×₁ V_x ×₂ V_y ×₃ V_z.
+    ///
+    /// `f_interior: [n_x − 2, n_y − 2, n_z − 2]` is f at the interior nodes, 'ijk'
+    /// (CONVENTIONS §12). Returns u at the same nodes, same shape.
+    ///
+    /// # Panics
+    /// If `f_interior` is not `[n_x − 2, n_y − 2, n_z − 2]`.
+    pub fn solve(&self, f_interior: ArrayView3<f64>) -> Array3<f64> {
+        assert_eq!(
+            f_interior.shape(),
+            self.shape.map(|n| n - 2),
+            "CollocationSolver3d::solve: forcing must be [nx - 2, ny - 2, nz - 2]"
+        );
+        let g = apply_nd(&self.v_inv.each_ref().map(|m| m.view()), f_interior);
+        apply_nd(
+            &self.v.each_ref().map(|m| m.view()),
+            (g * &self.inv_denom).view(),
+        )
+    }
+
+    /// Solves on the full grid: reads the interior of `f` and returns u with u = 0 on the
+    /// six faces.
+    ///
+    /// `f: [n_x, n_y, n_z]`, 'ijk' (CONVENTIONS §12); boundary values of `f` are ignored.
+    /// Returns `[n_x, n_y, n_z]`.
+    ///
+    /// # Panics
+    /// If `f` is not `[n_x, n_y, n_z]`.
+    pub fn solve_full(&self, f: ArrayView3<f64>) -> Array3<f64> {
+        let [nx, ny, nz] = self.shape;
+        assert_eq!(
+            f.shape(),
+            self.shape,
+            "CollocationSolver3d::solve_full: forcing must be [nx, ny, nz]"
+        );
+        let inner = s![1..nx - 1, 1..ny - 1, 1..nz - 1];
+        let mut u = Array3::zeros((nx, ny, nz));
+        u.slice_mut(inner).assign(&self.solve(f.slice(inner)));
+        u
+    }
+}
+
 /// The n − 2 eigenvalues of the interior block of the Chebyshev D² on n CGL nodes, the
 /// 1D Dirichlet second derivative of solver A: real and negative. The 2D Laplacian's are the
 /// sums of two, so its condition number is the ratio of the largest |λ| to the smallest
@@ -181,9 +278,9 @@ fn real_eig(d: &Array2<f64>) -> RealEig {
     // left vectors are needed for V⁻¹ in any case.
     let (lam, v, u) = to_dyn(d.view())
         .eig(EigMode::BothEigenvectors)
-        .expect("CollocationSolver::new: eig of the interior D² failed");
-    let v = v.expect("CollocationSolver::new: eig returned no right eigenvectors");
-    let u = u.expect("CollocationSolver::new: eig returned no left eigenvectors");
+        .expect("real_eig: eig of the interior D² failed");
+    let v = v.expect("real_eig: eig returned no right eigenvectors");
+    let u = u.expect("real_eig: eig returned no left eigenvectors");
     let scale = (0..m).fold(0.0_f64, |a, i| a.max(lam[[i]].norm()));
     let mut im_lam = 0.0_f64;
     let mut im_vec = 0.0_f64;
@@ -220,14 +317,14 @@ impl RealEig {
     fn checked(self) -> Self {
         assert!(
             self.im_lam <= IMAG_TOL && self.im_vec <= IMAG_TOL,
-            "CollocationSolver::new: complex eigenpairs of the interior D² \
+            "real_eig: complex eigenpairs of the interior D² \
              (max |Im λ| / max |λ| = {:e}, max |Im v|, |Im u| = {:e})",
             self.im_lam,
             self.im_vec
         );
         assert!(
             self.min_biorth >= BIORTH_TOL,
-            "CollocationSolver::new: ill-conditioned eigenvalue of the interior D² \
+            "real_eig: ill-conditioned eigenvalue of the interior D² \
              (min |u_jᵀ v_j| = {:e})",
             self.min_biorth
         );
@@ -267,10 +364,13 @@ fn transpose(a: &DynArray<f64, 2>) -> DynArray<f64, 2> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::chebyshev::cc_rel_l2_error;
+    use crate::neural_operators::chebyshev::{cc_rel_l2_error, cc_rel_l2_error_nd, nodes};
+    use crate::neural_operators::pde::poisson::grf3d;
     use crate::neural_operators::pde::poisson::manufactured::{
-        ANISO, ANISO_T, EXP, Manufactured, POLY, SIN, exp_f, exp_u, rel_max, sample, sin_f, sin_u,
+        ANISO, ANISO_T, ANISO3, EXP, EXP3, MODES3, Manufactured, Manufactured3, POLY, SIN, SIN3,
+        exp_f, exp_u, rel_max, sample, sample3, sin_f, sin_u,
     };
+    use ndarray::{Array, Dimension};
     use rlst::Solve;
 
     /// The interior D² eigenvalues are negative, the smallest |λ| that of −d²/dx² on
@@ -377,7 +477,7 @@ mod tests {
     }
 
     /// max |a| over the entries.
-    fn max_abs(a: &Array2<f64>) -> f64 {
+    fn max_abs<D: Dimension>(a: &Array<f64, D>) -> f64 {
         a.iter().fold(0.0_f64, |m, v| m.max(v.abs()))
     }
 
@@ -500,5 +600,144 @@ mod tests {
     #[should_panic(expected = "forcing must be [nx, ny]")]
     fn solve_full_wrong_shape_panics() {
         CollocationSolver::new(9, 17).solve_full(Array2::zeros((17, 9)).view());
+    }
+
+    // ---- A3, the 3D solver (3D proposal §5) ----
+
+    /// Relative max and 3D Clenshaw–Curtis relative L² errors of A3 on `m`.
+    fn errors3(nx: usize, ny: usize, nz: usize, m: &Manufactured3) -> (f64, f64) {
+        let u = CollocationSolver3d::new(nx, ny, nz).solve_full(sample3(nx, ny, nz, m.f).view());
+        let exact = sample3(nx, ny, nz, m.u);
+        (
+            rel_max(&u, &exact),
+            cc_rel_l2_error_nd(u.view(), exact.view()),
+        )
+    }
+
+    #[test]
+    fn solver_3d_manufactured_solutions_reach_floor() {
+        for m in [&SIN3, &MODES3, &EXP3] {
+            for n in [9, 17, 33, 65] {
+                let (e_max, e_l2) = errors3(n, n, n, m);
+                println!("{:24} n = {n:2}: max {e_max:.1e}, L² {e_l2:.1e}", m.name);
+                if n >= 33 {
+                    assert!(
+                        e_max <= 1e-12 && e_l2 <= 1e-12,
+                        "{} at n = {n}: max {e_max:e}, L² {e_l2:e}",
+                        m.name
+                    );
+                }
+            }
+        }
+        // Spectral decay: n = 9 → 17 gains at least two orders of magnitude.
+        for m in [&SIN3, &MODES3, &EXP3] {
+            let (e9, _) = errors3(9, 9, 9, m);
+            let (e17, _) = errors3(17, 17, 17, m);
+            assert!(e17 * 100.0 <= e9, "{}: {e9:e} at 9, {e17:e} at 17", m.name);
+        }
+    }
+
+    /// The closed form of CL3.1's GRF: f and u = Σ c / μ evaluated exactly at the nodes.
+    #[test]
+    fn solver_3d_grf_closed_form_reaches_floor() {
+        for (k, n, seed) in [(8, 33, 0), (8, 33, 7), (16, 65, 1)] {
+            let c = grf3d::forcing_coeffs(grf3d::draw_xi(seed).view(), k);
+            let x = nodes(n);
+            let f = grf3d::evaluate(c.view(), x.view(), x.view(), x.view());
+            let exact = grf3d::evaluate(
+                grf3d::solution_coeffs(c.view()).view(),
+                x.view(),
+                x.view(),
+                x.view(),
+            );
+            let u = CollocationSolver3d::new(n, n, n).solve_full(f.view());
+            let (e_max, e_l2) = (
+                rel_max(&u, &exact),
+                cc_rel_l2_error_nd(u.view(), exact.view()),
+            );
+            println!("GRF K = {k:2}, n = {n}, seed {seed}: max {e_max:.1e}, L² {e_l2:.1e}");
+            assert!(
+                e_max <= 1e-12 && e_l2 <= 1e-12,
+                "K = {k}, n = {n}, seed {seed}: max {e_max:e}, L² {e_l2:e}"
+            );
+        }
+    }
+
+    #[test]
+    fn solver_3d_residual_at_round_off() {
+        // Scaled residual of −(D_xx ×₁ + D_yy ×₂ + D_zz ×₃) U = F on the interior, applied
+        // without the eigendecomposition: ‖R‖ / (3 ‖D‖_∞ ‖U‖ + ‖F‖), max norms.
+        for m in [&SIN3, &EXP3] {
+            for n in [9, 17, 33, 65] {
+                let (d, eye) = (interior_d2(n), Array2::<f64>::eye(n - 2));
+                let ops: [[ArrayView2<f64>; 3]; 3] = [
+                    [d.view(), eye.view(), eye.view()],
+                    [eye.view(), d.view(), eye.view()],
+                    [eye.view(), eye.view(), d.view()],
+                ];
+                let f = sample3(n, n, n, m.f)
+                    .slice(s![1..n - 1, 1..n - 1, 1..n - 1])
+                    .to_owned();
+                let u = CollocationSolver3d::new(n, n, n).solve(f.view());
+                let lap = ops
+                    .iter()
+                    .fold(Array3::zeros(u.dim()), |acc, t| acc + apply_nd(t, u.view()));
+                let r = -lap - &f;
+                let e = max_abs(&r) / (3.0 * norm_inf(&d) * max_abs(&u) + max_abs(&f));
+                println!("{:24} n = {n:2}: scaled residual {e:.1e}", m.name);
+                assert!(e <= 1e-14, "{} at n = {n}: {e:e}", m.name);
+            }
+        }
+    }
+
+    #[test]
+    fn solver_3d_non_cubic_grid() {
+        // ANISO3 is exact along x and needs 33 nodes along z: it reaches the floor on
+        // [17, 25, 33] but not with the axes reversed. A swapped axis fails both.
+        let (e_max, e_l2) = errors3(17, 25, 33, &ANISO3);
+        println!("ANISO3 on [17, 25, 33]: max {e_max:.1e}, L² {e_l2:.1e}");
+        assert!(
+            e_max <= 1e-12 && e_l2 <= 1e-12,
+            "max {e_max:e}, L² {e_l2:e}"
+        );
+        let (e_max, _) = errors3(33, 25, 17, &ANISO3);
+        println!("ANISO3 on [33, 25, 17]: max {e_max:.1e}");
+        assert!(e_max >= 1e-6, "{e_max:e}");
+    }
+
+    /// Time per A3 solve (prints only; run in release with `--ignored --nocapture`).
+    #[test]
+    #[ignore = "timing, run by hand in release"]
+    fn time_per_solve_3d() {
+        for (n, reps) in [(33, 50), (65, 10)] {
+            let t = std::time::Instant::now();
+            let solver = CollocationSolver3d::new(n, n, n);
+            let setup = t.elapsed();
+            let f = sample3(n, n, n, EXP3.f);
+            let t = std::time::Instant::now();
+            for _ in 0..reps {
+                std::hint::black_box(solver.solve_full(f.view()));
+            }
+            let per = t.elapsed() / reps;
+            println!("n = {n}: setup {setup:.2?}, solve_full {per:.2?} (mean of {reps})");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "must be >= 3")]
+    fn solver_3d_too_small_grid_panics() {
+        CollocationSolver3d::new(9, 9, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "forcing must be [nx - 2, ny - 2, nz - 2]")]
+    fn solver_3d_solve_wrong_shape_panics() {
+        CollocationSolver3d::new(9, 11, 13).solve(Array3::zeros((7, 9, 9)).view());
+    }
+
+    #[test]
+    #[should_panic(expected = "forcing must be [nx, ny, nz]")]
+    fn solver_3d_solve_full_wrong_shape_panics() {
+        CollocationSolver3d::new(9, 11, 13).solve_full(Array3::zeros((13, 11, 9)).view());
     }
 }

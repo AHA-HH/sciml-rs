@@ -1,5 +1,6 @@
-//! Gauss–Newton training of the FNO (Phase 10 T3; design §13.17): [`FnoResidual`], the
-//! FNO's least-squares residual, and [`train_epoch_gn`], one epoch of
+//! Gauss–Newton training (Phase 10 T3; design §13.17), of the FNO and, since library
+//! CM0.3, of any [`GridOperator`]: [`FnoResidual`], the least-squares residual (named
+//! for the FNO it was written for), and [`train_epoch_gn`], one epoch of
 //! [`GaussNewton`] steps, the counterpart of
 //! [`train_epoch`](crate::neural_operators::training::trainer::train_epoch).
 
@@ -11,7 +12,7 @@ use burn::{data::dataloader::DataLoader, prelude::*};
 
 use crate::neural_operators::{
     data::{batcher::Batch, transforms::normalizers::FlatDecoder},
-    models::fno::FNO,
+    models::operator::GridOperator,
     optim::gauss_newton::{GaussNewton, LeastSquares},
     runs::{GnPasses, GnStepRecord},
     training::{
@@ -20,7 +21,8 @@ use crate::neural_operators::{
     },
 };
 
-/// The FNO's residual for Gauss–Newton, residual (A) of decision G1 (CONVENTIONS §11):
+/// The residual for Gauss–Newton of any [`GridOperator`] (the FNO's, Phase 10; any
+/// operator's since library CM0.3), residual (A) of decision G1 (CONVENTIONS §11):
 /// per sample rᵢ = (ûᵢ − uᵢ) / (‖uᵢ‖ √B) on the batch's B samples, so that ½‖r‖² =
 /// (1/2B) Σᵢ eᵢ², eᵢ = ‖ûᵢ − uᵢ‖ / ‖uᵢ‖ the relative L² the baseline loss sums.
 ///
@@ -51,14 +53,16 @@ impl<'a, const R: usize, const RM1: usize> FnoResidual<'a, R, RM1> {
     }
 }
 
-impl<const R: usize, const RM1: usize> LeastSquares<FNO<R>> for FnoResidual<'_, R, RM1> {
+impl<const R: usize, const RM1: usize, M: GridOperator<R>> LeastSquares<M>
+    for FnoResidual<'_, R, RM1>
+{
     type Batch = Batch<R, RM1>;
 
     /// The weighted residual, `[B · n_points]`, sample-major.
     ///
     /// # Panics
     /// If the model has more than one output channel ([`flatten_pair`]).
-    fn residual(&self, model: &FNO<R>, batch: &Batch<R, RM1>) -> Tensor<1> {
+    fn residual(&self, model: &M, batch: &Batch<R, RM1>) -> Tensor<1> {
         let out = model.forward(batch.inputs.clone());
         let (out, target) = flatten_pair::<R, RM1>(out, batch.targets.clone());
         let out = match self.decoder {
@@ -92,14 +96,14 @@ pub fn training_passes(p: &GnPasses) -> (usize, usize) {
 ///
 /// # Panics
 /// If the loader yields no batches or a failed one; as [`GaussNewton::step`].
-pub fn train_epoch_gn<const R: usize, const RM1: usize>(
-    mut model: FNO<R>,
+pub fn train_epoch_gn<const R: usize, const RM1: usize, M: GridOperator<R>>(
+    mut model: M,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
     gn: &mut GaussNewton,
     decoder: Option<&FlatDecoder>,
     epoch: usize,
     on_step: &mut dyn FnMut(&GnStepRecord),
-) -> (FNO<R>, EpochMeans) {
+) -> (M, EpochMeans) {
     let residual = FnoResidual::<R, RM1>::new(decoder);
     let metric_decoder = decoder.map(FlatDecoder::inner);
     let (mut mse_sum, mut l2_sum, mut n_batches) = (None, None, 0_usize);
