@@ -53,6 +53,13 @@ files, absent from the wheel, differ).
 | `legacy_spectral_conv1d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(12,))` (`layers/legacy_spectral_convolution.py`), defaults otherwise (bias on); input (2, 3, 50) | 148 | 4 kB, 8 kB |
 | `legacy_spectral_conv2d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(8, 6))`; input (2, 3, 24, 21) | 580 | 32 kB, 62 kB |
 | `legacy_spectral_conv3d_{f32,f64}` | legacy `SpectralConv(2, 3, n_modes=(6, 4, 4))`; input (2, 2, 12, 10, 9) | 579 | 47 kB, 93 kB |
+| `spectral_conv2d_{f32,f64}` | centred `SpectralConv(3, 4, n_modes=(8, 6))` (`layers/spectral_convolution.py`), defaults otherwise (bias, `fft_norm="forward"`); input (2, 3, 24, 21) | 772 | 32 kB, 64 kB |
+| `spectral_conv2d_backward_{f32,f64}` | as `spectral_conv2d`, `fft_norm="backward"` | 772 | 32 kB, 64 kB |
+| `spectral_conv2d_odd_{f32,f64}` | centred `SpectralConv(3, 4, n_modes=(7, 6))`; input (2, 3, 24, 21) | 676 | 32 kB, 63 kB |
+| `spectral_conv3d_{f32,f64}` | centred `SpectralConv(2, 3, n_modes=(6, 5, 4))`; input (2, 2, 12, 10, 9) | 1,083 | 49 kB, 96 kB |
+| `spectral_conv2d_separable_{f32,f64}` | centred `SpectralConv(4, 4, n_modes=(8, 6), separable=True)`; input (2, 4, 24, 21) | 260 | 34 kB, 68 kB |
+| `spectral_conv2d_max_modes_{f32,f64}` | centred `SpectralConv(3, 4, n_modes=(6, 6), max_n_modes=(10, 8))`; input (2, 3, 24, 21) | 1,924 | 37 kB, 73 kB |
+| `spectral_conv2d_odd_extent_{f32,f64}` | as `spectral_conv2d` on input (2, 3, 23, 21): an odd extent, which corners cannot represent | 772 | 31 kB, 61 kB |
 
 The legacy layer's `forward` builds its spectrum as `cfloat`, so its f64 fixtures are only
 f32-accurate (library CM1.1). tltorch stores its weights as real tensors with the trailing
@@ -61,3 +68,7 @@ f32-accurate (library CM1.1). tltorch stores its weights as real tensors with th
 Torch's CPU kernels can differ in the last bits between machines, so `--check` is a
 reproducibility check on one machine; the committed files are the reference, and the
 sidecar names the platform that wrote them.
+
+The centred layer's `forward` also builds its spectrum as `cfloat` (library CM1.2), and on an
+axis of odd extent it applies `fftshift`, not `ifftshift`, before the inverse, moving its
+output spectrum by one bin (`spectral_conv2d_odd_extent`).

@@ -72,13 +72,15 @@ before 0: that row is zero (frequency −m, which 2.0.0 does not keep, contribut
   `fft_norm="forward"`) except where named:
   - `spectral_conv2d`: in 3, out 4, `n_modes=(8, 6)`, input (2, 3, 24, 21);
   - `spectral_conv2d_backward`: the same with `fft_norm="backward"` (normalisation check);
-  - `spectral_conv2d_odd`: `n_modes=(7, 6)`, input (2, 3, 23, 21) (odd count, odd extent);
-  - `spectral_conv3d`: in 2, out 3, `n_modes=(6, 5, 4)`, input (2, 2, 12, 11, 9) (even and
+  - `spectral_conv2d_odd`: `n_modes=(7, 6)`, input (2, 3, 24, 21) (odd count);
+  - `spectral_conv3d`: in 2, out 3, `n_modes=(6, 5, 4)`, input (2, 2, 12, 10, 9) (even and
     odd counts, 3D corner order);
   - `spectral_conv2d_separable`: in = out = 4, `separable=True`, `n_modes=(8, 6)`, input
     (2, 4, 24, 21);
   - `spectral_conv2d_max_modes`: in 3, out 4, `n_modes=(6, 6)`, `max_n_modes=(10, 8)`, input
-    (2, 3, 24, 21) (stored (10, 8), used (6, 4)).
+    (2, 3, 24, 21) (stored (10, 8), used (6, 4));
+  - `spectral_conv2d_odd_extent`: `spectral_conv2d` on input (2, 3, 23, 21) (added during
+    implementation, see Results).
   The ten existing fixtures regenerated bit for bit (`--check`). README table.
 - `docs/operators/feature-matrix.md`: the centred `SpectralConv` and `BaseSpectralConv` rows.
 - `FNOConfig` is not touched: wiring `separable` and `max_n_modes` into the FNO is CM1.5's
@@ -93,6 +95,8 @@ No dependency, no convention change (CONVENTIONS §5 stays the internal form, as
   `spectral_conv3d_f32_matches_2_0_0`. The backward fixture goes through the same converter
   as the forward one, so the FFT normalisation needs no conversion; the odd fixtures show the
   zero row; the max-modes one loads the stored (10, 8) and truncates with `with_modes`.
+- `odd_extent_is_not_representable`: the odd-extent fixture fails D3 (added during
+  implementation, see Results).
 - `centred_layout_needs_conversion`: the 2D fixture with its centred weight split into
   halves unconverted fails D3 (the conversion is load-bearing).
 - `centred_to_corners` on a hand-built array, even and odd `K`, 2D and 3D: exact values.
@@ -121,7 +125,8 @@ None.
 
 - Constraint 1: the default path (dense, active = stored modes) runs the same tensor ops in
   the same order; the new fields are constants, so saved weights are unchanged.
-- Not representable in corners, to state in the PR: an odd centred count equal to an odd
+- Not representable in corners, to state in the PR: any grid of odd extent on a non-last
+  axis (found in implementation, see Results); an odd centred count equal to an odd
   extent (`K = n`: the corners would overlap at frequency ±m); an odd count *below* the
   stored maximum as a truncation (the high corner's extra row is a live weight; the realised
   slice converts instead); 2.0.0's even-maximum, odd-count trim (its weights shift by one
@@ -134,6 +139,40 @@ None.
 ## Pending runs
 
 None.
+
+## Results
+
+Flex, M2 Pro, `cargo test --test parity_spectral_conv -- --nocapture` and
+`cargo test --test parity_spectral_conv_f64 -- --ignored --nocapture`:
+
+| Fixture | f32 (D3 1e-5) | f64 (1e-12, `#[ignore]`d) |
+| --- | --- | --- |
+| `spectral_conv2d` | 3.560e-7 | 2.255e-7 |
+| `spectral_conv2d_backward` | 3.204e-7 | 2.475e-7 |
+| `spectral_conv2d_odd` | 3.466e-7 | 2.173e-7 |
+| `spectral_conv3d` | 2.966e-7 | 2.749e-7 |
+| `spectral_conv2d_separable` | 3.972e-7 | 2.732e-7 |
+| `spectral_conv2d_max_modes` | 2.629e-7 | 1.500e-7 |
+| `spectral_conv2d_odd_extent` | 1.771e0 (expected to fail) | – |
+
+Negative control: the 2D centred weight cut into halves unconverted gives 1.029e0.
+
+**Odd extents.** The first odd and 3D fixtures were on grids (2, 3, 23, 21) and
+(2, 2, 12, 11, 9), with an odd extent on a shifted axis, and failed at 1.210 and 0.947. A
+numpy evaluation of the layer from the fixture's weights
+(`rfftn(norm="forward")`, `fftshift`, the centred contraction, then the second shift,
+`irfftn`) reproduces the fixture to 7e-8 when the second shift is `fftshift`, as 2.0.0's
+code has it, and gives 1.210 and 0.947, the crate's errors exactly, when it is `ifftshift`,
+the inverse of the first. For even n the two are the same permutation; for odd n,
+`fftshift` twice is a shift by n − 1, so 2.0.0's output frequency g carries input
+frequency g + 1 on that axis. That map is not diagonal in frequency, so no corner weights
+represent it. The odd-count and 3D fixtures moved to even extents (24; 12, 10), and
+`spectral_conv2d_odd_extent` keeps the case as a test that fails D3. This binds CM1.5 (2.0.0's
+FNO uses this layer, so FNO parity holds on even grids only) and CM1.8 (the Poisson
+learning grids s = 64, 128, 256 are even).
+
+The f64 errors are at the f32 level, as the reference is (2.0.0's `cfloat` spectrum), as in
+CM1.1. `generate.py --check`: the ten earlier fixtures unchanged.
 
 ## Open questions
 
