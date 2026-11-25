@@ -105,3 +105,18 @@ template:
 - Adam and Gauss–Newton: not touched.
 - Follow-ups: CO3.2 (SOAP) and CO1.1 (the Burgers recipe) are runnable; both change
   different modules, but CO1.1 changes `training/`, so no other `training/` task beside it.
+
+## 2026-11-25: D3, D4, D7, D12 and D13
+- Done: signed off by the author, all as recommended. D3: L-BFGS minimises Φ, Gauss–Newton's
+  objective, at μ ∈ {0, 1e-4} as D13 widens it. D4: full batch, one batch of 1,000,
+  accumulation only if memory requires. D7: one forward and one backward per SOAP step and
+  per L-BFGS closure evaluation, SOAP's preconditioner work reported as time. D12: O1's
+  Gauss–Newton arm full batch, CG cap 100, Phase 10's damping and backtracking, the
+  Hutchinson diagonal, μ = 0 (G0) and 1e-4 (G1), and G0-200. D13: every arm of O4 at weight
+  decay 0 and 1e-4 (the long budget's cost about 18 h → 36 h).
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D3, D4, D7, D12, D13 signed off 2026-11-25.
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO1.2 after CO1.1; CO3.3 after CO3.2 and CO0.1; CO2.1 after CO1.1. They all
+  change `training/`, so one at a time (with CM0.6).
