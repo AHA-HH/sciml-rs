@@ -34,7 +34,7 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | `GINO` (exported) | `models/gino.py` | – | missing | CM3.4 |
 | `FNOGNO` (exported) | `models/fnogno.py` | – | missing | CM3.4 |
 | `CODANO` (exported) | `models/codano.py` | – | missing | CM3.5 |
-| `BaseModel` (registry, saves init arguments) | `models/base_model.py` | – | missing | CM0.3, CM0.4 |
+| `BaseModel` (registry, saves init arguments) | `models/base_model.py` | `Operator` (`models/operator.rs`): config saved as `model_cfg.json`, `init`, `forward`, `NAME`; the registry is CM0.4 | partial | CM0.3, CM0.4 |
 | `get_model` (exported), `available_models` | `models/base_model.py` | – | missing | CM0.4 |
 
 ## Layers: spectral convolutions
@@ -94,8 +94,8 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `Trainer` (exported; `train` with optimizer, scheduler, regularizer, training and eval losses, `save_every`, `save_best`, `resume_from_dir`, `max_autoregressive_steps`; `mixed_precision`, `eval_interval`, `use_distributed`, `wandb_log`) | `training/trainer.py` | `train_fno`, `training_loop`, `EpochObserver`: Adam with a cosine schedule, or Gauss–Newton / Hybrid (`OptimizerConfig`), per-epoch evaluation, checkpoints every 25 epochs and resume, MLflow logging, data-parallel multi-GPU | partial | CM0.3 |
-| `save_training_state`, `load_training_state` (exported) | `training/training_state.py` | `RunDir::save_checkpoint`, `checkpoint` | partial | CM0.3 |
+| `Trainer` (exported; `train` with optimizer, scheduler, regularizer, training and eval losses, `save_every`, `save_best`, `resume_from_dir`, `max_autoregressive_steps`; `mixed_precision`, `eval_interval`, `use_distributed`, `wandb_log`) | `training/trainer.py` | `train_fno`, `training_loop`, `EpochObserver`: Adam with a cosine schedule, or Gauss–Newton / Hybrid (`OptimizerConfig`), per-epoch evaluation, checkpoints every 25 epochs and resume, MLflow logging, data-parallel multi-GPU; generic over any `GridOperator` since CM0.3 (`train`, `build_components`, `train_components`) | partial | CM0.3 |
+| `save_training_state`, `load_training_state` (exported) | `training/training_state.py` | `RunDir::save_checkpoint`, `checkpoint`; any operator's since CM0.3 (`checkpoint_of`, `OperatorCheckpoint`) | partial | CM0.3 |
 | `IncrementalFNOTrainer` (exported; incremental modes by gradient or loss gap) | `training/incremental.py` | – | missing | CM1.7 |
 | `MultigridPatching2D`, `make_patches` | `training/patching.py` | – | missing | CM1.7 |
 | `AdamW` (exported; `correct_bias`, GaLore options) | `training/adamw.py` | Burn's Adam with weight decay | partial | CM1.7 |

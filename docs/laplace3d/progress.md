@@ -133,6 +133,35 @@ template:
   GRF and dataset tests pass unchanged.
 - Follow-ups: none new; CL3.2 uses `grf3d` (needs CL1.2, CL2.1, D5).
 
+## 2026-11-24: CL1.3 N-D errors
+- Done: `metrics::poisson::poisson_errors_nd`, errors 2–5 for 2D or 3D fields (axis 0 the
+  samples): 2D fields go to `poisson_errors` unchanged (D1); 3D uses CL1.2's
+  `to_uniform_nd`, `to_cheb_nd` and `cc_*_nd`, and error 5 sums the six faces, each with
+  2D tensor CC weights, edge and corner nodes once per face, 24 against 8 (CONVENTIONS §12).
+  It returns the existing `PoissonErrors` (no new fields; `errors.json` untouched).
+  `metrics/poisson.rs` became `metrics/poisson/{mod,tests}.rs`. Plan
+  `docs/laplace3d/tasks/CL1.3.md`.
+- Tests: 12 new. Every 3D error against explicit triple loops (transfers term by term, CC
+  sums with w_i w_j w_k, the six faces written out) to 1e-13 at s = n − 1 and s = 5; the
+  floor identity in 3D; the 24/8 boundary RMS and ‖u‖ against closed forms; the general
+  face formula at rank 2 against `boundary_errors` (1e-14); the panics, including a 4D
+  field. D2: `nd_rank_two_is_bit_identical_to_2d` (bits of all six vectors, s = n − 1 and
+  s = 8, standard, transposed and IxDyn views).
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, `cargo test`
+  (341 passed), `cargo doc`, datagen clippy and `cargo test --features datagen` (415
+  passed); not run: metal and gpu_parity (host ndarray only).
+- Decisions: none; for sign-off: the 3D test names of CL1.2 and CL1.3 in CONVENTIONS §12
+  "Verification".
+- Review: plan review PASS (advisory taken: rank 2 or 3 only, the ranks CONVENTIONS
+  defines); code quality round 1 BLOCKED (the file past 1,000 lines, fixed by moving the
+  tests to `poisson/tests.rs`; F2, F4 taken) → round 2 APPROVE with findings (N1 taken; F1,
+  N2 to CL4.1; F3 declined, a public bound for one `.into_dyn()`).
+- 2D: unchanged bit for bit: `poisson_errors`, `boundary_errors` and `evaluate` not edited,
+  `rel_l2_equal_weights` generic with the same body, shown in process by the D2 test; the
+  whole 2D suite passes.
+- Follow-ups: in CL1.3's roadmap line (CONVENTIONS §12 "Verification") and CL4.1's (one
+  loop for 2D and 3D, max |u| into `boundary_errors_nd`).
+
 ## 2026-11-24: CL2.1 Collocation solver A3
 - Done: `CollocationSolver3d` in `pde/poisson/collocation.rs` (behind `datagen`), A3 of
   proposal §5: one interior D² eigendecomposition per axis (`real_eig`, `interior_d2`,

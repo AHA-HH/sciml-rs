@@ -14,6 +14,10 @@
 //! - error 5 (boundary): with û = T_uc(prediction), the max ratio max_∂Ω |û| / max_Ω |u|
 //!   and the relative boundary RMS √(∮ û² ds / 8) / √(∫∫ u² dA / 4).
 //!
+//! [`poisson_errors_nd`] computes the same errors for 2D or 3D fields, 2D through
+//! [`poisson_errors`] itself; in 3D error 5 runs over the six faces, √(∯ û² dS / 24) /
+//! √(∭ u² dV / 8) (CONVENTIONS §12).
+//!
 //! [`check_error3`] cross-checks the mean error 3 against the run's last test_l2. Each
 //! error is summarised over the samples with [`ErrorStats`]. [`evaluate`] applies the
 //! evaluation policy, the worst sample, both cross-checks and the boundary verdict, and
@@ -30,17 +34,21 @@
 
 use super::stats::ErrorStats;
 use crate::neural_operators::chebyshev::{
-    TRANSFER_DEGREE, Transfers, cc_norm_sq, cc_rel_l2_error_weighted, clencurt,
+    TRANSFER_DEGREE, Transfers, cc_norm_sq, cc_norm_sq_nd, cc_rel_l2_error_weighted,
+    cc_rel_l2_error_weighted_nd, clencurt,
 };
 use crate::neural_operators::data::loaders::poisson::SidecarRecord;
 use crate::neural_operators::runs::EpochMetrics;
 use burn::config::Config;
-use ndarray::{Array1, Array2, ArrayView2, ArrayView3, Axis};
+use ndarray::{
+    Array1, Array2, ArrayView, ArrayView2, ArrayView3, ArrayViewD, Axis, Dimension, Ix3, RemoveAxis,
+};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Per-sample errors from [`poisson_errors`], one entry per sample, in sample order.
-#[derive(Debug, Clone)]
+/// Per-sample errors from [`poisson_errors`] (2D) or [`poisson_errors_nd`] (2D or 3D), one
+/// entry per sample, in sample order.
+#[derive(Debug, Clone, Default)]
 pub struct PoissonErrors {
     /// Error 2: ‖P R u − u‖ / ‖u‖, Clenshaw–Curtis norm.
     pub transfer: Vec<f64>,
@@ -53,7 +61,8 @@ pub struct PoissonErrors {
     pub u_norm: Vec<f64>,
     /// Error 5, max ratio: max over ∂Ω of |û| / max over Ω of |u|, on the CGL nodes.
     pub boundary_max_ratio: Vec<f64>,
-    /// Error 5, relative boundary RMS: √(∮ û² ds / 8) / √(∫∫ u² dA / 4).
+    /// Error 5, relative boundary RMS: in 2D √(∮ û² ds / 8) / √(∫∫ u² dA / 4), in 3D
+    /// √(∯ û² dS / 24) / √(∭ u² dV / 8) (CONVENTIONS §12).
     pub boundary_rel_rms: Vec<f64>,
 }
 
@@ -135,6 +144,86 @@ pub fn poisson_errors(
             .u_norm
             .push(cc_norm_sq(ui, w.view(), w.view()).sqrt());
         let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
+        errors.boundary_max_ratio.push(ratio);
+        errors.boundary_rel_rms.push(rms);
+    }
+    errors
+}
+
+/// [`poisson_errors`] for 2D or 3D fields (rank r = 2 or 3, the ranks CONVENTIONS §12
+/// defines): axis 0 the samples, the rest the spatial axes, stored 'ij' or 'ijk'.
+///
+/// - `pred`: decoded predictions on the uniform learning grid, `[N, s, …, s]`.
+/// - `u`: the raw solutions on the CGL grid, `[N, n, …, n]`, of the same rank.
+/// - `transfers`: the run's R and P, applied along every axis.
+///
+/// Rank 3 arrays (2D fields) are [`poisson_errors`] itself, bit for bit (design D1, D2).
+/// Otherwise the errors are those of the module docs with tensor Clenshaw–Curtis weights
+/// over every axis, and error 5 sums the 2r faces of ∂Ω, each with the tensor weights of
+/// its r − 1 coordinates, so a node on an edge or corner is counted once per face that
+/// holds it. The relative boundary RMS normalises by the total face area r · 2^r against
+/// the volume 2^r: in 3D √(∯ û² dS / 24) / √(∭ u² dV / 8) (CONVENTIONS §12).
+///
+/// # Panics
+/// If `u` has not two or three spatial axes, `pred` and `u` differ in rank or sample count,
+/// or an axis is not the transfers' s (for `pred`) or n (for `u`).
+pub fn poisson_errors_nd<D: RemoveAxis>(
+    pred: ArrayView<f64, D>,
+    u: ArrayView<f64, D>,
+    transfers: &Transfers,
+) -> PoissonErrors {
+    assert!(
+        matches!(u.ndim(), 3 | 4),
+        "poisson_errors_nd: u must be [N, n, n] or [N, n, n, n] (two or three spatial axes), got {:?}",
+        u.shape()
+    );
+    assert_eq!(
+        pred.ndim(),
+        u.ndim(),
+        "poisson_errors_nd: pred has rank {} but u has rank {}",
+        pred.ndim(),
+        u.ndim()
+    );
+    if u.ndim() == 3 {
+        return poisson_errors(
+            pred.into_dimensionality::<Ix3>().expect("rank 3"),
+            u.into_dimensionality::<Ix3>().expect("rank 3"),
+            transfers,
+        );
+    }
+    let (np, nu) = (pred.len_of(Axis(0)), u.len_of(Axis(0)));
+    assert_eq!(
+        np, nu,
+        "poisson_errors_nd: pred has {np} samples but u has {nu}"
+    );
+    let (s, n) = (transfers.s(), transfers.n());
+    assert!(
+        pred.shape()[1..].iter().all(|&a| a == s) && u.shape()[1..].iter().all(|&a| a == n),
+        "poisson_errors_nd: pred {:?} and u {:?} must be on the transfers' grids (s, n) = ({s}, {n})",
+        pred.shape(),
+        u.shape()
+    );
+
+    let w = clencurt(n);
+    let ws = vec![w.view(); u.ndim() - 1];
+    let mut errors = PoissonErrors::default();
+    for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
+        let u_uni = transfers.to_uniform_nd(ui.view());
+        let round_trip = transfers.to_cheb_nd(u_uni.view());
+        let u_hat = transfers.to_cheb_nd(p.view());
+
+        errors.transfer.push(cc_rel_l2_error_weighted_nd(
+            round_trip.view(),
+            ui.view(),
+            &ws,
+        ));
+        errors.model.push(rel_l2_equal_weights(p, u_uni.view()));
+        errors
+            .total
+            .push(cc_rel_l2_error_weighted_nd(u_hat.view(), ui.view(), &ws));
+        let u_sq = cc_norm_sq_nd(ui.view(), &ws);
+        errors.u_norm.push(u_sq.sqrt());
+        let (ratio, rms) = boundary_errors_nd(u_hat.view().into_dyn(), ui.into_dyn(), &w, u_sq);
         errors.boundary_max_ratio.push(ratio);
         errors.boundary_rel_rms.push(rms);
     }
@@ -488,8 +577,8 @@ impl fmt::Display for PoissonEvaluation {
 }
 
 /// ‖a − b‖₂ / ‖b‖₂ over all entries with equal weights (`LpLoss::rel` with p = 2).
-fn rel_l2_equal_weights(a: ArrayView2<f64>, b: ArrayView2<f64>) -> f64 {
-    let num: f64 = a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum();
+fn rel_l2_equal_weights<D: Dimension>(a: ArrayView<f64, D>, b: ArrayView<f64, D>) -> f64 {
+    let num: f64 = a.iter().zip(&b).map(|(x, y)| (x - y) * (x - y)).sum();
     let den: f64 = b.iter().map(|y| y * y).sum();
     (num / den).sqrt()
 }
@@ -519,370 +608,36 @@ fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> 
     (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::neural_operators::chebyshev::nodes;
-    use crate::neural_operators::losses::data_losses::{LpLoss, Reduction};
-    use burn::prelude::*;
-    use ndarray::Array3;
-
-    /// `count` smooth fields on the n × n CGL grid that vanish on ∂Ω; sample k is scaled
-    /// and shifted so the samples differ.
-    fn vanishing_u(count: usize, n: usize) -> Array3<f64> {
-        let x = nodes(n);
-        Array3::from_shape_fn((count, n, n), |(k, i, j)| {
-            let (a, b) = (x[i], x[j]);
-            (1.0 + k as f64) * (1.0 - a * a) * (1.0 - b * b) * (a + 0.3 * k as f64).exp() * b.cos()
-        })
-    }
-
-    /// Deterministic noise in [−1, 1), a hash of the index.
-    fn noise(k: usize, i: usize, j: usize) -> f64 {
-        let t = (k as f64 * 3.17 + i as f64 * 12.9898 + j as f64 * 78.233).sin() * 43758.5453;
-        2.0 * (t - t.floor()) - 1.0
-    }
-
-    /// T_cu applied to every sample of `u: [N, n, n]`, giving `[N, n − 1, n − 1]`.
-    fn to_uniform(u: &Array3<f64>) -> Array3<f64> {
-        Transfers::new(u.dim().1).to_uniform_all(u.view())
-    }
-
-    // the floor identity of design §13.3 at s = n - 1 and at coarser learning grids: a
-    // prediction equal to R u has error 3 = 0 and error 4 = error 2
-    #[test]
-    fn exact_prediction_has_only_transfer_error() {
-        let n = 17;
-        let u = vanishing_u(3, n);
-        for s in [n - 1, 8, 5] {
-            let transfers = Transfers::with_s(n, s);
-            let pred = transfers.to_uniform_all(u.view());
-            let e = poisson_errors(pred.view(), u.view(), &transfers);
-            assert_exact_prediction(&e, s);
+/// Error 5 for one sample of rank r: `(max ratio, relative boundary RMS)` of
+/// `u_hat: [n, …, n]` against `u: [n, …, n]`, both on the CGL grid, with Clenshaw–Curtis
+/// weights `w: [n]` on every axis and `u_sq`, ‖u‖² in that norm (see [`poisson_errors_nd`]).
+fn boundary_errors_nd(
+    u_hat: ArrayViewD<f64>,
+    u: ArrayViewD<f64>,
+    w: &Array1<f64>,
+    u_sq: f64,
+) -> (f64, f64) {
+    let r = u.ndim();
+    let last = u_hat.len_of(Axis(0)) - 1;
+    let face_ws = vec![w.view(); r - 1];
+    let (mut surface, mut max_face) = (0.0, 0.0_f64);
+    for axis in 0..r {
+        for index in [0, last] {
+            let face = u_hat.index_axis(Axis(axis), index);
+            max_face = face.iter().fold(max_face, |m, v| m.max(v.abs()));
+            surface += cc_norm_sq_nd(face, &face_ws);
         }
     }
+    let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
 
-    fn assert_exact_prediction(e: &PoissonErrors, s: usize) {
-        for k in 0..3 {
-            assert!(e.model[k] <= 1e-14, "s = {s}: e3[{k}] = {:e}", e.model[k]);
-            assert!(
-                (e.total[k] - e.transfer[k]).abs() <= 1e-14,
-                "e4 {:e} vs e2 {:e}",
-                e.total[k],
-                e.transfer[k]
-            );
-            assert!(
-                e.transfer[k] > 0.0 && e.transfer[k] < 1e-1,
-                "s = {s}: e2 = {:e}",
-                e.transfer[k]
-            );
-            assert!(
-                e.boundary_max_ratio[k] <= 1e-14,
-                "{:e}",
-                e.boundary_max_ratio[k]
-            );
-            assert!(
-                e.boundary_rel_rms[k] <= 1e-14,
-                "{:e}",
-                e.boundary_rel_rms[k]
-            );
-        }
-    }
-
-    #[test]
-    fn boundary_offset_is_measured() {
-        // u_k = (1 + k)(1 − x²)(1 − y²): max |u_k| = 1 + k at the origin (a CGL node for
-        // odd n), and ∫∫ u_k² dA = (1 + k)² (16/15)², which Clenshaw–Curtis integrates
-        // exactly (degree 4 per axis ≤ n − 1)
-        let n = 17;
-        let c = 0.037;
-        let x = nodes(n);
-        let u = Array3::from_shape_fn((2, n, n), |(k, i, j)| {
-            (1.0 + k as f64) * (1.0 - x[i] * x[i]) * (1.0 - x[j] * x[j])
-        });
-        let pred = to_uniform(&u) + c;
-        let e = poisson_errors(pred.view(), u.view(), &Transfers::new(n));
-        for k in 0..2 {
-            let scale = 1.0 + k as f64;
-            // û = c on ∂Ω: T_uc reproduces constants and both grids share the endpoints.
-            // ∮ û² ds = 8c² with each corner weighted by both its edges, so the RMS is c
-            let ratio = c / scale;
-            let rms = c / (scale * 16.0 / 15.0 / 2.0);
-            assert!(
-                (e.boundary_max_ratio[k] - ratio).abs() <= 1e-12 * ratio,
-                "ratio {} vs {ratio}",
-                e.boundary_max_ratio[k]
-            );
-            assert!(
-                (e.boundary_rel_rms[k] - rms).abs() <= 1e-12 * rms,
-                "rms {} vs {rms}",
-                e.boundary_rel_rms[k]
-            );
-        }
-    }
-
-    #[test]
-    fn error3_matches_lploss() {
-        let (count, n) = (4, 17);
-        let s = n - 1;
-        let u = vanishing_u(count, n);
-        let target = to_uniform(&u);
-        let pred = Array3::from_shape_fn((count, s, s), |(k, i, j)| {
-            target[[k, i, j]] + 0.05 * noise(k, i, j)
-        });
-        let e = poisson_errors(pred.view(), u.view(), &Transfers::new(n));
-        let mean = e.model.iter().sum::<f64>() / count as f64;
-
-        let device: Device = Default::default();
-        let flat = |a: &Array3<f64>| {
-            let data: Vec<f32> = a.iter().map(|&v| v as f32).collect();
-            Tensor::<2>::from_data(TensorData::new(data, vec![count, s * s]), &device)
-        };
-        let loss = LpLoss::new(2, Reduction::Sum).rel(flat(&pred), flat(&target));
-        let lp = f64::from(loss.into_scalar::<f32>()) / count as f64;
-        assert!((mean - lp).abs() <= 1e-6, "e3 mean {mean} vs LpLoss {lp}");
-    }
-
-    #[test]
-    #[should_panic(expected = "pred has 2 samples but u has 3")]
-    fn sample_count_mismatch_panics() {
-        let u = vanishing_u(3, 9);
-        let pred = Array3::<f64>::zeros((2, 8, 8));
-        poisson_errors(pred.view(), u.view(), &Transfers::new(9));
-    }
-
-    #[test]
-    #[should_panic(expected = "must be on the transfers' grids (s, n)")]
-    fn wrong_uniform_size_panics() {
-        let u = vanishing_u(1, 9);
-        let pred = Array3::<f64>::zeros((1, 9, 9));
-        poisson_errors(pred.view(), u.view(), &Transfers::new(9));
-    }
-
-    #[test]
-    #[should_panic(expected = "must be on the transfers' grids (s, n)")]
-    fn wrong_cgl_size_panics() {
-        let u = vanishing_u(1, 9);
-        let pred = Array3::<f64>::zeros((1, 4, 4));
-        poisson_errors(pred.view(), u.view(), &Transfers::with_s(17, 4));
-    }
-
-    #[test]
-    fn u_norm_is_the_cc_norm() {
-        // u = (1 - x²)(1 - y²): ∫∫ u² dA = (16/15)², exact in Clenshaw–Curtis
-        let n = 9;
-        let x = nodes(n);
-        let u = Array3::from_shape_fn((1, n, n), |(_, i, j)| {
-            (1.0 - x[i] * x[i]) * (1.0 - x[j] * x[j])
-        });
-        let transfers = Transfers::with_s(n, 4);
-        let pred = transfers.to_uniform_all(u.view());
-        let e = poisson_errors(pred.view(), u.view(), &transfers);
-        assert!(
-            (e.u_norm[0] - 16.0 / 15.0).abs() <= 1e-14,
-            "{}",
-            e.u_norm[0]
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "pred must be [N, s, s]")]
-    fn non_square_pred_panics() {
-        let u = vanishing_u(1, 9);
-        let pred = Array3::<f64>::zeros((1, 8, 7));
-        poisson_errors(pred.view(), u.view(), &Transfers::new(9));
-    }
-
-    #[test]
-    #[should_panic(expected = "u must be [N, n, n]")]
-    fn non_square_u_panics() {
-        let u = Array3::<f64>::zeros((1, 9, 8));
-        let pred = Array3::<f64>::zeros((1, 8, 8));
-        poisson_errors(pred.view(), u.view(), &Transfers::new(9));
-    }
-
-    #[test]
-    #[should_panic(expected = "n must be >= 4")]
-    fn too_small_n_panics() {
-        let u = Array3::<f64>::zeros((1, 3, 3));
-        let pred = Array3::<f64>::zeros((1, 2, 2));
-        poisson_errors(pred.view(), u.view(), &Transfers::new(3));
-    }
-
-    /// One metrics row per epoch with the given `test_l2`.
-    fn metrics(test_l2: &[f32]) -> Vec<EpochMetrics> {
-        test_l2
-            .iter()
-            .enumerate()
-            .map(|(epoch, &test_l2)| EpochMetrics {
-                epoch,
-                train_mse: 0.0,
-                train_l2: 0.0,
-                test_l2,
-                current_lr: 1e-3,
-                epoch_time_s: None,
-            })
-            .collect()
-    }
-
-    /// Synthetic per-sample errors: error 4 is `total`, error 2 `transfer`, error 3 0.25
-    /// (the test_l2 of [`last_epoch`]) and the relative boundary RMS `rms`.
-    fn synthetic(total: &[f64], transfer: f64, rms: f64) -> PoissonErrors {
-        let k = total.len();
-        PoissonErrors {
-            transfer: vec![transfer; k],
-            model: vec![0.25; k],
-            total: total.to_vec(),
-            u_norm: vec![1.0; k],
-            boundary_max_ratio: vec![0.0; k],
-            boundary_rel_rms: vec![rms; k],
-        }
-    }
-
-    fn last_epoch() -> EpochMetrics {
-        metrics(&[0.5, 0.25]).pop().unwrap()
-    }
-
-    /// The fixture sidecar (n = 65), claiming `count` samples with error 2 `transfer`.
-    fn sidecar(count: usize, transfer: f64) -> SidecarRecord {
-        let mut sidecar = SidecarRecord::load_binary(
-            include_str!("../../../tests/fixtures/poisson_n65_K32_test.json").as_bytes(),
-        )
-        .unwrap();
-        sidecar.count = count;
-        (sidecar.error2.mean, sidecar.error2.max) = (transfer, transfer);
-        sidecar
-    }
-
-    fn eval(errors: &PoissonErrors, sidecar: &SidecarRecord) -> PoissonEvaluation {
-        eval_at(errors, sidecar, 64)
-    }
-
-    fn eval_at(errors: &PoissonErrors, sidecar: &SidecarRecord, s: usize) -> PoissonEvaluation {
-        evaluate(
-            errors,
-            &Transfers::with_s(65, s),
-            sidecar,
-            &last_epoch(),
-            "Cpu".into(),
-            vec![],
-            Path::new("runs/x"),
-        )
-    }
-
-    #[test]
-    fn evaluate_picks_the_first_worst_sample() {
-        let e = synthetic(&[0.1, 0.3, 0.2, 0.3], 1e-5, 0.0);
-        let ev = eval(&e, &sidecar(4, 1e-5));
-        assert_eq!(ev.record.error4_worst_sample, 1);
-        assert!(ev.record.cross_checks_passed, "{ev}");
-        assert!(ev.to_string().contains("worst sample (max error 4): 1;"));
-
-        // a NaN is the max, as ErrorStats reports it
-        let e = synthetic(&[0.1, 0.3, f64::NAN, 0.2], 1e-5, 0.0);
-        assert_eq!(eval(&e, &sidecar(4, 1e-5)).record.error4_worst_sample, 2);
-    }
-
-    #[test]
-    fn evaluate_boundary_verdict_at_the_threshold() {
-        // the ratio is the mean RMS over the mean error 4, here 0.5
-        let total = [0.4, 0.6];
-        let below = eval(&synthetic(&total, 1e-5, 0.0499), &sidecar(2, 1e-5));
-        assert!(below.record.boundary_to_total < BOUNDARY_THRESHOLD);
-        assert!(!below.record.ablation_warranted);
-        assert!(below.to_string().ends_with("ablation is not warranted"));
-        let above = eval(&synthetic(&total, 1e-5, 0.0501), &sidecar(2, 1e-5));
-        assert!(above.record.ablation_warranted);
-        assert!(above.to_string().ends_with("ablation is warranted"));
-    }
-
-    #[test]
-    fn evaluate_flags_a_cross_check_mismatch() {
-        let e = synthetic(&[0.1, 0.2], 1e-5, 0.0);
-        let ok = eval(&e, &sidecar(2, 1e-5));
-        assert!(
-            ok.record.error2_compared && ok.record.cross_checks_passed,
-            "{ok}"
-        );
-
-        // error 2 off the sidecar by 1e-9, relative
-        let bad = eval(&e, &sidecar(2, 1e-5 * (1.0 + 1e-9)));
-        assert!(!bad.error2.passed && !bad.record.cross_checks_passed);
-        assert!(bad.to_string().contains("(tol 1e-12) FAILED"), "{bad}");
-
-        // the same mismatch is skipped when the sidecar covers other samples
-        let skipped = eval(&e, &sidecar(200, 1e-5 * (1.0 + 1e-9)));
-        assert!(!skipped.record.error2_compared && skipped.record.cross_checks_passed);
-        assert!(
-            skipped
-                .to_string()
-                .contains("covers 200 samples but 2 were evaluated")
-        );
-
-        // error 3 off the run's last test_l2
-        let mut e3_off = e.clone();
-        e3_off.model = vec![0.3; 2];
-        let bad = eval(&e3_off, &sidecar(2, 1e-5));
-        assert!(!bad.record.cross_checks_passed);
-        assert!(!bad.error3.passed);
-    }
-
-    #[test]
-    fn evaluate_skips_the_sidecar_at_another_s() {
-        // error 2 at s = 16 is not the sidecar's (s = 64), so it is not compared
-        let e = synthetic(&[0.1, 0.2], 3e-3, 0.0);
-        let ev = eval_at(&e, &sidecar(2, 1e-5), 16);
-        assert_eq!(ev.record.s, 16);
-        assert!(!ev.record.error2_compared && ev.record.cross_checks_passed);
-        assert!(
-            ev.to_string()
-                .contains("the sidecar's error 2 is at s = 64, this run's at s = 16"),
-            "{ev}"
-        );
-        assert!(ev.to_string().contains("(n = 65, s = 16, 2 samples)"));
-    }
-
-    #[test]
-    fn log_correlation_of_error_with_norm() {
-        // error 4 = c / ||u||: ln e = ln c - ln ||u||, correlation -1
-        let norm = [0.5, 1.0, 2.0, 4.0];
-        let err: Vec<f64> = norm.iter().map(|v| 0.01 / v).collect();
-        assert!((log_correlation(&err, &norm) + 1.0).abs() <= 1e-12);
-        assert!((log_correlation(&norm, &norm) - 1.0).abs() <= 1e-12);
-        assert!(log_correlation(&[0.1], &[1.0]).is_nan());
-
-        let mut e = synthetic(&[0.1, 0.05, 0.025], 1e-5, 0.0);
-        e.u_norm = vec![1.0, 2.0, 4.0];
-        let ev = eval(&e, &sidecar(3, 1e-5));
-        assert!((ev.record.error4_u_norm_log_correlation + 1.0).abs() <= 1e-12);
-        assert_eq!(ev.record.u_norm_per_sample, [1.0, 2.0, 4.0]);
-        assert_eq!(ev.record.error4_per_sample, [0.1, 0.05, 0.025]);
-    }
-
-    #[test]
-    #[should_panic(expected = "sidecar n, d differ")]
-    fn evaluate_rejects_another_grid() {
-        let e = synthetic(&[0.1], 1e-5, 0.0);
-        evaluate(
-            &e,
-            &Transfers::new(33),
-            &sidecar(1, 1e-5),
-            &last_epoch(),
-            "Cpu".into(),
-            vec![],
-            Path::new("x"),
-        );
-    }
-
-    #[test]
-    fn error3_check_uses_the_last_epoch() {
-        let rows = metrics(&[0.5, 0.25]);
-        let last = rows.last().unwrap();
-        let check = check_error3(last, 0.25 * (1.0 + 5e-6));
-        assert_eq!((check.epoch, check.test_l2), (1, 0.25));
-        assert!(check.passed, "{check}");
-        let check = check_error3(last, 0.25 * (1.0 + 2e-5));
-        assert!(!check.passed, "{check}");
-        assert!(check.to_string().ends_with("FAILED"));
-    }
+    // 2r faces of area 2^(r − 1) each, against the volume 2^r: 8 and 4 in 2D, 24 and 8 in 3D
+    let cube = 2.0_f64.powi(r as i32);
+    let faces = r as f64 * cube;
+    (
+        max_face / max_u,
+        (surface / faces).sqrt() / (u_sq / cube).sqrt(),
+    )
 }
+
+#[cfg(test)]
+mod tests;
