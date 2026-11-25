@@ -71,3 +71,24 @@ template:
 - Adam and Gauss–Newton: not touched.
 - Follow-ups: CO0.1 at about 13 GPU-hours instead of 19; its plan checks that two timed runs
   side by side keep a lone run's epoch times.
+
+## 2026-11-25: CO0.2 Cost profile of a Gauss–Newton step (in progress, VM run pending)
+- Done: `gn_profile` (`examples/profile/gn_profile.rs`): from a Gauss–Newton run's
+  checkpoint, the unit costs of a step's parts (synced medians), CG in place with its
+  products timed, and real steps at each CG cap with predicted against measured time and
+  the profile table; no library code. Plan `docs/optimisers/tasks/CO0.2.md` (amended: the
+  fork's passes per second by `awk` over `gn_steps.csv`: 17.36 over all 80 steps of
+  Phase 10's GN200-D at μ = 0, seed 42; 17.41 over the last 10).
+- Tests: the example's 5 unit tests (the step decomposition on three Phase 10 rows, an
+  adjoint step without refresh and a negative-curvature stop, no preconditioner,
+  unexplained passes rejected, the phases by hand).
+- Checks: ran fmt, the three clippy runs, `cargo test`, `cargo doc` (all pass); metal smoke
+  runs; pending the VM run (cuda, alone on the VM, at the author's go).
+- Decisions: none.
+- Review: plan review FAIL → fixed (the `gn_steps.csv` reader replaced by the plan's
+  amendment); code quality APPROVE with findings (fixed: exact warm start, the
+  negative-curvature product, phases once per step, source comments, the approximations
+  documented, the metric row and gap flag).
+- Adam and Gauss–Newton: not touched (no library file changed).
+- Follow-ups: the VM run; then the report `docs/optimisers/results/CO0.2.md` with the
+  savings list, and the roadmap tick.

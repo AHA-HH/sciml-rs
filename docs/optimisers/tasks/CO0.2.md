@@ -124,7 +124,19 @@ It decides nothing on its own: it fills the profile table and the savings list (
 - 2D objective: no output changes; the run directory is only read.
 
 ## Pending runs
-<filled in step 6>
+- **The VM run** (section "VM runs"): waits for the author's go, alone on the VM (after
+  3D CL0.1's `co31-cl01`, before or between CO0.1's runs). tmux `co0-2`, log
+  `~/sciml-rs/logs/co0-2.log`, output `docs/optimisers/results/CO0.2-vm.md` in the VM
+  worktree `~/sciml-rs-wt/co0-2`. It fills `docs/optimisers/results/CO0.2.md` (the profile
+  at caps 50 and 150, passes per second against the fork's 17.4, the savings list), after
+  which the task is ticked.
+
+Done on the Mac (metal, not reported as timings): smoke runs at caps 5 and 3 against the
+local copy of the reference run. The fork-era checkpoint loads on Burn 0.23; the tables are
+written; at cap 5 the predicted step time is within −5.2 % to +6.5 % of the measured one per
+step and 0.1 % of the mean.
 
 ## Open questions
-<filled when they arise>
+None blocking. If the VM run's mean gap exceeds 15 % (the report flags it), whether to add
+an off-by-default timer inside `GaussNewton::step` (library code, constraint 1) is a
+question for the author.
