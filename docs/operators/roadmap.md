@@ -10,7 +10,8 @@ milestone's gate report is `docs/operators/gates/<milestone>.md`; the feature ma
 Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 (draft 0.1 as
 the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed off):
 once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
-2026-11-25 (the registry). Next CM0.6; CM0.5 needs D3.
+2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
+answered (moving imports is not editing a test). Next CM0.5 and CM0.6.
 
 ## How to read this file
 
@@ -42,7 +43,7 @@ The proposal's Section 12. Recorded when the author takes them:
 | D0 | Draft 0.1 of the proposal as the plan of record | after review | – | every task | signed off 2026-11-24: draft 0.1 as the plan of record |
 | D1 | Reference version | `neuraloperator` 2.0.0 | – | CM0.1 | signed off 2026-11-11: "its neuraloperator and the major release 2.0.0" |
 | D2 | Where the Python side lives | `tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/` | – | CM0.2 | signed off 2026-11-24: as recommended (`tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/`) |
-| D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | open |
+| D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | signed off 2026-11-25: as recommended (relative max error ≤ 1e-5 in f32, ≤ 1e-12 in f64, on the CPU) |
 | D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | signed off 2026-11-24: option A as recommended (a generic trait with associated config and input types, static dispatch, no trait objects; `docs/operators/tasks/CM0.3.md`) |
 | D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | open |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |
@@ -87,7 +88,9 @@ the feature matrix is verified.
   the `#[cfg(test)]` imports that keep the old test modules' `use super::*` compiling
   moved into those modules; `training/trainer.rs`'s test module split out. *Done when:*
   the same bit-identity check as CM0.3 passes against `main`. *Needs:* CM0.3, and the
-  author's answer on whether moving a test module's imports edits a test (CM0.3 PR).
+  author's answer on whether moving a test module's imports edits a test (CM0.3 PR):
+  answered 2026-11-25, it does not; moving the `#[cfg(test)]` imports into their test
+  modules is allowed.
 
 ## M1: The FNO family
 

@@ -158,3 +158,15 @@ template:
 - Matrix: `BaseModel`, `get_model`/`available_models` set to have (infrastructure).
 - Follow-ups: CM2.1 (the second kind: its variants, the export's arm, `Model<R>` as a
   `Module` if needed; review F4); CM0.6 (`Operator::NAME`, on the author's answer).
+
+## 2026-11-25: D3 and the CM0.3 test-import question
+- Done: D3 signed off by the author as recommended: parity holds when the relative max
+  error is ≤ 1e-5 in f32 and ≤ 1e-12 in f64, on the CPU. The author's answer to CM0.3's
+  question: moving a test module's `use` lines into that module is not editing a test, so
+  CM0.6 moves the four `#[cfg(test)]` imports.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D3 signed off 2026-11-25.
+- FNO: not touched.
+- Matrix: unchanged.
+- Follow-ups: CM0.5 (the parity harness) and CM0.6 (the tidy-up) are runnable.
