@@ -59,7 +59,7 @@ step.
   root, shared with `SobolevLoss`. Same ops in the same order, so `LpLoss` is bit-identical;
   the bit-identity dumps confirm it.
 - Harness (CM1.6a review F6, F7): `tests/flex_f64/`, one `flex_f64` declared (behind
-  `flex`) by the four f64 binaries, `gauss_newton_f64` among them, so it sits beside
+  `flex`) by the f64 binaries (five after the merge with CM1.3a), `gauss_newton_f64` among them, so it sits beside
   `parity_common/` rather than in it, and no f32 binary compiles it; `Fixture::tensor(key, device)` public, replacing the copy in
   `parity_losses_common`, which drops the `#[allow(dead_code)]` on that module. The
   `#[allow(dead_code)]` on `mod parity_common` in the two loss binaries stays: they use
