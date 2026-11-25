@@ -12,8 +12,9 @@ the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 
 once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
 answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
-CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). Next CM0.6, CM1.2
-(needs D5) and CM1.3.
+CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). D5 signed off
+2026-11-25 (#153). CM1.2 done 2026-11-25 (the centred layer, separable, modes below the
+stored maximum). Next CM0.6 and CM1.3, then CM1.4.
 
 ## How to read this file
 
@@ -114,8 +115,21 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   legacy spectrum is `cfloat`, so its f64 reference is f32-accurate, ≤ 2.9e-7). CM0.5's
   sidecar and grid follow-ups did not arise (no complex parameters in the sidecar, no grid
   in a bare layer): they pass to CM1.2 and CM1.5.
-- [ ] **CM1.2 Centred layout, separable, `max_n_modes`.** The weight converter of proposal
+- [x] **CM1.2 Centred layout, separable, `max_n_modes`.** The weight converter of proposal
   §6.3; separable weights; mode truncation below the stored maximum. *Needs:* CM1.1, D5.
+  Done 2026-11-25: plan `docs/operators/tasks/CM1.2.md`; `SpectralConv::new_separable` and
+  `with_modes`; the converter `centred_to_corners` at fixture load
+  (`tests/parity_common/centred_conv.rs`); fixtures `spectral_conv*_{f32,f64}`;
+  `tests/parity_spectral_conv.rs` (f32, ≤ 4.0e-7), `_f64.rs` (`#[ignore]`d, ≤ 2.8e-7). Not
+  representable in corners: a grid of odd extent on a non-last axis (2.0.0 shifts its output
+  spectrum by one bin there), and the cases the plan lists. For CM1.5: wire `separable` and
+  `max_n_modes` into `FNOConfig` (off by default), and run FNO parity on even grids only.
+  For CM1.8: an odd centred mode count's zero row is a trainable weight, so training parity
+  at odd counts needs it masked (or even counts only). Code-quality follow-ups for CM1.5 (with
+  CM1.1's `flex_f64`): one shared `#[path]` file for the biased test layer of
+  `legacy_conv.rs` and `centred_conv.rs`; converted arrays passed to `load_into` so
+  `Fixture`'s fields are private again; `layers/spectral_convolution.rs` (now over 1,000
+  lines with its tests) split as `optim/soap/` is.
 - [ ] **CM1.3 Block parts.** Channel MLP; linear, identity and soft-gating skips;
   instance, group and AdaIN norms; pre-activation; the activation choice. *Needs:* CM1.1.
 - [ ] **CM1.4 Lifting, projection and embeddings.** Channel-MLP lifting and projection with
