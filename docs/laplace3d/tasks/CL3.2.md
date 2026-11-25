@@ -38,9 +38,10 @@ dimension.
   `label_check_3d` (relative CC-L² by `cc_rel_l2_error_nd`; the 2D `LabelCheckError`),
   `write_split_3d` (`.npz` with `f`, `u`, `x`, `y`, `z`; the 2D `SidecarRecord` with the 3D
   α, RNG and ε_K, so CL3.3 reads it with the same type; no new JSON field).
-- Label check enforced at `LABEL_CHECK_TOL` = 1e-8 for n ≥ 33 in 3D
-  (`LABEL_CHECK_MIN_N_3D`), not 65 as in 2D: α = 3 makes the 3D family smooth enough that
-  A3 meets the series at 1.9e-13 at n = 33 (CL2.1). Below 33 (test sizes) it is recorded.
+- Label check: the 2D rule, `LABEL_CHECK_TOL` = 1e-8 enforced for n ≥ `LABEL_CHECK_MIN_N`
+  (65), recorded below. (The first draft of this plan enforced it from n = 33, citing
+  CL2.1's 1.9e-13; that figure was at K = (n − 1)/4. At D3's K(n) = (n − 1)/2 the
+  measured check is about 4e-7 at n = 33 and 4e-10 at n = 65, 20 seeds, as in 2D.)
 - Error 2 per sample, d = `TRANSFER_DEGREE`, s = n − 1, by `Transfers::to_uniform_nd` /
   `to_cheb_nd`, recorded in the sidecar as in 2D.
 - `examples/generate/poisson3d.rs` (`generate_poisson3d`, `required-features = ["datagen"]`):
@@ -56,10 +57,10 @@ dimension.
    `grf3d::evaluate` of the seed's coefficients bit for bit; u equals
    `CollocationSolver3d::solve_full(f)` bit for bit and is zero on the six faces; the
    label check not enforced at n = 17.
-2. `label_check_3d_at_n33` (n = 33, K = 16, 3 samples): enforced, max ≤ 1e-8 against the
-   closed form (CL2.1 measured 1.9e-13).
-3. `label_check_3d_aborts`: a corrupted label at n = 33 fails with the sample and seed in
-   the error; at n = 17 the same corruption is recorded.
+2. `label_check_3d_at_n65` (n = 65, K = 32, 2 samples): enforced, max ≤ 1e-8 against the
+   closed form; n = 33 not enforced.
+3. `label_check_3d_aborts`: a corrupted label at n = 65 fails with the sample and seed in
+   the error; at n = 33 the same corruption is recorded.
 4. `files_round_trip_3d` (n = 9, 2 samples): `poisson3d_n9_K4_train.{npz,json}`; f, u
    `[2, 9, 9, 9]` and x, y, z read back exactly; the sidecar's α = 3, `grf3d::RNG`,
    `grf3d::eps_k(4)`, K, n, s, count, label check, error 2.
@@ -78,8 +79,8 @@ sets; their sidecars' label check and error 2 into the report
 ## VM runs
 D8 (open) proposes n = 65 generation on the A100 VM, beside the training it feeds. Only
 with the author's go, and **not while a timed run is in tmux** (optimisers CO0.1, session
-`co0`). Expected: about 1–3 minutes of compute (A3 5–18 ms per solve at n = 65 on the Mac,
-1200 samples) plus writing 4.4 GB (train) and 0.9 GB (test); peak memory about 5 GB
+`co0`). Expected: about under a minute of compute (20 samples at n = 65 take 0.4 s in release
+on the Mac) plus writing 4.4 GB (train) and 0.9 GB (test); peak memory about 5 GB
 (f and u of the train split in memory).
 
 ```sh
