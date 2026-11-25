@@ -75,6 +75,7 @@ three-epoch hybrid Gauss–Newton run (CG ≤ 5) on tiny 2D datasets, flex:
 |---|---|---|---|
 | this branch, `linalg` on | `681d0cb622163b3d` | `22251275ef53a81e` | `84e63f28a21024db` |
 | `origin/main` 4d681d0, `linalg` off | `681d0cb622163b3d` | `22251275ef53a81e` | `84e63f28a21024db` |
+| `origin/main` aabd87a (after CM0.3, CL1.3, CL2.1), `linalg` off; this branch merged with it, `linalg` on | `681d0cb622163b3d` | `22251275ef53a81e` | `84e63f28a21024db` |
 
 Enabling the feature changes nothing the crate compiles against otherwise, on any backend
 (checked in the Burn 0.23.0-pre.2 sources): `linalg = ["dep:burn-linalg", "burn-nn/linalg"]`;
