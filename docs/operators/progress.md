@@ -87,3 +87,39 @@ template:
 - FNO: not touched (no Rust changed).
 - Matrix: no rows (environment only).
 - Follow-ups: CM0.5 reads these fixtures (the CM0.5 line).
+
+## 2026-11-24: CM0.3 The operator trait and a generic stack
+- Done: D4 signed off by the author (option A: a generic trait with associated config and
+  input types, static dispatch, no trait objects). `models/operator.rs`: `Operator`
+  (`Config`, `Input`, `Output`, `NAME`, `init`, `forward`) and `GridOperator<R>` (rank-R
+  tensors in and out, a blanket impl); `FNO<R>` implements it. Generic over the operator:
+  `train_epoch`, `training_loop`, `train_components`, the new `train` and
+  `build_components`, the data-parallel epoch, `train_epoch_gn` and `FnoResidual`'s
+  `LeastSquares` impl, `evaluate`, `predict_host`, `RunDir::save_weights`,
+  `save_checkpoint(_gn)`, the new `load_model` and `checkpoint_of`, `OperatorCheckpoint<M>`;
+  `EpochObserver` and `TrainingComponents` take `M = FNO<R>`. The FNO-named functions stay
+  as wrappers, so every existing caller compiles unchanged; file formats unchanged.
+- Tests: `tests/fno_bit_identity.rs` (ignored by default; release): a fixed Phase 5 FNO
+  forward, one Phase 5-shaped Adam epoch (two batches, checkpoint, reload, `predict_host`)
+  and one Gauss–Newton epoch (with its checkpointed state), dumped as bytes; the same file
+  run on an export of `main` and on the branch gives byte-identical dumps (65,536,
+  28,481,592 and 22,476 bytes). Files are compared by content: Burnpack and
+  `GaussNewtonState::to_bytes` record random `ParamId`s, so even `main` never writes the
+  same bytes twice. `models/operator.rs`: the trait's forward is the FNO's; a test-only
+  second operator trains, checkpoints, reloads and predicts through the generic stack.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (305 lib + integration, all pass),
+  `cargo test --features datagen` (379 lib, all pass), `cargo doc --no-deps` (no
+  warnings), `cargo test --features metal --test gpu_parity` (9 pass) and `--features metal --lib`
+  (305 pass; built at 851b6e4, later commits change only tests and docs); the main-against-
+  branch `cmp` (twice, and independently by the plan reviewer). No hunk inside any
+  existing test module; `tests/` only gains the new file.
+- Decisions: D4 signed off 2026-11-24. Question for the author in the PR: does moving a
+  test module's imports count as editing a test (CM0.6)?
+- Review: plan review PASS (one blocker, a test comparing two seeded inits under Flex's
+  process-wide RNG, fixed; advisories taken: two batches, the GN state, comment fixes, the
+  CM0.4 sentence); code quality APPROVE with 7 findings, no blockers (F6 fixed; F7 and the
+  checkpoint naming in the plan; F1–F5 to CM0.6).
+- FNO: unchanged bit for bit (the dumps above against `main`).
+- Matrix: `BaseModel`, `Trainer`, training state set (partial; CM0.3's part done).
+- Follow-ups: CM0.4 (also the MLflow export's model config); CM0.6 (the review's F1–F5).
