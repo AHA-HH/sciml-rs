@@ -5,23 +5,28 @@
 //!
 //! D4 (signed off 2026-11-24): a generic trait with associated config and input types,
 //! static dispatch, no trait objects. Saving and loading need nothing here: every Burn
-//! [`Module`] saves to Burnpack, and every [`Config`] to JSON.
+//! [`Module`] saves to Burnpack, and every [`Config`](burn::config::Config) to JSON.
 
-use burn::{config::Config, module::Module, tensor::Device, tensor::Tensor};
+use burn::{module::Module, tensor::Device, tensor::Tensor};
 
-use crate::neural_operators::models::fno::{FNO, FNOConfig};
+use crate::neural_operators::models::{
+    fno::{FNO, FNOConfig},
+    registry::OperatorConfig,
+};
 
 /// A neural operator: a Burn [`Module`] built from its [`Config`](Operator::Config) and
 /// run on its [`Input`](Operator::Input).
 pub trait Operator: Module {
-    /// The hyperparameters, saved as the run directory's `model_cfg.json`.
-    type Config: Config;
+    /// The hyperparameters, saved as the run directory's `model_cfg.json` with their
+    /// [`KIND`](OperatorConfig::KIND).
+    type Config: OperatorConfig;
     /// What [`forward`](Operator::forward) takes: `Tensor<R>` for an operator on a grid.
     type Input;
     /// What [`forward`](Operator::forward) returns.
     type Output;
-    /// The operator's name, for the registry (CM0.4).
-    const NAME: &'static str;
+    /// The operator's name in the registry (CM0.4): its config's
+    /// [`KIND`](OperatorConfig::KIND).
+    const NAME: &'static str = <Self::Config as OperatorConfig>::KIND;
 
     /// A freshly initialised operator on `device`, drawn from the device's RNG.
     fn init(config: &Self::Config, device: &Device) -> Self;
@@ -41,7 +46,6 @@ impl<const R: usize> Operator for FNO<R> {
     type Config = FNOConfig;
     type Input = Tensor<R>;
     type Output = Tensor<R>;
-    const NAME: &'static str = "fno";
 
     /// [`FNOConfig::init`].
     ///
@@ -75,6 +79,7 @@ pub(crate) mod pointwise {
     };
 
     use super::Operator;
+    use crate::neural_operators::models::registry::OperatorConfig;
 
     /// [`Pointwise`]'s hyperparameters.
     #[derive(Config, Debug)]
@@ -89,11 +94,14 @@ pub(crate) mod pointwise {
         linear: Linear,
     }
 
+    impl OperatorConfig for PointwiseConfig {
+        const KIND: &'static str = "pointwise";
+    }
+
     impl<const R: usize> Operator for Pointwise<R> {
         type Config = PointwiseConfig;
         type Input = Tensor<R>;
         type Output = Tensor<R>;
-        const NAME: &'static str = "pointwise";
 
         fn init(config: &PointwiseConfig, device: &Device) -> Self {
             Self {

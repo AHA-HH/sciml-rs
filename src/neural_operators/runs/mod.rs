@@ -54,6 +54,7 @@ use crate::neural_operators::{
     models::{
         fno::{FNO, FNOConfig},
         operator::Operator,
+        registry::{ModelConfig, OperatorConfig, Tagged, kind_of},
     },
     optim::gauss_newton::GaussNewtonState,
     training::config::TrainingConfig,
@@ -152,17 +153,18 @@ impl RunDir {
         &self.path
     }
 
-    /// Writes `model_cfg.json`, `train_cfg.json` and `data_cfg.json`.
+    /// Writes `model_cfg.json` (the model's `kind`, then its config; CM0.4),
+    /// `train_cfg.json` and `data_cfg.json`.
     ///
     /// # Errors
     /// If a file can't be written.
     pub fn save_configs(
         &self,
-        model: &impl Config,
+        model: &impl OperatorConfig,
         train: &impl Config,
         data: &impl Config,
     ) -> io::Result<()> {
-        model.save(self.path.join(MODEL_CFG))?;
+        Tagged::new(model).save(self.path.join(MODEL_CFG))?;
         train.save(self.path.join(TRAIN_CFG))?;
         data.save(self.path.join(DATA_CFG))
     }
@@ -261,10 +263,11 @@ impl RunDir {
     /// (non-autodiff) device for inference, so forward passes record no backward graph.
     ///
     /// # Errors
-    /// If `model_cfg.json` can't be read or parsed as `M::Config`, or `model_weights.bpk`
-    /// can't be read or doesn't fit the architecture.
+    /// If `model_cfg.json` can't be read, is of another kind than `M`'s, or doesn't parse
+    /// as `M::Config`, or `model_weights.bpk` can't be read or doesn't fit the
+    /// architecture.
     pub fn load_model<M: Operator>(&self, device: &Device) -> Result<M, Box<dyn Error>> {
-        let mut model = M::init(&self.load_config(MODEL_CFG)?, device);
+        let mut model = M::init(&self.model_config_of()?, device);
         model.load_from(&mut BurnpackStore::from_file(self.path.join(WEIGHTS_STEM)))?;
         Ok(model)
     }
@@ -280,9 +283,38 @@ impl RunDir {
     /// The model's architecture, from `model_cfg.json`.
     ///
     /// # Errors
-    /// If the file can't be read or parsed.
+    /// If the file can't be read or parsed, or isn't an FNO's.
     pub fn model_config(&self) -> Result<FNOConfig, Box<dyn Error>> {
-        self.load_config(MODEL_CFG)
+        self.model_config_of()
+    }
+
+    /// The model's architecture, from `model_cfg.json`, of whichever registered kind it
+    /// is (a file without `kind` is the FNO's; CM0.4).
+    ///
+    /// # Errors
+    /// If the file can't be read or parsed, or its kind isn't registered.
+    pub fn any_model_config(&self) -> Result<ModelConfig, Box<dyn Error>> {
+        let path = self.path.join(MODEL_CFG);
+        let json =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        ModelConfig::from_json(&json).map_err(|e| format!("{}: {e}", path.display()).into())
+    }
+
+    /// `model_cfg.json` as `C`, after checking that its kind is `C`'s.
+    fn model_config_of<C: OperatorConfig>(&self) -> Result<C, Box<dyn Error>> {
+        let path = self.path.join(MODEL_CFG);
+        let json =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let kind = kind_of(&json).map_err(|e| format!("{}: {e}", path.display()))?;
+        if kind != C::KIND {
+            return Err(format!(
+                "{}: a model of kind `{kind}`, not `{}`",
+                path.display(),
+                C::KIND
+            )
+            .into());
+        }
+        C::load_binary(json.as_bytes()).map_err(|e| format!("{}: {e}", path.display()).into())
     }
 
     /// The training config, from `train_cfg.json`.
@@ -433,7 +465,8 @@ impl RunDir {
     ///
     /// # Errors
     /// If `checkpoint.bin` exists but can't be read, is truncated or malformed, or
-    /// doesn't fit the architecture in `model_cfg.json`.
+    /// doesn't fit the architecture in `model_cfg.json`, or that file is of another kind
+    /// than `M`'s.
     pub fn checkpoint_of<M: Operator>(
         &self,
         device: &Device,
@@ -443,7 +476,7 @@ impl RunDir {
             return Ok(None);
         }
         let bytes = std::fs::read(&path)?;
-        checkpoint::decode(&bytes, &self.load_config(MODEL_CFG)?, device)
+        checkpoint::decode(&bytes, &self.model_config_of()?, device)
             .map(Some)
             .map_err(|e| format!("{}: {e}", path.display()).into())
     }
@@ -731,6 +764,89 @@ mod tests {
         std::os::unix::fs::symlink(root.join("outside.png"), run.path().join("linked.png"))
             .unwrap();
         assert_eq!(run.artifacts().unwrap(), vec![run.path().join("plots.png")]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A run directory as written before CM0.4: `model_cfg.json` without `kind`.
+    fn pre_registry_run(test: &str) -> (PathBuf, RunDir, FNO<4>) {
+        let device = Device::default();
+        let root = fresh_root(test);
+        let run = RunDir::create(&root, "test_fno").unwrap();
+        run.save_configs(&model_config(), &TrainingConfig::new(), &data_config())
+            .unwrap();
+        model_config().save(run.path().join(MODEL_CFG)).unwrap();
+        let model: FNO<4> = model_config().init::<4>(&device);
+        run.save_weights(&model).unwrap();
+        (root, run, model)
+    }
+
+    #[test]
+    fn a_run_without_kind_loads_as_the_fno_bit_identically() {
+        let device = Device::default();
+        let (root, run, model) = pre_registry_run("no_kind");
+        let json = std::fs::read_to_string(run.path().join(MODEL_CFG)).unwrap();
+        assert!(!json.contains("kind"));
+
+        let opened = RunDir::open(run.path()).unwrap();
+        assert_eq!(opened.model_config().unwrap().padding, Some(2));
+        let ModelConfig::Fno(any) = opened.any_model_config().unwrap();
+        assert_eq!(any.modes, model_config().modes);
+        let loaded: FNO<4> = opened.load_model(&device).unwrap();
+        let x = Array4::from_shape_fn((2, 8, 8, 1), |(k, i, j, _)| {
+            ((k * 64 + i * 8 + j) as f32 * 0.37).sin()
+        });
+        assert_eq!(
+            predict_host(&model, x.view().into_dyn(), 2, &device),
+            predict_host(&loaded, x.view().into_dyn(), 2, &device)
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_new_run_writes_kind_and_reads_as_a_plain_config() {
+        let root = fresh_root("writes_kind");
+        let run = RunDir::create(&root, "test_fno").unwrap();
+        run.save_configs(&model_config(), &TrainingConfig::new(), &data_config())
+            .unwrap();
+        let path = run.path().join(MODEL_CFG);
+        let json = std::fs::read_to_string(&path).unwrap();
+        assert!(json.starts_with("{\n  \"kind\": \"fno\",\n"), "{json}");
+        // what a reader built before CM0.4 does
+        let plain = FNOConfig::load(&path).unwrap();
+        assert_eq!(
+            burn::config::config_to_json(&plain),
+            burn::config::config_to_json(&model_config())
+        );
+        assert_eq!(run.any_model_config().unwrap().kind(), "fno");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_run_of_another_kind_is_an_error_naming_it() {
+        let device = Device::default();
+        let (root, run, _) = pre_registry_run("other_kind");
+        let path = run.path().join(MODEL_CFG);
+        let json = std::fs::read_to_string(&path).unwrap();
+
+        std::fs::write(&path, json.replacen('{', "{\"kind\": \"pointwise\",", 1)).unwrap();
+        let err = run.model_config().unwrap_err().to_string();
+        assert!(
+            err.ends_with("a model of kind `pointwise`, not `fno`"),
+            "{err}"
+        );
+        let err = run.load_fno::<4>(&device).unwrap_err().to_string();
+        assert!(
+            err.ends_with("a model of kind `pointwise`, not `fno`"),
+            "{err}"
+        );
+        let err = run.any_model_config().unwrap_err().to_string();
+        assert!(
+            err.ends_with("unknown model kind `pointwise`; registered: fno"),
+            "{err}"
+        );
+
+        std::fs::write(&path, json.replacen('{', "{\"kind\": \"fno\",", 1)).unwrap();
+        assert!(run.load_fno::<4>(&device).is_ok());
         std::fs::remove_dir_all(&root).unwrap();
     }
 }
