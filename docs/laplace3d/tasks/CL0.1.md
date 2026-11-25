@@ -100,7 +100,7 @@ configuration exit 0); results in `docs/laplace3d/results/cl0-1.md`. As run:
   No datasets are needed, so the dataset links of the skill's step 6 are skipped.
 
 ## Open questions
-- D4 as proposed in `docs/laplace3d/results/cl0-1.md`, confirmed by the cuda run (author's
-  sign-off). D5 signed off.
+- None. D4 signed off 2026-11-25 as proposed in `docs/laplace3d/results/cl0-1.md`, confirmed
+  by the cuda run; D5 signed off 2026-11-24.
 - metal's peak footprint is contaminated by autotune and is not used for D4; the cuda
   reading now replaces flex's slope.

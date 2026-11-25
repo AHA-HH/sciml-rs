@@ -204,8 +204,8 @@ template:
 - Checks: ran fmt, the four clippy runs, `cargo test`, `cargo doc`, the spike's tests and
   clippy (with metal), `cargo tree`; the cuda matrix and the zip64 check on the VM (2026-11-25, run by the
   coordinating session at the author's go).
-- Decisions: D5 signed off by the author 2026-11-24; D4 proposed (modes 12³, batch 20 at
-  both s), confirmed by the cuda run, for sign-off.
+- Decisions: D5 signed off by the author 2026-11-24; D4 signed off 2026-11-25 (width 32,
+  4 layers, modes 12³, batch 20 at both s), on the cuda run's figures.
 - Review: see the PR.
 - 2D: not touched (no change under `src/`, `examples/`, `tests/`).
-- Follow-ups: D4 from the author; CL3.2 (needs D5, now signed) and CL4.1 (needs D4).
+- Follow-ups: CL3.2 (D5 signed) and CL4.1 (D4 signed).
