@@ -145,7 +145,8 @@ results written.
 
 - [ ] **CO4.1 The matrix.** Adam, GN (D1), L-BFGS (D5), SOAP (D6), seeds 42–46 at equal
   time and 42–44 at 5,400 s (D2) (reusing CO0.1's Adam and GN runs); `poisson_matrix --by-optimizer` extended to
-  the new arms; each arm at weight decay 0 and 1e-4 if D13 is taken, and the four arms on
+  the new arms, and its arm labels to the CG cap and the budget (CO0.1 tabulates them by
+  separate calls); each arm at weight decay 0 and 1e-4 if D13 is taken, and the four arms on
   Burgers at equal time if D14 is. *Done when:* `docs/optimisers/results/CO4.1.md` with
   error 4 against time and passes per arm, and the equal-time verdict with its spread; with
   D13, whether weight decay's effect splits by whether the arm reaches the penalised

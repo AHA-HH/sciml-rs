@@ -63,7 +63,7 @@
 //! With Gauss–Newton, `GN_BATCH_SIZE` overrides the literal of that name (T4's full batch
 //! is the subset's N), and `TIME_BUDGET_S` stops the run after the first epoch that ends
 //! at or over that many seconds of training (`TrainingConfig::time_budget_s`; G4's equal
-//! wall-clock, `EPOCHS` staying the cap). Both are saved in `train_cfg.json`, so
+//! wall-clock, the `EPOCHS` literal staying the cap). Both are saved in `train_cfg.json`, so
 //! `--resume` keeps them. Phase 10 T4, against Phase 7's Adam run of N = 100, subset 0,
 //! seed 42 (`training_time_s` 132.5):
 //! OPTIMIZER=gauss-newton GN_BATCH_SIZE=100 TIME_BUDGET_S=132.5 cargo run --release \

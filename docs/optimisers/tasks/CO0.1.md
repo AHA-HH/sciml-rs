@@ -75,10 +75,13 @@ cd ~/sciml-rs && git fetch origin
 git worktree add --detach ~/sciml-rs-wt/co0-1 origin/optimisers/co0-1
 cd ~/sciml-rs-wt/co0-1
 find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
-source ~/sciml-gpu.sh
-export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers
-cargo build --release --no-default-features --features cuda --example train_poisson --example predict_poisson
 ```
+The script builds `train_poisson` and `predict_poisson` itself and runs copies of them in
+`~/sciml-rs/logs/co0-1/bin-<commit>/`, so another worktree building into the shared
+`CARGO_TARGET_DIR` cannot swap the binary between specs (the run directories land in this
+worktree's `runs/`, `CARGO_MANIFEST_DIR` being fixed at compile time). Each tmux command
+sources the Spack environment itself, since a running tmux server does not pass on the
+client's environment; the script clears every optimiser variable before each run.
 
 Run specs (the script's arguments): `adam:<seed>` (500 epochs), `adam:<seed>:<E>` (E
 epochs), `gn:<seed>:<cap>:<budget_s>` (GN200-D: `OPTIMIZER=gauss-newton GN_BATCH_SIZE=200
@@ -87,51 +90,61 @@ TIME_BUDGET_S=<budget_s>`). Every run is `train_poisson -- 0 129 64 <seed>`.
 
 **Stage 1, Adam at equal time, and the side-by-side check** (about 0.75 h wall, 1.2 GPU-h):
 ```sh
-tmux new -d -s co01-g0 "GPU=0 bash docs/optimisers/co0_1_runs.sh adam:42"
+tmux new -d -s co01-g0 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=0 bash docs/optimisers/co0_1_runs.sh adam:42"
 # when it is done, the pair:
-tmux new -d -s co01-g0 "GPU=0 bash docs/optimisers/co0_1_runs.sh adam:43"
-tmux new -d -s co01-g1 "GPU=1 bash docs/optimisers/co0_1_runs.sh adam:44"
+tmux new -d -s co01-g0 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=0 bash docs/optimisers/co0_1_runs.sh adam:43"
+tmux new -d -s co01-g1 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=1 bash docs/optimisers/co0_1_runs.sh adam:44"
+# if the check holds, the next pair:
+tmux new -d -s co01-g0 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=0 bash docs/optimisers/co0_1_runs.sh adam:45"
+tmux new -d -s co01-g1 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=1 bash docs/optimisers/co0_1_runs.sh adam:46"
 ```
 The check: the median `epoch_time_s` of seeds 43 and 44 (`metrics.csv`) each within 3 %
 of seed 42's (alone). Phase 10's lone Adam runs spread ±1.5 % in total time. If it holds,
-45 and 46 run as a pair the same way; if not, 43 and 44 run again alone, and every timed
-run of this task runs alone (about 13 h wall instead of 7). Then
+45 and 46 run as a pair; if not, 43 and 44 run again alone (their progress lines removed
+first), and every timed run of this task runs alone (about 13 h wall instead of 8). Then
 B = mean `training_time_s` of the five, E = round(5,400 × 500 / B).
 
-**Stage 2, seed 42 at both caps, and Adam long** (about 4 h wall, 7 GPU-h):
+**Stage 2, seed 42 at both caps, and Adam long** (about 3.5 h wall, 6.5 GPU-h):
 ```sh
 # equal time, alone, one after the other: each is the pass-rate reference of its cap
-tmux new -d -s co01-g0 "GPU=0 bash docs/optimisers/co0_1_runs.sh gn:42:50:<B> gn:42:150:<B>"
+tmux new -d -s co01-g0 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=0 bash docs/optimisers/co0_1_runs.sh gn:42:50:<B> gn:42:150:<B>"
 # then the long runs as pairs
-tmux new -d -s co01-g0 "GPU=0 bash docs/optimisers/co0_1_runs.sh gn:42:50:5400 adam:42:<E>"
-tmux new -d -s co01-g1 "GPU=1 bash docs/optimisers/co0_1_runs.sh gn:42:150:5400 adam:43:<E>"
+tmux new -d -s co01-g0 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=0 bash docs/optimisers/co0_1_runs.sh gn:42:50:5400 adam:42:<E>"
+tmux new -d -s co01-g1 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=1 bash docs/optimisers/co0_1_runs.sh gn:42:150:5400 adam:43:<E>"
 ```
-GN's side-by-side check: passes per second of each long GN run within 3 % of its cap's
-equal-time run alone (`costs.json`). A pair that fails is rerun alone.
+GN's side-by-side check comes after the fact: passes per second of each long GN run
+within 3 % of its cap's equal-time run alone (`costs.json`), and the Adam long runs' median
+epoch time within 3 % of stage 1's. A run that fails is run again alone (up to 3 GPU-h at
+risk). Unlike Adam's, the GN check is not made before the first GN pair, and the overlaps
+of different arms (a GN run ending beside an Adam run that has started) are covered only
+by these after-the-fact checks; the PR says so.
 
 **Stop: D1.** The cap is proposed to the author from seed 42 (lower error 4 at equal time
 first, as the matrix's primary budget; the long budget second), and the author chooses.
 
-**Stage 3, the chosen cap C** (about 2 h wall, 5 GPU-h):
+**Stage 3, the chosen cap C** (about 3.5 h wall, 5.5 GPU-h):
 ```sh
-tmux new -d -s co01-g0 "GPU=0 bash docs/optimisers/co0_1_runs.sh gn:43:C:<B> gn:45:C:<B> gn:43:C:5400"
-tmux new -d -s co01-g1 "GPU=1 bash docs/optimisers/co0_1_runs.sh gn:44:C:<B> gn:46:C:<B> gn:44:C:5400 adam:44:<E>"
+tmux new -d -s co01-g0 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=0 bash docs/optimisers/co0_1_runs.sh gn:43:C:<B> gn:45:C:<B> gn:43:C:5400"
+tmux new -d -s co01-g1 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=1 bash docs/optimisers/co0_1_runs.sh gn:44:C:<B> gn:46:C:<B> gn:44:C:5400 adam:44:<E>"
 ```
-(`adam:44:<E>` follows on GPU 1, about 1.5 h more.)
+The equal-time GN pairs rely on stage 2's GN check; a slowdown there would show as fewer
+passes, which the same check on their `costs.json` catches.
 
-Evaluation (after each stage, on the VM, not timed): `predict_poisson` on every run
-directory listed in `progress.txt`:
+**Evaluation**, only once no timed run is on the VM (not timed itself), with the copied
+binary:
 ```sh
-for d in $(awk '/^done /{print $3}' ~/sciml-rs/logs/co0-1/progress.txt); do
-  $CARGO_TARGET_DIR/release/examples/predict_poisson "$d"
-done
+cd ~/sciml-rs-wt/co0-1; source ~/sciml-gpu.sh
+P=$(ls -d ~/sciml-rs/logs/co0-1/bin-* | tail -1)/predict_poisson
+for d in $(awk '/^done /{print $3}' ~/sciml-rs/logs/co0-1/progress.txt); do "$P" "$d"; done
+mkdir -p ~/sciml-rs/runs/co0-1
+for d in $(awk '/^done /{print $3}' ~/sciml-rs/logs/co0-1/progress.txt); do cp -r "$d" ~/sciml-rs/runs/co0-1/; done
 ```
-Then the run directories are copied to `~/sciml-rs/runs/co0-1/` and to the Mac, and the
-tables made there by `poisson_matrix --by-optimizer`, one call per group (Adam equal, Adam
-long, each cap × budget).
+Then the run directories go to the Mac (`scp -r cricket:sciml-rs/runs/co0-1 runs/`), and
+the tables are made there by `poisson_matrix --by-optimizer`, one call per group (Adam
+equal, Adam long, each cap × budget), with `progress.txt` mapping specs to directories.
 
 **Total: about 13.2 GPU-hours** (Adam 5 × 0.24 h + 3 × 1.5 h; GN 6 × 0.25 h + 4 × 1.5 h),
-about 7 h wall on the two A100s if the side-by-side checks hold, 13 h if not; the fork's
+about 8 h wall on the two A100s if the side-by-side checks hold, 13 h if not; the fork's
 times, which Burn 0.23 may change (CO0.2 measures it).
 
 What it decides: B and E for every later pilot and the matrix (CO2.2, CO3.3, CO4.1); D1;
