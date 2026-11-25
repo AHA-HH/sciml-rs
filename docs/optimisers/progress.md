@@ -91,3 +91,17 @@ template:
 - Adam and Gauss–Newton: unchanged bit for bit: equal fingerprints with `linalg` off
   (`origin/main` 4d681d0) and on, flex; the feature adds no code the crate uses (REPORT).
 - Follow-ups: CO3.2 (needs D8).
+
+## 2026-11-25: D8, D10 and D11
+- Done: signed off by the author as recommended. D8: SOAP preconditions each tensor with one
+  Kronecker factor per dimension, re and im separately, biases on Adam. D10: O1 takes
+  PETScML's data, model (a GELU option), loss (eq. 6) and metric, with our Levenberg–Marquardt
+  Gauss–Newton in f32; their reference counts as reproduced when A1's mean is within a factor
+  2 of 0.0014. D11: AdamW, lr 1e-3 halved every 100 epochs, batch 20, 500 epochs, ε 1e-8,
+  at weight decay 1e-4 (A1) and 0 (A0), plus our coupled Adam at both.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D8, D10, D11 signed off 2026-11-25.
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO3.2 (SOAP) and CO1.1 (the Burgers recipe) are runnable; both change
+  different modules, but CO1.1 changes `training/`, so no other `training/` task beside it.

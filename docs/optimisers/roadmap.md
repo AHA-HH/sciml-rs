@@ -10,7 +10,8 @@ Status: **planning.** Draft 0.1 written 2026-11-24, draft 0.2 (the Burgers repli
 O1; the former O1–O4 renumbered O2–O5) the same day, corrected after an independent check
 (#128). D0 and D2 signed off 2026-11-24. CO3.1 (2026-11-24, cuda 2026-11-25): `linalg` enabled,
 constraint 1 shown, flex, metal and cuda measured; D9 signed off 2026-11-25. Next CO0.1 and
-CO0.2 (the VM, at the author's go per run); CO3.2 after CO3.1 and D8.
+CO0.2 (the VM, running at the author's go, 2026-11-25); D8, D10 and D11 signed off
+2026-11-25, so CO3.2 (SOAP) and CO1.1 (the Burgers recipe; after CM0.3, merged) are runnable.
 
 ## How to read this file
 
@@ -48,10 +49,10 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | D5 | L-BFGS's settings | strong Wolfe, lr 1; history and `max_iter` from the pilot | CO2.2 | CO4.1 | open |
 | D6 | SOAP's hyperparameters | lr 1e-3 cosine, wd 1e-4, β (0.95, 0.95), f = 10; pilot lr ∈ {1e-3, 3e-3}, f ∈ {10, 50} | CO3.3 | CO4.1 | open |
 | D7 | Pass accounting for the new arms | one forward and one backward per SOAP step and per L-BFGS closure evaluation; SOAP's preconditioner work as time | – | CO2.1, CO3.3 | open |
-| D8 | SOAP's handling of the spectral tensors | one factor per dimension; re and im separate; biases on Adam | – | CO3.2 | open |
+| D8 | SOAP's handling of the spectral tensors | one factor per dimension; re and im separate; biases on Adam | – | CO3.2 | signed off 2026-11-25: option A as recommended (one factor per dimension; re and im separate; biases on Adam) |
 | D9 | Where SOAP's linear algebra runs | `linalg` enabled; first basis by host `svd`, refreshes by device `qr` if CO3.1 passes, else host | CO3.1 | CO3.2 | signed off 2026-11-25: host `svd` for the first basis and host QR for the refreshes, on every backend (one code path; CO3.1, `spikes/linalg/REPORT.md`) |
-| D10 | O1's fidelity to PETScML | their data, model (GELU option), loss (eq. 6, squared-loss option for Adam), metric and reference recipe; f32, our Levenberg–Marquardt GN; reproduced if A1's mean is within a factor 2 of 0.0014 | – | CO1.1 | open |
-| D11 | O1's Adam arms | AdamW, lr 1e-3 halved every 100 epochs, batch 20, 500 epochs, ε 1e-8, weight decay 1e-4 (A1) and 0 (A0); our Adam (coupled L2) at 0 and 1e-4 as two more cells | – | CO1.1 | open |
+| D10 | O1's fidelity to PETScML | their data, model (GELU option), loss (eq. 6, squared-loss option for Adam), metric and reference recipe; f32, our Levenberg–Marquardt GN; reproduced if A1's mean is within a factor 2 of 0.0014 | – | CO1.1 | signed off 2026-11-25: as recommended |
+| D11 | O1's Adam arms | AdamW, lr 1e-3 halved every 100 epochs, batch 20, 500 epochs, ε 1e-8, weight decay 1e-4 (A1) and 0 (A0); our Adam (coupled L2) at 0 and 1e-4 as two more cells | – | CO1.1 | signed off 2026-11-25: as recommended, the coupled-Adam cells included |
 | D12 | O1's Gauss–Newton arm | full batch, CG cap 100, Phase 10's damping, the Hutchinson diagonal (fixed, not D1's), μ = 0 (G0) and 1e-4 (G1); G0-200, G0 at batch 200 | – | CO1.2 | open |
 | D13 | Weight decay as a factor in O4 | every arm at weight decay 0 and 1e-4 (D3 and D6 widened); doubles O4's cost | – | CO2.1, CO3.3, CO4.1 | open |
 | D14 | Burgers in O4 | the four arms on O1's Burgers setting, equal time, seeds 42–46 | – | CO4.1 | open |
