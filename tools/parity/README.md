@@ -53,9 +53,21 @@ files, absent from the wheel, differ).
 | `legacy_spectral_conv1d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(12,))` (`layers/legacy_spectral_convolution.py`), defaults otherwise (bias on); input (2, 3, 50) | 148 | 4 kB, 8 kB |
 | `legacy_spectral_conv2d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(8, 6))`; input (2, 3, 24, 21) | 580 | 32 kB, 62 kB |
 | `legacy_spectral_conv3d_{f32,f64}` | legacy `SpectralConv(2, 3, n_modes=(6, 4, 4))`; input (2, 2, 12, 10, 9) | 579 | 47 kB, 93 kB |
+| `channel_mlp1d_{f32,f64}` | `ChannelMLP(4, hidden_channels=2)`; input (2, 4, 7) | 22 | 2 kB, 3 kB |
+| `channel_mlp3d_{f32,f64}` | `ChannelMLP(3, out_channels=5, hidden_channels=4, n_layers=3, non_linearity=torch.tanh)`; input (2, 3, 5, 4, 3) | 61 | 6 kB, 10 kB |
+| `linear_skip3d_{f32,f64}` | `skip_connection(3, 5, n_dim=3, skip_type="linear")`; input (2, 3, 5, 4, 3) | 15 | 5 kB, 9 kB |
+| `soft_gating2d_{f32,f64}` | `skip_connection(4, 4, n_dim=2, skip_type="soft-gating")`, weight redrawn; input (2, 4, 6, 5) | 4 | 3 kB, 5 kB |
+| `instance_norm1d_{f32,f64}` | `InstanceNorm()`; input (2, 4, 9) | 0 | 1 kB, 2 kB |
+| `group_norm3d_{f32,f64}` | `nn.GroupNorm(1, 4)`, affine redrawn; input (2, 4, 5, 4, 3) | 8 | 5 kB, 9 kB |
+| `ada_in2d_{f32,f64}` | `AdaIN(embed_dim=3, in_channels=4)`, its embedding a seeded buffer (`embedding`); input (2, 4, 6, 5) | 6,152 | 28 kB, 55 kB |
 
 The legacy layer's `forward` builds its spectrum as `cfloat`, so its f64 fixtures are only
-f32-accurate (library CM1.1). tltorch stores its weights as real tensors with the trailing
+f32-accurate (library CM1.1).
+
+Library CM1.3a: parts whose 2.0.0 initialisation is a constant (soft gating's ones, group
+norm's ones and zeros; `REDRAW`) have their parameters redrawn from the weight seed's normal,
+so their fixtures test the map. A function argument (`non_linearity`) is named in the sidecar
+by its `__name__`. tltorch stores its weights as real tensors with the trailing
 (re, im) axis, so their sidecars list no `complex_params`.
 
 Torch's CPU kernels can differ in the last bits between machines, so `--check` is a

@@ -12,8 +12,8 @@ the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 
 once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
 answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
-CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). Next CM0.6, CM1.2
-(needs D5) and CM1.3.
+CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.3 split; CM1.3a done
+2026-11-25 (the block parts). Next CM0.6, CM1.2 (needs D5), CM1.3b and CM1.4.
 
 ## How to read this file
 
@@ -119,12 +119,14 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
 - **CM1.3 Block parts.** Channel MLP; linear, identity and soft-gating skips;
   instance, group and AdaIN norms; pre-activation; the activation choice. *Needs:* CM1.1.
   Split 2026-11-25 (parts in `layers/`, then the FNO's block options):
-  - [ ] **CM1.3a The parts.** `ChannelMlp` (2.0.0's `ChannelMLP`), the skips of
+  - [x] **CM1.3a The parts.** `ChannelMlp` (2.0.0's `ChannelMLP`), the skips of
     `skip_connection` (identity, linear, soft-gating) and `AdaIn` in `layers/`; the
     activation choice as Burn's `ActivationConfig`; instance and group norm as Burn's
     `InstanceNorm` and `GroupNorm`. *Done when:* each part (Burn's norms and activations
     included) matches a 2.0.0 fixture of its own within D3, in f32 and f64, across 1D to 3D;
-    nothing under `models/` or `training/` changes. *Needs:* CM1.1.
+    nothing under `models/` or `training/` changes. *Needs:* CM1.1. Done 2026-11-25: plan
+    `docs/operators/tasks/CM1.3a.md`; `tests/parity_block_parts{,_f64}.rs` (f32 ≤ 1.9e-7,
+    f64 ≤ 7.1e-16).
   - [ ] **CM1.3b The FNO's block options.** `FNOConfig` gains the activation, the FNO skip,
     the channel MLP (expansion, skip), the norm and pre-activation, each absent meaning
     today's block. *Done when:* the CM0.3 bit-identity check passes against `main`; a block

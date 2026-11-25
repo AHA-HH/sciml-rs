@@ -244,3 +244,26 @@ template:
   and what is missing.
 - Follow-ups: CM0.5's sidecar and grid items pass to CM1.2 and CM1.5 (CM1.1's roadmap line);
   `flex_f64` shared (CM1.5, now easy with `#[path]`).
+
+## 2026-11-25: CM1.3a The parts
+- Done: CM1.3 split into CM1.3a (the parts) and CM1.3b (the FNO's block options); CM1.4 now
+  needs CM1.3a, CM1.5 also CM1.3b. `layers/channel_mlp.rs` (`ChannelMlpConfig`,
+  `ChannelMlp`: 2.0.0's `ChannelMLP`, any rank, the activation a Burn `ActivationConfig`,
+  default GELU; `conv1x1`, a kernel-1 `Conv1d` as one matmul), `layers/skip.rs` (`SkipKind`,
+  `Skip<R>`: identity, bias-free linear, soft gating), `layers/norm.rs` (`AdaInConfig`,
+  `AdaIn`, the embedding a `forward` argument). Instance and group norm are Burn's, tested.
+  Seven 2.0.0 fixtures (`channel_mlp{1,3}d`, `linear_skip3d`, `soft_gating2d`,
+  `instance_norm1d`, `group_norm3d`, `ada_in2d`), constant initialisations redrawn; the
+  harness gains `Take::Transposed` (torch `Linear` weights).
+- Tests: the seven parts in f32 (`tests/parity_block_parts.rs`, ≤ 1.9e-7) and f64
+  (`tests/parity_block_parts_f64.rs`, ≤ 7.1e-16; none ignored: no FFT); unit tests of each
+  module (a channel MLP by hand, soft gating per channel, AdaIN's scale and shift, widths,
+  the panics).
+- Checks: see the PR (fmt, clippy ×5, `cargo test`, `cargo test --features datagen`,
+  `cargo doc`, the bit-identity dumps against `main`, `generate.py --check`).
+- Decisions: none.
+- Review: see the PR.
+- FNO: not touched (new modules only).
+- Matrix: `ChannelMLP` partial, skips have, norms partial (no `BatchNorm`), `FNOBlocks` to
+  CM1.3b.
+- Follow-ups: CM1.3b (in the roadmap; may let `FNO::conv1x1_cf` share `conv1x1`).

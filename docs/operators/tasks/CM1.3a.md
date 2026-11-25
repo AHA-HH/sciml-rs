@@ -42,7 +42,7 @@ What the source says, and how it maps:
 | `skip_connection(in, out, n_dim, bias=False, skip_type)`: `"identity"` → `nn.Identity`, `"linear"` → `Flattened1dConv` (a `Conv1d(in, out, 1, bias=False)` on flattened axes), `"soft-gating"` → `SoftGating` (weight `(1, C, 1, …)`, ones; `in == out` or it raises) | `SkipKind` (config) and `Skip<R>` (module enum); the linear skip a bias-free `Conv1d`; soft gating a `[1, C, 1, …]` parameter of rank `R` |
 | `InstanceNorm()`: `F.instance_norm`, no affine, eps 1e-5, input statistics | Burn's `InstanceNorm` with `affine = false`: tested, not wrapped |
 | `nn.GroupNorm(1, C)`: affine weight and bias of `[C]`, eps 1e-5 | Burn's `GroupNorm` (`gamma`, `beta`): tested, not wrapped |
-| `AdaIN(embed_dim, in_channels, eps=1e-5)`: `Linear(embed, 512) → GELU → Linear(512, 2C)` of an embedding set beforehand; split into weight and bias; `group_norm` with `C` groups | `AdaInConfig` / `AdaIn`; the two `Linear`s in torch's `[out, in]` layout (`LinearLayout::Col`); the embedding an argument of `forward`, not state |
+| `AdaIN(embed_dim, in_channels, eps=1e-5)`: `Linear(embed, 512) → GELU → Linear(512, 2C)` of an embedding set beforehand; split into weight and bias; `group_norm` with `C` groups | `AdaInConfig` / `AdaIn`; the two `Linear`s in Burn's `[in, out]` layout, the map transposing torch's `[out, in]` (Burn's `LinearLayout::Col` keeps `[in, out]` in memory and transposes only on save, so it does not help); the embedding an argument of `forward`, not state |
 
 Left out, named in the feature matrix: `ChannelMLP`'s dropout (2.0.0's default 0; a no-op in
 eval), `LinearChannelMLP` (for GNO models, M3), soft gating's bias (no 2.0.0 caller sets it),
@@ -65,8 +65,12 @@ of a norm and pre-activation belong to the block (CM1.3b).
   the fixture tests the map; an `AdaIN` subclass that keeps its embedding as a buffer so the
   fixture carries it; the sidecar names a function argument by its `__name__`.
 - `tools/parity/README.md`: the new fixtures' rows.
-- Tests: `tests/parity_block_parts.rs` and `tests/parity_common/block_parts.rs` (maps, test
-  wrappers: AdaIN with its embedding as a test-only parameter, as CM1.1's test-only bias).
+- Tests: `tests/parity_common/block_parts.rs` (the cases, maps, and AdaIN with its embedding
+  as a test-only parameter, as CM1.1's test-only bias), included by `#[path]` from
+  `tests/parity_block_parts.rs` (f32) and `tests/parity_block_parts_f64.rs` (its own binary:
+  Flex's process-wide f64). The harness (`tests/parity_common/mod.rs`) gains
+  `Take::Transposed` for torch's `Linear` weights, and a scoped `allow(dead_code)` on `Take`
+  (each binary constructs only some variants).
 - Docs: root `CLAUDE.md` "Layout" (the three modules), feature matrix rows, roadmap,
   progress.
 - Public API: the types above. Conventions: none changed (channels-first inside, as the FNO;
@@ -118,6 +122,13 @@ None.
 
 None.
 
+## Results
+
+Relative max error (Flex, M2 Pro), f32 / f64: `channel_mlp1d` 1.078e-7 / 0; `channel_mlp3d`
+7.484e-8 / 1.859e-16; `linear_skip3d` 0 / 0; `soft_gating2d` 0 / 0; `instance_norm1d`
+8.773e-8 / 1.634e-16; `group_norm3d` 1.141e-7 / 4.249e-16; `ada_in2d` 1.881e-7 / 7.009e-16.
+Every f64 test runs (none `#[ignore]`d).
+
 ## Open questions
 
-None yet.
+None.

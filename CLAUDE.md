@@ -147,7 +147,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   per kind, built by name; `RunDir::any_model_config`),
   `models/predict.rs` (`predict_host`: batched inference to host f64, any rank, any
   `GridOperator`), `layers/spectral_convolution.rs`
-  (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
+  (SpectralConv, SpectralInit), `layers/{channel_mlp,skip,norm}.rs` (library CM1.3a:
+  2.0.0's `ChannelMlp`, `SkipKind`/`Skip<R>`, `AdaIn`; activations are Burn's
+  `ActivationConfig`, instance and group norm Burn's; parity in `tests/parity_block_parts*.rs`), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
