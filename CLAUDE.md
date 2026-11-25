@@ -173,6 +173,12 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `tests/gauss_newton_fno.rs` (helpers in `tests/gauss_newton_common/`), and the f64
   ones are `#[ignore]`d in `tests/gauss_newton_f64.rs` (flex's f64 rfft uses f32
   twiddles).
+- `optim/soap/` (optimisers CO3.2, any tensor rank; imports nothing from `models/` or
+  `training/`): `SoapConfig` (reference defaults; `init` a `ModuleOptimizer`), `Soap`, Burn's
+  per-parameter `Optimizer` (one factor per dimension, D8; first basis by Burn's host `svd`,
+  refreshes by a host f64 Householder QR, D9; M kept in the original space, V in the bases),
+  `SoapState` (`RecordState` by hand: Burn's derive works only inside `burn-optim`) and
+  `Factor`; tests in `soap/tests.rs`. Nothing calls it before CO3.3.
 - `runs` (`RunDir`, `EpochMetrics`, `RunCosts`) owns the run directory:
   `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still

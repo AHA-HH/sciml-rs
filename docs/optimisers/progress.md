@@ -120,3 +120,38 @@ template:
 - Adam and Gauss–Newton: not touched.
 - Follow-ups: CO1.2 after CO1.1; CO3.3 after CO3.2 and CO0.1; CO2.1 after CO1.1. They all
   change `training/`, so one at a time (with CM0.6).
+
+## 2026-11-25: CO3.2 The SOAP optimiser
+- Done: `optim/soap/` (new; imports nothing from `models/` or `training/`): `SoapConfig`
+  (the reference defaults; `precondition_frequency` 0 refused), `Soap`, Burn's
+  per-parameter `Optimizer` for any rank, `SoapState` with `RecordState` written by hand
+  (Burn's derive works only inside `burn-optim`), `Factor`. Follows nikhilvyas/SOAP @a1e5535:
+  first call builds the factors and bases and moves nothing; bias correction, ε on √V,
+  decoupled decay after the step, factor EMA after it, refresh every f steps (sort by
+  diag(QᵀLQ), V permuted, one power step, QR). D8: one factor per dimension, rank 1 on Adam.
+  D9: first basis by Burn's host `svd`, refreshes by a host f64 Householder QR (ndarray).
+  Departure, declared: M kept in the original space (the paper's Algorithm 3; three
+  projections per step against the reference's four).
+- Tests: seven in `optim/soap/tests.rs`: identity bases (`max_precond_dim` 0) equal Burn's
+  Adam over 20 steps (1e-6); the Kronecker quadratic (first factors to 1e-5; SOAP 1.6e-7
+  against Adam 5.1e-2 from 2.0e2 at lr 0.05 · 0.98ⁱ, 400 steps, κ = 10 per factor; at
+  κ = 100 the factors are past f32 and the result depends on the backend); ranks 1–5 (factor EMA,
+  orthonormal bases, one step against host f64 at 3–7e-6 of the update); the refresh against
+  host f64 (first bases against the exact eigenvectors, refreshed bases against a
+  Gram–Schmidt QR, V permuted); the record round trip bit for bit across refreshes (flex;
+  on metal it fails about one run in six, see the plan's Outcome); a zero
+  first gradient; the frequency check. Mutations (Q for Qᵀ in the back-projection, V not
+  permuted, decay before the step) each fail a test.
+- Checks: see the PR (fmt, the clippy lines, `cargo test`, `cargo doc`, datagen clippy and
+  tests, the soap tests on metal).
+- Decisions: none new; D8, D9 applied. The author's answers to the PR's questions
+  (2026-11-25): no reference fixtures; resume bit for bit on flex, drift recorded on the
+  GPU; f32 kept, CO3.3 logs the factors' conditioning (CO3.3's roadmap line).
+- Review: plan review FAIL → fixed (`clippy::needless_range_loop` in the tests; advisories
+  taken: decay order now tested, zero-gradient test, frequency 0 refused, f64 host read);
+  code quality APPROVE, no blockers (F1 ndarray for the host QR, F4, F5, F6, F8 fixed; F2,
+  F3, F7 left, PR text).
+- Adam and Gauss–Newton: not touched (nothing calls the module; the existing suite unedited).
+- Follow-ups: CO3.3 (the arm, resume bit for bit on flex with the GPU drift recorded, the
+  factors' conditioning logged at the pilot; its roadmap line).
+
