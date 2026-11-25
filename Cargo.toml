@@ -85,6 +85,11 @@ name = "generate_poisson"
 path = "examples/generate/poisson.rs"
 required-features = ["datagen"]
 
+[[example]]
+name = "generate_poisson3d"
+path = "examples/generate/poisson3d.rs"
+required-features = ["datagen"]
+
 # Backends are additive: `Device::default()` picks the highest-priority one
 # compiled in (CUDA > Metal > ROCm > Vulkan > wgpu > Flex), and the
 # `BURN_DEVICE` env var overrides it at runtime. NdArray is not offered: Burn's

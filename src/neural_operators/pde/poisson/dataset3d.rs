@@ -2,7 +2,7 @@
 //! [`dataset`](super::dataset) with a third axis.
 //!
 //! [`generate_3d`] builds one split: for sample i it draws the 3D forcing f of seed
-//! `base_seed + i` ([`grf3d`]), solves −Δu = f with
+//! `base_seed + i` ([`grf3d`](super::grf3d)), solves −Δu = f with
 //! [`CollocationSolver3d::solve_full`] (A3), and records two relative Clenshaw–Curtis L²
 //! errors on the CGL grid (CONVENTIONS §12):
 //! - the **label check** ([`label_check_3d`]): u_A3 against the exact sine-series solution
@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use super::collocation::CollocationSolver3d;
 use super::dataset::{LABEL_CHECK_MIN_N, LABEL_CHECK_TOL, LabelCheckError, SplitSpec};
 use super::grf::{K_MAX, TAU};
-use super::grf3d::{self, ALPHA, RNG, draw_xi, eps_k, evaluate, forcing_coeffs, solution_coeffs};
+use super::grf3d::{ALPHA, RNG, draw_xi, eps_k, evaluate, forcing_coeffs, solution_coeffs};
 use crate::CONVENTION_VERSION;
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, cc_rel_l2_error_nd, nodes};
 use crate::neural_operators::data::catalogue::Poisson3dSet;
@@ -170,7 +170,7 @@ pub fn generate_3d(spec: &SplitSpec) -> Result<Split3d, LabelCheckError> {
 /// The `.npz` holds `f` and `u` (`[N, n, n, n]`, f64, 'ijk') and the CGL nodes `x`, `y` and
 /// `z` (`[n]`, each [`Split3d::x`]), uncompressed (zip64 above 4 GiB). The sidecar is a
 /// [`SidecarRecord`] as in 2D, with the 3D α ([`ALPHA`]), RNG ([`RNG`]) and ε_K
-/// ([`grf3d::eps_k`]). `name` is the split's name, e.g. `"train"`. Returns the two paths.
+/// ([`eps_k`]). `name` is the split's name, e.g. `"train"`. Returns the two paths.
 ///
 /// # Errors
 /// Any I/O error from creating `dir` or writing either file.
@@ -357,7 +357,7 @@ mod tests {
         assert!(!record.k_explicit);
         assert_eq!((record.base_seed, record.count), (40, 2));
         assert_eq!((record.tau, record.alpha, record.k_max), (TAU, 3.0, K_MAX));
-        assert_eq!(record.rng, grf3d::RNG);
+        assert_eq!(record.rng, RNG);
         // serde_json parses floats to within an ulp without `float_roundtrip`.
         let close = |read: f64, written: f64| {
             assert!(
@@ -365,7 +365,7 @@ mod tests {
                 "{read} vs {written}"
             )
         };
-        close(record.eps_k, grf3d::eps_k(4));
+        close(record.eps_k, eps_k(4));
         close(record.label_check.max, split.label_check.max);
         close(record.label_check.mean, split.label_check.mean);
         assert!(!record.label_check.enforced);

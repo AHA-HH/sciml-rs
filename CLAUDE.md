@@ -208,6 +208,10 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   validation oracle, test-only); `manufactured` (test-only fixtures).
 - `pde/poisson/grf3d` (3D laplace3d CL3.1): the 3D GRF, α = 3, ChaCha8 stream 3, separable
   evaluation; shares `grf::{TAU, K_MAX, sine_basis}`.
+- `pde/poisson/dataset3d` (laplace3d CL3.2): `generate_3d` / `write_split_3d`, the 3D splits
+  (`Split3d`, A3 labels, the 2D `SplitSpec` and `SidecarRecord`), named by
+  `catalogue::Poisson3dSet` (`poisson3d_n{n}_K{K}_{split}`, `GENERATED_3D`), driven by
+  `examples/generate/poisson3d.rs` (`generate_poisson3d [-- <n> ...]`).
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`
   (`generate`, `label_check`, `write_split`), driven by `examples/generate/poisson.rs`
   (`generate_poisson`), which writes `datasets/poisson/`.
