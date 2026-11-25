@@ -209,3 +209,22 @@ template:
 - Review: see the PR.
 - 2D: not touched (no change under `src/`, `examples/`, `tests/`).
 - Follow-ups: CL3.2 (D5 signed) and CL4.1 (D4 signed).
+
+## 2026-11-25: L1 gate
+- Done: gate report `docs/laplace3d/gates/L1.md`: CONVENTIONS version 3 (CL1.1), N-D
+  transfers, norms and errors (CL1.2, CL1.3), 2D unchanged by the D2 tests; all met. The
+  roadmap's L1 gate closed 2026-11-25.
+- Tests: none new. `cargo test --lib -- chebyshev:: metrics::poisson::` on `aabd87a`, 80
+  passed; `main`'s last five CI runs green.
+- Checks: none beyond that (docs only: CONVENTIONS §9 and §12 Verification, roadmap,
+  proposal, this log).
+- Decisions: signed off by the author 2026-11-25: Q1 the 3D test names in CONVENTIONS §12
+  "Verification" without a bump, §9 amended; Q2 the single per-sample loop stays in CL4.1;
+  C4 the N-D tensor helpers folded into CL3.3's first commit; C1–C3 and the line count
+  applied (proposal Appendix A, draft 0.2 unchanged).
+- Review: thermo-nuclear review of the milestone's diff APPROVE, B+, no blockers (report
+  git-ignored, `docs/code-quality/thermo-nuclear-review-2026-11-25-laplace3d-L1-gate.md`);
+  findings to CL3.3 and CL4.1. The report fact-checked by an independent agent; its
+  corrections applied.
+- 2D: not touched (no code).
+- Follow-ups: the L0 and L2 gates; CL3.2 (D4 and D5 signed off with CL0.1, #123).
