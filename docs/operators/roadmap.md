@@ -43,7 +43,7 @@ The proposal's Section 12. Recorded when the author takes them:
 | D0 | Draft 0.1 of the proposal as the plan of record | after review | – | every task | signed off 2026-11-24: draft 0.1 as the plan of record |
 | D1 | Reference version | `neuraloperator` 2.0.0 | – | CM0.1 | signed off 2026-11-11: "its neuraloperator and the major release 2.0.0" |
 | D2 | Where the Python side lives | `tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/` | – | CM0.2 | signed off 2026-11-24: as recommended (`tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/`) |
-| D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | signed off 2026-11-25: as recommended (relative max error ≤ 1e-5 in f32, ≤ 1e-12 in f64, on the CPU) |
+| D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | signed off 2026-11-25: as recommended (relative max error ≤ 1e-5 in f32, ≤ 1e-12 in f64, on the CPU); amended 2026-11-25 by the author (CM0.5, #148): the error is max |a − e| / max |e| over the tensor; f32 parity on the CPU suffices for M1 while Flex's f64 `rfft` uses f32 twiddles (`upstream/burn/flex-f64-fft-f32-twiddles`), each f64 test `#[ignore]`d with its measured error recorded |
 | D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | signed off 2026-11-24: option A as recommended (a generic trait with associated config and input types, static dispatch, no trait objects; `docs/operators/tasks/CM0.3.md`) |
 | D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | open |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |
@@ -77,10 +77,18 @@ the feature matrix is verified.
   name. *Needs:* CM0.3. Also the MLflow export's
   model config (`tracking/builder` reads `model_cfg.json` as `FNOConfig`; CM0.3 left it).
   Done 2026-11-25: plan `docs/operators/tasks/CM0.4.md`; `models/registry.rs`.
-- [ ] **CM0.5 The parity harness.** A test helper that loads a fixture by parameter-name
+- [x] **CM0.5 The parity harness.** A test helper that loads a fixture by parameter-name
   map into a module and compares outputs (and gradients) within D3. *Done when:* the
   CM0.2 1D fixture passes through a hand-written map. *Needs:* CM0.2, D3.
-  *Sign-off:* D3.
+  *Sign-off:* D3. Done 2026-11-25: plan `docs/operators/tasks/CM0.5.md`;
+  `tests/parity_common/` (harness, and `fno1d`: 2.0.0's 1D FNO mirrored in test code),
+  `tests/parity_fno1d.rs` (f32, 3.5e-7), `tests/parity_fno1d_f64.rs` (`#[ignore]`d: Flex's
+  f64 `rfft`, 1.2e-8). No fixture carries gradients yet; `assert_parity` takes any tensor.
+  Follow-ups: `NpzFileReader::names()` so the harness opens a fixture once (CM0.6); read
+  the sidecar `.json` (dtype, `complex_params`) once a JSON dev-dependency is agreed, and
+  build the grid as 2.0.0 does (f32, then cast) before a non-power-of-two f64 fixture
+  (CM1.1); a shared `flex_f64` helper with `tests/gauss_newton_f64.rs` and a generated map
+  per block (CM1.5).
 - [ ] **CM0.6 Tidy after the generic stack.** The CM0.3 code-quality review's findings
   (`docs/operators/progress.md`, CM0.3): one name per concept for the FNO wrappers
   (`train_fno`, `build_training_components`, `load_fno`, `checkpoint`, `Checkpoint`) and

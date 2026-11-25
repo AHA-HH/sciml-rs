@@ -170,3 +170,45 @@ template:
 - FNO: not touched.
 - Matrix: unchanged.
 - Follow-ups: CM0.5 (the parity harness) and CM0.6 (the tidy-up) are runnable.
+
+## 2026-11-25: CM0.5 The parity harness
+- Done: `tests/parity_common/mod.rs`, the harness: `Fixture` (a CM0.2 `.npz`, its precision
+  from the name), `Take` (`Whole`, or the `Re`/`Im` half of a complex tensor's trailing
+  axis), `load_into` (a hand-written map of 2.0.0 names to Burn paths, applied with
+  `ModuleSnapshot::apply`; panics unless every fixture parameter is mapped, complex ones by
+  both halves, every entry applies and no module parameter is left out), `rel_max_error`
+  (max |a − e| / max |e|; panics on a NaN or infinity) and `assert_parity`, with D3's
+  bounds. `tests/parity_common/fno1d.rs`: `Fno1dRef`, 2.0.0's 1D `FNO` at its defaults in
+  test code (Burn `Conv1d` and `gelu`, the crate's `SpectralConv`), and its 44-entry map
+  of the fixture's 40 arrays.
+- Tests: `fno1d_f32_matches_2_0_0` (3.514e-7 ≤ 1e-5, Flex); `fno1d_f64_matches_2_0_0` in
+  its own binary, `#[ignore]`d (1.211e-8 > 1e-12: Flex's f64 `rfft` twiddles are f32); a
+  1e-3 weight shift fails parity; the load rejects an unmapped array, an unknown path and
+  half a complex tensor; the re/im split; `rel_max_error` on a hand-computed pair and on NaN.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test`, `cargo doc --no-deps` (all pass);
+  `cargo test --features datagen` (pass, run by the plan review before its NaN fix, which
+  changes only `tests/`). Not run: `--features metal` (no backend-sensitive change), the
+  bit-identity dumps (nothing under `src/` changes).
+- Decisions: none. Questions for the author in the PR: D3's f64 bound on the CPU while the
+  Flex bug stands; the reading of "relative max error".
+- Review: plan review FAIL on one blocker (`rel_max_error` let NaN through), fixed with a
+  test; its advisories (blanket `allow`, unused `d3`, plan text, grid dtype) fixed. Code
+  quality APPROVE with findings (F2, F4, F6, F7 and a nit fixed; F1, F3, F5, F8 in the
+  roadmap line).
+- FNO: not touched (tests only).
+- Matrix: unchanged (the mirror is test code; no row reaches **have**).
+- Follow-ups: in CM0.5's roadmap line (for CM0.6, CM1.1 and CM1.5).
+
+## 2026-11-25: D3 amended (CM0.5's questions)
+- Done: the author's answers to CM0.5's two questions (#148), as the coordinating session
+  recommended. "Relative max error" is max |a − e| / max |e| over the tensor, so elements
+  near zero do not dominate. f32 parity on the CPU is enough for M1 while Flex's f64 `rfft`
+  uses f32 twiddles (`upstream/burn/flex-f64-fft-f32-twiddles`): each f64 parity test is
+  `#[ignore]`d with its measured error recorded, as CM0.5 does (1.211e-8 for the 1D FNO).
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D3 amended 2026-11-25.
+- FNO: not touched.
+- Matrix: unchanged.
+- Follow-ups: CM1.1 runs to D3 as amended; the f64 bound returns when the upstream fix lands.
