@@ -15,7 +15,8 @@ CO0.2 (the VM, running at the author's go, 2026-11-25); D8, D10 and D11 signed o
 D3, D4, D7, D12 and D13 signed off 2026-11-25: CO1.2 runs after CO1.1, CO3.3 after CO3.2
 and CO0.1, CO2.1 after CO1.1 (all three change `training/`, one at a time). CO3.2
 (2026-11-25): `optim/soap/`, SOAP as Burn's per-parameter `Optimizer`, the §9 tests
-passing; next for O3, CO3.3 (its D7 and D13 now signed off).
+passing; next for O3, CO3.3 (its D7 and D13 now signed off). CO0.2
+(2026-11-25): the Gauss–Newton step profile on cuda, `docs/optimisers/results/CO0.2.md`.
 
 ## How to read this file
 
@@ -72,7 +73,7 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   equal time and 43–44 at 5,400 s (D2). Timed runs side by side on the two GPUs only after a
   check that the epoch times match a run alone (the step is host-bound, Phase 9 T3). *Done when:* a results table (`docs/optimisers/results/CO0.1.md`) against Phase 10's
   fork-era numbers, and D1 proposed. *Needs:* D2. *Machines:* the VM. *Sign-off:* D1.
-- [ ] **CO0.2 Cost profile of a Gauss–Newton step.** Time per phase of one GN200-D step
+- [x] **CO0.2 Cost profile of a Gauss–Newton step.** (`docs/optimisers/results/CO0.2.md`) Time per phase of one GN200-D step
   (the gradient, CG's JVPs and VJPs, backtracking, the Hutchinson refresh), passes per
   second on Burn 0.23 against Phase 10's. *Done when:* the profile table and a short list of
   where passes could be saved (for later work; nothing changed here). *Needs:* –.

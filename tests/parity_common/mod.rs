@@ -35,6 +35,10 @@ const PARAM_PREFIX: &str = "param.";
 
 /// Which part of a fixture array a map entry takes.
 #[derive(Clone, Copy, Debug)]
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; each maps with only some variants"
+)]
 pub enum Take {
     /// The array as stored.
     Whole,
@@ -42,6 +46,8 @@ pub enum Take {
     Re,
     /// The imaginary half (index 1 of its trailing axis of 2).
     Im,
+    /// A matrix transposed: torch's `Linear` weight `[out, in]` to Burn's `[in, out]`.
+    Transposed,
 }
 
 /// One map entry: the 2.0.0 parameter name (without `param.`), the Burn path, the part.
@@ -139,8 +145,7 @@ impl Fixture {
     /// The fixture's input, `(batch, channels, *grid)`, as a tensor on `device` in the
     /// fixture's precision.
     pub fn input<const R: usize>(&mut self, device: &Device) -> Tensor<R> {
-        let a = self.array("input");
-        self.tensor(&a, device)
+        self.tensor("input", device)
     }
 
     /// The fixture's output, `(batch, channels, *grid)`, on the host.
@@ -148,11 +153,12 @@ impl Fixture {
         self.array("output")
     }
 
-    /// `a` as a rank-`R` tensor on `device`, in the fixture's precision.
+    /// The array `key` as a rank-`R` tensor on `device`, in the fixture's precision.
     ///
     /// # Panics
-    /// If `a` is not of rank `R`.
-    fn tensor<const R: usize>(&self, a: &ArrayD<f64>, device: &Device) -> Tensor<R> {
+    /// If the fixture has no such array, or it is not of rank `R`.
+    pub fn tensor<const R: usize>(&mut self, key: &str, device: &Device) -> Tensor<R> {
+        let a = self.array(key);
         assert_eq!(
             a.ndim(),
             R,
@@ -160,7 +166,7 @@ impl Fixture {
             self.name,
             a.ndim()
         );
-        Tensor::from_data(self.data(a), device)
+        Tensor::from_data(self.data(&a), device)
     }
 
     fn data(&self, a: &ArrayD<f64>) -> TensorData {
@@ -173,13 +179,19 @@ impl Fixture {
     }
 }
 
-/// The `take` part of `a`: `a` itself, or one half of its trailing (re, im) axis.
+/// The `take` part of `a`: `a` itself, its transpose, or one half of its trailing (re, im)
+/// axis.
 ///
 /// # Panics
-/// For `Re` / `Im`, if the trailing axis is not of length 2.
+/// For `Transposed`, if `a` is not a matrix; for `Re` / `Im`, if the trailing axis is not
+/// of length 2.
 pub fn take(a: ArrayD<f64>, take: Take) -> ArrayD<f64> {
     let part = match take {
         Take::Whole => return a,
+        Take::Transposed => {
+            assert_eq!(a.ndim(), 2, "Transposed needs a matrix");
+            return a.reversed_axes().as_standard_layout().to_owned();
+        }
         Take::Re => 0,
         Take::Im => 1,
     };
@@ -196,7 +208,7 @@ pub fn take(a: ArrayD<f64>, take: Take) -> ArrayD<f64> {
 ///
 /// # Panics
 /// Unless the load is complete in both directions: every fixture parameter is taken by the
-/// map (a complex one by its `Re` and `Im` both, or `Whole`), every map entry names a
+/// map (a complex one by its `Re` and `Im` both, any other once, `Whole` or `Transposed`), every map entry names a
 /// fixture parameter and is applied without error (shapes included), and no module
 /// parameter is left out.
 pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: &[MapEntry]) {
@@ -218,11 +230,12 @@ pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: 
     for (from, parts) in &parts {
         let complete = matches!(
             parts.as_slice(),
-            [Take::Whole] | [Take::Re, Take::Im] | [Take::Im, Take::Re]
+            [Take::Whole] | [Take::Transposed] | [Take::Re, Take::Im] | [Take::Im, Take::Re]
         );
         assert!(
             complete,
-            "fixture {name}: `{from}` must be mapped once Whole or once each Re and Im, got {parts:?}"
+            "fixture {name}: `{from}` must be mapped once (Whole or Transposed) or once each \
+             Re and Im, got {parts:?}"
         );
     }
 

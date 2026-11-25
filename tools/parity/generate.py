@@ -20,8 +20,11 @@ import tensorly
 import tltorch
 import torch
 import torch_harmonics
+from neuralop.layers.channel_mlp import ChannelMLP
 from neuralop.layers.legacy_spectral_convolution import SpectralConv as LegacySpectralConv
 from neuralop.layers.spectral_convolution import SpectralConv
+from neuralop.layers.normalization_layers import AdaIN, InstanceNorm
+from neuralop.layers.skip_connections import skip_connection
 from neuralop.models import FNO
 
 OUT = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "parity"
@@ -29,6 +32,17 @@ MAX_PARAMS = 10_000  # D8 as recommended: P ≲ 10⁴
 MAX_BYTES = 1_000_000  # D8 as recommended: under about 1 MB
 WEIGHT_SEED = 0
 INPUT_SEED = 1
+
+
+class AdaINWithEmbedding(AdaIN):
+    """2.0.0's `AdaIN` with its embedding drawn at build and kept as a buffer, so the fixture
+    carries it (2.0.0 sets it by `set_embedding` before each forward)."""
+
+    def __init__(self, embed_dim, in_channels):
+        super().__init__(embed_dim, in_channels)
+        del self.embedding
+        self.register_buffer("embedding", torch.randn(embed_dim))
+
 
 # name -> (model class, kwargs, input shape (batch, channels, *grid)).
 # 2.0.0's defaults except the sizes.
@@ -49,7 +63,18 @@ CONFIGS = {
     # Odd extent on a shifted axis: 2.0.0 applies `fftshift` again (not `ifftshift`) before the
     # inverse, so its output spectrum moves by one bin there; corners cannot represent this.
     "spectral_conv2d_odd_extent": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(8, 6)), (2, 3, 23, 21)),
+    # CM1.3a: the block parts of FNOBlocks, 1D to 3D.
+    "channel_mlp1d": (ChannelMLP, dict(in_channels=4, hidden_channels=2), (2, 4, 7)),
+    "channel_mlp3d": (ChannelMLP, dict(in_channels=3, out_channels=5, hidden_channels=4, n_layers=3, non_linearity=torch.tanh), (2, 3, 5, 4, 3)),
+    "linear_skip3d": (skip_connection, dict(in_features=3, out_features=5, n_dim=3, skip_type="linear"), (2, 3, 5, 4, 3)),
+    "soft_gating2d": (skip_connection, dict(in_features=4, out_features=4, n_dim=2, skip_type="soft-gating"), (2, 4, 6, 5)),
+    "instance_norm1d": (InstanceNorm, dict(), (2, 4, 9)),
+    "group_norm3d": (torch.nn.GroupNorm, dict(num_groups=1, num_channels=4), (2, 4, 5, 4, 3)),
+    "ada_in2d": (AdaINWithEmbedding, dict(embed_dim=3, in_channels=4), (2, 4, 6, 5)),
 }
+# Parts whose 2.0.0 init is a constant (ones, zeros): their parameters are redrawn from a
+# seeded normal, so the fixture tests the map and not only the constant.
+REDRAW = {"soft_gating2d", "group_norm3d"}
 DTYPES = {"f32": torch.float32, "f64": torch.float64}
 PREFIX = "param."
 
@@ -64,6 +89,10 @@ def build(name, dtype):
     cls, kwargs, shape = CONFIGS[name]
     torch.manual_seed(WEIGHT_SEED)
     model = cls(**kwargs).eval()
+    if name in REDRAW:
+        with torch.no_grad():
+            for p in model.parameters():
+                p.copy_(torch.randn_like(p))
     x = torch.randn(shape, generator=torch.Generator().manual_seed(INPUT_SEED))
     if dtype == torch.float64:
         for t in list(model.parameters()) + list(model.buffers()):
@@ -110,6 +139,11 @@ def reload_output(path, name, dtype, complex_names):
         return model(x).numpy()
 
 
+def json_text(meta):
+    """The sidecar's text; a function argument (`non_linearity`) is named by `__name__`."""
+    return json.dumps(meta, indent=2, default=lambda f: f.__name__) + "\n"
+
+
 def sidecar(name, dtype_name, model, x, complex_names):
     _, kwargs, _ = CONFIGS[name]
     n_params = sum(p.numel() * (2 if p.is_complex() else 1) for p in model.parameters())
@@ -142,7 +176,7 @@ def sidecar(name, dtype_name, model, x, complex_names):
 def write(path, name, dtype, data, meta):
     """Write one fixture and its sidecar; assert D8's bounds and the reload round trip."""
     np.savez(path, **data)
-    path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
+    path.with_suffix(".json").write_text(json_text(meta))
     size = path.stat().st_size
     assert size <= MAX_BYTES, f"{path.name}: {size} bytes"
     y = reload_output(path, name, dtype, meta["complex_params"])
@@ -156,7 +190,7 @@ def same_as_committed(path, data, meta):
         same = set(f.files) == set(data) and all(
             np.array_equal(f[k], v) and f[k].dtype == v.dtype for k, v in data.items()
         )
-    same &= path.with_suffix(".json").read_text() == json.dumps(meta, indent=2) + "\n"
+    same &= path.with_suffix(".json").read_text() == json_text(meta)
     print(f"{path.name}: {'same' if same else 'DIFFERS'}")
     return same
 

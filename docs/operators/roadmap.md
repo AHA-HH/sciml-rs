@@ -7,14 +7,16 @@ each task's plan is `docs/operators/tasks/<ID>.md`, written when it starts; each
 milestone's gate report is `docs/operators/gates/<milestone>.md`; the feature matrix is
 `docs/operators/feature-matrix.md`.
 
-Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 (draft 0.1 as
-the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed off):
-once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
+Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 (draft 0.1
+as the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed
+off): once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
 answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
-CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). D5 signed off
-2026-11-25 (#153). CM1.2 done 2026-11-25 (the centred layer, separable, modes below the
-stored maximum). Next CM0.6 and CM1.3, then CM1.4.
+CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.6 split 2026-11-25
+into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE). CM1.3
+split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. CM1.6b done
+2026-11-25 (the aggregators). CM1.2 done 2026-11-25 (the centred layer, separable, modes
+below the stored maximum). Next CM0.6, CM1.3b, CM1.4 and CM1.6c.
 
 ## How to read this file
 
@@ -125,22 +127,66 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   spectrum by one bin there), and the cases the plan lists. For CM1.5: wire `separable` and
   `max_n_modes` into `FNOConfig` (off by default), and run FNO parity on even grids only.
   For CM1.8: an odd centred mode count's zero row is a trainable weight, so training parity
-  at odd counts needs it masked (or even counts only). Code-quality follow-ups for CM1.5 (with
-  CM1.1's `flex_f64`): one shared `#[path]` file for the biased test layer of
+  at odd counts needs it masked (or even counts only). Code-quality follow-ups for CM1.5: one
+  shared `#[path]` file for the biased test layer of
   `legacy_conv.rs` and `centred_conv.rs`; converted arrays passed to `load_into` so
   `Fixture`'s fields are private again; `layers/spectral_convolution.rs` (now over 1,000
   lines with its tests) split as `optim/soap/` is.
-- [ ] **CM1.3 Block parts.** Channel MLP; linear, identity and soft-gating skips;
+- **CM1.3 Block parts.** Channel MLP; linear, identity and soft-gating skips;
   instance, group and AdaIN norms; pre-activation; the activation choice. *Needs:* CM1.1.
+  Split 2026-11-25 (parts in `layers/`, then the FNO's block options):
+  - [x] **CM1.3a The parts.** `ChannelMlp` (2.0.0's `ChannelMLP`), the skips of
+    `skip_connection` (identity, linear, soft-gating) and `AdaIn` in `layers/`; the
+    activation choice as Burn's `ActivationConfig`; instance and group norm as Burn's
+    `InstanceNorm` and `GroupNorm`. *Done when:* each part (Burn's norms and activations
+    included) matches a 2.0.0 fixture of its own within D3, in f32 and f64, across 1D to 3D;
+    nothing under `models/` or `training/` changes. *Needs:* CM1.1. Done 2026-11-25: plan
+    `docs/operators/tasks/CM1.3a.md`; `tests/parity_block_parts{,_f64}.rs` (f32 ≤ 1.9e-7,
+    f64 ≤ 7.1e-16).
+  - [ ] **CM1.3b The FNO's block options.** `FNOConfig` gains the activation, the FNO skip,
+    the channel MLP (expansion, skip), the norm and pre-activation, each absent meaning
+    today's block. *Done when:* the CM0.3 bit-identity check passes against `main`; a block
+    built from the options matches 2.0.0's `FNOBlocks` (with the legacy convolution) within
+    D3, post- and pre-activation, for each norm; the FNO's own pointwise matmul
+    (`FNO::pointwise`, `conv1x1_cf`) replaced by `layers::pointwise::conv1x1` (CM1.3a review).
+    *Needs:* CM1.3a.
 - [ ] **CM1.4 Lifting, projection and embeddings.** Channel-MLP lifting and projection with
   their ratios; `GridEmbeddingND`, `SinusoidalEmbedding`, `RotaryEmbedding2D`. *Needs:*
-  CM1.3.
+  CM1.3a (the channel MLP).
 - [ ] **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
   Darcy- and Burgers-shaped inputs; resampling (`resolution_scaling_factor`) and domain
-  padding. *Needs:* CM1.2, CM1.4.
-- [ ] **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
+  padding. *Needs:* CM1.2, CM1.3b, CM1.4.
+- **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
-  `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5.
+  `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
+  (over 1,000 lines across three loss families):
+  - [x] **CM1.6a Finite differences and the data losses.** `FiniteDiff` (first and second
+    derivatives, periodic or one-sided boundaries, 1D–3D; gradient, Laplacian,
+    divergence, curl), `H1Loss`, `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss`; the
+    relative `LpLoss` against 2.0.0's. *Done when:* each against 2.0.0 fixtures within D3
+    (f32; f64 too, no FFT involved; `LpLoss::rel` within 1e-8 in f64, as 2.0.0 adds
+    eps = 1e-8 to its denominator and the crate's, fixed by CONVENTIONS §11 and constraint 1,
+    does not). *Needs:* CM0.5. Done 2026-11-25: plan
+    `docs/operators/tasks/CM1.6a.md`; `losses/{differentiation,sobolev,pointwise}.rs`; parity
+    `tests/parity_losses.rs` (f32, ≤ 1.7e-7), `tests/parity_losses_f64.rs` (≤ 6e-16);
+    fixtures from `tools/parity/generate_losses.py`.
+  - [x] **CM1.6b Aggregators.** `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`,
+    `Relobralo` (its Bernoulli draw taken from a seeded source). *Done when:* each against
+    a fixture of a sequence of steps (the weights and the aggregated loss per step).
+    *Needs:* CM0.5. Also CM1.6a's code-quality follow-ups: `Reduction::apply` for the three
+    copies of the reduction match, and `sqrt_zero_safe` shared with `lp_norm` (both in
+    `data_losses.rs`, so with the bit-identity check); in the parity harness one
+    `flex_f64` in `parity_common` (four copies with CM1.3a's), `Fixture::tensor` public (the copy in
+    `parity_losses_common`), and with them the two `#[allow(dead_code)]` on the loss
+    binaries' harness modules gone (coordinate `parity_common` with CM1.1). Done
+    2026-11-25: plan `docs/operators/tasks/CM1.6b.md`; `losses/meta_losses.rs`; parity per
+    step in `tests/parity_losses{,_f64}.rs` (≤ 2.0e-7 f32, ≤ 2.0e-16 f64); the follow-ups
+    done (`tests/flex_f64/` for the four f64 binaries), except the `#[allow(dead_code)]` on
+    `mod parity_common` in the two loss binaries, which use no parameter map (kept, see
+    the plan).
+  - [ ] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
+    continuation (that option with CM2.4), `non_uniform_fd`. *Done when:* each against
+    fixtures. *Needs:* CM0.5.
 - [ ] **CM1.7 Training features.** Incremental modes and resolution, AdamW as 2.0.0's,
   mixed precision, multigrid patching. *Needs:* CM0.3, CM1.5.
 - [ ] **CM1.8 Training parity on the 2D Poisson baseline.** The protocol of proposal §5,
@@ -160,8 +206,9 @@ The order of M2 and M3 is set at the M1 gate (D6).
 - [ ] **CM2.3 LocalNO.** Differential and DISCO convolutions, `local_no_block`. *Needs:* M1.
 - [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1.
 - [ ] **CM2.5 Equation losses (PINO).** `equation_losses` on CM1.6's derivatives; the
-  crate's Chebyshev differentiation as a second path. *Needs:* CM1.6.
-- [ ] **CM2.6 UQNO.** *Needs:* M1, CM1.6 (quantile loss).
+  crate's Chebyshev differentiation as a second path. *Needs:* CM1.6a (2.0.0's
+  `equation_losses` imports only `FiniteDiff`).
+- [ ] **CM2.6 UQNO.** *Needs:* M1, CM1.6a (quantile loss).
 - [ ] **CM2.7 Divergence-free spectral projection.** *Needs:* M1.
 
 ## M3: The costly operators

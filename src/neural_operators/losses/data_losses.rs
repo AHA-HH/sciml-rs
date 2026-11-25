@@ -17,6 +17,17 @@ pub enum Reduction {
     None,
 }
 
+impl Reduction {
+    /// Combines per-example losses `[n]`: their mean or sum (`[1]`), or themselves.
+    pub fn apply(self, per_example: Tensor<1>) -> Tensor<1> {
+        match self {
+            Reduction::Mean => per_example.mean(),
+            Reduction::Sum => per_example.sum(),
+            Reduction::None => per_example,
+        }
+    }
+}
+
 /// Absolute or relative Lp loss between predicted and target fields (CONVENTIONS §11).
 pub struct LpLoss {
     /// Lp norm order (1, 2, or general integer p).
@@ -33,14 +44,6 @@ impl LpLoss {
     pub fn new(p: usize, reduction: Reduction) -> Self {
         assert!(p > 0, "LpLoss: p must be positive");
         Self { p, reduction }
-    }
-
-    fn reduce(&self, per_example: Tensor<1>) -> Tensor<1> {
-        match self.reduction {
-            Reduction::Mean => per_example.mean(),
-            Reduction::Sum => per_example.sum(),
-            Reduction::None => per_example,
-        }
     }
 
     /// Absolute Lp loss, scaled by the uniform-mesh quadrature weight
@@ -78,7 +81,8 @@ impl LpLoss {
 
         let n_points: usize = dims[1..].iter().product();
         let diff = (x - y).abs().reshape([dims[0], n_points]);
-        self.reduce(lp_norm(diff, self.p).mul_scalar(h_weight))
+        self.reduction
+            .apply(lp_norm(diff, self.p).mul_scalar(h_weight))
     }
 
     /// Relative Lp loss: `||x - y||_p / ||y||_p`. Quadrature weight cancels
@@ -97,17 +101,12 @@ impl LpLoss {
         let diff_norms = lp_norm(x - y.clone(), self.p);
         let y_norms = lp_norm(y, self.p);
 
-        self.reduce(diff_norms / y_norms)
+        self.reduction.apply(diff_norms / y_norms)
     }
 }
 
-/// Per-row Lp norm of `t: [batch, n_points]`, returning `[batch]`.
-///
-/// For `p >= 2` the final root `s^(1/p)` has an infinite derivative at
-/// `s = 0`, and backward would give `inf * 0 = NaN` at an exact match. Rows
-/// with `s == 0` therefore take the root of a constant 1 and are then set to
-/// 0, so their norm is exactly 0 with gradient 0 - the subgradient
-/// `torch.norm` uses. All other rows are computed exactly as before.
+/// Per-row Lp norm of `t: [batch, n_points]`, returning `[batch]`. For `p >= 2` the root
+/// is [`root_zero_safe`]'s: 0 with gradient 0 at an exact match.
 fn lp_norm(t: Tensor<2>, p: usize) -> Tensor<1> {
     // p=1: sum of abs. p=2: Euclidean norm. general p: p-norm.
     let sum = match p {
@@ -118,6 +117,14 @@ fn lp_norm(t: Tensor<2>, p: usize) -> Tensor<1> {
     .sum_dim(1)
     .squeeze_dims::<1>(&[1]);
 
+    root_zero_safe(sum, p)
+}
+
+/// The p-th root of `sum` (`[n]`, non-negative) with value 0 and gradient 0 where
+/// `sum == 0`. The root `s^(1/p)` has an infinite derivative at `s = 0`, so backward would
+/// give `inf * 0 = NaN` at an exact match; those entries take the root of a constant 1 and
+/// are then set to 0, the subgradient `torch.norm` uses. Other entries are unchanged.
+pub(super) fn root_zero_safe(sum: Tensor<1>, p: usize) -> Tensor<1> {
     let is_zero = sum.clone().equal_elem(0.0);
     let safe = sum.mask_fill(is_zero.clone(), 1.0);
     let root = match p {

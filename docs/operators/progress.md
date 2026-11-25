@@ -259,6 +259,107 @@ template:
 - Matrix: unchanged.
 - Follow-ups: CM1.2 runnable.
 
+## 2026-11-25: CM1.6a Finite differences and the data losses
+- Done: CM1.6 split into CM1.6a–c (roadmap). `losses/differentiation.rs`: `FiniteDiff<D>`,
+  one rank-generic stencil (`partial`, orders 1 and 2, periodic by `roll_dim` or one-sided
+  with 2.0.0's coefficients) for 2.0.0's eighteen per-dimension methods; `dx`/`dy`/`dz`,
+  `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`.
+  `losses/sobolev.rs`: `SobolevLoss<D>` (H1, Hdiv; 2.0.0's quadrature measure / s, which
+  is also the step, and eps in `rel`; zero subgradient at an exact match).
+  `losses/pointwise.rs`: `PointwiseQuantileLoss`, `mse_loss`. Fixtures
+  `losses{1,2,3}d_{f32,f64}` from `tools/parity/generate_losses.py` (beside CM1.1's
+  `generate.py`).
+- Tests: parity on every `FiniteDiff` operator, H1 and Hdiv (rel, abs; periodic, one-sided,
+  mixed; sum, mean), the quantile loss and MSE: f32 ≤ 1.7e-7 (D3 1e-5), f64 ≤ 6e-16 (D3
+  1e-12, its own binary as Flex's dtype is process-wide; no FFT, so not `#[ignore]`d).
+  `LpLoss::rel` against 2.0.0's: 9e-8 in f32, 6e-10 to 1.9e-9 in f64, 2.0.0's eps of 1e-8
+  in the denominator (the crate's has none, CONVENTIONS §11), bounded by 1e-8. A swapped
+  axis fails parity. Unit tests: sin within truncation error, one-sided ends exact on
+  polynomials, curl ∘ gradient ≈ 0, panics, hand-computed H1, MSE and quantile values,
+  exact matches with zero (MSE, Sobolev) or finite (quantile) gradients.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (381 passed), `cargo test --features
+  datagen` (462 passed), `cargo doc --no-deps`, `generate_losses.py --check` (six fixtures
+  the same): all pass. Not run: `--features metal` (no backend-sensitive change).
+- Decisions: none. Question for the author in the PR: should CONVENTIONS §11 record the
+  2.0.0 losses' quadrature and eps (outside §1–§6, no version bump)?
+- Review: plan review PASS (advisories: the lp.rel exception now on the roadmap line, an
+  exact-match test for `pointwise.rs`, CM2.5 needs CM1.6a, Panics docs; all done; the two
+  harness `allow`s stay until the follow-up below). Code quality APPROVE with findings: F1,
+  F2, F5, F8, F9 fixed; F3, F4, F6, F7 to CM1.6b's line.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` bb96d0e and on the
+  branch: `forward`, `phase5_epoch`, `gauss_newton_epoch` byte-identical); no existing
+  source file changed but `losses/mod.rs`.
+- Matrix: `H1Loss`/`HdivLoss`/`PointwiseQuantileLoss`/`MSELoss` and `FiniteDiff` set to
+  **have** (the first rows); `LpLoss` stays partial (rel parity up to eps); the
+  aggregator and Fourier rows point at CM1.6b and CM1.6c.
+- Follow-ups: CM1.6b's line (the review's F3, F4, F6, F7); CM1.6c (`FourierDiff`,
+  `non_uniform_fd`); the §11 question.
+
+## 2026-11-25: CM1.3a The parts
+- Done: CM1.3 split into CM1.3a (the parts) and CM1.3b (the FNO's block options); CM1.4 now
+  needs CM1.3a, CM1.5 also CM1.3b. `layers/channel_mlp.rs` (`ChannelMlpConfig`,
+  `ChannelMlp`: 2.0.0's `ChannelMLP`, any rank, the activation a Burn `ActivationConfig`,
+  default GELU; `conv1x1`, a kernel-1 `Conv1d` as one matmul), `layers/skip.rs` (`SkipKind`,
+  `Skip<R>`: identity, bias-free linear, soft gating), `layers/norm.rs` (`AdaInConfig`,
+  `AdaIn`, the embedding a `forward` argument). Instance and group norm are Burn's, tested.
+  Seven 2.0.0 fixtures (`channel_mlp{1,3}d`, `linear_skip3d`, `soft_gating2d`,
+  `instance_norm1d`, `group_norm3d`, `ada_in2d`), constant initialisations redrawn; the
+  harness gains `Take::Transposed` (torch `Linear` weights).
+- Tests: the seven parts in f32 (`tests/parity_block_parts.rs`, ≤ 1.9e-7) and f64
+  (`tests/parity_block_parts_f64.rs`, ≤ 7.1e-16; none ignored: no FFT); unit tests of each
+  module (a channel MLP by hand, soft gating per channel, AdaIN's scale and shift, widths,
+  the panics).
+- Checks: see the PR (fmt, clippy ×5, `cargo test`, `cargo test --features datagen`,
+  `cargo doc`, the bit-identity dumps against `main`, `generate.py --check`).
+- Decisions: none.
+- Review: plan review PASS (advisories: the plan's `mod` count, the identity skip's
+  missing fixture and the 1D–3D reading, now in the plan). Code quality APPROVE with findings:
+  F1 `conv1x1` moved to `layers/pointwise.rs` (the FNO's copy goes in CM1.3b); F2 one function
+  per case; F4 the width assert in the match, `split_last`; F5 one `FCS` map; F6 docs; F3
+  (`flex_f64`, `Precision::suffix`) left to CM1.6b's harness tidy, as the suffix would be
+  dead code in some binaries.
+- FNO: not touched (new modules only).
+- Matrix: `ChannelMLP` partial, skips have, norms partial (no `BatchNorm`), `FNOBlocks` to
+  CM1.3b.
+- Follow-ups: CM1.3b's line: the FNO's pointwise matmul replaced by
+  `layers::pointwise::conv1x1`. One `flex_f64` in `parity_common`: CM1.6b's line (this branch
+  adds a fourth copy, `tests/parity_block_parts_f64.rs`).
+
+## 2026-11-25: CM1.6b Aggregators
+- Done: `losses/meta_losses.rs`: `WeightedSumLoss`, `FieldwiseAggregatorLoss` (a field is a
+  channel range on one axis, prediction and target sliced alike; 2.0.0 reshapes only the
+  prediction, the two agree on its one-channel `(N, C)` use), `SoftAdapt`, `Relobralo` (ρ
+  from a seeded `ChaCha8Rng`, or replayed by `forward_with_rho`), over `LossFn<R>`
+  closures; adaptive weights on the host in f64, constants in the aggregate as under
+  2.0.0's `no_grad`. CM1.6a's follow-ups: `Reduction::apply` and `root_zero_safe` in
+  `data_losses.rs`, shared by `LpLoss`, `SobolevLoss` and `PointwiseQuantileLoss`; one
+  `tests/flex_f64/` for the five f64 binaries (CM1.3a's, merged from `main`, included); `Fixture::tensor(key, device)` public.
+  Fixtures `meta_losses_{f32,f64}` from `generate_losses.py`.
+- Tests: per step, the aggregate, the weights and d aggregate / d loss of SoftAdapt and
+  ReLoBRaLo (with and without weights; ReLoBRaLo also at α 0.9, β 0.5, τ 2, replaying
+  torch's draws, both branches of ρ), the weighted sum (default and given weights) and the
+  fieldwise loss: f32 ≤ 2.0e-7, f64 ≤ 2.0e-16 (D3 1e-5, 1e-12). Unit tests: the seeded
+  draw exact at β = 0 and 1 and reproducible, a hand-computed SoftAdapt step, panics.
+- Checks: on the branch merged with `main` (CM1.3a, CO0.2): ran `cargo fmt --check`,
+  clippy (default, `--examples`, `--all-targets`, `--features datagen --all-targets`),
+  `cargo test` (433 passed), `cargo test --features datagen` (514 passed), `cargo doc
+  --no-deps`, all pass; `generate_losses.py --check` (8 fixtures the same) after the
+  review fixes. Not run: `--features metal` (nothing backend-sensitive), a
+  build without `flex`.
+- Decisions: none.
+- Review: plan review PASS (advisories: the `#[allow(dead_code)]` on `mod parity_common`
+  in the loss binaries kept, as the plan says; `parity_losses_common` behind `flex` in the
+  f64 binary, done; weights checked once, done). Code quality APPROVE with findings: F1,
+  F2, F3 (weights only), F4–F8, F10 fixed; F9 (one device read per loss per step) left as
+  a note, harmless on the CPU.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 99edf66 and the merged
+  branch, each in its own build directory: `forward`, `phase5_epoch`, `gauss_newton_epoch`
+  byte-identical). CM1.6a's comparison shared one build directory between `main` and the
+  branch, so it did not show this; CM1.6a changed no FNO code.
+- Matrix: the aggregator row set to **have**.
+- Follow-ups: CM1.6c; the CONVENTIONS §11 question of CM1.6a (#154) stands.
+
 ## 2026-11-25: CM1.2 Centred layout, separable, `max_n_modes`
 - Done: `SpectralConv::new_separable` (weights `[1, C, modes..]`, an element-wise complex
   product) and `with_modes` (modes below the stored ones: low `0..m`, high the last `m` rows,
