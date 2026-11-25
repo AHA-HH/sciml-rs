@@ -216,7 +216,11 @@ fn adaptive(
             .collect();
         let (out, w) = step(leaves.clone(), s);
         let g = out.backward();
-        grads.extend(leaves.iter().map(|l| l.grad(&g).unwrap().into_scalar::<f64>()));
+        grads.extend(
+            leaves
+                .iter()
+                .map(|l| l.grad(&g).unwrap().into_scalar::<f64>()),
+        );
         loss.push(out.into_scalar::<f64>());
         weights.extend(w);
     }
