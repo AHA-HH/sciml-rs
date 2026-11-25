@@ -73,25 +73,32 @@ In `optim/soap/` unit tests, on the default device (flex in CI), f32:
 1. **Identity basis = Adam.** `max_precond_dim = 0` (every basis the identity, the
    reference's own way to get Adam): SOAP after its first (skipped) call, fed the same
    gradients as Burn's `Adam` (β 0.95, 0.95, ε 1e-8, no decay), on a rank-3 tensor, gives
-   the same parameters to f32 round-off (relative 1e-6) over 20 steps. The only
+   the same parameters to f32 round-off (1e-6 absolute on values of order 1) over 20 steps. The only
    differences are ε's placement (Burn scales it by √(1 − β₂ᵗ)) at ε = 1e-8 and gradients
    of order 1, below f32 round-off.
 2. **Quadratic, Kronecker Hessian.** f(W) = ½⟨W − W*, A (W − W*) B⟩, Hessian B ⊗ A, A and B
    rotated with κ = 100 each. The first basis's factors equal (1 − β_s) GGᵀ and GᵀG
-   (host f64, 1e-5 relative); SOAP at the same lr reaches a loss below Adam's after 200
-   steps, and below 1e-2 of the start.
-3. **Ranks 1–5.** Shapes [7], [5, 6], [4, 3, 5], [3, 4, 2, 3], [2, 3, 2, 3, 2] (with a
-   size-1 dimension in one of them): after three steps every factor equals the host f64
+   (host f64, 1e-5 relative); at the same lr, 0.05 · 0.98ⁱ for 400 steps, SOAP ends below
+   1 % of Adam's loss and below 1e-5 of the start. (Amended while implementing: at a
+   constant lr both stall at the lr's noise floor, SOAP 1.08 against Adam 1.32, which says
+   nothing about the bases; with the decay, 1.6e-2 against 24 from 1.6e4.)
+3. **Ranks 1–5.** Shapes [7], [5, 6], [4, 3, 5], [3, 4, 1, 3], [2, 3, 2, 3, 2] (with a
+   size-1 dimension in the rank-4 one: [3, 4, 1, 3]): after three steps every factor equals the host f64
    EMA of the mode-k Grams (1e-5), every basis is orthonormal (1e-5), and one more step's
-   update equals a host f64 recomputation from the state's Q, M, V (1e-5 relative).
-4. **The refresh against f64.** Frequency 2; the first basis against a host f64 Jacobi
-   eigendecomposition of the same f32 factor (columns up to sign, 1e-4 at gaps ≥ 1e-2); the
-   refreshed basis against a host f64 run of the same sort, power step and QR (1e-5, up to
-   sign); V permuted with the columns.
+   update equals a host f64 recomputation from the state's Q, M, V (1e-4 of the update;
+   measured 3–7e-6).
+4. **The refresh against f64.** Frequency 2, a 5 × 5 gradient U diag(5, 4, 3, 2, 1) Vᵀ:
+   the first bases against U and V, the exact eigenvectors in f64 of the factors (gaps ≥ 3;
+   columns up to sign, 1e-5); then gradients with the spectrum reversed, so the refresh
+   permutes; the refreshed bases against a host f64 run of the same sort, power step and a
+   modified Gram–Schmidt QR (independent of the module's Householder; 1e-5, up to sign); V
+   permuted with the columns (1e-5). (Amended: the first basis is checked against the
+   eigenvectors it was built from rather than a Jacobi solver, the same f64 reference with
+   less test code.)
 5. **Record round trip.** A `ModuleOptimizer` of SOAP on a small two-layer module (a rank-2
    weight, a rank-1 bias, a rank-3 parameter), five steps, `into_bytes`, `from_bytes` into
    a fresh one, then five more steps across a refresh: parameters bit for bit equal to the
-   uninterrupted run. Also `to_device` keeps the state.
+   uninterrupted run.
 
 ## Checks
 `/verify` (fmt, clippy lines, `cargo test`, `cargo doc`, datagen clippy and tests); the
