@@ -103,7 +103,7 @@ No dependency, no convention change (CONVENTIONS §5 stays the internal form, as
 - Unit tests in `spectral_convolution.rs`: `with_modes` equals a layer built at the smaller
   modes with the matching sub-weights (bit for bit); `with_modes` at the stored modes is the
   untruncated output (bit for bit); `with_modes` panics above the stored maximum and on the
-  wrong length; `with_modes` on separable weights (bit for bit); separable equals a dense layer with diagonal weights (to rounding, 1e-6).
+  wrong length; `with_modes` on separable weights (to 1e-6 relative: bit for bit on Flex, a few ulps apart on Metal, where the fused element-wise kernel rounds the strided slice differently); separable equals a dense layer with diagonal weights (to rounding, 1e-6).
 - f64: the same six, `#[ignore]`d, errors recorded (2.0.0's centred `forward` also builds its
   spectrum as `cfloat`).
 - Constraint 1: `tests/fno_bit_identity.rs` on `main` and the branch, dumps `cmp`ed

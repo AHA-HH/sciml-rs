@@ -274,8 +274,10 @@ template:
   exact values; six layer unit tests; the f64 six `#[ignore]`d (1.5e-7 to 2.7e-7).
 - Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
   `--features datagen --all-targets`), `cargo test`, `cargo test --features datagen`,
-  `cargo doc --no-deps`, the layer tests under `--features metal`, `generate.py`
-  (the ten earlier fixtures unchanged). `cargo test --features datagen` failed once on
+  `cargo doc --no-deps`, the layer tests and `gpu_parity` under `--features metal` (pass,
+  27 and 9; the separable truncation test compares to 1e-6, since Metal rounds the strided
+  slice a few ulps apart), `generate.py` (the ten earlier fixtures unchanged); all in the
+  task's own build directory. `cargo test --features datagen` failed once on
   `fno::tests::grid::grid_controls_1d` and passed alone (twice) and on a full rerun: it seeds
   Flex's process-wide RNG while other tests draw from it (pre-existing).
 - Decisions: D5 signed off 2026-11-25 (#153), applied as signed off.

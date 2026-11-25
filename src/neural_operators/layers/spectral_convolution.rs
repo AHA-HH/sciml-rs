@@ -1051,8 +1051,18 @@ mod tests {
             small.weights_im[c] = Param::from_tensor(conv.weights_im[c].val().slice(ranges));
         }
         let x = Tensor::<4>::random([2, 2, 12, 9], Distribution::Normal(0.0, 1.0), &device);
-        let truncated = conv.with_modes(&active).forward(x.clone());
-        assert_eq!(bits(truncated), bits(small.forward(x)));
+        let (a, e) = (
+            conv.with_modes(&active).forward(x.clone()),
+            small.forward(x),
+        );
+        // Bit for bit on Flex; Metal's fused element-wise kernel rounds a strided slice
+        // differently (a few ulps), while a wrong mode selection would be O(1).
+        let scale: f32 = e.clone().abs().max().into_scalar();
+        let err: f32 = (a - e).abs().max().into_scalar();
+        assert!(
+            err <= 1e-6 * scale,
+            "truncated separable: {err:e} of {scale:e}"
+        );
     }
 
     /// A separable layer is the dense layer whose channel map is diagonal at every mode.
