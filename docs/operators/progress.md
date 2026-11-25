@@ -244,3 +244,17 @@ template:
   and what is missing.
 - Follow-ups: CM0.5's sidecar and grid items pass to CM1.2 and CM1.5 (CM1.1's roadmap line);
   `flex_f64` shared (CM1.5, now easy with `#[path]`).
+
+## 2026-11-25: D5
+- Done: D5 signed off by the author: A, as recommended. The spectral weights stay in the
+  corner layout internally (CONVENTIONS §5 unchanged); 2.0.0's centred weights are
+  converted when fixtures are loaded, the FFT normalisation and the mode counts included
+  (CM1.2). A centred layout may come later only as an opt-in option, off by default, in a
+  task of its own, if a need (checkpoint interchange with PyTorch) or a measured gain
+  appears. The outputs are the same either way: the layouts store the same coefficients.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D5 signed off 2026-11-25.
+- FNO: not touched.
+- Matrix: unchanged.
+- Follow-ups: CM1.2 runnable.
