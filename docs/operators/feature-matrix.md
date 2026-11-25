@@ -14,7 +14,7 @@ ported with the task that needs it). *Task* is the roadmap task that sets the ro
 (`neuralop.models`, `neuralop.losses`, `neuralop.training`, `neuralop.data.datasets`); other
 items are imported by module path. From `neuralop` itself: `FNO`, `TFNO`, `get_model`,
 `Trainer`, `LpLoss`, `H1Loss`, `BurgersEqnLoss`, `ICLoss`, `WeightedSumLoss`, `Aggregator`,
-`Relobralo`, `SoftAdapt`, `FourierDiff`, `non_uniform_fd`, `FiniteDiff`. No row is **have**: no parity has been shown yet.
+`Relobralo`, `SoftAdapt`, `FourierDiff`, `non_uniform_fd`, `FiniteDiff`. Rows reach **have** as parity is shown (first: CM1.6a, 2026-11-25).
 
 ## Models
 
@@ -34,14 +34,14 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | `GINO` (exported) | `models/gino.py` | – | missing | CM3.4 |
 | `FNOGNO` (exported) | `models/fnogno.py` | – | missing | CM3.4 |
 | `CODANO` (exported) | `models/codano.py` | – | missing | CM3.5 |
-| `BaseModel` (registry, saves init arguments) | `models/base_model.py` | `Operator` (`models/operator.rs`): config saved as `model_cfg.json`, `init`, `forward`, `NAME`; the registry is CM0.4 | partial | CM0.3, CM0.4 |
-| `get_model` (exported), `available_models` | `models/base_model.py` | – | missing | CM0.4 |
+| `BaseModel` (registry, saves init arguments) | `models/base_model.py` | `Operator` (`models/operator.rs`): config saved as `model_cfg.json` with its `kind` (`OperatorConfig::KIND`, `models/registry.rs`), `init`, `forward`, `NAME` | have (infrastructure, no output to compare) | CM0.3, CM0.4 |
+| `get_model` (exported), `available_models` | `models/base_model.py` | `ModelConfig::from_json` (by `kind`, absent meaning the FNO) and `Model<R>::init` (`models/registry.rs`); `KINDS` | have (infrastructure, no output to compare) | CM0.4 |
 
 ## Layers: spectral convolutions
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `SpectralConv` (legacy: corner weights, `fft_norm="backward"`, `incremental_n_modes`, `joint_factorization`), `SpectralConv1d`, `SpectralConv2d`, `SpectralConv3d`, `SubConv`, `get_contract_fun` | `layers/legacy_spectral_convolution.py` | `SpectralConv<R>`: corner weights, `backward`, dense only, no bias, Li et al.'s uniform init (`SpectralInit` also offers normal and symmetric uniform) | partial | CM1.1 |
+| `SpectralConv` (legacy: corner weights, `fft_norm="backward"`, `incremental_n_modes`, `joint_factorization`), `SpectralConv1d`, `SpectralConv2d`, `SpectralConv3d`, `SubConv`, `get_contract_fun` | `layers/legacy_spectral_convolution.py` | `SpectralConv<R>`: corner weights, `backward`, dense only, no bias, Li et al.'s uniform init (`SpectralInit` also offers normal and symmetric uniform). The dense layer (plus a test-only bias) matches 2.0.0's generic legacy `SpectralConv` in 1D–3D within D3 in f32 (CM1.1, `tests/parity_legacy_spectral_conv.rs`); missing: bias, `incremental_n_modes`, `joint_factorization`, factorised and separable weights, `resolution_scaling_factor`; the `SpectralConv1d/2d/3d` subclasses not fixtured | partial | CM1.1 |
 | `SpectralConv` (centred weights after `fftshift`, `fft_norm="forward"`, `max_n_modes`, separable, dense / Tucker / CP / TT, bias, `init_std="auto"` = √(2 / (in + out)), complex normal), `get_contract_fun` | `layers/spectral_convolution.py` | – | missing | CM1.2, CM2.1 |
 | `BaseSpectralConv` (base class) | `layers/base_spectral_conv.py` | – | missing (internal) | CM1.2 |
 | `einsum_complexhalf`, `einsum_complexhalf_two_input` (half-precision complex einsum) | `layers/einsum_utils.py` | – | missing (internal) | CM1.7 |
@@ -82,12 +82,12 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 
 | Item | Source | sciml-rs | Status | Task |
 | --- | --- | --- | --- | --- |
-| `LpLoss` (exported; `d`, `p`, `measure`, quadrature weights, `reduction` `sum` or `mean`, `abs`, `rel`) | `losses/data_losses.py` | `LpLoss`: `abs` (fixed uniform-mesh weight Π h_a^(1/p), h_a = 1/(s_a − 1)) and `rel`, integer p, `Reduction` `Mean`, `Sum`, `None`; no `measure` option or `quadrature` argument (CONVENTIONS §11) | partial | CM1.6 |
-| `H1Loss` (exported), `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss` | `losses/data_losses.py` | – | missing | CM1.6 |
-| `WeightedSumLoss` (exported), `FieldwiseAggregatorLoss` (exported), `Aggregator` (exported), `SoftAdapt` (exported), `Relobralo` (exported) | `losses/meta_losses.py` | – | missing | CM1.6 |
-| `FiniteDiff` (exported), `central_diff_1d`, `central_diff_2d`, `central_diff_3d` | `losses/differentiation.py` | – | missing | CM1.6 |
-| `FourierDiff` (exported; optional Fourier continuation) | `losses/differentiation.py` | – | missing | CM1.6 |
-| `non_uniform_fd` (exported), `get_non_uniform_fd_weights` | `losses/differentiation.py` | Chebyshev `diff_matrix`, `diff2_matrix` (`datagen`): a different, spectral method | missing | CM1.6 |
+| `LpLoss` (exported; `d`, `p`, `measure`, quadrature weights, `reduction` `sum` or `mean`, `abs`, `rel`) | `losses/data_losses.py` | `LpLoss`: `abs` (fixed uniform-mesh weight Π h_a^(1/p), h_a = 1/(s_a − 1)) and `rel`, integer p, `Reduction` `Mean`, `Sum`, `None`; no `measure` option or `quadrature` argument (CONVENTIONS §11). `rel` matches 2.0.0's `LpLoss.rel` up to 2.0.0's eps of 1e-8 in the denominator (6e-10 to 1.9e-9 in f64, CM1.6a); `abs` keeps §11's weight | partial | CM1.6a |
+| `H1Loss` (exported), `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss` | `losses/data_losses.py` | `SobolevLoss<D>` (`h1`, `hdiv`; `measure`, periodicity, `reduction` `Sum`/`Mean`/`None`, `eps`, `rel`, `abs`), `PointwiseQuantileLoss`, `mse_loss`; parity ≤ 1.7e-7 (f32), ≤ 6e-16 (f64). Not ported: the per-call `quadrature` (equal to `measure = quadrature · s`), `take_root=False`, `MSELoss`'s `dim` | have | CM1.6a |
+| `WeightedSumLoss` (exported), `FieldwiseAggregatorLoss` (exported), `Aggregator` (exported), `SoftAdapt` (exported), `Relobralo` (exported) | `losses/meta_losses.py` | – | missing | CM1.6b |
+| `FiniteDiff` (exported), `central_diff_1d`, `central_diff_2d`, `central_diff_3d` | `losses/differentiation.py` | `FiniteDiff<D>`: `partial` (orders 1, 2; periodic or one-sided), `dx`/`dy`/`dz`, `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`, any D; the deprecated `central_diff_*` are `partial` per axis; the 1D gradient keeps its component axis; parity as `H1Loss` | have | CM1.6a |
+| `FourierDiff` (exported; optional Fourier continuation) | `losses/differentiation.py` | – | missing | CM1.6c |
+| `non_uniform_fd` (exported), `get_non_uniform_fd_weights` | `losses/differentiation.py` | Chebyshev `diff_matrix`, `diff2_matrix` (`datagen`): a different, spectral method | missing | CM1.6c |
 | `BurgersEqnLoss` (exported), `ICLoss` (exported), `PoissonInteriorLoss`, `PoissonBoundaryLoss`, `PoissonEqnLoss` | `losses/equation_losses.py` | – | missing | CM2.5 |
 
 ## Training

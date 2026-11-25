@@ -8,9 +8,15 @@ the proposal wins. Progress is logged in `docs/optimisers/progress.md`; each tas
 
 Status: **planning.** Draft 0.1 written 2026-11-24, draft 0.2 (the Burgers replication as
 O1; the former O1–O4 renumbered O2–O5) the same day, corrected after an independent check
-(#128). D0 and D2 signed off 2026-11-24; next CO0.1, CO0.2 and CO3.1 (CO0.1 and CO0.2 on
-the VM, at the author's go per run). 2026-11-25: CO0.2's profiler written (draft PR); its VM
-run waits for the author's go.
+(#128). D0 and D2 signed off 2026-11-24. CO3.1 (2026-11-24, cuda 2026-11-25): `linalg` enabled,
+constraint 1 shown, flex, metal and cuda measured; D9 signed off 2026-11-25. Next CO0.1 and
+CO0.2 (the VM, running at the author's go, 2026-11-25); D8, D10 and D11 signed off
+2026-11-25, so CO3.2 (SOAP) and CO1.1 (the Burgers recipe; after CM0.3, merged) are runnable.
+D3, D4, D7, D12 and D13 signed off 2026-11-25: CO1.2 runs after CO1.1, CO3.3 after CO3.2
+and CO0.1, CO2.1 after CO1.1 (all three change `training/`, one at a time). CO3.2
+(2026-11-25): `optim/soap/`, SOAP as Burn's per-parameter `Optimizer`, the §9 tests
+passing; next for O3, CO3.3 (its D7 and D13 now signed off). CO0.2
+(2026-11-25): the Gauss–Newton step profile on cuda, `docs/optimisers/results/CO0.2.md`.
 
 ## How to read this file
 
@@ -43,17 +49,17 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | signed off 2026-11-24: draft 0.2, with the corrections of #128, as the plan of record |
 | D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; CG cap 50 or 150 from CO0.1 | CO0.1 | CO4.1 | open |
 | D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both); amended 2026-11-25 by the author: seeds 42–44 at 5,400 s, 42–46 at equal time |
-| D3 | L-BFGS's objective and weight decay | Φ at μ = 0 | – | CO2.1 | open |
-| D4 | L-BFGS's batch | one batch of 1,000; accumulation if memory requires | – | CO2.1 | open |
+| D3 | L-BFGS's objective and weight decay | Φ at μ = 0 | – | CO2.1 | signed off 2026-11-25: Φ, Gauss–Newton's objective, at μ ∈ {0, 1e-4} (widened by D13; ½μ‖θ‖² in the closure) |
+| D4 | L-BFGS's batch | one batch of 1,000; accumulation if memory requires | – | CO2.1 | signed off 2026-11-25: as recommended |
 | D5 | L-BFGS's settings | strong Wolfe, lr 1; history and `max_iter` from the pilot | CO2.2 | CO4.1 | open |
 | D6 | SOAP's hyperparameters | lr 1e-3 cosine, wd 1e-4, β (0.95, 0.95), f = 10; pilot lr ∈ {1e-3, 3e-3}, f ∈ {10, 50} | CO3.3 | CO4.1 | open |
-| D7 | Pass accounting for the new arms | one forward and one backward per SOAP step and per L-BFGS closure evaluation; SOAP's preconditioner work as time | – | CO2.1, CO3.3 | open |
-| D8 | SOAP's handling of the spectral tensors | one factor per dimension; re and im separate; biases on Adam | – | CO3.2 | open |
-| D9 | Where SOAP's linear algebra runs | `linalg` enabled; first basis by host `svd`, refreshes by device `qr` if CO3.1 passes, else host | CO3.1 | CO3.2 | open |
-| D10 | O1's fidelity to PETScML | their data, model (GELU option), loss (eq. 6, squared-loss option for Adam), metric and reference recipe; f32, our Levenberg–Marquardt GN; reproduced if A1's mean is within a factor 2 of 0.0014 | – | CO1.1 | open |
-| D11 | O1's Adam arms | AdamW, lr 1e-3 halved every 100 epochs, batch 20, 500 epochs, ε 1e-8, weight decay 1e-4 (A1) and 0 (A0); our Adam (coupled L2) at 0 and 1e-4 as two more cells | – | CO1.1 | open |
-| D12 | O1's Gauss–Newton arm | full batch, CG cap 100, Phase 10's damping, the Hutchinson diagonal (fixed, not D1's), μ = 0 (G0) and 1e-4 (G1); G0-200, G0 at batch 200 | – | CO1.2 | open |
-| D13 | Weight decay as a factor in O4 | every arm at weight decay 0 and 1e-4 (D3 and D6 widened); doubles O4's cost | – | CO2.1, CO3.3, CO4.1 | open |
+| D7 | Pass accounting for the new arms | one forward and one backward per SOAP step and per L-BFGS closure evaluation; SOAP's preconditioner work as time | – | CO2.1, CO3.3 | signed off 2026-11-25: as recommended |
+| D8 | SOAP's handling of the spectral tensors | one factor per dimension; re and im separate; biases on Adam | – | CO3.2 | signed off 2026-11-25: option A as recommended (one factor per dimension; re and im separate; biases on Adam) |
+| D9 | Where SOAP's linear algebra runs | `linalg` enabled; first basis by host `svd`, refreshes by device `qr` if CO3.1 passes, else host | CO3.1 | CO3.2 | signed off 2026-11-25: host `svd` for the first basis and host QR for the refreshes, on every backend (one code path; CO3.1, `spikes/linalg/REPORT.md`) |
+| D10 | O1's fidelity to PETScML | their data, model (GELU option), loss (eq. 6, squared-loss option for Adam), metric and reference recipe; f32, our Levenberg–Marquardt GN; reproduced if A1's mean is within a factor 2 of 0.0014 | – | CO1.1 | signed off 2026-11-25: as recommended |
+| D11 | O1's Adam arms | AdamW, lr 1e-3 halved every 100 epochs, batch 20, 500 epochs, ε 1e-8, weight decay 1e-4 (A1) and 0 (A0); our Adam (coupled L2) at 0 and 1e-4 as two more cells | – | CO1.1 | signed off 2026-11-25: as recommended, the coupled-Adam cells included |
+| D12 | O1's Gauss–Newton arm | full batch, CG cap 100, Phase 10's damping, the Hutchinson diagonal (fixed, not D1's), μ = 0 (G0) and 1e-4 (G1); G0-200, G0 at batch 200 | – | CO1.2 | signed off 2026-11-25: as recommended, G0-200 included |
+| D13 | Weight decay as a factor in O4 | every arm at weight decay 0 and 1e-4 (D3 and D6 widened); doubles O4's cost | – | CO2.1, CO3.3, CO4.1 | signed off 2026-11-25: every arm at weight decay 0 and 1e-4 |
 | D14 | Burgers in O4 | the four arms on O1's Burgers setting, equal time, seeds 42–46 | – | CO4.1 | open |
 
 ## O0: Re-baseline on Burn 0.23
@@ -67,7 +73,7 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   equal time and 43–44 at 5,400 s (D2). Timed runs side by side on the two GPUs only after a
   check that the epoch times match a run alone (the step is host-bound, Phase 9 T3). *Done when:* a results table (`docs/optimisers/results/CO0.1.md`) against Phase 10's
   fork-era numbers, and D1 proposed. *Needs:* D2. *Machines:* the VM. *Sign-off:* D1.
-- [ ] **CO0.2 Cost profile of a Gauss–Newton step.** Time per phase of one GN200-D step
+- [x] **CO0.2 Cost profile of a Gauss–Newton step.** (`docs/optimisers/results/CO0.2.md`) Time per phase of one GN200-D step
   (the gradient, CG's JVPs and VJPs, backtracking, the Hutchinson refresh), passes per
   second on Burn 0.23 against Phase 10's. *Done when:* the profile table and a short list of
   where passes could be saved (for later work; nothing changed here). *Needs:* –.
@@ -124,11 +130,11 @@ weight decay accounts for.
 **Gate:** a SOAP optimiser that passes proposal §9's tests trains the FNO; its settings
 piloted.
 
-- [ ] **CO3.1 Burn linear algebra for SOAP.** Enable `linalg`; `qr` and `svd` at 12, 32,
+- [x] **CO3.1 Burn linear algebra for SOAP.** (`spikes/linalg/REPORT.md`) Enable `linalg`; `qr` and `svd` at 12, 32,
   128 (and 144) against an f64 host reference on flex, metal and cuda: error and time.
   *Done when:* the table; constraint 1 shown with the feature on; D9 proposed. *Needs:* –.
   *Machines:* the VM (cuda). *Sign-off:* D9.
-- [ ] **CO3.2 The SOAP optimiser.** `optim/soap/`: `SoapConfig`, `Soap` as a Burn
+- [x] **CO3.2 The SOAP optimiser.** (`docs/optimisers/tasks/CO3.2.md`) `optim/soap/`: `SoapConfig`, `Soap` as a Burn
   `Optimizer`, any tensor rank. *Done when:* the SOAP tests of proposal §9 pass (the
   identity-basis reduction to Adam, the quadratic, ranks 1–5, the refresh, record round
   trip). *Needs:* CO3.1, D8, D9.
@@ -136,7 +142,13 @@ piloted.
   exact; then the pilot of D6 on seed 42 at the equal-time budget. *Done when:* a flex smoke
   run and its resume, constraint 1 shown, the pilot table, D6 proposed. *Needs:* CO3.2,
   CO0.1, D7, D13, the library objective's CM0.3 (`training/` changes are serial; not at
-  once with CO1.1, CO1.2 or CO2.1). *Machines:* the VM. *Sign-off:* D6.
+  once with CO1.1, CO1.2 or CO2.1). *Machines:* the VM. *Sign-off:* D6. From CO3.2's
+  questions (the author, 2026-11-25): the resume is checked bit for bit on flex; on the GPU
+  the drift of a resumed run from an uninterrupted one is recorded, not asserted zero (metal
+  reloads diverge in some processes, CO3.2's plan, Outcome); the pilot logs each factor's
+  eigenvalue ratio at the first refresh for one seed, and ratios near 1e7–1e8 bring an f64
+  host eigenbasis back to the author as an amendment of D9. No reference fixtures (proposal
+  §9): skipped, unless the pilot shows SOAP misbehaving.
 
 ## O4: The 2D comparison
 

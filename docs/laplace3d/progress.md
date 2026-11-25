@@ -188,3 +188,76 @@ template:
   widened imports, `real_eig`'s panic texts and test-only helpers made rank-generic); the
   whole 2D suite passes.
 - Follow-ups: none new; CL3.2 uses A3 for the 3D labels.
+
+## 2026-11-24: CL0.1 Rank-5 FNO cost
+- Done: spike `spikes/fno3d_cost/` (a non-default workspace member): `fno3d_cost` times
+  real `train_epoch` and `evaluate` epochs of `FNO<5>` on synthetic data, `run.sh` reads
+  peak memory outside the process; `zip64_roundtrip`. Results
+  `docs/laplace3d/results/cl0-1.md`: on the Mac (flex, metal) time per epoch at s = 32 and
+  64, modes 8³ and 12³; activation memory per sample 0.15 GB (s = 32) and 1.15–1.19 GB
+  (s = 64) on flex, under §7's 0.25 and 1.6–2 GB; a 4.09 GiB npz round trip passes bit for
+  bit with the writer and reader as they are. On cuda (A100, 2026-11-25): 11.1 s (s = 32)
+  and 64.0 s (s = 64) per epoch at batch 20, modes 12³; peak 30.6 GB at s = 64, batch 20;
+  activation 1.44 GB per sample at s = 64 (12³); zip64 passes on Linux too.
+- Tests: `param_counts_match_section_7` (16 785 953 and 56 631 841, exact); the zip64
+  round trip checks every value.
+- Checks: ran fmt, the four clippy runs, `cargo test`, `cargo doc`, the spike's tests and
+  clippy (with metal), `cargo tree`; the cuda matrix and the zip64 check on the VM (2026-11-25, run by the
+  coordinating session at the author's go).
+- Decisions: D5 signed off by the author 2026-11-24; D4 signed off 2026-11-25 (width 32,
+  4 layers, modes 12³, batch 20 at both s), on the cuda run's figures.
+- Review: see the PR.
+- 2D: not touched (no change under `src/`, `examples/`, `tests/`).
+- Follow-ups: CL3.2 (D5 signed) and CL4.1 (D4 signed).
+
+## 2026-11-25: L1 gate
+- Done: gate report `docs/laplace3d/gates/L1.md`: CONVENTIONS version 3 (CL1.1), N-D
+  transfers, norms and errors (CL1.2, CL1.3), 2D unchanged by the D2 tests; all met. The
+  roadmap's L1 gate closed 2026-11-25.
+- Tests: none new. `cargo test --lib -- chebyshev:: metrics::poisson::` on `aabd87a`, 80
+  passed; `main`'s last five CI runs green.
+- Checks: none beyond that (docs only: CONVENTIONS §9 and §12 Verification, roadmap,
+  proposal, this log).
+- Decisions: signed off by the author 2026-11-25: Q1 the 3D test names in CONVENTIONS §12
+  "Verification" without a bump, §9 amended; Q2 the single per-sample loop stays in CL4.1;
+  C4 the N-D tensor helpers folded into CL3.3's first commit; C1–C3 and the line count
+  applied (proposal Appendix A, draft 0.2 unchanged).
+- Review: thermo-nuclear review of the milestone's diff APPROVE, B+, no blockers (report
+  git-ignored, `docs/code-quality/thermo-nuclear-review-2026-11-25-laplace3d-L1-gate.md`);
+  findings to CL3.3 and CL4.1. The report fact-checked by an independent agent; its
+  corrections applied.
+- 2D: not touched (no code).
+- Follow-ups: the L0 and L2 gates; CL3.2 (D4 and D5 signed off with CL0.1, #123).
+
+## 2026-11-25: L0 gate
+- Done: gate report `docs/laplace3d/gates/L0.md`: proposal §7's cost model measured
+  (CL0.1: activations 10–43 % under §7, 30.6 GB peak at s = 64, batch 20, modes 12³; 64 s
+  per epoch on an A100; zip64 one file per split), rank-5 parity on metal (CL0.2), D4 and
+  D5 signed off; all met. The roadmap's L0 gate closed 2026-11-25.
+- Tests: none new. `main`'s CI green after #123 (run 45610871692).
+- Checks: none (docs only: proposal §7, §8 and Appendix A, roadmap, this log).
+- Decisions: signed off by the author 2026-11-25: the gate with C1 (§7's measured figures)
+  and C2 (§8's risk status); D8 as proposed (Q1); the `gpu_parity.rs` tidy-up a follow-up
+  under CL4.2 (Q2).
+- Review: thermo-nuclear review of the union of L0's two commits APPROVE, B+, no blockers
+  (report git-ignored,
+  `docs/code-quality/thermo-nuclear-review-2026-11-25-laplace3d-L0-gate.md`); findings 1–4 to
+  the Q2 follow-up.
+- 2D: not touched (no code).
+- Follow-ups: the L2 gate; CL3.2.
+
+## 2026-11-25: L2 gate
+- Done: gate report `docs/laplace3d/gates/L2.md`: A3 (CL2.1, #136) at the f64 floor on
+  manufactured solutions and `grf3d`'s closed form (≤ 4.3e-14 at n = 33, ≤ 3.3e-13 at
+  n = 65); met. The roadmap's L2 gate closed 2026-11-25.
+- Tests: none new. `cargo test --release --features datagen --lib solver_3d` on `636298b`
+  (Mac), 7 passed, every number of `results/cl2-1.md` reproduced; `main`'s CI green.
+- Checks: none beyond that (docs only: proposal §7 and Appendix A, roadmap, this log).
+- Decisions: signed off by the author 2026-11-25: the gate with C1 (§7's measured solve
+  time); Q1 the n = 129 floor measured before labelling (CL3.2); Q2 the 3D label check in
+  CL3.2, three `pde/poisson` doc fixes in CL3.3's first commit.
+- Review: thermo-nuclear review of CL2.1's commit APPROVE, A−, no blockers (report
+  git-ignored, `docs/code-quality/thermo-nuclear-review-2026-11-25-laplace3d-L2-gate.md`);
+  the report fact-checked by an independent agent, its corrections applied.
+- 2D: not touched (no code).
+- Follow-ups: CL3.2.
