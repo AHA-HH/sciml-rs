@@ -12,8 +12,10 @@ the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 
 once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
 answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
-CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.3 split; CM1.3a done
-2026-11-25 (the block parts). Next CM0.6, CM1.2 (needs D5), CM1.3b and CM1.4.
+CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.6 split 2026-11-25
+into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE). CM1.3
+split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. Next CM0.6, CM1.2,
+CM1.3b, CM1.4, CM1.6b and CM1.6c.
 
 ## How to read this file
 
@@ -47,7 +49,7 @@ The proposal's Section 12. Recorded when the author takes them:
 | D2 | Where the Python side lives | `tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/` | – | CM0.2 | signed off 2026-11-24: as recommended (`tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/`) |
 | D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | signed off 2026-11-25: as recommended (relative max error ≤ 1e-5 in f32, ≤ 1e-12 in f64, on the CPU); amended 2026-11-25 by the author (CM0.5, #148): the error is max |a − e| / max |e| over the tensor; f32 parity on the CPU suffices for M1 while Flex's f64 `rfft` uses f32 twiddles (`upstream/burn/flex-f64-fft-f32-twiddles`), each f64 test `#[ignore]`d with its measured error recorded |
 | D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | signed off 2026-11-24: option A as recommended (a generic trait with associated config and input types, static dispatch, no trait objects; `docs/operators/tasks/CM0.3.md`) |
-| D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | open |
+| D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | signed off 2026-11-25: A, as recommended (corners internally, CONVENTIONS §5 unchanged; 2.0.0's centred weights converted at fixture load, FFT norm and mode counts included). A centred layout may come later only as an opt-in option, off by default, in its own task, if a need (PyTorch checkpoint interchange) or a measured gain appears |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |
 | D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | open |
 | D8 | Fixture size | tiny models, under about 1 MB per fixture | CM0.2 | CM0.2 | signed off 2026-11-24: as recommended (tiny models, P ≲ 10⁴, under about 1 MB per fixture) |
@@ -140,9 +142,32 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
 - [ ] **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
   Darcy- and Burgers-shaped inputs; resampling (`resolution_scaling_factor`) and domain
   padding. *Needs:* CM1.2, CM1.3b, CM1.4.
-- [ ] **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
+- **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
-  `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5.
+  `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
+  (over 1,000 lines across three loss families):
+  - [x] **CM1.6a Finite differences and the data losses.** `FiniteDiff` (first and second
+    derivatives, periodic or one-sided boundaries, 1D–3D; gradient, Laplacian,
+    divergence, curl), `H1Loss`, `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss`; the
+    relative `LpLoss` against 2.0.0's. *Done when:* each against 2.0.0 fixtures within D3
+    (f32; f64 too, no FFT involved; `LpLoss::rel` within 1e-8 in f64, as 2.0.0 adds
+    eps = 1e-8 to its denominator and the crate's, fixed by CONVENTIONS §11 and constraint 1,
+    does not). *Needs:* CM0.5. Done 2026-11-25: plan
+    `docs/operators/tasks/CM1.6a.md`; `losses/{differentiation,sobolev,pointwise}.rs`; parity
+    `tests/parity_losses.rs` (f32, ≤ 1.7e-7), `tests/parity_losses_f64.rs` (≤ 6e-16);
+    fixtures from `tools/parity/generate_losses.py`.
+  - [ ] **CM1.6b Aggregators.** `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`,
+    `Relobralo` (its Bernoulli draw taken from a seeded source). *Done when:* each against
+    a fixture of a sequence of steps (the weights and the aggregated loss per step).
+    *Needs:* CM0.5. Also CM1.6a's code-quality follow-ups: `Reduction::apply` for the three
+    copies of the reduction match, and `sqrt_zero_safe` shared with `lp_norm` (both in
+    `data_losses.rs`, so with the bit-identity check); in the parity harness one
+    `flex_f64` in `parity_common` (four copies with CM1.3a's), `Fixture::tensor` public (the copy in
+    `parity_losses_common`), and with them the two `#[allow(dead_code)]` on the loss
+    binaries' harness modules gone (coordinate `parity_common` with CM1.1).
+  - [ ] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
+    continuation (that option with CM2.4), `non_uniform_fd`. *Done when:* each against
+    fixtures. *Needs:* CM0.5.
 - [ ] **CM1.7 Training features.** Incremental modes and resolution, AdamW as 2.0.0's,
   mixed precision, multigrid patching. *Needs:* CM0.3, CM1.5.
 - [ ] **CM1.8 Training parity on the 2D Poisson baseline.** The protocol of proposal §5,
@@ -162,8 +187,9 @@ The order of M2 and M3 is set at the M1 gate (D6).
 - [ ] **CM2.3 LocalNO.** Differential and DISCO convolutions, `local_no_block`. *Needs:* M1.
 - [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1.
 - [ ] **CM2.5 Equation losses (PINO).** `equation_losses` on CM1.6's derivatives; the
-  crate's Chebyshev differentiation as a second path. *Needs:* CM1.6.
-- [ ] **CM2.6 UQNO.** *Needs:* M1, CM1.6 (quantile loss).
+  crate's Chebyshev differentiation as a second path. *Needs:* CM1.6a (2.0.0's
+  `equation_losses` imports only `FiniteDiff`).
+- [ ] **CM2.6 UQNO.** *Needs:* M1, CM1.6a (quantile loss).
 - [ ] **CM2.7 Divergence-free spectral projection.** *Needs:* M1.
 
 ## M3: The costly operators

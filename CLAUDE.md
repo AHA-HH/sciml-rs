@@ -150,7 +150,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   (SpectralConv, SpectralInit), `layers/{channel_mlp,skip,norm}.rs` (library CM1.3a:
   2.0.0's `ChannelMlp`, `SkipKind`/`Skip<R>`, `AdaIn`; `layers/pointwise.rs`, the shared
   `conv1x1`; activations are Burn's `ActivationConfig`, instance and group norm Burn's;
-  parity in `tests/parity_block_parts*.rs`), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
+  parity in `tests/parity_block_parts*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
+  `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
+  `pointwise::{PointwiseQuantileLoss, mse_loss}`, parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`

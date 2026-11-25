@@ -245,6 +245,57 @@ template:
 - Follow-ups: CM0.5's sidecar and grid items pass to CM1.2 and CM1.5 (CM1.1's roadmap line);
   `flex_f64` shared (CM1.5, now easy with `#[path]`).
 
+## 2026-11-25: D5
+- Done: D5 signed off by the author: A, as recommended. The spectral weights stay in the
+  corner layout internally (CONVENTIONS §5 unchanged); 2.0.0's centred weights are
+  converted when fixtures are loaded, the FFT normalisation and the mode counts included
+  (CM1.2). A centred layout may come later only as an opt-in option, off by default, in a
+  task of its own, if a need (checkpoint interchange with PyTorch) or a measured gain
+  appears. The outputs are the same either way: the layouts store the same coefficients.
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D5 signed off 2026-11-25.
+- FNO: not touched.
+- Matrix: unchanged.
+- Follow-ups: CM1.2 runnable.
+
+## 2026-11-25: CM1.6a Finite differences and the data losses
+- Done: CM1.6 split into CM1.6a–c (roadmap). `losses/differentiation.rs`: `FiniteDiff<D>`,
+  one rank-generic stencil (`partial`, orders 1 and 2, periodic by `roll_dim` or one-sided
+  with 2.0.0's coefficients) for 2.0.0's eighteen per-dimension methods; `dx`/`dy`/`dz`,
+  `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`.
+  `losses/sobolev.rs`: `SobolevLoss<D>` (H1, Hdiv; 2.0.0's quadrature measure / s, which
+  is also the step, and eps in `rel`; zero subgradient at an exact match).
+  `losses/pointwise.rs`: `PointwiseQuantileLoss`, `mse_loss`. Fixtures
+  `losses{1,2,3}d_{f32,f64}` from `tools/parity/generate_losses.py` (beside CM1.1's
+  `generate.py`).
+- Tests: parity on every `FiniteDiff` operator, H1 and Hdiv (rel, abs; periodic, one-sided,
+  mixed; sum, mean), the quantile loss and MSE: f32 ≤ 1.7e-7 (D3 1e-5), f64 ≤ 6e-16 (D3
+  1e-12, its own binary as Flex's dtype is process-wide; no FFT, so not `#[ignore]`d).
+  `LpLoss::rel` against 2.0.0's: 9e-8 in f32, 6e-10 to 1.9e-9 in f64, 2.0.0's eps of 1e-8
+  in the denominator (the crate's has none, CONVENTIONS §11), bounded by 1e-8. A swapped
+  axis fails parity. Unit tests: sin within truncation error, one-sided ends exact on
+  polynomials, curl ∘ gradient ≈ 0, panics, hand-computed H1, MSE and quantile values,
+  exact matches with zero (MSE, Sobolev) or finite (quantile) gradients.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (381 passed), `cargo test --features
+  datagen` (462 passed), `cargo doc --no-deps`, `generate_losses.py --check` (six fixtures
+  the same): all pass. Not run: `--features metal` (no backend-sensitive change).
+- Decisions: none. Question for the author in the PR: should CONVENTIONS §11 record the
+  2.0.0 losses' quadrature and eps (outside §1–§6, no version bump)?
+- Review: plan review PASS (advisories: the lp.rel exception now on the roadmap line, an
+  exact-match test for `pointwise.rs`, CM2.5 needs CM1.6a, Panics docs; all done; the two
+  harness `allow`s stay until the follow-up below). Code quality APPROVE with findings: F1,
+  F2, F5, F8, F9 fixed; F3, F4, F6, F7 to CM1.6b's line.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` bb96d0e and on the
+  branch: `forward`, `phase5_epoch`, `gauss_newton_epoch` byte-identical); no existing
+  source file changed but `losses/mod.rs`.
+- Matrix: `H1Loss`/`HdivLoss`/`PointwiseQuantileLoss`/`MSELoss` and `FiniteDiff` set to
+  **have** (the first rows); `LpLoss` stays partial (rel parity up to eps); the
+  aggregator and Fourier rows point at CM1.6b and CM1.6c.
+- Follow-ups: CM1.6b's line (the review's F3, F4, F6, F7); CM1.6c (`FourierDiff`,
+  `non_uniform_fd`); the §11 question.
+
 ## 2026-11-25: CM1.3a The parts
 - Done: CM1.3 split into CM1.3a (the parts) and CM1.3b (the FNO's block options); CM1.4 now
   needs CM1.3a, CM1.5 also CM1.3b. `layers/channel_mlp.rs` (`ChannelMlpConfig`,
@@ -266,11 +317,11 @@ template:
   missing fixture and the 1D–3D reading, now in the plan). Code quality APPROVE with findings:
   F1 `conv1x1` moved to `layers/pointwise.rs` (the FNO's copy goes in CM1.3b); F2 one function
   per case; F4 the width assert in the match, `split_last`; F5 one `FCS` map; F6 docs; F3
-  (`flex_f64`, `Precision::suffix`) left to CM1.5, as the suffix would be dead code in
-  some binaries.
+  (`flex_f64`, `Precision::suffix`) left to CM1.6b's harness tidy, as the suffix would be
+  dead code in some binaries.
 - FNO: not touched (new modules only).
 - Matrix: `ChannelMLP` partial, skips have, norms partial (no `BatchNorm`), `FNOBlocks` to
   CM1.3b.
 - Follow-ups: CM1.3b's line: the FNO's pointwise matmul replaced by
-  `layers::pointwise::conv1x1`. A `flex_f64` shared by the parity binaries stays with CM1.5
-  (CM0.5's line); this branch adds a fourth copy.
+  `layers::pointwise::conv1x1`. One `flex_f64` in `parity_common`: CM1.6b's line (this branch
+  adds a fourth copy, `tests/parity_block_parts_f64.rs`).
