@@ -146,6 +146,7 @@ None. A1 on seed 42 ran on the Mac (metal) at the author's go, 2026-11-25:
    approximation; Li et al.'s PyTorch `F.gelu` is the erf form. Their script is not public.
    CO1.1 implements the erf form (Burn's `gelu`); the two differ by under 1e-3 in value.
    For sign-off: keep erf, or switch to the tanh form (Burn's `gelu_approximate`).
+   Answered 2026-11-25 by the author: keep erf.
 2. PETScML's "AdamW" is attributed to Li et al., whose code is Adam with a coupled L2 term.
    D11 already runs both (AdamW cells A0, A1 and our coupled Adam cells), so nothing changes;
    recorded for CO1.3's discussion of the reference.

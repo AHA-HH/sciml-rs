@@ -122,7 +122,7 @@ template:
   the step schedule's rate at every step, bit for bit; the squared loss's closed form, a
   trainer step against one taken by hand on it, and the unsquared metric; the replica guard.
 - Checks: see the PR (`/verify`); the constraint 1 runs below.
-- Decisions: none signed off; questions for sign-off: the GELU form (erf or tanh).
+- Decisions: the GELU form answered by the author 2026-11-25: keep erf.
 - Review: plan review PASS with findings (docs, two tests tightened; fixed); code quality
   APPROVE with findings, no blockers (F2–F4, F7 fixed; F1 declined: `train_epoch`'s public
   signature and the existing tests stay unchanged; F5 into CO1.2, F6 as CO1.5; F8 accepted).
