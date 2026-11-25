@@ -118,8 +118,9 @@ template:
   Departure, declared: M kept in the original space (the paper's Algorithm 3; three
   projections per step against the reference's four).
 - Tests: seven in `optim/soap/tests.rs`: identity bases (`max_precond_dim` 0) equal Burn's
-  Adam over 20 steps (1e-6); the Kronecker quadratic (first factors to 1e-5; SOAP 1.6e-2
-  against Adam 24 from 1.6e4 at lr 0.05 · 0.98ⁱ, 400 steps); ranks 1–5 (factor EMA,
+  Adam over 20 steps (1e-6); the Kronecker quadratic (first factors to 1e-5; SOAP 1.6e-7
+  against Adam 5.1e-2 from 2.0e2 at lr 0.05 · 0.98ⁱ, 400 steps, κ = 10 per factor; at
+  κ = 100 the factors are past f32 and the result depends on the backend); ranks 1–5 (factor EMA,
   orthonormal bases, one step against host f64 at 3–7e-6 of the update); the refresh against
   host f64 (first bases against the exact eigenvectors, refreshed bases against a
   Gram–Schmidt QR, V permuted); the record round trip bit for bit across refreshes (flex;
