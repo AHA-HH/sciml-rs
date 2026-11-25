@@ -60,6 +60,12 @@ files, absent from the wheel, differ).
 | `instance_norm1d_{f32,f64}` | `InstanceNorm()`; input (2, 4, 9) | 0 | 1 kB, 2 kB |
 | `group_norm3d_{f32,f64}` | `nn.GroupNorm(1, 4)`, affine redrawn; input (2, 4, 5, 4, 3) | 8 | 5 kB, 9 kB |
 | `ada_in2d_{f32,f64}` | `AdaIN(embed_dim=3, in_channels=4)`, its embedding a seeded buffer (`embedding`); input (2, 4, 6, 5) | 6,152 | 28 kB, 55 kB |
+| `fno_blocks_post1d_f32`, `fno_blocks_pre1d_f32` | `FNOBlocks(4, 4, n_modes=(8,), n_layers=2)`, post- and pre-activation; input (2, 4, 20) | 340 | 8 kB |
+| `fno_blocks_instance_{post,pre}2d_f32` | the same, `n_modes=(6, 4)`, `norm="instance_norm"`; input (2, 4, 12, 10) | 852 | 17 kB |
+| `fno_blocks_group_post3d_f32` | `n_modes=(4, 4, 4)`, `norm="group_norm"`, `fno_skip="soft-gating"`, `channel_mlp_skip="linear"`, `channel_mlp_expansion=1.0`; input (2, 4, 8, 7, 6) | 2,200 | 39 kB |
+| `fno_blocks_group_pre3d_f32` | `norm="group_norm"`, both skips `"identity"`, pre-activation; input (2, 4, 8, 7, 6) | 2,124 | 38 kB |
+| `fno_blocks_ada_in_{post,pre}2d_f32` | `FNOBlocks(2, 2, n_modes=(6, 4), n_layers=1, norm="ada_in", ada_in_features=2)`, one seeded embedding buffer; input (2, 2, 12, 10) | 7,285 | 39 kB |
+| `fno_blocks_plain1d_f32` | `use_channel_mlp=False`, `fno_skip="soft-gating"`, `non_linearity=torch.tanh`; input (2, 4, 20) | 264 | 4 kB |
 
 The legacy layer's `forward` builds its spectrum as `cfloat`, so its f64 fixtures are only
 f32-accurate (library CM1.1). tltorch stores its weights as real tensors with the trailing
@@ -69,6 +75,15 @@ Library CM1.3a: parts whose 2.0.0 initialisation is a constant (soft gating's on
 norm's ones and zeros; `REDRAW`) have their parameters redrawn from the weight seed's normal,
 so their fixtures test the map. A function argument (`non_linearity`) is named in the sidecar
 by its `__name__`.
+
+Library CM1.3b: `FNOBlocks` runs as `FNOBlocksRun`, every layer index in turn as 2.0.0's
+`FNO.forward` does, with the legacy convolution (`legacy_conv`: `bias=False`, as the crate's
+`SpectralConv` has no bias; the new layer's keywords `FNOBlocks` passes are dropped at their
+defaults) and, for AdaIN, one embedding set on every norm. Only parameters whose 2.0.0 init
+is a constant are redrawn (soft gating, group norm), and the block fixtures are f32 only
+(`F32_ONLY`): the legacy layer computes in `cfloat` and returns f32, so an f64 reference
+would be f32-accurate. AdaIN's 512-wide MLP keeps its fixtures to one layer and 2 channels
+(D8).
 
 Torch's CPU kernels can differ in the last bits between machines, so `--check` is a
 reproducibility check on one machine; the committed files are the reference, and the
