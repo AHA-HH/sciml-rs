@@ -77,10 +77,18 @@ the feature matrix is verified.
   name. *Needs:* CM0.3. Also the MLflow export's
   model config (`tracking/builder` reads `model_cfg.json` as `FNOConfig`; CM0.3 left it).
   Done 2026-11-25: plan `docs/operators/tasks/CM0.4.md`; `models/registry.rs`.
-- [ ] **CM0.5 The parity harness.** A test helper that loads a fixture by parameter-name
+- [x] **CM0.5 The parity harness.** A test helper that loads a fixture by parameter-name
   map into a module and compares outputs (and gradients) within D3. *Done when:* the
   CM0.2 1D fixture passes through a hand-written map. *Needs:* CM0.2, D3.
-  *Sign-off:* D3.
+  *Sign-off:* D3. Done 2026-11-25: plan `docs/operators/tasks/CM0.5.md`;
+  `tests/parity_common/` (harness, and `fno1d`: 2.0.0's 1D FNO mirrored in test code),
+  `tests/parity_fno1d.rs` (f32, 3.5e-7), `tests/parity_fno1d_f64.rs` (`#[ignore]`d: Flex's
+  f64 `rfft`, 1.2e-8). No fixture carries gradients yet; `assert_parity` takes any tensor.
+  Follow-ups: `NpzFileReader::names()` so the harness opens a fixture once (CM0.6); read
+  the sidecar `.json` (dtype, `complex_params`) once a JSON dev-dependency is agreed, and
+  build the grid as 2.0.0 does (f32, then cast) before a non-power-of-two f64 fixture
+  (CM1.1); a shared `flex_f64` helper with `tests/gauss_newton_f64.rs` and a generated map
+  per block (CM1.5).
 - [ ] **CM0.6 Tidy after the generic stack.** The CM0.3 code-quality review's findings
   (`docs/operators/progress.md`, CM0.3): one name per concept for the FNO wrappers
   (`train_fno`, `build_training_components`, `load_fno`, `checkpoint`, `Checkpoint`) and
