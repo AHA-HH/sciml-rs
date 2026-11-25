@@ -13,8 +13,9 @@ once it is merged the optimisers tasks that change `training/` may start. CM0.4 
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
 answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
 CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.6 split 2026-11-25
-into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE). Next
-CM0.6, CM1.2, CM1.3, CM1.6b and CM1.6c.
+into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE). CM1.3
+split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. Next CM0.6, CM1.2,
+CM1.3b, CM1.4, CM1.6b and CM1.6c.
 
 ## How to read this file
 
@@ -117,14 +118,30 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   in a bare layer): they pass to CM1.2 and CM1.5.
 - [ ] **CM1.2 Centred layout, separable, `max_n_modes`.** The weight converter of proposal
   §6.3; separable weights; mode truncation below the stored maximum. *Needs:* CM1.1, D5.
-- [ ] **CM1.3 Block parts.** Channel MLP; linear, identity and soft-gating skips;
+- **CM1.3 Block parts.** Channel MLP; linear, identity and soft-gating skips;
   instance, group and AdaIN norms; pre-activation; the activation choice. *Needs:* CM1.1.
+  Split 2026-11-25 (parts in `layers/`, then the FNO's block options):
+  - [x] **CM1.3a The parts.** `ChannelMlp` (2.0.0's `ChannelMLP`), the skips of
+    `skip_connection` (identity, linear, soft-gating) and `AdaIn` in `layers/`; the
+    activation choice as Burn's `ActivationConfig`; instance and group norm as Burn's
+    `InstanceNorm` and `GroupNorm`. *Done when:* each part (Burn's norms and activations
+    included) matches a 2.0.0 fixture of its own within D3, in f32 and f64, across 1D to 3D;
+    nothing under `models/` or `training/` changes. *Needs:* CM1.1. Done 2026-11-25: plan
+    `docs/operators/tasks/CM1.3a.md`; `tests/parity_block_parts{,_f64}.rs` (f32 ≤ 1.9e-7,
+    f64 ≤ 7.1e-16).
+  - [ ] **CM1.3b The FNO's block options.** `FNOConfig` gains the activation, the FNO skip,
+    the channel MLP (expansion, skip), the norm and pre-activation, each absent meaning
+    today's block. *Done when:* the CM0.3 bit-identity check passes against `main`; a block
+    built from the options matches 2.0.0's `FNOBlocks` (with the legacy convolution) within
+    D3, post- and pre-activation, for each norm; the FNO's own pointwise matmul
+    (`FNO::pointwise`, `conv1x1_cf`) replaced by `layers::pointwise::conv1x1` (CM1.3a review).
+    *Needs:* CM1.3a.
 - [ ] **CM1.4 Lifting, projection and embeddings.** Channel-MLP lifting and projection with
   their ratios; `GridEmbeddingND`, `SinusoidalEmbedding`, `RotaryEmbedding2D`. *Needs:*
-  CM1.3.
+  CM1.3a (the channel MLP).
 - [ ] **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
   Darcy- and Burgers-shaped inputs; resampling (`resolution_scaling_factor`) and domain
-  padding. *Needs:* CM1.2, CM1.4.
+  padding. *Needs:* CM1.2, CM1.3b, CM1.4.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
   `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
@@ -145,7 +162,7 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     *Needs:* CM0.5. Also CM1.6a's code-quality follow-ups: `Reduction::apply` for the three
     copies of the reduction match, and `sqrt_zero_safe` shared with `lp_norm` (both in
     `data_losses.rs`, so with the bit-identity check); in the parity harness one
-    `flex_f64` in `parity_common` (three copies), `Fixture::tensor` public (the copy in
+    `flex_f64` in `parity_common` (four copies with CM1.3a's), `Fixture::tensor` public (the copy in
     `parity_losses_common`), and with them the two `#[allow(dead_code)]` on the loss
     binaries' harness modules gone (coordinate `parity_common` with CM1.1).
   - [ ] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
