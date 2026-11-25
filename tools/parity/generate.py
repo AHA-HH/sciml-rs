@@ -42,10 +42,13 @@ CONFIGS = {
     # CM1.2: the centred layer (`fft_norm="forward"`), converted to corners at load.
     "spectral_conv2d": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(8, 6)), (2, 3, 24, 21)),
     "spectral_conv2d_backward": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(8, 6), fft_norm="backward"), (2, 3, 24, 21)),
-    "spectral_conv2d_odd": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(7, 6)), (2, 3, 23, 21)),
-    "spectral_conv3d": (SpectralConv, dict(in_channels=2, out_channels=3, n_modes=(6, 5, 4)), (2, 2, 12, 11, 9)),
+    "spectral_conv2d_odd": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(7, 6)), (2, 3, 24, 21)),
+    "spectral_conv3d": (SpectralConv, dict(in_channels=2, out_channels=3, n_modes=(6, 5, 4)), (2, 2, 12, 10, 9)),
     "spectral_conv2d_separable": (SpectralConv, dict(in_channels=4, out_channels=4, n_modes=(8, 6), separable=True), (2, 4, 24, 21)),
     "spectral_conv2d_max_modes": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(6, 6), max_n_modes=(10, 8)), (2, 3, 24, 21)),
+    # Odd extent on a shifted axis: 2.0.0 applies `fftshift` again (not `ifftshift`) before the
+    # inverse, so its output spectrum moves by one bin there; corners cannot represent this.
+    "spectral_conv2d_odd_extent": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(8, 6)), (2, 3, 23, 21)),
 }
 DTYPES = {"f32": torch.float32, "f64": torch.float64}
 PREFIX = "param."
