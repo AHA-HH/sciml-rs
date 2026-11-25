@@ -139,5 +139,11 @@ matmuls at new shapes, not the record (flex: exact every run). Left to CO3.3, wh
 must be exact on the run's backend (PR question 2).
 
 ## Open questions
-- Python fixtures from the reference implementation (proposal §9's last item): not in the
-  roadmap's *Done when*; left for a follow-up if the author wants them.
+Answered by the author 2026-11-25 (PR #149, questions 1–3), recorded in CO3.3's roadmap line:
+1. Python fixtures from the reference implementation (proposal §9's last item): skipped;
+   revisited only if CO3.3's pilot shows SOAP misbehaving.
+2. Exact resume: bit for bit on flex; on the GPU the drift of a resumed run is recorded,
+   not asserted zero.
+3. f32 precision: no change; CO3.3's pilot logs each factor's eigenvalue ratio at the first
+   refresh (one seed), and ratios near 1e7–1e8 bring an f64 host eigenbasis back as a D9
+   amendment.

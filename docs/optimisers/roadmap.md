@@ -141,7 +141,13 @@ piloted.
   exact; then the pilot of D6 on seed 42 at the equal-time budget. *Done when:* a flex smoke
   run and its resume, constraint 1 shown, the pilot table, D6 proposed. *Needs:* CO3.2,
   CO0.1, D7, D13, the library objective's CM0.3 (`training/` changes are serial; not at
-  once with CO1.1, CO1.2 or CO2.1). *Machines:* the VM. *Sign-off:* D6.
+  once with CO1.1, CO1.2 or CO2.1). *Machines:* the VM. *Sign-off:* D6. From CO3.2's
+  questions (the author, 2026-11-25): the resume is checked bit for bit on flex; on the GPU
+  the drift of a resumed run from an uninterrupted one is recorded, not asserted zero (metal
+  reloads diverge in some processes, CO3.2's plan, Outcome); the pilot logs each factor's
+  eigenvalue ratio at the first refresh for one seed, and ratios near 1e7–1e8 bring an f64
+  host eigenbasis back to the author as an amendment of D9. No reference fixtures (proposal
+  §9): skipped, unless the pilot shows SOAP misbehaving.
 
 ## O4: The 2D comparison
 

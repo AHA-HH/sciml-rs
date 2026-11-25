@@ -144,13 +144,14 @@ template:
   permuted, decay before the step) each fail a test.
 - Checks: see the PR (fmt, the clippy lines, `cargo test`, `cargo doc`, datagen clippy and
   tests, the soap tests on metal).
-- Decisions: none new; D8, D9 applied.
+- Decisions: none new; D8, D9 applied. The author's answers to the PR's questions
+  (2026-11-25): no reference fixtures; resume bit for bit on flex, drift recorded on the
+  GPU; f32 kept, CO3.3 logs the factors' conditioning (CO3.3's roadmap line).
 - Review: plan review FAIL → fixed (`clippy::needless_range_loop` in the tests; advisories
   taken: decay order now tested, zero-gradient test, frequency 0 refused, f64 host read);
   code quality APPROVE, no blockers (F1 ndarray for the host QR, F4, F5, F6, F8 fixed; F2,
   F3, F7 left, PR text).
 - Adam and Gauss–Newton: not touched (nothing calls the module; the existing suite unedited).
-- Follow-ups: CO3.3 (the arm, `OptimizerConfig::Soap`, resume of a run, pilot; its resume
-  check on the GPU must allow for the metal finding, PR question 2); the
-  reference fixtures of proposal §9 (Python, outside CI) if the author wants them (PR
-  question 1).
+- Follow-ups: CO3.3 (the arm, resume bit for bit on flex with the GPU drift recorded, the
+  factors' conditioning logged at the pilot; its roadmap line).
+
