@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 #[cfg(feature = "flex")]
 use burn::{prelude::*, tensor::FloatDType};
 #[cfg(feature = "flex")]
-use parity_common::{D3_F64, fno1d, rel_max_error};
+use parity_common::{assert_parity, fno1d};
 
 /// Flex configured for f64, once per process.
 #[cfg(feature = "flex")]
@@ -32,8 +32,7 @@ fn flex_f64() -> Device {
 #[test]
 #[ignore = "Burn bug: flex's f64 rfft uses f32 twiddles (tests/gauss_newton_f64.rs)"]
 fn fno1d_f64_matches_2_0_0() {
-    let (out, reference) = fno1d::run("fno1d_f64", &flex_f64());
-    let err = rel_max_error(out, &reference);
+    let (out, reference, d3) = fno1d::run("fno1d_f64", &flex_f64());
+    let err = assert_parity(out, &reference, d3, "fno1d_f64 output");
     println!("fno1d_f64: relative max error {err:.3e}");
-    assert!(err <= D3_F64, "fno1d_f64 output: {err:.3e} > {D3_F64:.0e}");
 }

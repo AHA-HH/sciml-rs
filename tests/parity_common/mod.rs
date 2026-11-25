@@ -7,11 +7,9 @@
 //! (real, imaginary). Each map entry names one such array, the Burn path it goes to (as
 //! `ModuleSnapshot::collect` names it) and which part of it to take.
 
-#![allow(dead_code)] // each test binary uses its own subset
-
 pub mod fno1d;
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 use burn::{
     prelude::*,
@@ -89,7 +87,7 @@ impl Fixture {
     ///
     /// # Panics
     /// As [`open`](Self::open).
-    pub fn open_path(path: &Path) -> Self {
+    fn open_path(path: &Path) -> Self {
         let name = path.file_stem().unwrap().to_string_lossy().into_owned();
         let precision = if name.ends_with("_f32") {
             Precision::F32
@@ -142,7 +140,7 @@ impl Fixture {
     ///
     /// # Panics
     /// If `a` is not of rank `R`.
-    pub fn tensor<const R: usize>(&self, a: &ArrayD<f64>, device: &Device) -> Tensor<R> {
+    fn tensor<const R: usize>(&self, a: &ArrayD<f64>, device: &Device) -> Tensor<R> {
         assert_eq!(
             a.ndim(),
             R,
@@ -191,28 +189,25 @@ pub fn take(a: ArrayD<f64>, take: Take) -> ArrayD<f64> {
 /// parameter is left out.
 pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: &[MapEntry]) {
     let name = fixture.name.clone();
-    let mut unmapped: Vec<&str> = fixture
+    let mut parts: BTreeMap<&str, Vec<Take>> = BTreeMap::new();
+    for &(from, _, part) in map {
+        parts.entry(from).or_default().push(part);
+    }
+    let unmapped: Vec<&str> = fixture
         .params
         .iter()
         .map(String::as_str)
-        .filter(|p| !map.iter().any(|(from, ..)| from == p))
+        .filter(|p| !parts.contains_key(p))
         .collect();
-    unmapped.sort();
     assert!(
         unmapped.is_empty(),
         "fixture {name}: parameters the map leaves out: {unmapped:?}"
     );
-    for (from, ..) in map {
-        let parts: Vec<Take> = map
-            .iter()
-            .filter(|(f, ..)| f == from)
-            .map(|e| e.2)
-            .collect();
-        let complete = matches!(parts.as_slice(), [Take::Whole])
-            || matches!(
-                parts.as_slice(),
-                [Take::Re, Take::Im] | [Take::Im, Take::Re]
-            );
+    for (from, parts) in &parts {
+        let complete = matches!(
+            parts.as_slice(),
+            [Take::Whole] | [Take::Re, Take::Im] | [Take::Im, Take::Re]
+        );
         assert!(
             complete,
             "fixture {name}: `{from}` must be mapped once Whole or once each Re and Im, got {parts:?}"

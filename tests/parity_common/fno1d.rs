@@ -164,11 +164,18 @@ pub const MAP: &[MapEntry] = &[
     ("projection.fcs.1.bias", "projection.1.bias", Take::Whole),
 ];
 
-/// The fixture `name` through [`Fno1dRef`] and [`MAP`] on `device`: (output, reference).
-pub fn run(name: &str, device: &Device) -> (Tensor<3>, ArrayD<f64>) {
+/// The fixture `name` opened and loaded into a [`Fno1dRef`] on `device` through [`MAP`].
+pub fn loaded(name: &str, device: &Device) -> (Fno1dRef, Fixture) {
     let mut fixture = Fixture::open(name);
     let mut model = Fno1dRef::new(device);
     load_into(&mut model, &mut fixture, MAP);
+    (model, fixture)
+}
+
+/// The fixture `name` through [`loaded`]'s model: (output, reference, D3's bound for the
+/// fixture's precision).
+pub fn run(name: &str, device: &Device) -> (Tensor<3>, ArrayD<f64>, f64) {
+    let (model, mut fixture) = loaded(name, device);
     let x = fixture.input::<3>(device);
-    (model.forward(x), fixture.output())
+    (model.forward(x), fixture.output(), fixture.precision.d3())
 }

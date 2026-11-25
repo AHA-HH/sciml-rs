@@ -11,17 +11,16 @@ use parity_common::{fno1d::*, *};
 /// The acceptance test: the f32 fixture within D3's f32 bound.
 #[test]
 fn fno1d_f32_matches_2_0_0() {
-    let (out, reference) = run("fno1d_f32", &Device::default());
-    let err = assert_parity(out, &reference, D3_F32, "fno1d_f32 output");
+    let (out, reference, d3) = run("fno1d_f32", &Device::default());
+    let err = assert_parity(out, &reference, d3, "fno1d_f32 output");
     println!("fno1d_f32: relative max error {err:.3e}");
 }
+
 /// The harness can fail: one weight moved by 1e-3 breaks the f32 bound.
 #[test]
 fn perturbed_weight_fails_parity() {
     let device = Device::default();
-    let mut fixture = Fixture::open("fno1d_f32");
-    let mut model = Fno1dRef::new(&device);
-    load_into(&mut model, &mut fixture, MAP);
+    let (mut model, mut fixture) = loaded("fno1d_f32", &device);
     let bias = model.projection[1].bias.take().unwrap();
     model.projection[1].bias = Some(bias.map(|b| b.add_scalar(1e-3)));
     let out = model.forward(fixture.input::<3>(&device));
