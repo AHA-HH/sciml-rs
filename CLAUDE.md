@@ -200,8 +200,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
 - `chebyshev/clencurt` is ungated (ndarray only): `clencurt` (closed-form Clenshaw–Curtis
   weights, Trefethen) and `cc_rel_l2_error` (relative CC-L² error on the CGL tensor grid).
 - `src/neural_operators/pde/poisson/` (behind `datagen`): `collocation`
-  (`CollocationSolver`, solver A, fast diagonalisation); `sparse` (`SparseSolver`, solver C,
-  Q1 + unpreconditioned CG, validation oracle, test-only); `manufactured` (test-only fixtures).
+  (`CollocationSolver`, solver A, fast diagonalisation; `CollocationSolver3d`, A3, its 3D
+  form, laplace3d CL2.1); `sparse` (`SparseSolver`, solver C, Q1 + unpreconditioned CG,
+  validation oracle, test-only); `manufactured` (test-only fixtures).
 - `pde/poisson/grf3d` (3D laplace3d CL3.1): the 3D GRF, α = 3, ChaCha8 stream 3, separable
   evaluation; shares `grf::{TAU, K_MAX, sine_basis}`.
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`

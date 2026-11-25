@@ -12,7 +12,8 @@ by the author and merged (#122); CL0.2 done (rank-5 parity on metal, no Burn bug
 CL0.1 measured on the Mac (#123, the cuda run waits for the VM); CL1.2 (transfers and
 CC norms for any rank) done; CL3.1 done (the 3D GRF, `pde/poisson/grf3d`; D3 confirmed 2026-11-24 on
 its ε_K table); CL1.3 (errors 2–5 for 2D or 3D fields) done, so L1's tasks are all done;
-next CL2.1, then the L1 gate.
+CL2.1 done (A3, `CollocationSolver3d`, f64 floor by n = 33; 0.4 ms per solve at n = 33,
+5–18 ms at 65 on the Mac); next the L1 gate, then CL3.2.
 
 ## How to read this file
 
@@ -98,10 +99,11 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 
 **Gate:** A3 reaches the f64 floor on manufactured and closed-form solutions.
 
-- [ ] **CL2.1 Collocation solver A3.** Fast diagonalisation in 3D (proposal §5).
+- [x] **CL2.1 Collocation solver A3.** Fast diagonalisation in 3D (proposal §5).
   *Done when:* relative error (max norm and 3D CC norm) at the f64 floor by n = 33 on
   manufactured solutions and on sine-series closed forms (a test-only 3D series
-  evaluator, or CL3.1's); time per solve at n = 33 and 65. *Needs:* CL1.1, CL1.2.
+  evaluator, or CL3.1's); time per solve at n = 33 and 65. *Needs:* CL1.1, CL1.2. Report:
+  `docs/laplace3d/results/cl2-1.md`.
 
 ## L3: 3D GRF and datasets
 
