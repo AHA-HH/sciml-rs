@@ -13,7 +13,9 @@ constraint 1 shown, flex, metal and cuda measured; D9 signed off 2026-11-25. Nex
 CO0.2 (the VM, running at the author's go, 2026-11-25); D8, D10 and D11 signed off
 2026-11-25, so CO3.2 (SOAP) and CO1.1 (the Burgers recipe; after CM0.3, merged) are runnable.
 D3, D4, D7, D12 and D13 signed off 2026-11-25: CO1.2 runs after CO1.1, CO3.3 after CO3.2
-and CO0.1, CO2.1 after CO1.1 (all three change `training/`, one at a time).
+and CO0.1, CO2.1 after CO1.1 (all three change `training/`, one at a time). CO3.2
+(2026-11-25): `optim/soap/`, SOAP as Burn's per-parameter `Optimizer`, the §9 tests
+passing; next for O3, CO3.3 (its D7 and D13 now signed off).
 
 ## How to read this file
 
@@ -131,7 +133,7 @@ piloted.
   128 (and 144) against an f64 host reference on flex, metal and cuda: error and time.
   *Done when:* the table; constraint 1 shown with the feature on; D9 proposed. *Needs:* –.
   *Machines:* the VM (cuda). *Sign-off:* D9.
-- [ ] **CO3.2 The SOAP optimiser.** `optim/soap/`: `SoapConfig`, `Soap` as a Burn
+- [x] **CO3.2 The SOAP optimiser.** (`docs/optimisers/tasks/CO3.2.md`) `optim/soap/`: `SoapConfig`, `Soap` as a Burn
   `Optimizer`, any tensor rank. *Done when:* the SOAP tests of proposal §9 pass (the
   identity-basis reduction to Adam, the quadratic, ranks 1–5, the refresh, record round
   trip). *Needs:* CO3.1, D8, D9.
@@ -139,7 +141,13 @@ piloted.
   exact; then the pilot of D6 on seed 42 at the equal-time budget. *Done when:* a flex smoke
   run and its resume, constraint 1 shown, the pilot table, D6 proposed. *Needs:* CO3.2,
   CO0.1, D7, D13, the library objective's CM0.3 (`training/` changes are serial; not at
-  once with CO1.1, CO1.2 or CO2.1). *Machines:* the VM. *Sign-off:* D6.
+  once with CO1.1, CO1.2 or CO2.1). *Machines:* the VM. *Sign-off:* D6. From CO3.2's
+  questions (the author, 2026-11-25): the resume is checked bit for bit on flex; on the GPU
+  the drift of a resumed run from an uninterrupted one is recorded, not asserted zero (metal
+  reloads diverge in some processes, CO3.2's plan, Outcome); the pilot logs each factor's
+  eigenvalue ratio at the first refresh for one seed, and ratios near 1e7–1e8 bring an f64
+  host eigenbasis back to the author as an amendment of D9. No reference fixtures (proposal
+  §9): skipped, unless the pilot shows SOAP misbehaving.
 
 ## O4: The 2D comparison
 

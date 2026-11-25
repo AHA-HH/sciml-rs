@@ -50,6 +50,13 @@ files, absent from the wheel, differ).
 | --- | --- | --- | --- |
 | `fno1d_{f32,f64}` | `FNO(n_modes=(8,), in=1, out=1, hidden=8)`, 2.0.0's defaults otherwise; input (2, 1, 64) | 3,529 | 28 kB, 43 kB |
 | `fno2d_{f32,f64}` | `FNO(n_modes=(4, 4), in=1, out=1, hidden=8)`, 2.0.0's defaults otherwise; input (2, 1, 32, 32) | 7,129 | 58 kB, 103 kB |
+| `legacy_spectral_conv1d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(12,))` (`layers/legacy_spectral_convolution.py`), defaults otherwise (bias on); input (2, 3, 50) | 148 | 4 kB, 8 kB |
+| `legacy_spectral_conv2d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(8, 6))`; input (2, 3, 24, 21) | 580 | 32 kB, 62 kB |
+| `legacy_spectral_conv3d_{f32,f64}` | legacy `SpectralConv(2, 3, n_modes=(6, 4, 4))`; input (2, 2, 12, 10, 9) | 579 | 47 kB, 93 kB |
+
+The legacy layer's `forward` builds its spectrum as `cfloat`, so its f64 fixtures are only
+f32-accurate (library CM1.1). tltorch stores its weights as real tensors with the trailing
+(re, im) axis, so their sidecars list no `complex_params`.
 
 Torch's CPU kernels can differ in the last bits between machines, so `--check` is a
 reproducibility check on one machine; the committed files are the reference, and the

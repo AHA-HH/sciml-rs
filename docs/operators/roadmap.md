@@ -11,9 +11,10 @@ Status: **M0 runnable.** Draft 0.1 written 2026-11-11; D0 signed off 2026-11-24 
 the plan of record); CM0.1 and CM0.2 done 2026-11-24; CM0.3 done 2026-11-24 (D4 signed off):
 once it is merged the optimisers tasks that change `training/` may start. CM0.4 done
 2026-11-25 (the registry). D3 signed off 2026-11-25, and the CM0.3 test-import question
-answered (moving imports is not editing a test). Next CM0.5 and CM0.6. CM1.6 split
-2026-11-25 into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile,
-MSE). Next CM1.6b and CM1.6c (both runnable); CM1.1 in progress.
+answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
+CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.6 split 2026-11-25
+into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE). Next
+CM0.6, CM1.2, CM1.3, CM1.6b and CM1.6c.
 
 ## How to read this file
 
@@ -47,7 +48,7 @@ The proposal's Section 12. Recorded when the author takes them:
 | D2 | Where the Python side lives | `tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/` | – | CM0.2 | signed off 2026-11-24: as recommended (`tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/`) |
 | D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | signed off 2026-11-25: as recommended (relative max error ≤ 1e-5 in f32, ≤ 1e-12 in f64, on the CPU); amended 2026-11-25 by the author (CM0.5, #148): the error is max |a − e| / max |e| over the tensor; f32 parity on the CPU suffices for M1 while Flex's f64 `rfft` uses f32 twiddles (`upstream/burn/flex-f64-fft-f32-twiddles`), each f64 test `#[ignore]`d with its measured error recorded |
 | D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | signed off 2026-11-24: option A as recommended (a generic trait with associated config and input types, static dispatch, no trait objects; `docs/operators/tasks/CM0.3.md`) |
-| D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | open |
+| D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | signed off 2026-11-25: A, as recommended (corners internally, CONVENTIONS §5 unchanged; 2.0.0's centred weights converted at fixture load, FFT norm and mode counts included). A centred layout may come later only as an opt-in option, off by default, in its own task, if a need (PyTorch checkpoint interchange) or a measured gain appears |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |
 | D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | open |
 | D8 | Fixture size | tiny models, under about 1 MB per fixture | CM0.2 | CM0.2 | signed off 2026-11-24: as recommended (tiny models, P ≲ 10⁴, under about 1 MB per fixture) |
@@ -107,8 +108,13 @@ the feature matrix is verified.
 **Gate:** 2.0.0's `FNO` with its defaults and every option passes output parity; H1 and
 the aggregators exist; one training-parity run on the 2D Poisson baseline.
 
-- [ ] **CM1.1 Legacy spectral convolution parity.** 2.0.0's corner-layout layer against
-  `SpectralConv`, 1D to 3D. *Needs:* CM0.5.
+- [x] **CM1.1 Legacy spectral convolution parity.** 2.0.0's corner-layout layer against
+  `SpectralConv`, 1D to 3D. *Needs:* CM0.5. Done 2026-11-25: plan
+  `docs/operators/tasks/CM1.1.md`; fixtures `legacy_spectral_conv{1,2,3}d_{f32,f64}`;
+  `tests/parity_legacy_spectral_conv.rs` (f32, ≤ 4.7e-7), `_f64.rs` (`#[ignore]`d: 2.0.0's
+  legacy spectrum is `cfloat`, so its f64 reference is f32-accurate, ≤ 2.9e-7). CM0.5's
+  sidecar and grid follow-ups did not arise (no complex parameters in the sidecar, no grid
+  in a bare layer): they pass to CM1.2 and CM1.5.
 - [ ] **CM1.2 Centred layout, separable, `max_n_modes`.** The weight converter of proposal
   §6.3; separable weights; mode truncation below the stored maximum. *Needs:* CM1.1, D5.
 - [ ] **CM1.3 Block parts.** Channel MLP; linear, identity and soft-gating skips;

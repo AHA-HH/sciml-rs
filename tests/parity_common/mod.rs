@@ -6,8 +6,9 @@
 //! `state_dict` as `param.<2.0.0 name>`; a complex tensor is stored as a trailing axis of 2,
 //! (real, imaginary). Each map entry names one such array, the Burn path it goes to (as
 //! `ModuleSnapshot::collect` names it) and which part of it to take.
-
-pub mod fno1d;
+//!
+//! The reference models beside this file (`fno1d.rs`, `legacy_conv.rs`) are included only by
+//! the test binaries that use them, with `#[path]`, so no binary compiles dead code.
 
 use std::{collections::BTreeMap, path::Path};
 

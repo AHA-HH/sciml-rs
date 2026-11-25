@@ -17,7 +17,7 @@ use burn::{
 use ndarray::ArrayD;
 use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
 
-use super::{Fixture, MapEntry, Take, load_into};
+use crate::parity_common::{Fixture, MapEntry, Take, load_into};
 
 pub const HIDDEN: usize = 8;
 pub const N_LAYERS: usize = 4;
