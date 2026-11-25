@@ -220,9 +220,11 @@ fn identity_basis_is_adam() {
     );
 }
 
-/// f(W) = ½⟨E, A E B⟩, E = W − W*, Hessian B ⊗ A with rotated A and B of κ = 100 each: the
+/// f(W) = ½⟨E, A E B⟩, E = W − W*, Hessian B ⊗ A with rotated A and B of κ = 10 each: the
 /// first factors are (1 − β_s) G Gᵀ and (1 − β_s) Gᵀ G, and at the same decaying lr SOAP ends
-/// below 1 % of Adam's loss (1.6e-2 against 24 from 1.6e4 when written).
+/// below 1 % of Adam's loss (1.6e-7 and 1.5e-7 on flex and metal against 5.1e-2, from 2.0e2, when
+/// written). At κ = 100 each the factors' κ is about 1e8, past f32: their trailing
+/// eigenvectors are round-off and SOAP's result depends on the backend's rounding.
 #[test]
 fn kronecker_quadratic() {
     let (m, n) = (6, 5);
@@ -230,7 +232,7 @@ fn kronecker_quadratic() {
     let spd = |rng: &mut Rng, d: usize| {
         let u = orthogonal(rng, d);
         let s: Vec<f64> = (0..d)
-            .map(|i| 100f64.powf(i as f64 / (d - 1) as f64))
+            .map(|i| 10f64.powf(i as f64 / (d - 1) as f64))
             .collect();
         with_spectrum(&u, &s, &u, d)
     };

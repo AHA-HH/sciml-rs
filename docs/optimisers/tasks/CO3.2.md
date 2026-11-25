@@ -77,11 +77,14 @@ In `optim/soap/` unit tests, on the default device (flex in CI), f32:
    differences are ε's placement (Burn scales it by √(1 − β₂ᵗ)) at ε = 1e-8 and gradients
    of order 1, below f32 round-off.
 2. **Quadratic, Kronecker Hessian.** f(W) = ½⟨W − W*, A (W − W*) B⟩, Hessian B ⊗ A, A and B
-   rotated with κ = 100 each. The first basis's factors equal (1 − β_s) GGᵀ and GᵀG
+   rotated with κ = 10 each. The first basis's factors equal (1 − β_s) GGᵀ and GᵀG
    (host f64, 1e-5 relative); at the same lr, 0.05 · 0.98ⁱ for 400 steps, SOAP ends below
-   1 % of Adam's loss and below 1e-5 of the start. (Amended while implementing: at a
-   constant lr both stall at the lr's noise floor, SOAP 1.08 against Adam 1.32, which says
-   nothing about the bases; with the decay, 1.6e-2 against 24 from 1.6e4.)
+   1 % of Adam's loss and below 1e-5 of the start (1.6e-7 flex, 1.5e-7 metal, against
+   5.1e-2, from 2.0e2). Amended twice while implementing: at a constant lr both stall at the
+   lr's noise floor; and at κ = 100 each (the plan's) the factors' κ is about 1e8, past
+   f32, so their trailing eigenvectors are round-off: flex passed (1.6e-2 against 24) and
+   metal did not (23 against 24), and at κ = 30 flex failed. That is f32 SOAP, as the
+   reference's, not a backend fault (bases orthonormal and QᵀLQ equally diagonal on both).
 3. **Ranks 1–5.** Shapes [7], [5, 6], [4, 3, 5], [3, 4, 1, 3], [2, 3, 2, 3, 2] (with a
    size-1 dimension in the rank-4 one: [3, 4, 1, 3]): after three steps every factor equals the host f64
    EMA of the mode-k Grams (1e-5), every basis is orthonormal (1e-5), and one more step's
@@ -125,6 +128,15 @@ Done 2026-11-25. The tests above pass (seven); the ranks test runs at weight dec
 lr · wd = 1e-2 and the decay's order is pinned (amended after the plan review). Mutations
 checked: Q for Qᵀ in the back-projection fails ranks and quadratic; V unpermuted fails the
 refresh test; decay before the step fails ranks (7e-3 against 1e-4).
+
+Metal (`--features metal`): six of the seven pass every run; `record_round_trip` fails about
+one run in six (1 of 6, and 1 of 3 of a trace of it), Burn's Adam in the same test 8 of 8.
+SOAP on metal is deterministic within a process (two uninterrupted runs equal); a reload
+diverges only in some processes, with ulp-level differences first (the bias, 3e-8) that
+SOAP's normalisation grows to 1e-3–1e-2 in the 4 × 3 weight, whose factors are
+rank-deficient. Likely the backend's run-time kernel choice (autotune) for SOAP's small
+matmuls at new shapes, not the record (flex: exact every run). Left to CO3.3, whose resume
+must be exact on the run's backend (PR question 2).
 
 ## Open questions
 - Python fixtures from the reference implementation (proposal §9's last item): not in the

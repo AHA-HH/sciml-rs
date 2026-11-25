@@ -122,7 +122,8 @@ template:
   against Adam 24 from 1.6e4 at lr 0.05 · 0.98ⁱ, 400 steps); ranks 1–5 (factor EMA,
   orthonormal bases, one step against host f64 at 3–7e-6 of the update); the refresh against
   host f64 (first bases against the exact eigenvectors, refreshed bases against a
-  Gram–Schmidt QR, V permuted); the record round trip bit for bit across refreshes; a zero
+  Gram–Schmidt QR, V permuted); the record round trip bit for bit across refreshes (flex;
+  on metal it fails about one run in six, see the plan's Outcome); a zero
   first gradient; the frequency check. Mutations (Q for Qᵀ in the back-projection, V not
   permuted, decay before the step) each fail a test.
 - Checks: see the PR (fmt, the clippy lines, `cargo test`, `cargo doc`, datagen clippy and
@@ -133,6 +134,7 @@ template:
   code quality APPROVE, no blockers (F1 ndarray for the host QR, F4, F5, F6, F8 fixed; F2,
   F3, F7 left, PR text).
 - Adam and Gauss–Newton: not touched (nothing calls the module; the existing suite unedited).
-- Follow-ups: CO3.3 (the arm, `OptimizerConfig::Soap`, resume of a run, pilot); the
+- Follow-ups: CO3.3 (the arm, `OptimizerConfig::Soap`, resume of a run, pilot; its resume
+  check on the GPU must allow for the metal finding, PR question 2); the
   reference fixtures of proposal §9 (Python, outside CI) if the author wants them (PR
   question 1).
