@@ -123,3 +123,38 @@ template:
 - FNO: unchanged bit for bit (the dumps above against `main`).
 - Matrix: `BaseModel`, `Trainer`, training state set (partial; CM0.3's part done).
 - Follow-ups: CM0.4 (also the MLflow export's model config); CM0.6 (the review's F1–F5).
+
+## 2026-11-25: CM0.4 The registry
+- Done: `models/registry.rs`: `OperatorConfig` (`KIND`; `FNOConfig` is `"fno"`), which
+  `Operator::Config` now requires (`Operator::NAME` defaults to it); `DEFAULT_KIND`,
+  `KINDS`; `ModelConfig` (`from_json`, `load`: by `kind`, a missing `kind` reading as the
+  FNO, an unknown one an error naming the registered kinds) and `Model<R>` (`init`,
+  `forward`): the constructor by name, one enum variant per kind (D4, static dispatch).
+  `RunDir::save_configs` writes `kind` first in `model_cfg.json` (callers unchanged);
+  `model_config`, `load_model` and `checkpoint_of` check the file's kind against the
+  config type; new `RunDir::any_model_config`. The MLflow export reads the model config
+  through the registry; its requests are unchanged.
+- Tests: a pre-CM0.4 `model_cfg.json` (no `kind`) loads through `model_config`,
+  `any_model_config` and `load_model`, the loaded model predicting bit for bit as the
+  saved one; a new file starts with `"kind": "fno"` and still parses as a plain
+  `FNOConfig` (what a reader built from `main` does); wrong and unknown kinds fail with
+  messages naming them; every kind round-trips through `from_json`; a config older than
+  `spectral_init`/`padding` parses (at the parse level, not through `RunDir`); `Model::<4>`
+  built by name forwards bit for bit as the FNO with the same weights; the MLflow
+  `start_requests` of a directory with and without `kind` are equal.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features mlflow --all-targets`, `--features datagen --all-targets`), `cargo test`,
+  `cargo test --features datagen`, `cargo test --features mlflow --lib`, `cargo doc
+  --no-deps` (all pass); `cargo test --features metal --lib` (326 pass, at 2a01cf2, before
+  the JSON-only review fixes); `tests/fno_bit_identity.rs` on the branch and on `main`,
+  dumps identical (65,536, 22,476 and 28,481,592 bytes).
+- Decisions: none. Question for the author in the PR: keep `Operator::NAME` (now always its
+  config's `KIND`) or retire it (CM0.6).
+- Review: plan review PASS (advisories: `DEFAULT_KIND` from `FNOConfig::KIND` and one
+  reader, fixed; the older-format test is parse-level, stated above); code quality APPROVE
+  with findings (F1, F2 fixed; F3 a question in the PR; F4 to CM2.1).
+- FNO: unchanged bit for bit (the dumps above against `main`); only new runs'
+  `model_cfg.json` gains the `kind` key.
+- Matrix: `BaseModel`, `get_model`/`available_models` set to have (infrastructure).
+- Follow-ups: CM2.1 (the second kind: its variants, the export's arm, `Model<R>` as a
+  `Module` if needed; review F4); CM0.6 (`Operator::NAME`, on the author's answer).
