@@ -62,11 +62,7 @@ impl PointwiseQuantileLoss {
             .reshape([batch as i32, -1])
             .mean_dim(1)
             .reshape([batch]);
-        match self.reduction {
-            Reduction::Mean => per_example.mean(),
-            Reduction::Sum => per_example.sum(),
-            Reduction::None => per_example,
-        }
+        self.reduction.apply(per_example)
     }
 }
 
