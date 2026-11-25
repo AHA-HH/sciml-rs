@@ -75,6 +75,7 @@ fn main() {
         // No domain padding: Burgers is periodic, and Li et al.'s fourier_1d.py
         // does not pad either
         padding: None,
+        activation: None,
     };
 
     // 100 epochs, fewer than `train_burgers`' 500, so a TUI run finishes

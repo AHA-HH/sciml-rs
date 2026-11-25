@@ -330,6 +330,7 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         // Poisson is non-periodic: pad each axis with zero cells before the
         // spectral layers (cropped after). Some(0) means no padding
         padding: Some(padding),
+        activation: None,
     };
 
     let (optimizer, adam_epochs) = optimizer(seed);
