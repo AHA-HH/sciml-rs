@@ -5,32 +5,16 @@
 #[cfg(feature = "flex")]
 #[path = "parity_common/block_parts.rs"]
 mod block_parts;
-mod parity_common;
-
 #[cfg(feature = "flex")]
-use std::sync::OnceLock;
+mod flex_f64;
+mod parity_common;
 
 #[cfg(feature = "flex")]
 use block_parts::*;
 #[cfg(feature = "flex")]
-use burn::{prelude::*, tensor::FloatDType};
+use flex_f64::flex_f64;
 #[cfg(feature = "flex")]
 use parity_common::Precision::F64;
-
-/// Flex configured for f64, once per process.
-#[cfg(feature = "flex")]
-fn flex_f64() -> Device {
-    static DEVICE: OnceLock<Device> = OnceLock::new();
-    DEVICE
-        .get_or_init(|| {
-            let mut device = Device::flex();
-            device
-                .configure(FloatDType::F64)
-                .expect("flex accepts f64 as its default float dtype");
-            device
-        })
-        .clone()
-}
 
 #[cfg(feature = "flex")]
 #[test]
