@@ -92,7 +92,7 @@ cd ~/sciml-rs-wt/cl3-2
 mkdir -p ~/sciml-rs/datasets/poisson   # so the link below exists and the files outlive the worktree
 find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
 source ~/sciml-gpu.sh
-export CARGO_TARGET_DIR=~/sciml-rs-target/laplace3d
+export CARGO_TARGET_DIR=~/sciml-rs-target/cl3-2   # one build directory per task
 export LIBCLANG_PATH=~/.local/lib/libclang   # datagen's clang-sys needs an unversioned libclang.so (attempt 1)
 tmux new -d -s cl3-2 "cargo run --release --features datagen --example generate_poisson3d -- 65 2>&1 | tee ~/sciml-rs/logs/cl3-2.log"
 ```
