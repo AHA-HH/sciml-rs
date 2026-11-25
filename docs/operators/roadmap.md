@@ -43,7 +43,7 @@ The proposal's Section 12. Recorded when the author takes them:
 | D0 | Draft 0.1 of the proposal as the plan of record | after review | – | every task | signed off 2026-11-24: draft 0.1 as the plan of record |
 | D1 | Reference version | `neuraloperator` 2.0.0 | – | CM0.1 | signed off 2026-11-11: "its neuraloperator and the major release 2.0.0" |
 | D2 | Where the Python side lives | `tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/` | – | CM0.2 | signed off 2026-11-24: as recommended (`tools/parity/`, outside CI, lock file; fixtures in `tests/fixtures/parity/`) |
-| D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | signed off 2026-11-25: as recommended (relative max error ≤ 1e-5 in f32, ≤ 1e-12 in f64, on the CPU) |
+| D3 | Output parity tolerance | rel. max error ≤ 1e-5 (f32), ≤ 1e-12 (f64), CPU | CM0.5 | CM1.1 | signed off 2026-11-25: as recommended (relative max error ≤ 1e-5 in f32, ≤ 1e-12 in f64, on the CPU); amended 2026-11-25 by the author (CM0.5, #148): the error is max |a − e| / max |e| over the tensor; f32 parity on the CPU suffices for M1 while Flex's f64 `rfft` uses f32 twiddles (`upstream/burn/flex-f64-fft-f32-twiddles`), each f64 test `#[ignore]`d with its measured error recorded |
 | D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | signed off 2026-11-24: option A as recommended (a generic trait with associated config and input types, static dispatch, no trait objects; `docs/operators/tasks/CM0.3.md`) |
 | D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | open |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |

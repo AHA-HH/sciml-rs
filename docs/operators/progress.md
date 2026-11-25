@@ -199,3 +199,16 @@ template:
 - FNO: not touched (tests only).
 - Matrix: unchanged (the mirror is test code; no row reaches **have**).
 - Follow-ups: in CM0.5's roadmap line (for CM0.6, CM1.1 and CM1.5).
+
+## 2026-11-25: D3 amended (CM0.5's questions)
+- Done: the author's answers to CM0.5's two questions (#148), as the coordinating session
+  recommended. "Relative max error" is max |a − e| / max |e| over the tensor, so elements
+  near zero do not dominate. f32 parity on the CPU is enough for M1 while Flex's f64 `rfft`
+  uses f32 twiddles (`upstream/burn/flex-f64-fft-f32-twiddles`): each f64 parity test is
+  `#[ignore]`d with its measured error recorded, as CM0.5 does (1.211e-8 for the 1D FNO).
+- Tests: none.
+- Checks: none (docs).
+- Decisions: D3 amended 2026-11-25.
+- FNO: not touched.
+- Matrix: unchanged.
+- Follow-ups: CM1.1 runs to D3 as amended; the f64 bound returns when the upstream fix lands.
