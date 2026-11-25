@@ -1,7 +1,8 @@
 # Optimisers CO3.1: Burn linear algebra for SOAP
 
 Spike for `docs/optimisers/tasks/CO3.1.md`. Burn `=0.23.0-pre.2` with `linalg`; f32; release
-builds; flex and metal on the author's M2 Pro Mac (2026-11-24); cuda on the VM: pending.
+builds; flex and metal on the author's M2 Pro Mac (2026-11-24); cuda on the VM (one A100,
+2026-11-25).
 
 ## What is measured (`src/bin/linalg_check.rs`)
 
@@ -43,17 +44,27 @@ metal (`--features metal`):
 | 128 | 2.6e-7 | 4.1e-7 | 1.1e-3 | 8.2e-7 / 1.1e-6 / 1.8e-3 | 76.63 ms | 3.30 ms | 6.7e-7 | 1.0e-6 | 1.8e-6 | 1.65 ms |
 | 144 | 2.1e-7 | 5.2e-7 | 1.2e-3 | 9.2e-7 / 1.4e-6 / 2.4e-3 | 84.83 ms | 4.80 ms | 5.5e-7 | 9.0e-7 | 1.6e-6 | 2.23 ms |
 
-cuda (`--no-default-features --features cuda`, the VM): pending.
+cuda (`--no-default-features --features cuda`; the VM, one A100, 2026-11-25, commit
+080c317, run by the coordinating session at the author's go):
+
+| n | qr backward | qr orth | qr fwd vs f64 | f32 host baseline (bwd / orth / fwd) | qr time | host qr time | svd σ err / σ₁ | svd residual | svd orth | svd time |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 12 | 1.6e-7 | 4.6e-7 | 7.9e-4 | 3.8e-7 / 3.1e-7 / 3.4e-4 | 78.69 ms | 0.83 ms | 1.2e-7 | 2.5e-7 | 1.0e-6 | 1.08 ms |
+| 32 | 1.6e-7 | 2.0e-7 | 1.5e-3 | 3.9e-7 / 7.7e-7 / 1.9e-3 | 220.77 ms | 0.91 ms | 1.7e-7 | 5.9e-7 | 7.7e-7 | 0.29 ms |
+| 128 | 1.9e-7 | 3.5e-7 | 1.0e-3 | 8.2e-7 / 1.1e-6 / 1.8e-3 | 1144.69 ms | 5.62 ms | 6.7e-7 | 1.0e-6 | 1.8e-6 | 3.47 ms |
+| 144 | 2.1e-7 | 3.7e-7 | 1.3e-3 | 9.2e-7 / 1.4e-6 / 2.4e-3 | 1224.20 ms | 8.80 ms | 5.5e-7 | 9.0e-7 | 1.6e-6 | 4.64 ms |
 
 Reading:
 - **Correct everywhere measured.** qr is backward stable and orthogonal to f32 level on both
-  backends; its forward error is within 7× of the f32 baseline at n = 12 and within 1.6×
+  backends (all three); its forward error is within 7× of the f32 baseline at n = 12 and within 1.6×
   above (better than the baseline on metal). svd's singular values are within 7e-7 · σ₁ of the f64 eigenvalues, with
   orthonormal U.
 - **Device qr is slow on metal**: 7–85 ms, 18–23× the host round trip at n ≥ 128 and 60–150× below
   (lazy tensor ops, about 20 small kernels per column, n times). On flex Burn's qr runs on the CPU
   and costs 1.1–1.2× the plain host loop at n ≥ 128.
-- **svd** is host code on every backend: ≤ 2.4 ms at n = 144, once per tensor.
+- **Device qr is slower still on cuda**: 79 ms to 1.2 s, 95–240× the host round trip at
+  every size.
+- **svd** is host code on every backend: ≤ 4.7 ms at n = 144, once per tensor.
 
 ## Constraint 1 (`src/bin/fingerprint.rs`)
 
@@ -79,8 +90,7 @@ The `origin/main` row: a scratch worktree of `origin/main`, this spike's `Cargo.
 
 ## D9, proposed
 
-The first basis by `svd` on the host (as recommended); the refreshes by **host** QR, not
-device `qr`, at least on metal: Burn's device qr is correct but 18–23× slower there
-(n ≥ 128) than a host QR of the downloaded factor, round trip included. The cuda row
-decides whether cuda keeps device `qr`; unless it is within about 2× of the host there,
-use the host path on every backend (one code path).
+The first basis by `svd` on the host (as recommended); the refreshes by **host** QR on
+every backend, not device `qr` (one code path). Burn's device qr is correct everywhere but
+18–23× slower than a host QR of the downloaded factor on metal (n ≥ 128) and 95–240× on
+cuda, round trip included; on flex the two cost the same.

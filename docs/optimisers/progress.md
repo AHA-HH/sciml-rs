@@ -66,16 +66,17 @@ template:
   Spike `spikes/linalg/` (`REPORT.md`): `linalg_check` measures `qr` (device) and `svd`
   (host) at n = 12, 32, 128, 144 in f32 against f64 host references; `fingerprint` hashes a
   seeded FNO forward, Adam and hybrid Gauss–Newton runs. Both correct on flex and metal;
-  device `qr` on metal 18–23× slower than a host QR (round trip included) at n ≥ 128.
+  device `qr` 18–23× slower than a host QR (round trip included) on metal at n ≥ 128 and
+  95–240× on cuda (2026-11-25, A100).
 - Tests: no new crate test (spike only); the existing suite unedited with the feature on.
 - Checks: ran fmt, the three clippy lines and `--all-targets`, `cargo test`, `cargo doc`,
-  datagen clippy and tests, the spike's clippy (flex, metal) and runs (flex, metal), the
-  fingerprint on this branch and on `origin/main`; metal `gpu_parity` (see the PR);
-  pending: `linalg_check` on cuda (the VM).
-- Decisions: D9 proposed (host `svd` first basis, host QR refreshes; cuda's row decides
-  cuda), for sign-off.
+  datagen clippy and tests, metal `gpu_parity`, the spike's clippy (flex, metal) and runs
+  (flex, metal; cuda on the VM 2026-11-25), the fingerprint on this branch and on
+  `origin/main`.
+- Decisions: D9 proposed (host `svd` first basis, host QR refreshes on every backend), for
+  sign-off.
 - Review: plan review PASS (wording fixes applied); code quality APPROVE, no blockers
   (plan amended for the svd metrics, like-for-like host timing, comments).
 - Adam and Gauss–Newton: unchanged bit for bit: equal fingerprints with `linalg` off
   (`origin/main` 4d681d0) and on, flex; the feature adds no code the crate uses (REPORT).
-- Follow-ups: the cuda row and D9's sign-off in this PR; then CO3.2.
+- Follow-ups: D9's sign-off in this PR; then CO3.2 (also needs D8).

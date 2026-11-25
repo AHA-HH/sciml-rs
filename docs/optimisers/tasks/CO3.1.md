@@ -79,7 +79,8 @@ build; decides whether D9's device `qr` holds on cuda. At the author's go.
 - No effect on the 2D or 3D objectives' outputs beyond the shared constraint 1 check.
 
 ## Pending runs
-- cuda `linalg_check` on the VM (step 6), waiting for the author's go.
+- none. cuda `linalg_check` ran on the VM 2026-11-25 (A100, commit 080c317, exit 0), at the
+  author's go, by the coordinating session; table in the report.
 
 ## Open questions
 - D9 (proposed in the report, for sign-off).
