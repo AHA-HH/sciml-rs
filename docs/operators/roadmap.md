@@ -14,8 +14,9 @@ once it is merged the optimisers tasks that change `training/` may start. CM0.4 
 answered (moving imports is not editing a test). CM0.5 done 2026-11-25 (the parity harness);
 CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.6 split 2026-11-25
 into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE). CM1.3
-split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. Next CM0.6, CM1.2,
-CM1.3b, CM1.4, CM1.6b and CM1.6c.
+split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. CM1.3b done
+2026-11-25 (the FNO's block options; FNO outputs unchanged bit for bit). Next CM0.6, CM1.2,
+CM1.4, CM1.6b and CM1.6c.
 
 ## How to read this file
 
@@ -129,19 +130,25 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     nothing under `models/` or `training/` changes. *Needs:* CM1.1. Done 2026-11-25: plan
     `docs/operators/tasks/CM1.3a.md`; `tests/parity_block_parts{,_f64}.rs` (f32 ≤ 1.9e-7,
     f64 ≤ 7.1e-16).
-  - [ ] **CM1.3b The FNO's block options.** `FNOConfig` gains the activation, the FNO skip,
+  - [x] **CM1.3b The FNO's block options.** `FNOConfig` gains the activation, the FNO skip,
     the channel MLP (expansion, skip), the norm and pre-activation, each absent meaning
     today's block. *Done when:* the CM0.3 bit-identity check passes against `main`; a block
     built from the options matches 2.0.0's `FNOBlocks` (with the legacy convolution) within
     D3, post- and pre-activation, for each norm; the FNO's own pointwise matmul
     (`FNO::pointwise`, `conv1x1_cf`) replaced by `layers::pointwise::conv1x1` (CM1.3a review).
-    *Needs:* CM1.3a.
+    *Needs:* CM1.3a. Done 2026-11-25: plan `docs/operators/tasks/CM1.3b.md`;
+    `FNO::fourier_layers`, `layers::norm::{NormKind, Norm}`; `tests/parity_fno_blocks.rs`
+    (nine `FNOBlocks` fixtures, f32 only as the legacy layer computes in `cfloat`, ≤ 2.3e-6);
+    the CM0.3 dumps identical to `main`.
 - [ ] **CM1.4 Lifting, projection and embeddings.** Channel-MLP lifting and projection with
   their ratios; `GridEmbeddingND`, `SinusoidalEmbedding`, `RotaryEmbedding2D`. *Needs:*
   CM1.3a (the channel MLP).
 - [ ] **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
   Darcy- and Burgers-shaped inputs; resampling (`resolution_scaling_factor`) and domain
-  padding. *Needs:* CM1.2, CM1.3b, CM1.4.
+  padding. *Needs:* CM1.2, CM1.3b, CM1.4. Also from CM1.3b: the spectral convolution's bias
+  inside the block (2.0.0 adds it before the norm; CM1.3b's fixtures turn it off), and the
+  block options' `FNOConfig` struct literals in the examples and tests (five `None` lines
+  each) replaced by `FNOConfig::new(..).with_*` where that keeps them readable.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
   `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
