@@ -6,12 +6,12 @@ proposal differ, the proposal wins. Progress is logged in `docs/laplace3d/progre
 each task's plan is `docs/laplace3d/tasks/<ID>.md`, written when it starts; each
 milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 
-Status: **L0's tasks done; L1 closed 2026-11-25 (`gates/L1.md`).** Draft 0.2 of the proposal
+Status: **L0 and L1 closed 2026-11-25 (`gates/L0.md`, `gates/L1.md`).** Draft 0.2 of the proposal
 is the plan of record (D0–D3 signed off 2026-11-11, #117). Done: CL0.1 (rank-5 cost on the
 Mac and cuda, #123; D5 signed off 2026-11-24, D4 2026-11-25 on the cuda figures), CL0.2
 (rank-5 parity on metal), CL1.1–CL1.3 (CONVENTIONS version 3, N-D transfers, norms and
 errors, 2D bit for bit unchanged), CL2.1 (A3, `CollocationSolver3d`, f64 floor by n = 33),
-CL3.1 (the 3D GRF; D3 confirmed 2026-11-24). Next: the L0 and L2 gates, and CL3.2.
+CL3.1 (the 3D GRF; D3 confirmed 2026-11-24). D8 signed off at the L0 gate. Next: the L2 gate, and CL3.2.
 
 ## How to read this file
 
@@ -47,11 +47,15 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | D5 | Stages, sizes, names and storage | n = 33 (tests), 65 (training); 129 test-only if needed; 1000/200; `poisson3d_n{n}_K{K}_{split}`; precision and zip64 from CL0.1 | CL0.1 | CL3.2 | signed off 2026-11-24 (#123): n = 33 (tests and Mac runs), 65 (training), 129 test-only if the resolution study needs it; 1000 train / 200 test; `poisson3d_n{n}_K{K}_{split}`; f64, one `.npz` per split (zip64 verified on the Mac) |
 | D6 | Laplace input representation | – | L4 gate | CL5.1 | open |
 | D7 | Laplace boundary data family | face sine series (proposal §3.4) | L4 gate | CL5.1 | open |
-| D8 | Where runs happen | n = 33 on the Mac, n = 65 generation and training on one A100 80 GB | – | CL4.2 | open |
+| D8 | Where runs happen | n = 33 on the Mac, n = 65 generation and training on one A100 80 GB | L0 gate | CL4.2 | signed off 2026-11-25 (L0 gate, Q1): as proposed; n = 33 on the Mac for CL4.1's short runs and tests, any n = 33 baseline over seeds and n = 65 generation and training on one A100 80 GB each |
 
 ## L0: Sizing
 
-**Gate:** the cost model of proposal §7 measured; D4 and D5 put to the author.
+**Gate (closed 2026-11-25):** the cost model of proposal §7 measured; D4 and D5 put to the
+author. Report `docs/laplace3d/gates/L0.md`. Signed off by the author 2026-11-25: the gate,
+with corrections C1 (proposal §7's measured figures) and C2 (§8's risk status) applied; Q1
+D8 as proposed; Q2 the `gpu_parity.rs` tidy-up a follow-up for the next task that edits it
+(CL4.2).
 
 - [x] **CL0.1 Rank-5 FNO cost.** Peak memory and time per epoch of `FNO<5>` on random data
   at s = 32 and 64, modes 8³ and 12³, width 32, on flex, metal and cuda, at the batch sizes
@@ -146,6 +150,9 @@ in CL4.1"; C4 "fold into CL3.3"; corrections C1, C2, C3 and the 973-line count a
   with errors 2–5 against the 3D floor, and 2D Phase 5 at the same s as context (the
   input families differ, proposal §3.3). Before its first cuda run, CL0.2's cases run on
   cuda: `cargo test --release --no-default-features --features cuda --test gpu_parity`.
+  Follow-up (L0 gate Q2), for whichever task next edits `tests/gpu_parity.rs`: one gated
+  `mod gpu`, one `compare` helper, a named `Side` struct, and the qualified "zeroed entries
+  cannot hide" doc comment; test-only, no behaviour change.
   *Needs:* CL4.1, D8. *Machines:* the VM.
 
 ## L5: 3D Laplace
