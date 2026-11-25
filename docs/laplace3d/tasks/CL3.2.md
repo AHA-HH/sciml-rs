@@ -93,6 +93,7 @@ mkdir -p ~/sciml-rs/datasets/poisson   # so the link below exists and the files 
 find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
 source ~/sciml-gpu.sh
 export CARGO_TARGET_DIR=~/sciml-rs-target/laplace3d
+export LIBCLANG_PATH=~/.local/lib/libclang   # datagen's clang-sys needs an unversioned libclang.so (attempt 1)
 tmux new -d -s cl3-2 "cargo run --release --features datagen --example generate_poisson3d -- 65 2>&1 | tee ~/sciml-rs/logs/cl3-2.log"
 ```
 
@@ -115,6 +116,7 @@ fallback is generating on the Mac and copying the two n = 65 splits (5.3 GB) to 
   (D8 open) and for no timed run in tmux (optimisers CO0.1, `co0`). tmux session `cl3-2`,
   log `~/sciml-rs/logs/cl3-2.log`. Decides the L3 gate's "written" for the training stage.
   The n = 33 sets are written (Mac, 2026-11-25; `docs/laplace3d/results/cl3-2.md`).
+- Attempt 1 (2026-11-25 14:06, run by the coordinating session): the `datagen` build failed: clang-sys found no unversioned `libclang.so` (the VM has `/usr/lib64/libclang.so.19.1`). Fixed without root by a link `~/.local/lib/libclang/libclang.so -> /usr/lib64/libclang.so.19.1` and `LIBCLANG_PATH` (above). The generation is queued after the bisect's timed runs (about 15:00 UTC).
 
 ## Open questions
 - D8 (open): n = 65 generation on the VM, as above. Asked in the PR.
