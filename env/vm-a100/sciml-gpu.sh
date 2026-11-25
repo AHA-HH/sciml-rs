@@ -6,3 +6,6 @@ spack env activate sciml-gpu
 export CUDA_PATH=/usr/local/cuda-12.6   # cudarc picks its bindings from this toolkit at build time
 export PATH="$CUDA_PATH/bin:$PATH"
 export LD_LIBRARY_PATH="$(spack location -i nccl)/lib:$CUDA_PATH/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# datagen (RLST): FFTW from this Spack environment, OpenBLAS from the system; libclang for bindgen.
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$(spack location -i fftw)/lib"   # appended: FFTW only, after CUDA and NCCL
+export LIBCLANG_PATH="$HOME/.local/lib/libclang"   # link to /usr/lib64/libclang.so.19.1 (no unversioned libclang.so on the system)
