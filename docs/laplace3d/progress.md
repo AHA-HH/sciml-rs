@@ -188,3 +188,24 @@ template:
   widened imports, `real_eig`'s panic texts and test-only helpers made rank-generic); the
   whole 2D suite passes.
 - Follow-ups: none new; CL3.2 uses A3 for the 3D labels.
+
+## 2026-11-24: CL0.1 Rank-5 FNO cost
+- Done: spike `spikes/fno3d_cost/` (a non-default workspace member): `fno3d_cost` times
+  real `train_epoch` and `evaluate` epochs of `FNO<5>` on synthetic data, `run.sh` reads
+  peak memory outside the process; `zip64_roundtrip`. Results
+  `docs/laplace3d/results/cl0-1.md`: on the Mac (flex, metal) time per epoch at s = 32 and
+  64, modes 8³ and 12³; activation memory per sample 0.15 GB (s = 32) and 1.15–1.19 GB
+  (s = 64) on flex, under §7's 0.25 and 1.6–2 GB; a 4.09 GiB npz round trip passes bit for
+  bit with the writer and reader as they are. On cuda (A100, 2026-11-25): 11.1 s (s = 32)
+  and 64.0 s (s = 64) per epoch at batch 20, modes 12³; peak 30.6 GB at s = 64, batch 20;
+  activation 1.44 GB per sample at s = 64 (12³); zip64 passes on Linux too.
+- Tests: `param_counts_match_section_7` (16 785 953 and 56 631 841, exact); the zip64
+  round trip checks every value.
+- Checks: ran fmt, the four clippy runs, `cargo test`, `cargo doc`, the spike's tests and
+  clippy (with metal), `cargo tree`; the cuda matrix and the zip64 check on the VM (2026-11-25, run by the
+  coordinating session at the author's go).
+- Decisions: D5 signed off by the author 2026-11-24; D4 signed off 2026-11-25 (width 32,
+  4 layers, modes 12³, batch 20 at both s), on the cuda run's figures.
+- Review: see the PR.
+- 2D: not touched (no change under `src/`, `examples/`, `tests/`).
+- Follow-ups: CL3.2 (D5 signed) and CL4.1 (D4 signed).

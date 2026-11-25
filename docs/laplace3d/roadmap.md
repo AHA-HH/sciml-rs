@@ -9,7 +9,8 @@ milestone's gate report is `docs/laplace3d/gates/<milestone>.md`.
 Status: **L0 and L1 under way.** Draft 0.2 of the proposal is the plan of record (D0–D3
 signed off 2026-11-11, #117). 2026-11-24: CL1.1 (the CONVENTIONS 3D additions) signed off
 by the author and merged (#122); CL0.2 done (rank-5 parity on metal, no Burn bug found);
-CL0.1 measured on the Mac (#123, the cuda run waits for the VM); CL1.2 (transfers and
+CL0.1 measured on the Mac and, 2026-11-25, on cuda (#123; D5 signed off, and D4 signed off
+2026-11-25 on the cuda figures); CL1.2 (transfers and
 CC norms for any rank) done; CL3.1 done (the 3D GRF, `pde/poisson/grf3d`; D3 confirmed 2026-11-24 on
 its ε_K table); CL1.3 (errors 2–5 for 2D or 3D fields) done, so L1's tasks are all done;
 CL2.1 done (A3, `CollocationSolver3d`, f64 floor by n = 33; 0.4 ms per solve at n = 33,
@@ -45,8 +46,8 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | D1 | Generalise the 2D pieces or copy them | generalise, rank 2 routed to the existing code | – | CL1.2 | signed off 2026-11-11: generalise, rank 2 routed to the existing code |
 | D2 | What "bit for bit unchanged" covers for 2D, and how it is checked | the numerical outputs (proposal §9), not metadata; in-process old-against-new tests on fixed 2D inputs, plus the whole 2D suite | – | CL1.2 | signed off 2026-11-11: numbers only, in process (the numerical outputs of proposal §9, not metadata; in-process old-against-new tests on fixed 2D inputs, plus the whole 2D suite) |
 | D3 | GRF parameters and K in 3D | τ = 3, α = 3, K(n) = (n − 1)/2, ε_K ≤ 5e-3 on f; alternative α = 2 with the tolerance on u | CL3.1 | CL3.2 | signed off 2026-11-11: τ = 3, α = 3; confirmed 2026-11-24 on CL3.1's measured ε_K table (#132), as recommended |
-| D4 | Model size and batch at s = 32 and 64 | width 32, 4 layers, modes 8³ unless 12³ fits; batch 20 unless memory says less | CL0.1 | CL4.1 | open |
-| D5 | Stages, sizes, names and storage | n = 33 (tests), 65 (training); 129 test-only if needed; 1000/200; `poisson3d_n{n}_K{K}_{split}`; precision and zip64 from CL0.1 | CL0.1 | CL3.2 | open |
+| D4 | Model size and batch at s = 32 and 64 | width 32, 4 layers, modes 8³ unless 12³ fits; batch 20 unless memory says less | CL0.1 | CL4.1 | signed off 2026-11-25: width 32, 4 layers, modes 12³, batch 20 at s = 32 and 64, as proposed and confirmed by the cuda run (#123) |
+| D5 | Stages, sizes, names and storage | n = 33 (tests), 65 (training); 129 test-only if needed; 1000/200; `poisson3d_n{n}_K{K}_{split}`; precision and zip64 from CL0.1 | CL0.1 | CL3.2 | signed off 2026-11-24 (#123): n = 33 (tests and Mac runs), 65 (training), 129 test-only if the resolution study needs it; 1000 train / 200 test; `poisson3d_n{n}_K{K}_{split}`; f64, one `.npz` per split (zip64 verified on the Mac) |
 | D6 | Laplace input representation | – | L4 gate | CL5.1 | open |
 | D7 | Laplace boundary data family | face sine series (proposal §3.4) | L4 gate | CL5.1 | open |
 | D8 | Where runs happen | n = 33 on the Mac, n = 65 generation and training on one A100 80 GB | – | CL4.2 | open |
@@ -55,7 +56,7 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 
 **Gate:** the cost model of proposal §7 measured; D4 and D5 put to the author.
 
-- [ ] **CL0.1 Rank-5 FNO cost.** Peak memory and time per epoch of `FNO<5>` on random data
+- [x] **CL0.1 Rank-5 FNO cost.** Peak memory and time per epoch of `FNO<5>` on random data
   at s = 32 and 64, modes 8³ and 12³, width 32, on flex, metal and cuda, at the batch sizes
   that fit; a zip64 round trip of an npz above 4 GiB. *Done when:* a table of both, with
   parameter counts and activation memory against §7; the zip64 result; D4 (with the batch)
