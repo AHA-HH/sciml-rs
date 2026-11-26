@@ -9,6 +9,9 @@ mod parity_common;
 
 use burn::prelude::*;
 use fno_blocks::*;
+use ndarray::{Axis, Slice};
+use parity_common::{Fixture, assert_parity};
+use sciml_rs::neural_operators::models::fno::Activation;
 
 #[test]
 fn fno_blocks_post1d_matches_2_0_0() {
@@ -50,8 +53,35 @@ fn fno_blocks_ada_in_pre2d_matches_2_0_0() {
     check::<4>(&ADA_IN_PRE_2D, &Device::default());
 }
 
-/// 2.0.0's repeated activation (GELU) without a channel MLP or norm.
+/// 2.0.0's repeated activation (tanh) without a channel MLP or norm.
 #[test]
 fn fno_blocks_plain1d_matches_2_0_0() {
     check::<3>(&PLAIN_1D, &Device::default());
+}
+
+/// Every `FNOConfig::activation` against torch's function (`activations1d`: each applied to
+/// one seeded input, stacked along the channels in the enum's order).
+#[test]
+fn activations_match_torch() {
+    use Activation::*;
+    let mut fixture = Fixture::open("activations1d_f32");
+    let x = fixture.input::<3>(&Device::default());
+    let expected = fixture.output();
+    let all = [
+        Relu, Gelu, Tanh, Sigmoid, Silu, LeakyRelu, Selu, Mish, HardSwish, Softsign,
+    ];
+    assert_eq!(expected.shape()[1], all.len(), "one channel per activation");
+    for (k, activation) in all.iter().enumerate() {
+        let channel = expected
+            .slice_axis(Axis(1), Slice::from(k..k + 1))
+            .to_owned();
+        let what = format!("activations1d_f32, {activation:?}");
+        let err = assert_parity(
+            activation.apply(x.clone()),
+            &channel,
+            fixture.precision.d3(),
+            &what,
+        );
+        println!("{what}: relative max error {err:.3e}");
+    }
 }

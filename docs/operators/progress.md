@@ -402,7 +402,7 @@ template:
   `bias=False`; f32 only; AdaIN at one layer and 2 channels for D8); the harness gains
   `load_into_part` (a `PathFilter` to the block's paths).
 - Tests: `tests/parity_fno_blocks.rs`, post- and pre-activation for no norm, instance, group
-  and AdaIN, plus the repeated GELU, 1D–3D: ≤ 2.3e-6 (D3 1e-5). Unit tests: absent options
+  and AdaIN, plus the repeated tanh, 1D–3D: ≤ 2.3e-6 (D3 1e-5). Unit tests: absent options
   build no new parameters, the options build 2.0.0's layers, half-to-even width, the skipped
   ReLU repeat equals ReLU twice bit for bit, AdaIN needs and uses its embedding,
   `linear_cf` against `Linear::forward`.
@@ -424,5 +424,6 @@ template:
 - Merge with optimisers CO1.1: its `FNOConfig::activation` (ReLU or GELU, layers and
   projection) is the one activation option; this task's `ActivationConfig` field is dropped,
   2.0.0's repeated activation keys on the block options (so CO1.1's GELU FNO is unchanged),
-  `plain1d` regenerated with GELU. A wider activation choice (tanh, …) extends CO1.1's enum.
+  and, at the author's request, CO1.1's enum widened: `Tanh`, `Sigmoid`, `Silu`, `LeakyRelu`,
+  `Selu`, `Mish`, `HardSwish`, `Softsign`, each against torch (`activations1d`, ≤ 9.4e-8).
 - Follow-ups: CM1.5's line (the convolution's bias in the block; the `FNOConfig` literals).

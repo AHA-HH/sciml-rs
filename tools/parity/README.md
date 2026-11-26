@@ -72,7 +72,8 @@ files, absent from the wheel, differ).
 | `fno_blocks_group_post3d_f32` | `n_modes=(4, 4, 4)`, `norm="group_norm"`, `fno_skip="soft-gating"`, `channel_mlp_skip="linear"`, `channel_mlp_expansion=1.0`; input (2, 4, 8, 7, 6) | 2,200 | 39 kB |
 | `fno_blocks_group_pre3d_f32` | `norm="group_norm"`, both skips `"identity"`, pre-activation; input (2, 4, 8, 7, 6) | 2,124 | 38 kB |
 | `fno_blocks_ada_in_{post,pre}2d_f32` | `FNOBlocks(2, 2, n_modes=(6, 4), n_layers=1, norm="ada_in", ada_in_features=2)`, one seeded embedding buffer; input (2, 2, 12, 10) | 7,285 | 39 kB |
-| `fno_blocks_plain1d_f32` | `use_channel_mlp=False`, `fno_skip="soft-gating"` (GELU twice per layer); input (2, 4, 20) | 264 | 4 kB |
+| `fno_blocks_plain1d_f32` | `use_channel_mlp=False`, `fno_skip="soft-gating"`, `non_linearity=torch.tanh`; input (2, 4, 20) | 264 | 4 kB |
+| `activations1d_f32` | `Activations`: `ACTIVATIONS` (relu, gelu, tanh, sigmoid, silu, leaky_relu, selu, mish, hardswish, softsign) each on the input, stacked as channels; input (2, 1, 64) | 0 | 6 kB |
 
 The legacy layer's `forward` builds its spectrum as `cfloat`, so its f64 fixtures are only
 f32-accurate (library CM1.1). tltorch stores its weights as real tensors with the trailing

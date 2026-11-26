@@ -15,7 +15,9 @@ use burn::{
     },
     tensor::{
         DType, Device, FloatDType, Int,
-        activation::{gelu, relu},
+        activation::{
+            gelu, hard_swish, leaky_relu, mish, relu, selu, sigmoid, silu, softsign, tanh,
+        },
         ops::PadMode,
     },
 };
@@ -103,6 +105,42 @@ pub enum Activation {
     /// GELU in its erf form (Burn's `gelu`, PyTorch's default), as in Li et al.'s
     /// `fourier_1d.py` and PETScML's Burgers model (D10).
     Gelu,
+    // Library CM1.3b: the other functions 2.0.0's `non_linearity` is commonly given, each
+    // Burn's function of the same name; parity with torch in `tests/parity_fno_blocks.rs`.
+    /// `torch.tanh`.
+    Tanh,
+    /// `torch.sigmoid`.
+    Sigmoid,
+    /// `F.silu` (swish): `x · sigmoid(x)`.
+    Silu,
+    /// `F.leaky_relu` at torch's default negative slope, 0.01.
+    LeakyRelu,
+    /// `F.selu`.
+    Selu,
+    /// `F.mish`: `x · tanh(softplus(x))`.
+    Mish,
+    /// `F.hardswish`.
+    HardSwish,
+    /// `F.softsign`: `x / (1 + |x|)`.
+    Softsign,
+}
+
+impl Activation {
+    /// The function applied elementwise to `x`, any shape.
+    pub fn apply<const D: usize>(&self, x: Tensor<D>) -> Tensor<D> {
+        match self {
+            Activation::Relu => relu(x),
+            Activation::Gelu => gelu(x),
+            Activation::Tanh => tanh(x),
+            Activation::Sigmoid => sigmoid(x),
+            Activation::Silu => silu(x),
+            Activation::LeakyRelu => leaky_relu(x, 0.01),
+            Activation::Selu => selu(x),
+            Activation::Mish => mish(x),
+            Activation::HardSwish => hard_swish(x),
+            Activation::Softsign => softsign(x),
+        }
+    }
 }
 
 /// A Fourier Neural Operator on rank-`R` channels-last tensors `[B, s_1..s_D, C]`
@@ -120,8 +158,9 @@ pub struct FNO<const R: usize> {
     /// Zero cells appended to each spatial axis; 0 disables padding.
     /// Not a parameter, so it is not part of a saved checkpoint.
     padding: usize,
-    /// GELU instead of ReLU ([`FNOConfig::activation`]); not a parameter either.
-    gelu: bool,
+    /// The nonlinearity ([`FNOConfig::activation`]); not a parameter either.
+    #[module(skip)]
+    activation: Activation,
     // The block options (library CM1.3b), after the fields above so that their checkpoint
     // paths and parameter order are unchanged; empty with every option absent.
     /// The FNO skip of each layer when [`FNOConfig::fno_skip`] is set (`w` is then empty).
@@ -190,7 +229,7 @@ impl FNOConfig {
             fc1: LinearConfig::new(self.hidden_channels, 128).init(device),
             fc2: LinearConfig::new(128, self.out_channels).init(device),
             padding: self.padding.unwrap_or(0),
-            gelu: self.activation == Some(Activation::Gelu),
+            activation: self.activation.clone().unwrap_or(Activation::Relu),
             fno_skips: skips(self.fno_skip.as_ref()),
             channel_mlp: match &self.channel_mlp {
                 Some(mlp) => {
@@ -276,7 +315,7 @@ impl<const R: usize> FNO<R> {
 
     /// The configured nonlinearity ([`FNOConfig::activation`]).
     fn activate(&self, x: Tensor<R>) -> Tensor<R> {
-        if self.gelu { gelu(x) } else { relu(x) }
+        self.activation.apply(x)
     }
 
     /// `[B, spatial.., data_channels]` → `[B, spatial.., out_channels]`.

@@ -90,7 +90,8 @@ ReLU only (today's ops unchanged), and applied for any other activation (2.0.0's
   | `fno_blocks_group_post3d` | group norm, soft-gating FNO skip, linear MLP skip, expansion 1 | (2, 4, 8, 7, 6) |
   | `fno_blocks_group_pre3d` | group norm, identity skips | (2, 4, 8, 7, 6) |
   | `fno_blocks_ada_in_post2d`, `_pre2d` | AdaIN, embed_dim 2, one seeded embedding; one layer, 2 channels (D8) | (2, 2, 12, 10) |
-  | `fno_blocks_plain1d` | no MLP, no norm, GELU, soft-gating skip (2.0.0's repeated activation) | (2, 4, 20) |
+  | `fno_blocks_plain1d` | no MLP, no norm, tanh, soft-gating skip (2.0.0's repeated activation) | (2, 4, 20) |
+  | `activations1d` | each `FNOConfig::activation` as torch's function, stacked as channels | (2, 1, 64) |
 
 - Unit tests: ReLU's skipped repeat is the same output as applying it (a no-MLP, no-norm
   FNO); the MLP's hidden width rounds half to even (width 5 → 2); `forward` panics for an AdaIN FNO without an embedding; `linear_cf` against
@@ -146,8 +147,15 @@ unchanged; the projection following it matches 2.0.0, which passes `non_linearit
 projection too); this task's `Option<ActivationConfig>` is gone. Since a GELU FNO without the
 other options is now an existing output (constraint 1), 2.0.0's repeated activation applies
 only when a 2.0.0 block option (FNO skip, channel MLP, norm) is set, not by activation;
-`plain1d` uses GELU (`gelu ∘ gelu ≠ gelu`) instead of tanh, which the enum lacks. CO1.1's
-`tests/activation.rs` calls the moved pointwise helpers, redirected as `tests/mod.rs`.
+CO1.1's `tests/activation.rs` calls the moved pointwise helpers, redirected as `tests/mod.rs`.
+
+Widened after that merge (the author, 2026-11-26: "widen it in this pr"): CO1.1's enum gains
+`Tanh`, `Sigmoid`, `Silu`, `LeakyRelu` (slope 0.01), `Selu`, `Mish`, `HardSwish` and
+`Softsign`, each Burn's function of that name; the FNO keeps the enum (`#[module(skip)]`) and
+`Activation::apply` matches on it, so ReLU and GELU call the same functions as before. The
+`activations1d` fixture checks each against torch (ReLU, leaky ReLU, softsign exact; the
+rest ≤ 9.4e-8); `plain1d` runs tanh through the block (2.3e-7). The seeded input is a
+standard normal, so hard swish's outer pieces (|x| > 3) are barely sampled.
 
 ## Open questions
 

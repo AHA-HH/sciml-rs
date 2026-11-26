@@ -19,6 +19,7 @@ import numpy as np
 import tensorly
 import tltorch
 import torch
+import torch.nn.functional as F
 import torch_harmonics
 from neuralop.layers.channel_mlp import ChannelMLP
 from neuralop.layers.fno_block import FNOBlocks
@@ -70,6 +71,18 @@ class FNOBlocksRun(torch.nn.Module):
         return x
 
 
+# The activations `FNOConfig::activation` offers, in the order of the crate's `Activation`
+# (`F.leaky_relu` at its default slope, 0.01).
+ACTIVATIONS = [F.relu, F.gelu, torch.tanh, torch.sigmoid, F.silu, F.leaky_relu, F.selu, F.mish, F.hardswish, F.softsign]
+
+
+class Activations(torch.nn.Module):
+    """Each of `ACTIVATIONS` applied to a one-channel input, stacked along the channels."""
+
+    def forward(self, x):
+        return torch.cat([f(x) for f in ACTIVATIONS], dim=1)
+
+
 def blocks(n_modes, channels=4, n_layers=2, **kwargs):
     """`FNOBlocks(channels, channels, n_modes, n_layers, **kwargs)`, 2.0.0's defaults otherwise."""
     return FNOBlocksRun(in_channels=channels, out_channels=channels, n_modes=n_modes, n_layers=n_layers, **kwargs)
@@ -112,8 +125,9 @@ CONFIGS = {
     # AdaIN's MLP is 512 wide: one layer and 2 channels keep P within D8.
     "fno_blocks_ada_in_post2d": (blocks, dict(n_modes=(6, 4), channels=2, n_layers=1, norm="ada_in", ada_in_features=2), (2, 2, 12, 10)),
     "fno_blocks_ada_in_pre2d": (blocks, dict(n_modes=(6, 4), channels=2, n_layers=1, norm="ada_in", ada_in_features=2, preactivation=True), (2, 2, 12, 10)),
-    # No channel MLP, no norm: 2.0.0 applies the activation (GELU) twice per layer.
-    "fno_blocks_plain1d": (blocks, dict(n_modes=(8,), use_channel_mlp=False, fno_skip="soft-gating"), (2, 4, 20)),
+    # No channel MLP, no norm: 2.0.0 applies the activation twice per layer (tanh shows it).
+    "fno_blocks_plain1d": (blocks, dict(n_modes=(8,), use_channel_mlp=False, fno_skip="soft-gating", non_linearity=torch.tanh), (2, 4, 20)),
+    "activations1d": (Activations, dict(), (2, 1, 64)),
 }
 # Models with parameters whose 2.0.0 init is a constant (ones, zeros): those parameters (and
 # only those) are redrawn from a seeded normal, so the fixture tests the map and not only the
@@ -124,6 +138,8 @@ DTYPES = {"f32": torch.float32, "f64": torch.float64}
 # promote it), so an f64 reference would be f32-accurate, and torch refuses a norm with f64
 # parameters on it.
 F32_ONLY = {n for n in CONFIGS if n.startswith("fno_blocks")}
+# And the activations: D3 needs f32 parity, and an f64 test would need a binary of its own.
+F32_ONLY.add("activations1d")
 PREFIX = "param."
 
 

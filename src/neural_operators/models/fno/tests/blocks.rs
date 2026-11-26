@@ -17,7 +17,8 @@ fn absent_options_build_today_s_block() {
     assert_eq!((fno.conv.len(), fno.w.len()), (3, 3));
     assert!(fno.fno_skips.is_empty() && fno.channel_mlp.is_empty());
     assert!(fno.channel_mlp_skips.is_empty() && fno.norms.is_empty());
-    assert!(!fno.gelu && !fno.preactivation && !fno.repeat_activation);
+    assert_eq!(fno.activation, Activation::Relu);
+    assert!(!fno.preactivation && !fno.repeat_activation);
 }
 
 #[test]

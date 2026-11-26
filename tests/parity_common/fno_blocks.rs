@@ -116,11 +116,11 @@ pub const ADA_IN_PRE_2D: Case = Case {
     options: |c| pre(ada_in(c)),
     ..ADA_IN_POST_2D
 };
-/// No channel MLP, no norm, GELU: 2.0.0 applies the activation twice per layer.
+/// No channel MLP, no norm, tanh: 2.0.0 applies the activation twice per layer.
 pub const PLAIN_1D: Case = Case {
     stem: "fno_blocks_plain1d",
     options: |c| {
-        c.with_activation(Some(Activation::Gelu))
+        c.with_activation(Some(Activation::Tanh))
             .with_fno_skip(Some(SkipKind::SoftGating))
     },
     ..POST_1D
