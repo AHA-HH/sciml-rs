@@ -28,7 +28,8 @@ One function in `dataset.rs` builds and writes the JSON sidecar of a generated s
 ## Changes
 - `dataset.rs`: new `pub(super) struct SidecarFacts<'a>` (what differs per split and per
   dimension: the spec, K in effect, the label check and whether it was enforced, error 2,
-  the wall time, and the GRF's α, RNG and ε_K) and `pub(super) fn write_sidecar(path, name,
+  the wall time, and the GRF's α, RNG and ε_K, the last as its function, which the writer
+  evaluates at K: review F2) and `pub(super) fn write_sidecar(path, name,
   git_commit, facts)`, which holds the one `SidecarRecord { … }` literal, the derived
   fields (s = n − 1, d, the tolerance, τ, K_MAX, the versions) and the JSON write.
   `write_split`'s body calls it with the 2D α, RNG and ε_K.
@@ -65,3 +66,7 @@ None.
 
 ## Open questions
 None.
+
+## Outcome
+Done 2026-11-26. Plan review PASS; code quality APPROVE, A− (F2, F3 taken; F1, a shared
+stats struct inside the 2D `Split`, left: it edits the 2D struct, beyond the go).

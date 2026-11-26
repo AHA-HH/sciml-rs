@@ -325,3 +325,24 @@ template:
   tests and the datagen suite after the move; the 2D split reader now calls
   `to_uniform_all_nd`, `to_uniform_all` itself on 2D samples.
 - Follow-ups: none new; CL3.4 and CL4.1 (which can use the 3D loader) stay as in the roadmap.
+
+## 2026-11-26: CL3.4 One sidecar constructor for 2D and 3D
+- Done: `pde/poisson/dataset.rs`: `SidecarFacts` and `write_sidecar` (`pub(super)`), the one
+  `SidecarRecord` literal and JSON write; `write_split` (2D) and `write_split_3d` call it,
+  each with its GRF's α, RNG and ε_K function. `dataset3d.rs` builds no sidecar field by
+  field. The author's go to edit the 2D `write_split` body was given 2026-11-26. Plan
+  `docs/laplace3d/tasks/CL3.4.md`.
+- Tests: none new; `files_round_trip_3d` gains `crate_version` and `wall_time_s`. The 2D
+  exact-bytes `files_round_trip` unedited and passing.
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, datagen clippy,
+  `cargo test` (499 passed), `cargo test --features datagen` (586 passed), `cargo doc`
+  (and with datagen, `-D warnings`); not run: metal and gpu_parity (host code only).
+- Decisions: the author's go for the 2D function body (2026-11-26); F2 of CL3.2's review (a
+  shared label-check rule) stays not taken.
+- Review: plan review PASS (should-fix, the full suites on the final commit: done;
+  advisory, the plan's ε_K wording: taken). Code quality APPROVE, A−: F2 (ε_K evaluated
+  by the writer at K) and F3 (long doc lines) taken; F1 (one stats struct inside `Split`
+  and `Split3d`) left in the PR, as it edits the 2D struct.
+- 2D: unchanged bit for bit: the sidecar bytes by `files_round_trip`, the `.npz` writer not
+  touched, the whole datagen suite passing.
+- Follow-ups: none in the roadmap; the L3 gate is next.
