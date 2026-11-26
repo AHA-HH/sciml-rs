@@ -10,8 +10,7 @@ use sciml_rs::neural_operators::losses::{
     data_losses::{LpLoss, Reduction},
     differentiation::FiniteDiff,
     equation_losses::{
-        BurgersEqnLoss, PoissonEqnLoss, ic_loss, mean_squared_error, nonlinear_poisson_lhs,
-        poisson_boundary_loss,
+        BurgersEqnLoss, PoissonEqnLoss, ic_loss, poisson_boundary_loss, poisson_interior_loss,
     },
     meta_losses::{Field, FieldwiseAggregatorLoss, LossFn, Relobralo, SoftAdapt, WeightedSumLoss},
     pointwise::{PointwiseQuantileLoss, mse_loss},
@@ -259,16 +258,18 @@ pub fn run_equation(name: &str, device: &Device) {
     c.check(ic_loss(u, x), "ic");
 
     let n = pu.dims()[0];
+    let y = y.reshape([n]);
     let inner = pu.clone().narrow(0, POISSON_BOUNDARY, n - POISSON_BOUNDARY);
-    let interior = mean_squared_error(nonlinear_poisson_lhs(inner, [ux, uy], lap), f);
-    c.check(interior.clone(), "poisson.interior");
-    let boundary = poisson_boundary_loss(pu, y.reshape([n]), POISSON_BOUNDARY);
-    c.check(boundary.clone(), "poisson.boundary");
+    let interior = poisson_interior_loss(inner, [ux.clone(), uy.clone()], lap.clone(), f.clone());
+    c.check(interior, "poisson.interior");
+    let boundary = poisson_boundary_loss(pu.clone(), y.clone(), POISSON_BOUNDARY);
+    c.check(boundary, "poisson.boundary");
     let eqn = PoissonEqnLoss {
         interior_weight: 0.5,
         boundary_weight: 2.0,
     };
-    c.check(eqn.weigh(interior, boundary), "poisson.eqn");
+    let out = eqn.points(pu, y, POISSON_BOUNDARY, [ux, uy], lap, f);
+    c.check(out, "poisson.eqn");
 
     println!("{name}: worst relative max error {:.3e}", c.worst);
 }

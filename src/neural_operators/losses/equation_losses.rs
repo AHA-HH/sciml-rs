@@ -8,120 +8,17 @@
 //! over every entry: [`mean_squared_error`], not 2.0.0's `MSELoss`
 //! ([`mse_loss`](super::pointwise::mse_loss)).
 //!
+//! [`MatrixDiff`]: super::differentiation::MatrixDiff
+//!
 //! 2.0.0's Poisson interior loss differentiates a point-cloud model's output by autograd
 //! with respect to the query points. Here the left-hand side takes the derivatives as
 //! arguments ([`nonlinear_poisson_lhs`]), and [`PoissonEqnLoss::grid`] supplies them on a
 //! grid.
 
-use burn::prelude::Device;
-use burn::tensor::{Tensor, TensorData};
-use ndarray::Array2;
+use burn::tensor::Tensor;
 
-use super::differentiation::FiniteDiff;
-
-/// Partial derivatives of order 1 or 2 along the spatial axes of a grid: the last `D` axes
-/// of a tensor, x first, as [`FiniteDiff`].
-pub trait GridDiff<const D: usize> {
-    /// The derivative of order `order` (1 or 2) of `u` along spatial axis `axis` (0 = x).
-    /// `u`: `[.., s_1, .., s_D]`; the result has the same shape.
-    ///
-    /// # Panics
-    /// If `R < D`, `axis >= D`, `order` is not 1 or 2, or the axis does not fit the
-    /// operator.
-    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R>;
-}
-
-impl<const D: usize> GridDiff<D> for FiniteDiff<D> {
-    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
-        FiniteDiff::partial(self, u, axis, order)
-    }
-}
-
-/// Differentiation by a matrix per spatial axis: `(∂ᵏu)[.., i, ..] = Σⱼ Mₖ[i, j] u[.., j, ..]`
-/// along the axis, with `M₁` the first- and `M₂` the second-derivative matrix.
-#[derive(Clone, Debug)]
-pub struct MatrixDiff<const D: usize> {
-    /// Per axis, the transposes of M₁ and M₂: a contraction over the last axis is `u · Mᵀ`.
-    first_t: [Tensor<2>; D],
-    second_t: [Tensor<2>; D],
-}
-
-impl<const D: usize> MatrixDiff<D> {
-    /// From the first- and second-derivative matrices of each axis, each `[n_a, n_a]` for
-    /// that axis's `n_a` points, on `device`.
-    ///
-    /// # Panics
-    /// If a matrix is not square, or an axis's two matrices differ in size.
-    pub fn new(first: [Array2<f64>; D], second: [Array2<f64>; D], device: &Device) -> Self {
-        let transposed = |m: &Array2<f64>| {
-            let (rows, cols) = m.dim();
-            assert_eq!(rows, cols, "MatrixDiff: a {rows} × {cols} matrix");
-            let values = m.t().iter().copied().collect();
-            Tensor::from_data(TensorData::new(values, [rows, cols]), device)
-        };
-        for (a, (m1, m2)) in first.iter().zip(&second).enumerate() {
-            assert_eq!(
-                m1.dim(),
-                m2.dim(),
-                "MatrixDiff: axis {a}'s matrices differ in size"
-            );
-        }
-        Self {
-            first_t: first.each_ref().map(transposed),
-            second_t: second.each_ref().map(transposed),
-        }
-    }
-
-    /// The Chebyshev differentiation matrices ([`diff_matrix`], [`diff2_matrix`]) on the
-    /// `n[a]` ascending CGL nodes of [−1, 1] per axis (CONVENTIONS §12): spectral
-    /// derivatives of the polynomial interpolant. On another interval [a, b], scale the
-    /// first derivative by 2 / (b − a) and the second by its square.
-    ///
-    /// [`diff_matrix`]: crate::neural_operators::chebyshev::diff_matrix
-    /// [`diff2_matrix`]: crate::neural_operators::chebyshev::diff2_matrix
-    ///
-    /// # Panics
-    /// If some `n[a] < 2`.
-    #[cfg(feature = "datagen")]
-    pub fn chebyshev(n: [usize; D], device: &Device) -> Self {
-        use crate::neural_operators::chebyshev::{diff_matrix, diff2_matrix};
-        Self::new(n.map(diff_matrix), n.map(diff2_matrix), device)
-    }
-}
-
-impl<const D: usize> GridDiff<D> for MatrixDiff<D> {
-    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
-        assert!(R >= D, "MatrixDiff: rank {R} below the {D} spatial axes");
-        assert!(axis < D, "MatrixDiff: axis {axis} of {D}");
-        let m = match order {
-            1 => &self.first_t[axis],
-            2 => &self.second_t[axis],
-            _ => panic!("MatrixDiff: order {order}; only 1 and 2"),
-        };
-        let n = m.dims()[0];
-        let dim = R - D + axis;
-        assert_eq!(
-            u.dims()[dim],
-            n,
-            "MatrixDiff: axis {axis} has {} points, its matrix {n}",
-            u.dims()[dim]
-        );
-        let moved = u.swap_dims(dim, R - 1);
-        let shape = moved.dims();
-        let rows: Tensor<2> = moved.reshape([-1, n as i32]);
-        rows.matmul(m.clone()).reshape(shape).swap_dims(dim, R - 1)
-    }
-}
-
-/// 2.0.0's base loss `F.mse_loss`: the mean of (a − b)² over every entry. `a`, `b`: one
-/// shape; returns `[1]`.
-///
-/// # Panics
-/// If the shapes differ.
-pub fn mean_squared_error<const R: usize>(a: Tensor<R>, b: Tensor<R>) -> Tensor<1> {
-    assert_eq!(a.dims(), b.dims(), "mean_squared_error: shapes differ");
-    (a - b).square().mean()
-}
+use super::differentiation::{FiniteDiff, GridDiff};
+use super::pointwise::mean_squared_error;
 
 /// 2.0.0's `BurgersEqnLoss`: the residual of the viscous Burgers equation
 /// ∂u/∂t = −u ∂u/∂x + ν ∂²u/∂x², by [`mean_squared_error`] between the two sides.
@@ -145,7 +42,11 @@ impl Default for BurgersEqnLoss {
 impl BurgersEqnLoss {
     /// 2.0.0's finite differences for an `n_t` × `n_x` grid: non-periodic on both axes, with
     /// steps L_t / (n_t − 1) (both ends of the interval on the grid) and L_x / n_x.
+    ///
+    /// # Panics
+    /// If `n_t < 2` or `n_x` is 0.
     pub fn fdm(&self, n_t: usize, n_x: usize) -> FiniteDiff<2> {
+        assert!(n_t >= 2 && n_x >= 1, "BurgersEqnLoss: a {n_t} × {n_x} grid");
         let [l_t, l_x] = self.domain_length;
         FiniteDiff {
             h: [l_t / (n_t - 1) as f64, l_x / n_x as f64],
@@ -192,6 +93,9 @@ pub fn ic_loss(y_pred: Tensor<4>, x: Tensor<4>) -> Tensor<1> {
 /// The left-hand side of 2.0.0's nonlinear Poisson equation ∇·((1 + 0.1u²)∇u) = f, in its
 /// expanded form Δu (1 + 0.1u²) + 0.2u |∇u|². `u`, each component of `grad` (∂u/∂xₐ) and
 /// `lap` (Δu): one shape, the result's.
+///
+/// # Panics
+/// If `D` is 0, or the shapes differ.
 pub fn nonlinear_poisson_lhs<const D: usize, const R: usize>(
     u: Tensor<R>,
     grad: [Tensor<R>; D],
@@ -212,6 +116,11 @@ pub fn nonlinear_poisson_lhs<const D: usize, const R: usize>(
 /// # Panics
 /// If the shapes differ, or `num_boundary` is 0 or more than the points.
 pub fn poisson_boundary_loss(y_pred: Tensor<1>, y: Tensor<1>, num_boundary: usize) -> Tensor<1> {
+    assert_eq!(
+        y_pred.dims(),
+        y.dims(),
+        "poisson_boundary_loss: shapes differ"
+    );
     let n = y.dims()[0];
     assert!(
         (1..=n).contains(&num_boundary),
@@ -221,6 +130,21 @@ pub fn poisson_boundary_loss(y_pred: Tensor<1>, y: Tensor<1>, num_boundary: usiz
         y_pred.narrow(0, 0, num_boundary),
         y.narrow(0, 0, num_boundary),
     )
+}
+
+/// 2.0.0's `PoissonInteriorLoss` given the derivatives: the [`mean_squared_error`] of
+/// [`nonlinear_poisson_lhs`] against the source `f`. `u`, each component of `grad`, `lap`
+/// and `f`: one shape, at the interior points. Returns `[1]`.
+///
+/// # Panics
+/// As [`nonlinear_poisson_lhs`], or if `f`'s shape differs.
+pub fn poisson_interior_loss<const D: usize, const R: usize>(
+    u: Tensor<R>,
+    grad: [Tensor<R>; D],
+    lap: Tensor<R>,
+    f: Tensor<R>,
+) -> Tensor<1> {
+    mean_squared_error(nonlinear_poisson_lhs(u, grad, lap), f)
 }
 
 /// 2.0.0's `PoissonEqnLoss`: the weighted sum of the interior equation loss and the
@@ -234,11 +158,27 @@ pub struct PoissonEqnLoss {
 }
 
 impl PoissonEqnLoss {
-    /// The weighted sum of an interior and a boundary loss, each `[1]`: 2.0.0's
-    /// `PoissonEqnLoss` on a point list, the two from [`nonlinear_poisson_lhs`] with
-    /// [`mean_squared_error`] and from [`poisson_boundary_loss`].
-    pub fn weigh(&self, interior: Tensor<1>, boundary: Tensor<1>) -> Tensor<1> {
-        interior.mul_scalar(self.interior_weight) + boundary.mul_scalar(self.boundary_weight)
+    /// 2.0.0's `PoissonEqnLoss` on a point list (`out_sub_level` 1), the first
+    /// `num_boundary` points the boundary: [`poisson_interior_loss`] on the others and
+    /// [`poisson_boundary_loss`] against `y`. `u`, `y`: `[n_points]`; each component of
+    /// `grad` (∂u/∂xₐ), `lap` (Δu) and `f`: `[n_points − num_boundary]`, at the interior
+    /// points (2.0.0 takes them by autograd). Returns `[1]`.
+    ///
+    /// # Panics
+    /// As [`poisson_boundary_loss`] and [`poisson_interior_loss`].
+    pub fn points<const D: usize>(
+        &self,
+        u: Tensor<1>,
+        y: Tensor<1>,
+        num_boundary: usize,
+        grad: [Tensor<1>; D],
+        lap: Tensor<1>,
+        f: Tensor<1>,
+    ) -> Tensor<1> {
+        let n = u.dims()[0];
+        let boundary = poisson_boundary_loss(u.clone(), y, num_boundary);
+        let inner = u.narrow(0, num_boundary, n - num_boundary);
+        self.weigh(poisson_interior_loss(inner, grad, lap, f), boundary)
     }
 
     /// The loss on a grid: the interior loss is the [`mean_squared_error`] of the left-hand
@@ -279,9 +219,7 @@ impl PoissonEqnLoss {
         });
 
         let grad: [Tensor<R>; D] = std::array::from_fn(|a| diff.partial(u.clone(), a, 1));
-        let lap = (1..D).fold(diff.partial(u.clone(), 0, 2), |acc, a| {
-            acc + diff.partial(u.clone(), a, 2)
-        });
+        let lap = diff.laplacian(u.clone());
         let lhs = nonlinear_poisson_lhs(u.clone(), grad, lap);
         let interior_loss =
             mean_squared_error(lhs.slice(interior.clone()), f.slice(interior.clone()));
@@ -295,11 +233,19 @@ impl PoissonEqnLoss {
 
         self.weigh(interior_loss, boundary_loss)
     }
+
+    fn weigh(&self, interior: Tensor<1>, boundary: Tensor<1>) -> Tensor<1> {
+        interior.mul_scalar(self.interior_weight) + boundary.mul_scalar(self.boundary_weight)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::neural_operators::losses::differentiation::MatrixDiff;
+    use burn::prelude::Device;
+    use burn::tensor::TensorData;
+    use ndarray::Array2;
     use std::f64::consts::PI;
 
     /// A `[1, nx, ny]` grid function of the node coordinates.
@@ -429,8 +375,8 @@ mod tests {
 
     /// The Chebyshev path is spectral: at 17 CGL nodes per axis its mean squared residual
     /// (5.6e-11 measured, f32, Flex) is far below that of finite differences at 65 points
-    /// (5.4e-5). And the matrices
-    /// differentiate a polynomial of degree < n exactly, up to rounding.
+    /// (5.4e-5). And the matrices differentiate a polynomial of degree < n exactly, up to
+    /// rounding.
     #[cfg(feature = "datagen")]
     #[test]
     fn poisson_grid_chebyshev_spectral() {
@@ -453,7 +399,9 @@ mod tests {
         let x = nodes(n).to_vec();
         let md = MatrixDiff::chebyshev([n, n], &device);
         let u = field(&x, &x, |x, y| x.powi(3) * y * y, &device);
-        let checks: [(usize, usize, fn(f64, f64) -> f64); 3] = [
+        // (axis, order, the exact derivative)
+        type Check = (usize, usize, fn(f64, f64) -> f64);
+        let checks: [Check; 3] = [
             (0, 1, |x, y| 3.0 * x * x * y * y),
             (0, 2, |x, y| 6.0 * x * y * y),
             (1, 2, |x, _| 2.0 * x.powi(3)),

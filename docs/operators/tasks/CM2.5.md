@@ -38,29 +38,31 @@ second, spectral path on the CGL grid.
 
 ## Changes
 
+- `src/neural_operators/losses/differentiation.rs`: `GridDiff<D>`, a trait: the partial
+  derivative of order 1 or 2 along a spatial axis (the last `D` axes, as `FiniteDiff`), and
+  a default `laplacian`. Implemented by `FiniteDiff<D>` (delegating to its own methods) and
+  by `MatrixDiff<D>`: one first- and one second-derivative matrix per axis
+  (`new(first, second, device)` from `ndarray` arrays), `partial` contracting the axis
+  with the matrix. Behind `datagen`, `MatrixDiff::chebyshev(n, device)` takes
+  `diff_matrix`/`diff2_matrix` on the ascending CGL nodes of [−1, 1] (CONVENTIONS §12).
+  Ungated otherwise, so a run without `datagen` can pass matrices it built itself.
+- `losses/pointwise.rs`: `mean_squared_error(a, b)`, `F.mse_loss`, the mean over every
+  entry, `[1]`, beside 2.0.0's `MSELoss` (`mse_loss`).
 - `src/neural_operators/losses/equation_losses.rs` (new):
-  - `GridDiff<D>`: a trait, the partial derivative of order 1 or 2 along a spatial axis
-    (the last `D` axes, as `FiniteDiff`). Implemented by `FiniteDiff<D>` (delegating) and
-    by `MatrixDiff<D>`.
-  - `MatrixDiff<D>`: one first- and one second-derivative matrix per axis
-    (`new(first, second, device)` from `ndarray` arrays); `partial` contracts the axis with
-    the matrix. Behind `datagen`, `MatrixDiff::chebyshev(n, device)` takes
-    `diff_matrix`/`diff2_matrix` on the ascending CGL nodes of [−1, 1] (CONVENTIONS §12).
-    Ungated otherwise, so a run without `datagen` can pass matrices it built itself.
-  - `mean_squared_error(a, b)`: `F.mse_loss`, the mean over every entry, `[1]`.
   - `BurgersEqnLoss { visc, domain_length: [f64; 2] }`, default 0.01 and (1, 1):
     `loss(u)` with 2.0.0's `fdm` (`FiniteDiff` non-periodic, h = (L_t / (n_t − 1), L_x / n_x))
     and `loss_with(diff, u)` with any `GridDiff<2>`; u `[batch, 1, n_t, n_x]` (any leading
     axes).
   - `ic_loss(y_pred, x)`: 2.0.0's `ICLoss`, the MSE of channel 0 at t = 0.
   - `nonlinear_poisson_lhs(u, grad, lap)`: 2.0.0's left-hand side, any rank, `D`
-    gradient components.
+    gradient components; `poisson_interior_loss(u, grad, lap, f)`: its MSE against f.
   - `poisson_boundary_loss(y_pred, y, num_boundary)`: 2.0.0's `PoissonBoundaryLoss` on a
     point list (`out_sub_level` = 1).
-  - `PoissonEqnLoss { interior_weight, boundary_weight }`: `weigh(interior, boundary)` (the
-    point-list form of 2.0.0) and `grid(diff, u, g, f)`, on a grid: the interior residual
-    against f on the interior nodes and the boundary MSE of u against g on the boundary
-    nodes, with derivatives from a `GridDiff<D>`.
+  - `PoissonEqnLoss { interior_weight, boundary_weight }`: `points(u, y, num_boundary,
+    grad, lap, f)`, 2.0.0's point-list form with the interior derivatives supplied, and
+    `grid(diff, u, g, f)`, on a grid: the interior residual against f on the interior
+    nodes and the boundary MSE of u against g on the boundary nodes, with derivatives from
+    a `GridDiff<D>`.
 - `losses/mod.rs`: the module and its doc line. `CLAUDE.md` "Layout": the losses entry.
 - `tools/parity/generate_losses.py`: fixtures `equation_losses_{f32,f64}`; README table.
 - `tests/parity_losses_common/mod.rs`: `run_equation`; `tests/parity_losses{,_f64}.rs`.

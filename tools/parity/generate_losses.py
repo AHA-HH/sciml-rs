@@ -230,13 +230,7 @@ def equation_sidecar(dtype_name):
         "poisson.{interior,boundary,eqn}; poisson.u at every point; poisson.{u_x,u_y,lap} at the "
         "interior points (autograd)",
         "inputs": "drawn in f32, then cast",
-        "versions": {
-            "python": platform.python_version(),
-            "neuraloperator": neuralop.__version__,
-            "torch": torch.__version__,
-            "numpy": np.__version__,
-        },
-        "platform": f"{platform.system()} {platform.machine()}",
+        **provenance(),
     }
 
 
@@ -247,6 +241,19 @@ def finish(out, dtype):
     bad = {k: a.dtype for k, a in data.items() if a.dtype != want}
     assert not bad, f"arrays not in {want} (NpzFileReader reads f32/f64 only): {bad}"
     return data
+
+
+def provenance():
+    """The sidecars' `versions` and `platform` entries."""
+    return {
+        "versions": {
+            "python": platform.python_version(),
+            "neuraloperator": neuralop.__version__,
+            "torch": torch.__version__,
+            "numpy": np.__version__,
+        },
+        "platform": f"{platform.system()} {platform.machine()}",
+    }
 
 
 def meta_sidecar(dtype_name):
@@ -263,13 +270,7 @@ def meta_sidecar(dtype_name):
         "keys": "x, y, pred, truth, table (steps, 3); wsum.{default,weighted}; fieldwise; "
         "<adaptive>.{loss,weights,grad}; relobralo*.rho (the draws of steps 1..)",
         "default_dtype": "torch's default dtype set to the fixture's while the aggregators run",
-        "versions": {
-            "python": platform.python_version(),
-            "neuraloperator": neuralop.__version__,
-            "torch": torch.__version__,
-            "numpy": np.__version__,
-        },
-        "platform": f"{platform.system()} {platform.machine()}",
+        **provenance(),
     }
 
 
@@ -287,13 +288,7 @@ def sidecar(d, dtype_name):
         "{h1,hdiv}.{rel,abs}.<bc>.sum, h1.rel.per.mean, quantile.{sum,mean}, mse, lp.rel",
         "inputs": "x, y on (2, 2, *grid); v on (2, D, *grid); drawn in f32, then cast",
         "mode": "CPU, deterministic algorithms",
-        "versions": {
-            "python": platform.python_version(),
-            "neuraloperator": neuralop.__version__,
-            "torch": torch.__version__,
-            "numpy": np.__version__,
-        },
-        "platform": f"{platform.system()} {platform.machine()}",
+        **provenance(),
     }
 
 

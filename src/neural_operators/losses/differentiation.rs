@@ -5,9 +5,12 @@
 //! batch-like axis the stencils leave alone. Along a periodic axis the stencils wrap round;
 //! along a non-periodic one they are central inside and one-sided at the two ends, with
 //! 2.0.0's coefficients. 2.0.0's `central_diff_{1,2,3}d` are [`FiniteDiff::partial`] on each
-//! axis.
+//! axis. [`GridDiff`] is any such operator, [`MatrixDiff`] one by a matrix per axis
+//! (library CM2.5).
 
-use burn::tensor::Tensor;
+use burn::prelude::Device;
+use burn::tensor::{Tensor, TensorData};
+use ndarray::Array2;
 
 /// First and second derivatives on a uniform grid of `D` spatial axes.
 ///
@@ -195,10 +198,117 @@ impl<const D: usize> FiniteDiff<D> {
     }
 }
 
+/// Partial derivatives of order 1 or 2 along the spatial axes of a grid: the last `D` axes
+/// of a tensor, x first, as [`FiniteDiff`] (library CM2.5, for the equation losses).
+pub trait GridDiff<const D: usize> {
+    /// The derivative of order `order` (1 or 2) of `u` along spatial axis `axis` (0 = x).
+    /// `u`: `[.., s_1, .., s_D]`; the result has the same shape.
+    ///
+    /// # Panics
+    /// If `R < D`, `axis >= D`, `order` is not 1 or 2, or the axis does not fit the
+    /// operator.
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R>;
+
+    /// The Laplacian Σₐ ∂²u/∂xₐ². `u`: `[.., s_1, .., s_D]`; the result has the same shape.
+    ///
+    /// # Panics
+    /// As [`partial`](Self::partial).
+    fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
+        (1..D).fold(self.partial(u.clone(), 0, 2), |acc, a| {
+            acc + self.partial(u.clone(), a, 2)
+        })
+    }
+}
+
+impl<const D: usize> GridDiff<D> for FiniteDiff<D> {
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
+        FiniteDiff::partial(self, u, axis, order)
+    }
+
+    fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
+        FiniteDiff::laplacian(self, u)
+    }
+}
+
+/// Differentiation by a matrix per spatial axis: `(∂ᵏu)[.., i, ..] = Σⱼ Mₖ[i, j] u[.., j, ..]`
+/// along the axis, with `M₁` the first- and `M₂` the second-derivative matrix.
+#[derive(Clone, Debug)]
+pub struct MatrixDiff<const D: usize> {
+    /// Per axis, the transposes of M₁ and M₂: a contraction over the last axis is `u · Mᵀ`.
+    first_t: [Tensor<2>; D],
+    second_t: [Tensor<2>; D],
+}
+
+impl<const D: usize> MatrixDiff<D> {
+    /// From the first- and second-derivative matrices of each axis, each `[n_a, n_a]` for
+    /// that axis's `n_a` points, on `device`.
+    ///
+    /// # Panics
+    /// If a matrix is not square, or an axis's two matrices differ in size.
+    pub fn new(first: [Array2<f64>; D], second: [Array2<f64>; D], device: &Device) -> Self {
+        let transposed = |m: &Array2<f64>| {
+            let (rows, cols) = m.dim();
+            assert_eq!(rows, cols, "MatrixDiff: a {rows} × {cols} matrix");
+            let values = m.t().iter().copied().collect();
+            Tensor::from_data(TensorData::new(values, [rows, cols]), device)
+        };
+        for (a, (m1, m2)) in first.iter().zip(&second).enumerate() {
+            assert_eq!(
+                m1.dim(),
+                m2.dim(),
+                "MatrixDiff: axis {a}'s matrices differ in size"
+            );
+        }
+        Self {
+            first_t: first.each_ref().map(transposed),
+            second_t: second.each_ref().map(transposed),
+        }
+    }
+
+    /// The Chebyshev differentiation matrices ([`diff_matrix`], [`diff2_matrix`]) on the
+    /// `n[a]` ascending CGL nodes of [−1, 1] per axis (CONVENTIONS §12): spectral
+    /// derivatives of the polynomial interpolant. On another interval [a, b], scale the
+    /// first derivative by 2 / (b − a) and the second by its square.
+    ///
+    /// [`diff_matrix`]: crate::neural_operators::chebyshev::diff_matrix
+    /// [`diff2_matrix`]: crate::neural_operators::chebyshev::diff2_matrix
+    ///
+    /// # Panics
+    /// If some `n[a] < 2`.
+    #[cfg(feature = "datagen")]
+    pub fn chebyshev(n: [usize; D], device: &Device) -> Self {
+        use crate::neural_operators::chebyshev::{diff_matrix, diff2_matrix};
+        Self::new(n.map(diff_matrix), n.map(diff2_matrix), device)
+    }
+}
+
+impl<const D: usize> GridDiff<D> for MatrixDiff<D> {
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
+        assert!(R >= D, "MatrixDiff: rank {R} below the {D} spatial axes");
+        assert!(axis < D, "MatrixDiff: axis {axis} of {D}");
+        let m = match order {
+            1 => &self.first_t[axis],
+            2 => &self.second_t[axis],
+            _ => panic!("MatrixDiff: order {order}; only 1 and 2"),
+        };
+        let n = m.dims()[0];
+        let dim = R - D + axis;
+        assert_eq!(
+            u.dims()[dim],
+            n,
+            "MatrixDiff: axis {axis} has {} points, its matrix {n}",
+            u.dims()[dim]
+        );
+        let moved = u.swap_dims(dim, R - 1);
+        let shape = moved.dims();
+        let rows: Tensor<2> = moved.reshape([-1, n as i32]);
+        rows.matmul(m.clone()).reshape(shape).swap_dims(dim, R - 1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::prelude::*;
     use std::f64::consts::PI;
 
     fn row(values: Vec<f64>) -> Tensor<2> {

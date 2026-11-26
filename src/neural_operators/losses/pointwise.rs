@@ -1,5 +1,6 @@
 //! The pointwise losses of `neuraloperator` 2.0.0 (`PointwiseQuantileLoss`, `MSELoss` in
-//! `neuralop/losses/data_losses.py`; library CM1.6a).
+//! `neuralop/losses/data_losses.py`; library CM1.6a), and `F.mse_loss`, the base loss of its
+//! equation losses (CM2.5).
 
 use burn::tensor::Tensor;
 
@@ -67,7 +68,7 @@ impl PointwiseQuantileLoss {
 }
 
 /// 2.0.0's `MSELoss()`: the mean squared error of each example over all its non-batch
-/// entries, summed over the batch. `y_pred`, `y`: `[batch, ..]` of one shape; returns `[1]`.
+/// entries, summed over the batch; [`mean_squared_error`] is the mean over every entry. `y_pred`, `y`: `[batch, ..]` of one shape; returns `[1]`.
 ///
 /// # Panics
 /// If the shapes differ.
@@ -79,6 +80,17 @@ pub fn mse_loss<const R: usize>(y_pred: Tensor<R>, y: Tensor<R>) -> Tensor<1> {
         .reshape([batch as i32, -1])
         .mean_dim(1)
         .sum()
+}
+
+/// 2.0.0's base loss `F.mse_loss`: the mean of (a − b)² over every entry. `a`, `b`: one
+/// shape; returns `[1]`. Unlike 2.0.0's `MSELoss` ([`mse_loss`]), which sums the per-example
+/// means over the batch.
+///
+/// # Panics
+/// If the shapes differ.
+pub fn mean_squared_error<const R: usize>(a: Tensor<R>, b: Tensor<R>) -> Tensor<1> {
+    assert_eq!(a.dims(), b.dims(), "mean_squared_error: shapes differ");
+    (a - b).square().mean()
 }
 
 #[cfg(test)]
