@@ -148,7 +148,7 @@ cap 150 an epoch takes about 135 s, so the equal-time cap-150 run trained 5.8 % 
 ### Side by side
 
 Passes per second over the first 2,952 s of each long run, against its cap's run alone
-(summed from `gn_steps.csv`): cap 50 15.16 against 14.50 (+4.5 %), cap 150 14.86 against
+(summed from `gn_steps.csv`): cap 50 15.16 against 14.50 (+4.5 %), cap 150 14.85 against
 14.30 (+3.9 %). As with Adam's pairs, the paired runs were faster, not slower, and outside
 the 3 % band on the fast side.
 
@@ -166,10 +166,10 @@ A step is wild here when |ρ| > 1e3:
 - **No NaN in any of the four runs.** Every wild step was rejected; φ is unchanged on
   every rejected step, and λ was raised.
 - **The quadratic model breaks down rather than being noisy.** The median predicted
-  reduction of a wild step is 48 to 2.9e4, while φ itself is below 1.5e-4 by then. A step
+  reduction of a wild step is 48 to 2.8e4, while φ itself is below 1.5e-4 by then. A step
   that the model says lowers φ by 10⁵–10⁸ times φ can only be a step along directions
-  where G + λI is almost singular. At μ = 0 nothing holds those directions, and λ had
-  fallen to 1e-5–1e-6. Example: the equal-time cap-150 run's last step had norm 6.8e3,
+  where G + λI is almost singular. At μ = 0 nothing holds those directions, and λ at
+  the wild steps was small (median 4e-7–3e-5 by run, down to 1e-8). Example: the equal-time cap-150 run's last step had norm 6.8e3,
   predicted reduction 136.8 and ρ −4.4e14.
 - **The cost is wasted steps, not wrong ones.** Wild steps are 20–27 % of cap
   50's steps and up to 17 % of cap 150's. At the longer cap, CG's stop on progress ends
