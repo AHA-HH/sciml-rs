@@ -41,16 +41,18 @@
 mod cheb;
 mod subset;
 mod uniform;
+mod uniform3d;
 
-pub use cheb::load_poisson_cheb_field;
+pub use cheb::{load_poisson_cheb_field, load_poisson3d_cheb_field};
 pub use subset::{SubsetConfig, indices_hash, subset_indices};
 pub use uniform::{load_poisson_uniform, load_poisson_uniform_test};
+pub use uniform3d::{load_poisson3d_uniform, load_poisson3d_uniform_test};
 
 use crate::neural_operators::data::io::{errors::LoadError, readers::npz::NpzFileReader};
 use crate::neural_operators::data::loaders::base_dataset::DatasetConfig;
 use burn::config::Config;
 use burn::serde::{Deserialize, Serialize};
-use ndarray::{Array1, Array3, Ix3};
+use ndarray::{Array1, Array3, ArrayD, Ix3};
 use std::fmt;
 
 /// Poisson-specific config: the Chebyshev size `n` of the stored fields and the learning
@@ -222,7 +224,18 @@ fn check_nodes(
     n: usize,
     nodes: &Array1<f64>,
 ) -> Result<(), LoadError> {
-    for name in ["x", "y"] {
+    check_nodes_nd(reader, split, n, nodes, &["x", "y"])
+}
+
+/// [`check_nodes`] for the node fields `names` of any rank: `["x", "y", "z"]` in 3D.
+fn check_nodes_nd(
+    reader: &mut NpzFileReader,
+    split: &str,
+    n: usize,
+    nodes: &Array1<f64>,
+    names: &[&str],
+) -> Result<(), LoadError> {
+    for &name in names {
         let field = reader.read_field(name)?;
         if field.shape() != [n] {
             return Err(LoadError::Invalid(format!(
@@ -255,17 +268,29 @@ fn read_samples(
     n: usize,
     count: usize,
 ) -> Result<Array3<f64>, LoadError> {
+    Ok(read_samples_nd(reader, split, field, n, 2, count)?
+        .into_dimensionality::<Ix3>()
+        .expect("checked rank"))
+}
+
+/// [`read_samples`] for `dims` spatial axes: `field` must be `[samples, n, …, n]`.
+fn read_samples_nd(
+    reader: &mut NpzFileReader,
+    split: &str,
+    field: PoissonField,
+    n: usize,
+    dims: usize,
+    count: usize,
+) -> Result<ArrayD<f64>, LoadError> {
     let name = field.key();
     let field = reader.read_field(name)?;
-    let shape = field.shape().to_vec();
-    let field = match field.into_dimensionality::<Ix3>() {
-        Ok(field) if field.shape()[1..] == [n, n] => field,
-        _ => {
-            return Err(LoadError::Invalid(format!(
-                "{split} field '{name}' must be [samples, {n}, {n}], got shape {shape:?}"
-            )));
-        }
-    };
+    if field.ndim() != dims + 1 || field.shape()[1..].iter().any(|&m| m != n) {
+        return Err(LoadError::Invalid(format!(
+            "{split} field '{name}' must be [samples{}], got shape {:?}",
+            format!(", {n}").repeat(dims),
+            field.shape()
+        )));
+    }
     if count > field.shape()[0] {
         return Err(LoadError::Invalid(format!(
             "requested {count} {split} samples but '{name}' has {}",

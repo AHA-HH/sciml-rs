@@ -2,10 +2,11 @@
 //! untransferred (design §7, CONVENTIONS §12), with the validation the uniform loader
 //! shares (`check_nodes`, `read_samples` in the parent module).
 
-use super::{PoissonField, check_nodes, read_samples};
+use super::uniform3d::AXES_3D;
+use super::{PoissonField, check_nodes, check_nodes_nd, read_samples, read_samples_nd};
 use crate::neural_operators::chebyshev::nodes;
 use crate::neural_operators::data::io::{errors::LoadError, readers::npz::NpzFileReader};
-use ndarray::{Array3, s};
+use ndarray::{Array3, ArrayD, Axis, Slice, s};
 use std::path::Path;
 
 /// Reads the first `count` samples of the raw field `field` of one split on the n × n CGL
@@ -43,6 +44,36 @@ pub fn load_poisson_cheb_field(
     check_nodes(&mut reader, &label, n, &nodes(n))?;
     let values = read_samples(&mut reader, &label, field, n, count)?;
     Ok(values.slice_move(s![..count, .., ..]))
+}
+
+/// [`load_poisson_cheb_field`] for the 3D splits (3D CL3.3): the first `count` samples of
+/// `field`, `[count, n, n, n]` on the CGL grid, stored 'ijk', untransferred: the reference
+/// of the 3D errors (`poisson_errors_nd`).
+///
+/// # Errors
+/// As [`load_poisson_cheb_field`], with `z` among the node fields and `field` required to
+/// be `[samples, n, n, n]`.
+pub fn load_poisson3d_cheb_field(
+    path: impl AsRef<Path>,
+    field: PoissonField,
+    n: usize,
+    count: usize,
+) -> Result<ArrayD<f64>, LoadError> {
+    if n < 3 {
+        return Err(LoadError::Invalid(format!(
+            "n must be >= 3 (the uniform grid s = n - 1 needs both endpoints), got {n}"
+        )));
+    }
+    let path = path.as_ref();
+    let label = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |f| f.to_string_lossy().into(),
+    );
+    let mut reader = NpzFileReader::new(path)?;
+    check_nodes_nd(&mut reader, &label, n, &nodes(n), &AXES_3D)?;
+    let mut values = read_samples_nd(&mut reader, &label, field, n, 3, count)?;
+    values.slice_axis_inplace(Axis(0), Slice::from(..count));
+    Ok(values)
 }
 
 #[cfg(test)]

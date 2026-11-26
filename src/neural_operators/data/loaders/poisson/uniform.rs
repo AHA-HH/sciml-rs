@@ -10,7 +10,7 @@ use crate::neural_operators::data::{
     io::{errors::LoadError, readers::npz::NpzFileReader},
     loaders::common::{Normalizers, check_n_train, normalize_split_pair, normalize_test_split},
 };
-use ndarray::{Array3, ArrayD, Axis, s};
+use ndarray::{Array, ArrayD, Axis, RemoveAxis, Slice};
 use std::path::Path;
 
 /// Builds the Poisson dataset on the uniform grid: inputs `[N, s, s, 1]` (the normalized
@@ -87,7 +87,7 @@ pub fn load_poisson_uniform_test<T: HostFloat>(
 
 /// The transfers for `config`'s n and s ([`Transfers::with_s`]), or [`LoadError::Invalid`]
 /// where that would panic: n below [`Transfers::MIN_N`] or s below [`Transfers::MIN_S`].
-fn transfers(config: &PoissonConfig) -> Result<Transfers, LoadError> {
+pub(super) fn transfers(config: &PoissonConfig) -> Result<Transfers, LoadError> {
     let (n, s) = (config.n, config.s());
     if n < Transfers::MIN_N {
         return Err(LoadError::Invalid(format!(
@@ -105,7 +105,7 @@ fn transfers(config: &PoissonConfig) -> Result<Transfers, LoadError> {
 }
 
 /// The samples of a split to load.
-enum Rows {
+pub(super) enum Rows {
     /// The first `n`.
     Prefix(usize),
     /// These sorted rows of a split of at least `population` samples.
@@ -116,7 +116,7 @@ impl Rows {
     /// The train rows of `config`: its subset's, recomputed and checked against the hash
     /// before any file is read ([`SubsetConfig::rows`](super::SubsetConfig::rows)), else
     /// the first `base.n_train`.
-    fn train(config: &PoissonConfig) -> Result<Self, LoadError> {
+    pub(super) fn train(config: &PoissonConfig) -> Result<Self, LoadError> {
         let n = config.base.n_train;
         Ok(match &config.subset {
             Some(subset) => Self::Subset {
@@ -128,17 +128,20 @@ impl Rows {
     }
 
     /// The samples the split must hold.
-    fn required(&self) -> usize {
+    pub(super) fn required(&self) -> usize {
         match self {
             Self::Prefix(n) => *n,
             Self::Subset { population, .. } => *population,
         }
     }
 
-    /// The selected samples of `values` (`[samples, n, n]`), in file order.
-    fn take(&self, values: Array3<f64>) -> Array3<f64> {
+    /// The selected samples of `values` (`[samples, n, …, n]`, any rank), in file order.
+    pub(super) fn take<D: RemoveAxis>(&self, mut values: Array<f64, D>) -> Array<f64, D> {
         match self {
-            Self::Prefix(n) => values.slice_move(s![..*n, .., ..]),
+            Self::Prefix(n) => {
+                values.slice_axis_inplace(Axis(0), Slice::from(..*n));
+                values
+            }
             Self::Subset { rows, .. } => values.select(Axis(0), rows),
         }
     }
