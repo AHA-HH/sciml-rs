@@ -292,3 +292,112 @@ template:
 - 2D: unchanged bit for bit: no 2D file, function body, constant or name edited (additions
   in `catalogue.rs` only); the whole 2D suite passes.
 - Follow-ups: CL3.4 (roadmap); `datagen` on the VM (FFTW), outside this objective.
+
+## 2026-11-26: CL3.3 3D loader
+- Done: `data/loaders/poisson/uniform3d.rs`: `load_poisson3d_uniform` and
+  `load_poisson3d_uniform_test` (the 3D splits, 'ijk', node fields `x`, `y`, `z`, T_cu along
+  every axis at load time, the same `PoissonConfig`, rows, validation and normalisation as
+  2D); `load_poisson3d_cheb_field` in `cheb.rs`. The 2D and 3D loaders share one body
+  (`load_uniform`, `load_uniform_test`, `read_uniform_split`, `read_cheb_field`, taking the
+  node fields). First commit, no behaviour change (L1 gate C4, L2 gate Q2):
+  `chebyshev/tensor.rs` (`apply_nd`, `as_matrix`, `kron`, `rank2`, `check_per_axis`),
+  `transfer.rs`'s tests in `transfer/tests.rs` (973 → 336 lines), "3D D1, D2" citations,
+  the `_nd` sentences, the `IMAG_TOL` and `pde/poisson` module docs. Plan
+  `docs/laplace3d/tasks/CL3.3.md`, report `docs/laplace3d/results/cl3-3.md`.
+- Tests: 5 new (`shapes_and_closed_form_at_any_s`, `transfer_and_normalization_bit_for_bit`,
+  `subset_takes_the_selected_rows`, `invalid_files_are_rejected`,
+  `cheb_loader_3d_reads_raw_u`) and the ignored `error2_n65_against_2d`: error 2 at n = 65,
+  3D 2.08e-5 mean (max 4.66e-5) at s = 64 and 1.99e-4 (4.56e-4) at s = 32, against 2D
+  2.03e-5 (7.81e-5) and 2.33e-4 (8.93e-4); the sidecars' s = 64 figures recomputed to
+  1e-12; error 3 exactly 0 on the loader's targets.
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, `cargo test` (468
+  passed), `cargo test --features datagen` (553 passed), `cargo doc`, the ignored
+  measurement (release, Mac); not run: metal and gpu_parity (host ndarray only).
+- Decisions: none. The L2 gate's "115-column line" (`collocation.rs:146`) is 115 bytes, 87
+  characters: not edited, recorded in the plan.
+- Review: plan review PASS (should-fix: record the 115-byte line; advisories: the sidecar
+  check made unskippable, the plan's wording on a missing `z`, the module docs; all
+  taken). Code quality BLOCKED (B; F1, the 3D readers copied the 2D ones) → APPROVE (A−,
+  r2); F1, F3, F6, F7, F9 fixed; F2 (the measurement in the loader's tests, as
+  `stage2_dataset_loads` is), F4, F5, F8 in the PR.
+- 2D: unchanged bit for bit: the 2D suite unedited and passing (`normalization_matches_darcy`
+  bit for bit against `Transfers::to_uniform_all`, every error message), the chebyshev D2
+  tests and the datagen suite after the move; the 2D split reader now calls
+  `to_uniform_all_nd`, `to_uniform_all` itself on 2D samples.
+- Follow-ups: none new; CL3.4 and CL4.1 (which can use the 3D loader) stay as in the roadmap.
+
+## 2026-11-26: CL3.4 One sidecar constructor for 2D and 3D
+- Done: `pde/poisson/dataset.rs`: `SidecarFacts` and `write_sidecar` (`pub(super)`), the one
+  `SidecarRecord` literal and JSON write; `write_split` (2D) and `write_split_3d` call it,
+  each with its GRF's α, RNG and ε_K function. `dataset3d.rs` builds no sidecar field by
+  field. The author's go to edit the 2D `write_split` body was given 2026-11-26. Plan
+  `docs/laplace3d/tasks/CL3.4.md`.
+- Tests: none new; `files_round_trip_3d` gains `crate_version` and `wall_time_s`. The 2D
+  exact-bytes `files_round_trip` unedited and passing.
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, datagen clippy,
+  `cargo test` (499 passed), `cargo test --features datagen` (586 passed), `cargo doc`
+  (and with datagen, `-D warnings`); not run: metal and gpu_parity (host code only).
+- Decisions: the author's go for the 2D function body (2026-11-26); F2 of CL3.2's review (a
+  shared label-check rule) stays not taken.
+- Review: plan review PASS (should-fix, the full suites on the final commit: done;
+  advisory, the plan's ε_K wording: taken). Code quality APPROVE, A−: F2 (ε_K evaluated
+  by the writer at K) and F3 (long doc lines) taken; F1 (one stats struct inside `Split`
+  and `Split3d`) left in the PR, as it edits the 2D struct.
+- 2D: unchanged bit for bit: the sidecar bytes by `files_round_trip`, the `.npz` writer not
+  touched, the whole datagen suite passing.
+- Follow-ups: none in the roadmap; the L3 gate is next.
+
+## 2026-11-26: L3 gate
+- Done: gate report `docs/laplace3d/gates/L3.md`: the 3D datasets of D5 written (n = 33 and
+  65, 1000/200, 0.690 GB and 5.273 GB), label-checked (n = 65 max 6.2e-10, enforced ≤ 1e-8),
+  loadable (error 2 at n = 65 within 15 % of the 2D floor's mean at s = 32 and 64); met. The
+  roadmap's L3 gate closed 2026-11-26.
+- Tests: none new or re-run; the eight files in the main checkout's `datasets/poisson/`
+  re-checked for size and sidecar figures, the n = 65 SHA-256 equal to `results/cl3-2.md`;
+  `main`'s CI green after #164 (run 45834459796).
+- Checks: none beyond that (docs only: proposal §7 and Appendix A, roadmap, this log).
+- Decisions: signed off by the author 2026-11-26: the gate with C1 (§7's measured storage
+  and generation time, n = 65 generated on the Mac); Q1 "two tasks after L4" (CL3.5,
+  CL3.6); Q2 "split as proposed" (CL4.2's first commit, CL3.6, the sidecar key later).
+- Review: thermo-nuclear review of the four L3 PRs BLOCKED, B−, on 2D/3D duplication in
+  `dataset3d.rs`, `SidecarFacts` and `Poisson3dSet`; no correctness or constraint 1 problem
+  (report git-ignored, `docs/code-quality/thermo-nuclear-review-2026-11-26-laplace3d-L3-gate.md`).
+  The blocker goes to CL3.5 and CL3.6 (Q1), not fixed here.
+- 2D: not touched (no code).
+- Follow-ups: CL4.1 (in progress), CL4.2 (its first commit per Q2), then CL3.5 and CL3.6.
+
+## 2026-11-26: CL4.1 3D training and prediction examples
+- Done: `examples/train/poisson3d.rs` (`train_poisson3d`: `FNO<5>`, D4's width 32, 4 layers,
+  modes min(12, s/2)³, batch 20, Adam with `train_poisson`'s literals; n ∈ {33, 65};
+  `EPOCHS` override; checkpoints and `--resume`; `costs.json`) and
+  `examples/predict/poisson3d.rs` (`predict_poisson3d`: errors 2–5 in 3D, both
+  cross-checks, `errors.json`, inference time). `metrics/poisson`: one private per-sample
+  loop behind `poisson_errors` and `poisson_errors_nd` (the rank-3 shortcut and the 2D
+  `boundary_errors` removed; `boundary_errors_nd` takes max |u|; CL1.3 review F1, N2, L1
+  gate Q2); `evaluate_3d` and `ERROR1_QUOTE_3D` through a private `evaluate_core`;
+  `PoissonEvaluation::plot_run_dir` replaces `run_dir`. `training/` untouched (rank-generic
+  since CM0.3). Plan `docs/laplace3d/tasks/CL4.1.md`, with the short run.
+- Tests: the D2 oracle `poisson_errors_frozen` (d466d46's body, verbatim) in
+  `nd_rank_two_is_bit_identical_to_2d`, with a prediction zero on ∂Ω and one zero
+  everywhere (asserting û = 0 on ∂Ω), both entry points and layouts;
+  `evaluate_3d_differs_only_in_error1_and_the_plot_hint`. Short run on the Mac (metal):
+  two epochs at n = 33, s = 32, then `predict_poisson3d` exit 0: error 2 against the sidecar
+  1.4e-16, mean error 3 against test_l2 1.7e-7; errors 3, 4 ≈ 0.21 after two epochs (not a
+  result). Epoch times (1,600–2,000 s) were on a loaded Mac, not a measurement.
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, `cargo test`
+  (500 passed), `cargo doc` (also with `-D warnings`), datagen clippy, `cargo test
+  --features datagen` (587 passed), all on the final code; `cargo clippy --features metal
+  --examples` (the plan reviewer, before the review fixes). Not run: `gpu_parity` and metal
+  tests (no backend-sensitive code changed).
+- Decisions: plan Q1, the 3D errors record reuses the 2D types (the author, 2026-11-26);
+  the roadmap line amended.
+- Review: plan review PASS (should-fix: a broken doc link, the rank-3 shortcut; advisories:
+  the oracle made byte-faithful, the D2 premise asserted, the plan's test names; all
+  taken). Code quality APPROVE with findings, B+: F1 (the shortcut), F2 (`evaluate_core`,
+  `plot_run_dir`), F5 (test name) fixed; F3 (a 3D set lookup in `catalogue`) to CL4.2's
+  first commit; F4 (the examples' copied helpers, the price of leaving `train_poisson`
+  alone) left for the objective's repo review.
+- 2D: unchanged bit for bit: the frozen-oracle D2 test (the zero-on-∂Ω cases included),
+  the 2D `metrics::poisson` tests unedited but for their reference function, the whole
+  2D suite; `train_poisson`, `predict_poisson` and the 2D record not edited.
+- Follow-ups: CL4.2's first commit (F3, roadmap).

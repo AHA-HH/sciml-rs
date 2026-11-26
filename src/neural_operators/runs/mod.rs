@@ -507,6 +507,13 @@ mod tests {
             spectral_init: None,
             padding: Some(2),
             activation: None,
+            fno_skip: None,
+            channel_mlp: None,
+            norm: None,
+            preactivation: None,
+            lifting_channel_ratio: None,
+            projection_channel_ratio: None,
+            positional_embedding: None,
         }
     }
 

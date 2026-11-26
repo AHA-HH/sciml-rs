@@ -24,15 +24,15 @@ fn burgers_model_has_petscml_parameter_count() {
 fn gelu_forward<const R: usize>(m: &FNO<R>, x: Tensor<R>) -> Tensor<R> {
     let grid = FNO::<R>::grid_cl(x.dims(), x.dtype(), &x.device());
     let x = Tensor::cat(vec![x, grid], R - 1);
-    let mut x = FNO::<R>::linear_cf(&m.fc0, to_channels_first(x));
+    let mut x = linear_cf(&m.fc0, to_channels_first(x));
     let n = m.conv.len();
     for idx in 0..n {
         let x1 = m.conv[idx].forward(x.clone());
-        let x2 = FNO::<R>::conv1x1_cf(&m.w[idx], x);
+        let x2 = conv1x1(&m.w[idx], x);
         x = if idx == n - 1 { x1 + x2 } else { gelu(x1 + x2) };
     }
-    let x = gelu(FNO::<R>::linear_cf(&m.fc1, x));
-    to_channels_last(FNO::<R>::linear_cf(&m.fc2, x))
+    let x = gelu(linear_cf(&m.fc1, x));
+    to_channels_last(linear_cf(&m.fc2, x))
 }
 
 #[test]

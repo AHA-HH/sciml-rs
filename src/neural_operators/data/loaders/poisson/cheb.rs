@@ -1,11 +1,12 @@
-//! The Chebyshev reader: one split's raw fields on the n × n CGL grid, validated and
-//! untransferred (design §7, CONVENTIONS §12), with the validation the uniform loader
-//! shares (`check_nodes`, `read_samples` in the parent module).
+//! The Chebyshev reader: one split's raw fields on the CGL grid (n × n, or n × n × n for
+//! the 3D splits), validated and untransferred (design §7, CONVENTIONS §12), with the
+//! validation the uniform loader shares (`check_nodes`, `read_samples` in the parent
+//! module).
 
-use super::{PoissonField, check_nodes, read_samples};
+use super::{AXES_2D, AXES_3D, PoissonField, check_nodes, read_samples};
 use crate::neural_operators::chebyshev::nodes;
 use crate::neural_operators::data::io::{errors::LoadError, readers::npz::NpzFileReader};
-use ndarray::{Array3, s};
+use ndarray::{Array3, ArrayD, Axis, Ix3, Slice};
 use std::path::Path;
 
 /// Reads the first `count` samples of the raw field `field` of one split on the n × n CGL
@@ -29,25 +30,58 @@ pub fn load_poisson_cheb_field(
     n: usize,
     count: usize,
 ) -> Result<Array3<f64>, LoadError> {
+    Ok(read_cheb_field(path.as_ref(), field, n, count, &AXES_2D)?
+        .into_dimensionality::<Ix3>()
+        .expect("checked rank"))
+}
+
+/// [`load_poisson_cheb_field`] for the 3D splits (3D CL3.3): the first `count` samples of
+/// `field`, `[count, n, n, n]` on the CGL grid, stored 'ijk', untransferred: the reference
+/// of the 3D errors (`poisson_errors_nd`).
+///
+/// # Errors
+/// As [`load_poisson_cheb_field`], with `z` among the node fields and `field` required to
+/// be `[samples, n, n, n]`.
+pub fn load_poisson3d_cheb_field(
+    path: impl AsRef<Path>,
+    field: PoissonField,
+    n: usize,
+    count: usize,
+) -> Result<ArrayD<f64>, LoadError> {
+    read_cheb_field(path.as_ref(), field, n, count, &AXES_3D)
+}
+
+/// The reader behind both: `field` validated with the node fields `axes`, its first
+/// `count` samples, untransferred. Messages name the file in place of the split.
+fn read_cheb_field(
+    path: &Path,
+    field: PoissonField,
+    n: usize,
+    count: usize,
+    axes: &[&str],
+) -> Result<ArrayD<f64>, LoadError> {
     if n < 3 {
         return Err(LoadError::Invalid(format!(
             "n must be >= 3 (the uniform grid s = n - 1 needs both endpoints), got {n}"
         )));
     }
-    let path = path.as_ref();
     let label = path.file_name().map_or_else(
         || path.display().to_string(),
         |f| f.to_string_lossy().into(),
     );
     let mut reader = NpzFileReader::new(path)?;
-    check_nodes(&mut reader, &label, n, &nodes(n))?;
-    let values = read_samples(&mut reader, &label, field, n, count)?;
-    Ok(values.slice_move(s![..count, .., ..]))
+    check_nodes(&mut reader, &label, n, &nodes(n), axes)?;
+    let mut values = read_samples(&mut reader, &label, field, n, axes.len(), count)?;
+    values.slice_axis_inplace(Axis(0), Slice::from(..count));
+    Ok(values)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::fixtures::{N, N_TEST, fresh_dir, poly_field, write_npz, write_valid_pair};
+    use super::super::fixtures::{
+        N, N_TEST, fresh_dir, poly_field, poly_field3, write_npz, write_valid_pair,
+        write_valid_pair3,
+    };
     use super::*;
     use crate::neural_operators::chebyshev::uniform_nodes;
     use crate::neural_operators::data::io::errors::ReaderError;
@@ -126,5 +160,23 @@ mod tests {
         let f = load_poisson_cheb_field(&train_path, PoissonField::F, N, 2).unwrap();
         assert_eq!(f.shape(), [2, N, N]);
         assert_eq!(f.into_dyn(), poly_field(2, 0.0, &x, &x));
+    }
+
+    #[test]
+    fn cheb_loader_3d_reads_raw_u() {
+        let dir = fresh_dir("3d_cheb");
+        let (_, test_path) = write_valid_pair3(&dir);
+        let u = load_poisson3d_cheb_field(&test_path, PoissonField::U, N, 1).unwrap();
+        let x = nodes(N);
+        let written = poly_field3(N_TEST, 0.5, &x) * -2.0;
+        assert_eq!(u, written.slice_axis(Axis(0), (..1).into()));
+        let err = load_poisson3d_cheb_field(&test_path, PoissonField::U, N, N_TEST + 1)
+            .expect_err("too few samples");
+        assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");
+        assert!(
+            err.to_string()
+                .contains("requested 3 test.npz samples but 'u' has 2"),
+            "{err}"
+        );
     }
 }

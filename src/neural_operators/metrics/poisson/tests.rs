@@ -1,9 +1,9 @@
 use super::*;
-use crate::neural_operators::chebyshev::nodes;
+use crate::neural_operators::chebyshev::{cc_norm_sq, cc_rel_l2_error_weighted, nodes};
 use crate::neural_operators::chebyshev::{cheb_to_uniform, uniform_to_cheb};
 use crate::neural_operators::losses::data_losses::{LpLoss, Reduction};
 use burn::prelude::*;
-use ndarray::{Array3, Array4};
+use ndarray::{Array2, Array3, Array4, ArrayView2};
 
 /// `count` smooth fields on the n × n CGL grid that vanish on ∂Ω; sample k is scaled
 /// and shifted so the samples differ.
@@ -246,6 +246,37 @@ fn eval_at(errors: &PoissonErrors, sidecar: &SidecarRecord, s: usize) -> Poisson
         vec![],
         Path::new("runs/x"),
     )
+}
+
+// 3D CL4.1: a 3D run's evaluation is the 2D one but for the quoted error 1 and the
+// report's poisson_plot hint
+#[test]
+fn evaluate_3d_differs_only_in_error1_and_the_plot_hint() {
+    let e = synthetic(&[0.1, 0.3, 0.2, 0.3], 1e-5, 0.01);
+    let sidecar = sidecar(4, 1e-5);
+    let two = eval(&e, &sidecar);
+    let three = evaluate_3d(
+        &e,
+        &Transfers::with_s(65, 64),
+        &sidecar,
+        &last_epoch(),
+        "Cpu".into(),
+        vec![],
+    );
+    assert_eq!(three.record.error1, ERROR1_QUOTE_3D);
+    let mut record = three.record.clone();
+    record.error1 = ERROR1_QUOTE.to_string();
+    assert_eq!(format!("{record:?}"), format!("{:?}", two.record));
+    assert_eq!((three.error2, three.error3), (two.error2, two.error3));
+
+    let (report2, report3) = (two.to_string(), three.to_string());
+    assert!(report2.contains("poisson_plot"), "{report2}");
+    assert!(!report3.contains("poisson_plot"), "{report3}");
+    assert!(report3.contains(ERROR1_QUOTE_3D), "{report3}");
+    assert!(
+        report3.contains("worst sample (max error 4): 1"),
+        "{report3}"
+    );
 }
 
 #[test]
@@ -541,9 +572,8 @@ fn nd_u_norm_is_the_cc_norm() {
     assert_rel(e.u_norm[0], (16.0_f64 / 15.0).powf(1.5), 1e-14, "||u||");
 }
 
-// poisson_errors_nd never calls boundary_errors_nd at rank 2 (it routes 2D to
-// poisson_errors); this checks the general face formula against the trusted 2D one (four
-// edges, 8 against 4), to round-off since the sums run in another order
+// the general face formula at rank 2 against the frozen 2D one (four edges, 8 against 4),
+// to round-off; nd_rank_two_is_bit_identical_to_2d checks the whole errors bit for bit
 #[test]
 fn nd_boundary_at_rank_two_matches_2d() {
     let n = 17;
@@ -552,12 +582,12 @@ fn nd_boundary_at_rank_two_matches_2d() {
     for k in 0..2 {
         let ui = u.index_axis(Axis(0), k);
         let u_hat = Array2::from_shape_fn((n, n), |(i, j)| ui[[i, j]] + 0.02 * noise(k, i, j));
-        let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
+        let (ratio, rms) = boundary_errors_frozen(&u_hat, ui, &w);
         let (ratio_nd, rms_nd) = boundary_errors_nd(
             u_hat.view().into_dyn(),
-            ui.into_dyn(),
             &w,
             cc_norm_sq(ui, w.view(), w.view()),
+            ui.iter().fold(0.0_f64, |m, v| m.max(v.abs())),
         );
         assert_rel(ratio_nd, ratio, 1e-14, "ratio");
         assert_rel(rms_nd, rms, 1e-14, "rms");
@@ -579,8 +609,96 @@ fn bits(e: &PoissonErrors) -> Vec<Vec<u64>> {
     .collect()
 }
 
-// D2: 2D fields through poisson_errors_nd are poisson_errors bit for bit, at s = n − 1
-// and a coarser s, in standard layout, transposed, and through IxDyn
+/// Error 5 of one 2D sample as `poisson_errors` computed it before 3D CL4.1 (the D2
+/// oracle's): four edges, 8 against 4. Do not edit.
+fn boundary_errors_frozen(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> (f64, f64) {
+    let last = u_hat.nrows() - 1;
+    let edges = [
+        u_hat.row(0),
+        u_hat.row(last),
+        u_hat.column(0),
+        u_hat.column(last),
+    ];
+    let max_edge = edges
+        .iter()
+        .flat_map(|e| e.iter())
+        .fold(0.0_f64, |m, v| m.max(v.abs()));
+    let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+
+    // ∮ û² ds as four edge integrals of length 2 each (the weights sum to 2 per edge)
+    let line: f64 = edges
+        .iter()
+        .map(|e| e.iter().zip(w).map(|(v, wi)| wi * v * v).sum::<f64>())
+        .sum();
+    let area = cc_norm_sq(u, w.view(), w.view());
+    (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
+}
+
+/// The D2 oracle (3D CL4.1): `poisson_errors` as it was before the 2D and 3D errors shared
+/// one per-sample loop, frozen here with [`boundary_errors_frozen`]. Do not edit.
+fn poisson_errors_frozen(
+    pred: ArrayView3<f64>,
+    u: ArrayView3<f64>,
+    transfers: &Transfers,
+) -> PoissonErrors {
+    let (nu, n) = (u.dim().0, u.dim().1);
+    let w = clencurt(n);
+
+    let mut errors = PoissonErrors {
+        transfer: Vec::with_capacity(nu),
+        model: Vec::with_capacity(nu),
+        total: Vec::with_capacity(nu),
+        u_norm: Vec::with_capacity(nu),
+        boundary_max_ratio: Vec::with_capacity(nu),
+        boundary_rel_rms: Vec::with_capacity(nu),
+    };
+    for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
+        let u_uni = transfers.to_uniform(ui);
+        let round_trip = transfers.to_cheb(u_uni.view());
+        let u_hat = transfers.to_cheb(p);
+
+        errors.transfer.push(cc_rel_l2_error_weighted(
+            round_trip.view(),
+            ui,
+            w.view(),
+            w.view(),
+        ));
+        errors.model.push(rel_l2_equal_weights(p, u_uni.view()));
+        errors.total.push(cc_rel_l2_error_weighted(
+            u_hat.view(),
+            ui,
+            w.view(),
+            w.view(),
+        ));
+        errors
+            .u_norm
+            .push(cc_norm_sq(ui, w.view(), w.view()).sqrt());
+        let (ratio, rms) = boundary_errors_frozen(&u_hat, ui, &w);
+        errors.boundary_max_ratio.push(ratio);
+        errors.boundary_rel_rms.push(rms);
+    }
+    errors
+}
+
+/// Predictions `[count, s, s]` for the D2 cases: R u plus noise, the same exactly zero on
+/// the boundary of the learning grid, and zero everywhere (so û is zero on ∂Ω, where a
+/// −0.0 sum could change error 5's bits).
+fn d2_predictions(u: &Array3<f64>, transfers: &Transfers) -> [Array3<f64>; 3] {
+    let (count, s) = (u.dim().0, transfers.s());
+    let noisy = transfers.to_uniform_all(u.view())
+        + Array3::from_shape_fn((count, s, s), |(k, i, j)| 0.05 * noise(k, i, j));
+    let mut zero_edges = noisy.clone();
+    for axis in [1, 2] {
+        for index in [0, s - 1] {
+            zero_edges.index_axis_mut(Axis(axis), index).fill(0.0);
+        }
+    }
+    [noisy, zero_edges, Array3::zeros((count, s, s))]
+}
+
+// D2: 2D fields through poisson_errors and poisson_errors_nd are the frozen oracle bit for
+// bit, at s = n − 1 and a coarser s, for each D2 prediction, in standard layout,
+// transposed, and through IxDyn
 #[test]
 fn nd_rank_two_is_bit_identical_to_2d() {
     let (count, n) = (3, 17);
@@ -588,29 +706,37 @@ fn nd_rank_two_is_bit_identical_to_2d() {
         + Array3::from_shape_fn((count, n, n), |(k, i, j)| 0.01 * noise(k + 5, i, j));
     for s in [n - 1, 8] {
         let transfers = Transfers::with_s(n, s);
-        let pred = transfers.to_uniform_all(u.view())
-            + Array3::from_shape_fn((count, s, s), |(k, i, j)| 0.05 * noise(k, i, j));
-        let old = bits(&poisson_errors(pred.view(), u.view(), &transfers));
-        assert_eq!(
-            bits(&poisson_errors_nd(pred.view(), u.view(), &transfers)),
-            old
-        );
-        assert_eq!(
-            bits(&poisson_errors_nd(
-                pred.view().into_dyn(),
-                u.view().into_dyn(),
-                &transfers
-            )),
-            old
-        );
-        let (pt, ut) = (
-            pred.view().permuted_axes([0, 2, 1]),
-            u.view().permuted_axes([0, 2, 1]),
-        );
-        assert_eq!(
-            bits(&poisson_errors_nd(pt, ut, &transfers)),
-            bits(&poisson_errors(pt, ut, &transfers))
-        );
+        for (case, pred) in d2_predictions(&u, &transfers).into_iter().enumerate() {
+            let old = bits(&poisson_errors_frozen(pred.view(), u.view(), &transfers));
+            // the zero-on-∂Ω cases reach error 5 with û exactly zero there (T_uc's rows at
+            // ±1 are unit rows), else they would not exercise the −0.0 question
+            if case > 0 {
+                assert_eq!(old[4], vec![0.0_f64.to_bits(); count], "case {case}");
+            }
+            assert_eq!(
+                bits(&poisson_errors(pred.view(), u.view(), &transfers)),
+                old
+            );
+            assert_eq!(
+                bits(&poisson_errors_nd(pred.view(), u.view(), &transfers)),
+                old
+            );
+            assert_eq!(
+                bits(&poisson_errors_nd(
+                    pred.view().into_dyn(),
+                    u.view().into_dyn(),
+                    &transfers
+                )),
+                old
+            );
+            let (pt, ut) = (
+                pred.view().permuted_axes([0, 2, 1]),
+                u.view().permuted_axes([0, 2, 1]),
+            );
+            let old_t = bits(&poisson_errors_frozen(pt, ut, &transfers));
+            assert_eq!(bits(&poisson_errors(pt, ut, &transfers)), old_t);
+            assert_eq!(bits(&poisson_errors_nd(pt, ut, &transfers)), old_t);
+        }
     }
 }
 

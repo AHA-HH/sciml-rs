@@ -29,6 +29,11 @@
 //! or [`PoissonField::U`], on the CGL grid, untransferred, with the same validation: the
 //! reference for the errors on the Chebyshev grid (design §7).
 //!
+//! The 3D splits of `generate_poisson3d` (`Poisson3dSet`, stored 'ijk' with node fields
+//! `x`, `y`, `z`; 3D CL3.3) load through the same `PoissonConfig`, validation and rows:
+//! `load_poisson3d_uniform` and `load_poisson3d_uniform_test` (in `uniform3d`) and
+//! `load_poisson3d_cheb_field` (in `cheb`).
+//!
 //! Normalization (CONVENTIONS §10, as in `load_darcy_uniform`): both inputs are encoded
 //! with the `x` normalizer fit on `x_train`; both target splits stay in physical units, and
 //! predictions are decoded back to physical scale before the loss, not targets encoded
@@ -41,16 +46,18 @@
 mod cheb;
 mod subset;
 mod uniform;
+mod uniform3d;
 
-pub use cheb::load_poisson_cheb_field;
+pub use cheb::{load_poisson_cheb_field, load_poisson3d_cheb_field};
 pub use subset::{SubsetConfig, indices_hash, subset_indices};
 pub use uniform::{load_poisson_uniform, load_poisson_uniform_test};
+pub use uniform3d::{load_poisson3d_uniform, load_poisson3d_uniform_test};
 
 use crate::neural_operators::data::io::{errors::LoadError, readers::npz::NpzFileReader};
 use crate::neural_operators::data::loaders::base_dataset::DatasetConfig;
 use burn::config::Config;
 use burn::serde::{Deserialize, Serialize};
-use ndarray::{Array1, Array3, Ix3};
+use ndarray::{Array1, ArrayD};
 use std::fmt;
 
 /// Poisson-specific config: the Chebyshev size `n` of the stored fields and the learning
@@ -214,15 +221,24 @@ impl fmt::Display for PoissonField {
         f.write_str(self.key())
     }
 }
-/// Checks that the fields `x` and `y` are `[n]` and within [`NODE_TOL`] of the CGL
-/// `nodes`. `split` only labels the error messages.
+
+/// The node fields of a 2D split, in axis order.
+const AXES_2D: [&str; 2] = ["x", "y"];
+
+/// The node fields of a 3D split, in axis order.
+const AXES_3D: [&str; 3] = ["x", "y", "z"];
+
+/// Checks that the node fields `axes` (`["x", "y"]` in 2D, `["x", "y", "z"]` in 3D) are
+/// `[n]` and within [`NODE_TOL`] of the CGL `nodes`. `split` only labels the error
+/// messages.
 fn check_nodes(
     reader: &mut NpzFileReader,
     split: &str,
     n: usize,
     nodes: &Array1<f64>,
+    axes: &[&str],
 ) -> Result<(), LoadError> {
-    for name in ["x", "y"] {
+    for &name in axes {
         let field = reader.read_field(name)?;
         if field.shape() != [n] {
             return Err(LoadError::Invalid(format!(
@@ -246,26 +262,25 @@ fn check_nodes(
     Ok(())
 }
 
-/// Reads `field`, checks that it is `[samples, n, n]` with at least `count` samples, and
-/// returns it whole. `split` only labels the error messages.
+/// Reads `field`, checks that it is `[samples, n, …, n]` with `dims` spatial axes and at
+/// least `count` samples, and returns it whole. `split` only labels the error messages.
 fn read_samples(
     reader: &mut NpzFileReader,
     split: &str,
     field: PoissonField,
     n: usize,
+    dims: usize,
     count: usize,
-) -> Result<Array3<f64>, LoadError> {
+) -> Result<ArrayD<f64>, LoadError> {
     let name = field.key();
     let field = reader.read_field(name)?;
-    let shape = field.shape().to_vec();
-    let field = match field.into_dimensionality::<Ix3>() {
-        Ok(field) if field.shape()[1..] == [n, n] => field,
-        _ => {
-            return Err(LoadError::Invalid(format!(
-                "{split} field '{name}' must be [samples, {n}, {n}], got shape {shape:?}"
-            )));
-        }
-    };
+    if field.ndim() != dims + 1 || field.shape()[1..].iter().any(|&m| m != n) {
+        return Err(LoadError::Invalid(format!(
+            "{split} field '{name}' must be [samples{}], got shape {:?}",
+            format!(", {n}").repeat(dims),
+            field.shape()
+        )));
+    }
     if count > field.shape()[0] {
         return Err(LoadError::Invalid(format!(
             "requested {count} {split} samples but '{name}' has {}",
@@ -280,7 +295,7 @@ fn read_samples(
 mod fixtures {
     use super::*;
     use crate::neural_operators::chebyshev::nodes;
-    use ndarray::{Array1, Array3, ArrayD};
+    use ndarray::{Array1, Array3, Array4, ArrayD};
     use ndarray_npy::NpzWriter;
     use std::fs::{self, File};
     use std::path::{Path, PathBuf};
@@ -349,6 +364,47 @@ mod fixtures {
         let f_te = poly_field(N_TEST, 0.5, &x, &x);
         let train = write_npz(dir, "train.npz", &f_tr, &(&f_tr * -2.0), &x, &x);
         let test = write_npz(dir, "test.npz", &f_te, &(&f_te * -2.0), &x, &x);
+        (train, test)
+    }
+
+    /// A polynomial of degree < N in each variable, reproduced exactly by T_cu.
+    fn poly3(x: f64, y: f64, z: f64) -> f64 {
+        (1.0 + x - 2.0 * x.powi(3)) * (y * y + 0.5 * y.powi(4) - 0.3) * (0.7 - z + z.powi(5))
+    }
+
+    /// `[count, xs.len(), xs.len(), xs.len()]`, sample i = (1 + i + offset) · poly3.
+    pub(super) fn poly_field3(count: usize, offset: f64, xs: &Array1<f64>) -> ArrayD<f64> {
+        let m = xs.len();
+        Array4::from_shape_fn((count, m, m, m), |(i, a, b, c)| {
+            (1.0 + i as f64 + offset) * poly3(xs[a], xs[b], xs[c])
+        })
+        .into_dyn()
+    }
+
+    /// Writes `f`, `u` and the node fields `axes` (each `x`) to `dir/name`.
+    pub(super) fn write_npz3(
+        dir: &Path,
+        name: &str,
+        f: &ArrayD<f64>,
+        axes: &[(&str, &Array1<f64>)],
+    ) -> PathBuf {
+        let path = dir.join(name);
+        let mut npz = NpzWriter::new(File::create(&path).unwrap());
+        npz.add_array("f", f).unwrap();
+        npz.add_array("u", &(f * -2.0)).unwrap();
+        for (key, x) in axes {
+            npz.add_array(*key, *x).unwrap();
+        }
+        npz.finish().unwrap();
+        path
+    }
+
+    /// A valid 3D train/test pair of polynomial fields, u = −2 f, test samples offset.
+    pub(super) fn write_valid_pair3(dir: &Path) -> (PathBuf, PathBuf) {
+        let x = nodes(N);
+        let axes = [("x", &x), ("y", &x), ("z", &x)];
+        let train = write_npz3(dir, "train.npz", &poly_field3(N_TRAIN, 0.0, &x), &axes);
+        let test = write_npz3(dir, "test.npz", &poly_field3(N_TEST, 0.5, &x), &axes);
         (train, test)
     }
 }

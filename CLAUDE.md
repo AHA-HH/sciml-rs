@@ -151,11 +151,25 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   below the stored ones), `layers/{channel_mlp,skip,norm}.rs` (library CM1.3a:
   2.0.0's `ChannelMlp`, `SkipKind`/`Skip<R>`, `AdaIn`; `layers/pointwise.rs`, the shared
   `conv1x1`; activations are Burn's `ActivationConfig`, instance and group norm Burn's;
-  parity in `tests/parity_block_parts*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
+  parity in `tests/parity_block_parts*.rs`; since CM1.3b `norm::{NormKind, Norm}`, the
+  block's norm choice, and `pointwise::linear_cf`; the FNO's block options are `FNOConfig`'s
+  `activation` (CO1.1's `Activation`, ten functions since CM1.3b), `fno_skip`, `channel_mlp` (`BlockMlpConfig`), `norm`, `preactivation`, each
+  `None` the original block, run by `FNO::fourier_layers`, parity in
+  `tests/parity_fno_blocks.rs`; since CM1.4 `layers/embedding.rs`: 2.0.0's
+  `GridEmbeddingNd`, `SinusoidalEmbedding`, `RotaryEmbedding2d` and the rotary helpers, and
+  `FNOConfig`'s `lifting_channel_ratio`, `projection_channel_ratio`, `positional_embedding`
+  (`PositionalEmbedding::{GridNd, Disabled}`), each `None` today's, parity in
+  `tests/parity_embeddings*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
   `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
-  `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; parity in
-  `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
+  `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; since CM2.5
+  `equation_losses`: `BurgersEqnLoss`, `ic_loss`, the nonlinear Poisson losses, on a
+  `differentiation::GridDiff` (`FiniteDiff`, or `MatrixDiff`, a matrix per axis,
+  `chebyshev` behind `datagen`), with `pointwise::mean_squared_error` (`F.mse_loss`);
+  since CM1.6c `differentiation::FourierDiff` (periodic spectral derivatives), `GridDiff`
+  carrying `dx`/`dy`/`dz`, `gradient`, `divergence`, `curl_2d`/`curl_3d` for every grid
+  operator, and `non_uniform_fd::NonUniformFd` (point-cloud first derivatives, host f64
+  weights); parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
@@ -215,7 +229,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `#[cfg(all(test, feature = "datagen"))]` oracles for the closed forms.
 - `chebyshev/transfer` is ungated (ndarray only): `nodes` (closed-form CGL nodes),
   `uniform_nodes`, `cheb_to_uniform` (T_cu), `uniform_to_cheb` (T_uc, Floater–Hormann),
-  `apply`, `Transfers`.
+  `apply`, `Transfers` (its tests in `transfer/tests.rs`); `chebyshev/tensor` (3D CL3.3) the
+  N-D helpers: `apply_nd` (one 1D matrix along each axis, any rank), `as_matrix`, `kron`,
+  `rank2`, `check_per_axis`.
 - `chebyshev/clencurt` is ungated (ndarray only): `clencurt` (closed-form Clenshaw–Curtis
   weights, Trefethen) and `cc_rel_l2_error` (relative CC-L² error on the CGL tensor grid).
 - `src/neural_operators/pde/poisson/` (behind `datagen`): `collocation`
@@ -247,13 +263,19 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `.npz` files and applies T_cu at load time, giving Darcy-shaped datasets on the uniform
   grid of s points, so one dataset serves every s) and `cheb`
   (`load_poisson_cheb_field` reads one split's raw field, `PoissonField::F` or `U`, on the
-  CGL grid, untransferred).
+  CGL grid, untransferred); since 3D CL3.3 `uniform3d` (`load_poisson3d_uniform`,
+  `load_poisson3d_uniform_test`: the 3D splits, 'ijk', nodes `x`, `y`, `z`, T_cu along every
+  axis, the same `PoissonConfig`) and `load_poisson3d_cheb_field` in `cheb`.
 - `metrics/poisson` is ungated (ndarray, f64): `poisson_errors` gives design §7's errors 2–5
   on the Chebyshev grid with the run's `Transfers` (any s since Phase 5 T6: error 2 is the
   transfer-only floor, 3 the coarse error, 4 the fine-grid error) and `check_error3` the
   cross-check against the run's metrics, driven by `examples/predict/poisson.rs`
   (`predict_poisson`), which writes `errors.json` (`ERRORS_JSON`) into the run directory;
-  `poisson_matrix` tabulates evaluated runs.
+  `poisson_matrix` tabulates evaluated runs. Since 3D CL4.1 one per-sample loop serves
+  `poisson_errors` and `poisson_errors_nd` (the old 2D body frozen in its tests as the D2
+  oracle), and `evaluate_3d` (the 2D record, error 1 quoted from 3D CL2.1) is driven by
+  `examples/predict/poisson3d.rs` (`predict_poisson3d`) on runs of
+  `examples/train/poisson3d.rs` (`train_poisson3d`, `FNO<5>`, D4).
 - `training/trainer` (`train_fno`, one trainer for every PDE: `Some(y)` decodes with the
   target normaliser, `None` trains in physical units), driven on those datasets by
   `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
@@ -401,6 +423,10 @@ than trusting prose when checking how an API behaves.
   `predict_darcy`, `darcy_plot` on Darcy runs)
 - Evaluate a Poisson run (the five errors, the boundary verdict, the worst sample):
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`
+- Train and evaluate on 3D Poisson (3D CL4.1; n ∈ {33, 65}, default 65, s default n − 1;
+  `EPOCHS` overrides 500; `--resume runs/<run_dir>` as in 2D):
+  `cargo run --release --example train_poisson3d [--features metal] [-- [<padding>] [<n>] [<s>] [<seed>]]`,
+  then `cargo run --release --example predict_poisson3d [--features metal] -- runs/<run_dir>`
 - Phase 5 comparison table and plots from evaluated Poisson runs (mean and min–max over
   seeds per (padding, s); plots `<stem>_*.png` beside the table, skipped without gnuplot):
   `cargo run --release --example poisson_matrix -- docs/poisson2d/phase5/results.md runs/<run_dir> ...`;

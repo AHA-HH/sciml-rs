@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use burn::{
     prelude::*,
-    store::{ModuleSnapshot, bridge},
+    store::{ModuleSnapshot, PathFilter, bridge},
     tensor::TensorData,
 };
 use ndarray::{ArrayD, Axis};
@@ -46,7 +46,8 @@ pub enum Take {
     Re,
     /// The imaginary half (index 1 of its trailing axis of 2).
     Im,
-    /// A matrix transposed: torch's `Linear` weight `[out, in]` to Burn's `[in, out]`.
+    /// A matrix transposed: torch's `Linear` weight `[out, in]` to Burn's `[in, out]`; also a
+    /// pointwise convolution's weight `[out, in, 1]` (2.0.0's `ChannelMLP`) to a `Linear`'s.
     Transposed,
 }
 
@@ -74,7 +75,8 @@ impl Precision {
 
 /// An open fixture.
 pub struct Fixture {
-    name: String,
+    /// The fixture's file stem, `<config>_<dtype>`.
+    pub(crate) name: String,
     reader: NpzFileReader,
     /// The 2.0.0 parameter names, `param.` stripped (as replaced, if any).
     pub(crate) params: Vec<String>,
@@ -183,13 +185,17 @@ impl Fixture {
 /// axis.
 ///
 /// # Panics
-/// For `Transposed`, if `a` is not a matrix; for `Re` / `Im`, if the trailing axis is not
-/// of length 2.
+/// For `Transposed`, if `a` is neither a matrix nor `[out, in, 1]`; for `Re` / `Im`, if the
+/// trailing axis is not of length 2.
 pub fn take(a: ArrayD<f64>, take: Take) -> ArrayD<f64> {
     let part = match take {
         Take::Whole => return a,
         Take::Transposed => {
-            assert_eq!(a.ndim(), 2, "Transposed needs a matrix");
+            let a = match a.shape() {
+                &[o, i, 1] => a.into_shape_with_order((o, i)).unwrap().into_dyn(),
+                _ => a,
+            };
+            assert_eq!(a.ndim(), 2, "Transposed needs a matrix or [out, in, 1]");
             return a.reversed_axes().as_standard_layout().to_owned();
         }
         Take::Re => 0,
@@ -211,7 +217,26 @@ pub fn take(a: ArrayD<f64>, take: Take) -> ArrayD<f64> {
 /// map (a complex one by its `Re` and `Im` both, any other once, `Whole` or `Transposed`), every map entry names a
 /// fixture parameter and is applied without error (shapes included), and no module
 /// parameter is left out.
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; some load only part of a module"
+)]
 pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: &[MapEntry]) {
+    load_into_part(module, fixture, map, None);
+}
+
+/// As [`load_into`], but only the module parameters `filter` selects must be loaded (all of
+/// them when `None`): for a fixture of part of a module (library CM1.3b, the FNO's Fourier
+/// layers without its lifting and projection).
+///
+/// # Panics
+/// As [`load_into`], for the selected parameters.
+pub fn load_into_part<M: ModuleSnapshot>(
+    module: &mut M,
+    fixture: &mut Fixture,
+    map: &[MapEntry],
+    filter: Option<PathFilter>,
+) {
     let name = fixture.name.clone();
     let mut parts: BTreeMap<&str, Vec<Take>> = BTreeMap::new();
     for &(from, _, part) in map {
@@ -246,7 +271,7 @@ pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: 
             bridge::from_data(fixture.data(&a), to.to_owned(), None)
         })
         .collect();
-    let result = module.apply(tensors, None, None, false);
+    let result = module.apply(tensors, filter, None, false);
     assert!(
         result.errors.is_empty()
             && result.missing.is_empty()

@@ -16,7 +16,11 @@ CM1.1 done 2026-11-25 (legacy spectral convolution parity, 1D to 3D). CM1.6 spli
 into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile, MSE). CM1.3
 split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. CM1.6b done
 2026-11-25 (the aggregators). CM1.2 done 2026-11-25 (the centred layer, separable, modes
-below the stored maximum). Next CM0.6, CM1.3b, CM1.4 and CM1.6c.
+below the stored maximum). CM1.3b done 2026-11-25 (the FNO's block options; FNO outputs
+unchanged bit for bit). CM2.5 done 2026-11-26 (the equation losses, PINO; independent of
+D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outputs
+unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). Next
+CM0.6 and CM1.5.
 
 ## How to read this file
 
@@ -143,19 +147,36 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     nothing under `models/` or `training/` changes. *Needs:* CM1.1. Done 2026-11-25: plan
     `docs/operators/tasks/CM1.3a.md`; `tests/parity_block_parts{,_f64}.rs` (f32 ≤ 1.9e-7,
     f64 ≤ 7.1e-16).
-  - [ ] **CM1.3b The FNO's block options.** `FNOConfig` gains the activation, the FNO skip,
+  - [x] **CM1.3b The FNO's block options.** `FNOConfig` gains the activation, the FNO skip,
     the channel MLP (expansion, skip), the norm and pre-activation, each absent meaning
     today's block. *Done when:* the CM0.3 bit-identity check passes against `main`; a block
     built from the options matches 2.0.0's `FNOBlocks` (with the legacy convolution) within
     D3, post- and pre-activation, for each norm; the FNO's own pointwise matmul
     (`FNO::pointwise`, `conv1x1_cf`) replaced by `layers::pointwise::conv1x1` (CM1.3a review).
-    *Needs:* CM1.3a.
-- [ ] **CM1.4 Lifting, projection and embeddings.** Channel-MLP lifting and projection with
+    *Needs:* CM1.3a. Done 2026-11-25: plan `docs/operators/tasks/CM1.3b.md`;
+    `FNO::fourier_layers`, `layers::norm::{NormKind, Norm}`; `tests/parity_fno_blocks.rs`
+    (nine `FNOBlocks` fixtures, f32 only as the legacy layer computes in `cfloat`, ≤ 2.3e-6);
+    the CM0.3 dumps identical to `main`.
+- [x] **CM1.4 Lifting, projection and embeddings.** Channel-MLP lifting and projection with
   their ratios; `GridEmbeddingND`, `SinusoidalEmbedding`, `RotaryEmbedding2D`. *Needs:*
-  CM1.3a (the channel MLP).
+  CM1.3a (the channel MLP). Done 2026-11-26: plan `docs/operators/tasks/CM1.4.md`;
+  `layers::embedding`; `FNOConfig::{lifting_channel_ratio, projection_channel_ratio,
+  positional_embedding}`; `tests/parity_embeddings.rs` (eight fixtures, `FNO` with
+  `n_layers=0` for the lifting and projection, f32 ≤ 7.8e-7), `_f64.rs` (seven `#[ignore]`d:
+  2.0.0's grid and frequencies are f32); the CM0.3 dumps identical to `main`.
 - [ ] **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
   Darcy- and Burgers-shaped inputs; resampling (`resolution_scaling_factor`) and domain
-  padding. *Needs:* CM1.2, CM1.3b, CM1.4.
+  padding. *Needs:* CM1.2, CM1.3b, CM1.4. Also from CM1.3b: the spectral convolution's bias
+  inside the block (2.0.0 adds it before the norm; CM1.3b's fixtures turn it off), and the
+  block options' `FNOConfig` struct literals in the examples and tests (five `None` lines
+  each) replaced by `FNOConfig::new(..).with_*` where that keeps them readable. From CM1.4's
+  code-quality review: one coordinate-channel builder for `FNO::grid_cl` and
+  `GridEmbeddingNd::grid` (each keeps its own copy of the single-input `cat` workaround;
+  the dumps and `gpu_parity` decide), and the parity helpers shared (`Fixture::open_as`,
+  a D3 check that prints, the two permutes) across `parity_common/{block_parts,fno_blocks,
+  embeddings}.rs`; from its plan review: the f64 fixtures of 2.0.0's grid and frequencies
+  generated under `torch.set_default_dtype(torch.float64)`, so their seven f64 tests run
+  (CM1.4's are `#[ignore]`d, f32-accurate), if CM1.5's own f64 FNO fixtures need it.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
   `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
@@ -184,9 +205,14 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     done (`tests/flex_f64/` for the four f64 binaries), except the `#[allow(dead_code)]` on
     `mod parity_common` in the two loss binaries, which use no parameter map (kept, see
     the plan).
-  - [ ] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
+  - [x] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
     continuation (that option with CM2.4), `non_uniform_fd`. *Done when:* each against
-    fixtures. *Needs:* CM0.5.
+    fixtures. *Needs:* CM0.5. Done 2026-11-26: plan `docs/operators/tasks/CM1.6c.md`;
+    `losses/differentiation.rs` (`FourierDiff`; the vector operators on `GridDiff`),
+    `losses/non_uniform_fd.rs`; parity `tests/parity_losses.rs` (f32 ≤ 6.3e-7),
+    `tests/parity_losses_f64.rs` (`non_uniform_fd` ≤ 1.2e-15; Fourier `#[ignore]`d at 4.0e-7,
+    Flex's f32 twiddles; the ridge case within 1e-9, signed off 2026-11-26); fixtures
+    `derivatives_{f32,f64}` from `tools/parity/generate_losses.py`.
 - [ ] **CM1.7 Training features.** Incremental modes and resolution, AdamW as 2.0.0's,
   mixed precision, multigrid patching. *Needs:* CM0.3, CM1.5.
 - [ ] **CM1.8 Training parity on the 2D Poisson baseline.** The protocol of proposal §5,
@@ -204,10 +230,17 @@ The order of M2 and M3 is set at the M1 gate (D6).
   (CM0.4 review F4).
 - [ ] **CM2.2 UNO.** Resolution-changing blocks on `resample`. *Needs:* M1.
 - [ ] **CM2.3 LocalNO.** Differential and DISCO convolutions, `local_no_block`. *Needs:* M1.
-- [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1.
-- [ ] **CM2.5 Equation losses (PINO).** `equation_losses` on CM1.6's derivatives; the
+- [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1. With it,
+  `FourierDiff`'s `use_fc`, and the two `FourierDiff` options CM1.6c left out:
+  `low_pass_filter_ratio` and the mixed `derivative` / `compute_multiple_derivatives`.
+- [x] **CM2.5 Equation losses (PINO).** `equation_losses` on CM1.6's derivatives; the
   crate's Chebyshev differentiation as a second path. *Needs:* CM1.6a (2.0.0's
-  `equation_losses` imports only `FiniteDiff`).
+  `equation_losses` imports only `FiniteDiff`). Done 2026-11-26: plan
+  `docs/operators/tasks/CM2.5.md`; `losses/equation_losses.rs` (`BurgersEqnLoss`,
+  `ic_loss`, the nonlinear Poisson losses on a point list and on a grid), `GridDiff` and
+  `MatrixDiff` in `losses/differentiation.rs` (`MatrixDiff::chebyshev` behind `datagen`);
+  parity `tests/parity_losses{,_f64}.rs` (≤ 6.9e-8 f32, ≤ 5.3e-16 f64). 2.0.0's
+  `autograd` method (derivatives with respect to point-cloud queries) moves to CM3.4.
 - [ ] **CM2.6 UQNO.** *Needs:* M1, CM1.6a (quantile loss).
 - [ ] **CM2.7 Divergence-free spectral projection.** *Needs:* M1.
 
@@ -219,7 +252,17 @@ The order of M2 and M3 is set at the M1 gate (D6).
 - [ ] **CM3.2 SFNO.** *Needs:* CM3.1.
 - [ ] **CM3.3 Point-cloud inputs.** Neighbour search, segment reductions, the GNO block,
   the trait's input type (R4). *Needs:* M1.
-- [ ] **CM3.4 GINO and FNOGNO.** *Needs:* CM3.3.
+- [ ] **CM3.4 GINO and FNOGNO.** *Needs:* CM3.3. With them 2.0.0's
+  `PoissonInteriorLoss` `method="autograd"`: the output's first and second derivatives
+  with respect to the query points, for `losses::equation_losses::PoissonEqnLoss::points`
+  (CM2.5 takes them as arguments; Burn's autodiff is first order: `.grad()` returns a
+  tensor with no autodiff association, so a derivative cannot be differentiated again).
+  Routes, agreed with the author 2026-11-26 to be chosen when CM3.4 starts: first, finite
+  differences in the query points (1 + 2D forward passes, one backward; O(h²), about 1e-4
+  relative in f32, an estimate); if too inaccurate, the layers' derivatives with respect to
+  the query points written by hand (exact). Finite differences would miss D3 (1e-5)
+  against 2.0.0's autograd values, so that parity test needs a tolerance signed off by the
+  author.
 - [ ] **CM3.5 CODANO.** Attention kernel integral, CODA layer. *Needs:* M1.
 - [ ] **CM3.6 GaLore.** `tensor_galore_projector`. *Needs:* CM0.3.
 

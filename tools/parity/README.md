@@ -67,15 +67,42 @@ files, absent from the wheel, differ).
 | `instance_norm1d_{f32,f64}` | `InstanceNorm()`; input (2, 4, 9) | 0 | 1 kB, 2 kB |
 | `group_norm3d_{f32,f64}` | `nn.GroupNorm(1, 4)`, affine redrawn; input (2, 4, 5, 4, 3) | 8 | 5 kB, 9 kB |
 | `ada_in2d_{f32,f64}` | `AdaIN(embed_dim=3, in_channels=4)`, its embedding a seeded buffer (`embedding`); input (2, 4, 6, 5) | 6,152 | 28 kB, 55 kB |
+| `fno_blocks_post1d_f32`, `fno_blocks_pre1d_f32` | `FNOBlocks(4, 4, n_modes=(8,), n_layers=2)`, post- and pre-activation; input (2, 4, 20) | 340 | 8 kB |
+| `fno_blocks_instance_{post,pre}2d_f32` | the same, `n_modes=(6, 4)`, `norm="instance_norm"`; input (2, 4, 12, 10) | 852 | 17 kB |
+| `fno_blocks_group_post3d_f32` | `n_modes=(4, 4, 4)`, `norm="group_norm"`, `fno_skip="soft-gating"`, `channel_mlp_skip="linear"`, `channel_mlp_expansion=1.0`; input (2, 4, 8, 7, 6) | 2,200 | 39 kB |
+| `fno_blocks_group_pre3d_f32` | `norm="group_norm"`, both skips `"identity"`, pre-activation; input (2, 4, 8, 7, 6) | 2,124 | 38 kB |
+| `fno_blocks_ada_in_{post,pre}2d_f32` | `FNOBlocks(2, 2, n_modes=(6, 4), n_layers=1, norm="ada_in", ada_in_features=2)`, one seeded embedding buffer; input (2, 2, 12, 10) | 7,285 | 39 kB |
+| `fno_blocks_plain1d_f32` | `use_channel_mlp=False`, `fno_skip="soft-gating"`, `non_linearity=torch.tanh`; input (2, 4, 20) | 264 | 4 kB |
+| `activations1d_f32` | `Activations`: `ACTIVATIONS` (relu, gelu, tanh, sigmoid, silu, leaky_relu, selu, mish, hardswish, softsign) each on the input, stacked as channels; input (2, 1, 64) | 0 | 6 kB |
+| `fno_lift_project1d_{f32,f64}` | `FNO(n_modes=(8,), in_channels=2, out_channels=1, hidden_channels=6, n_layers=0)`: the grid, lifting and projection alone (CM1.4); input (2, 2, 20) | 223 | 6 kB |
+| `fno_lift_project2d_linear_{f32,f64}` | `n_modes=(4, 4)`, 2 → 3 channels, hidden 5, `lifting_channel_ratio=0`, `projection_channel_ratio=1.5`, tanh; input (2, 2, 6, 5) | 91 | 5 kB |
+| `fno_lift_project3d_no_grid_{f32,f64}` | `n_modes=(4, 4, 4)`, 3 → 2 channels, hidden 4, `positional_embedding=None`; input (2, 3, 5, 4, 3) | 126 | 9 kB |
+| `fno_lift_project2d_boundaries_{f32,f64}` | `fno_boundaries`: a `GridEmbeddingND` on `BOUNDARIES` = [[0, 2], [−1, 1]], 2 → 1 channels, hidden 4; input (2, 2, 6, 5) | 125 | 5 kB |
+| `grid_embedding2d_{f32,f64}` | `GridEmbeddingND(3, dim=2, grid_boundaries=BOUNDARIES)`; input (2, 3, 6, 5) | 0 | 4 kB |
+| `sinusoidal_{transformer,nerf}_{f32,f64}` | `SinusoidalEmbedding(3, num_frequencies=4)`, `embedding_type` as named; input (2, 10, 3) | 0 | 5 kB |
+| `rotary2d_{f32,f64}` | `Rotary2d(8)`: `RotaryEmbedding2D(8)` on channels 0 and 1 as x and y, `apply_2d_rotary_pos_emb` on the other 16; input (2, 10, 18) | 0 | 6 kB |
 
 The legacy layer's `forward` builds its spectrum as `cfloat`, so its f64 fixtures are only
 f32-accurate (library CM1.1). tltorch stores its weights as real tensors with the trailing
 (re, im) axis, so their sidecars list no `complex_params`.
 
+2.0.0 builds its grid (`regular_grid_nd`) and the embeddings' frequencies in f32, torch's
+default dtype, whatever the input's, so those f64 fixtures are only f32-accurate too
+(library CM1.4); `fno_lift_project3d_no_grid_f64` has no such constant.
+
 Library CM1.3a: parts whose 2.0.0 initialisation is a constant (soft gating's ones, group
 norm's ones and zeros; `REDRAW`) have their parameters redrawn from the weight seed's normal,
 so their fixtures test the map. A function argument (`non_linearity`) is named in the sidecar
 by its `__name__`.
+
+Library CM1.3b: `FNOBlocks` runs as `FNOBlocksRun`, every layer index in turn as 2.0.0's
+`FNO.forward` does, with the legacy convolution (`legacy_conv`: `bias=False`, as the crate's
+`SpectralConv` has no bias; the new layer's keywords `FNOBlocks` passes are dropped at their
+defaults) and, for AdaIN, one embedding set on every norm. Only parameters whose 2.0.0 init
+is a constant are redrawn (soft gating, group norm), and the block fixtures are f32 only
+(`F32_ONLY`): the legacy layer computes in `cfloat` and returns f32, so an f64 reference
+would be f32-accurate. AdaIN's 512-wide MLP keeps its fixtures to one layer and 2 channels
+(D8).
 
 Torch's CPU kernels can differ in the last bits between machines, so `--check` is a
 reproducibility check on one machine; the committed files are the reference, and the
@@ -105,3 +132,23 @@ seeded losses (`table`), with and without weights and Relobralo also at α = 0.9
 τ = 2: per step the aggregate, the weights and the gradient with respect to each loss
 (`<name>.{loss,weights,grad}`), and Relobralo's recorded Bernoulli draws (`<name>.rho`). The
 f64 fixture runs with torch's default dtype f64, so 2.0.0's buffers are f64 too.
+
+`equation_losses_{f32,f64}` (CM2.5), from the same script: `BurgersEqnLoss` at its defaults
+and at `visc=0.05, domain_length=[2, 3]` on a seeded `u` (2, 1, 10, 12) (`burgers.*`);
+`ICLoss()(u, x)` (`ic`); and on a point cloud `poisson.q` (1, 26, 2) of 6 boundary and 20
+interior points with u = sin(πx) cos(2y) + x²y of the query points, `PoissonInteriorLoss`,
+`PoissonBoundaryLoss` (seeded `poisson.y`) and `PoissonEqnLoss(boundary_weight=2,
+interior_weight=0.5)` (`poisson.{interior,boundary,eqn}`), with the source `poisson.f`. 2.0.0
+differentiates u by autograd; the fixture also stores u at every point and its autograd
+derivatives at the interior points (`poisson.{u,u_x,u_y,lap}`), from which the Rust side
+forms the left-hand side. Inputs drawn in f32 and cast for f64.
+
+`derivatives_{f32,f64}` (CM1.6c), from the same script: `FourierDiff(dim=d, L=(2, 3, 1.5)[:d])`
+(no Fourier continuation, no low-pass filter) on seeded `u<d>` (2, 2, *grid) and `v<d>`
+(2, d, *grid) over the grids 32, 16 × 15 (one even, one odd axis) and 8 × 6 × 5: orders 1, 2,
+3 per axis (`fourier<d>.d<axis><order>`) and `fourier<d>.{laplacian,gradient,divergence,curl}`;
+and `non_uniform_fd` on seeded points in [0, 1)ᵈ with seeded values: 2D, N = 40, x and y, at
+the defaults (`nu2`), with `radius=0.2` (`nu2_radius`) and with `regularize_lstsq=True`
+(`nu2_reg`); 3D, N = 30, x and z, `num_neighbors=7` (`nu3`); keys `<case>.{points,values,d}`.
+Inputs drawn in f32 and cast for f64. Every array is written C-contiguous (einsum's outputs
+are strided views, which `np.savez` would store in Fortran order).

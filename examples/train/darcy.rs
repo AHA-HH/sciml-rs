@@ -66,6 +66,14 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
         // fourier_2d.py does. The padded 94 x 94 grid is not a power of two
         padding: Some(9),
         activation: None,
+        // 2.0.0's block options (library CM1.3b); None keeps today's block
+        fno_skip: None,
+        channel_mlp: None,
+        norm: None,
+        preactivation: None,
+        lifting_channel_ratio: None,
+        projection_channel_ratio: None,
+        positional_embedding: None,
     };
 
     let default_seed = TrainingConfig::new().seed;

@@ -1,0 +1,29 @@
+{
+  "config": "equation_losses",
+  "dtype": "f64",
+  "input_seed": 5,
+  "burgers": {
+    "default": "BurgersEqnLoss(**{})",
+    "visc": "BurgersEqnLoss(**{'visc': 0.05, 'domain_length': [2.0, 3.0]})"
+  },
+  "burgers_grid": [
+    10,
+    12
+  ],
+  "ic": "ICLoss()(u, x)",
+  "poisson_points": {
+    "boundary": 6,
+    "interior": 20
+  },
+  "poisson_u": "sin(pi x) cos(2 y) + x^2 y at the query points q, uniform in [0, 1)^2",
+  "poisson_eqn": "PoissonEqnLoss(**{'boundary_weight': 2.0, 'interior_weight': 0.5}), out_sub_level 1",
+  "keys": "u, x (2, 1, n_t, n_x); burgers.{default,visc}; ic; poisson.{q,f,y}; poisson.{interior,boundary,eqn}; poisson.u at every point; poisson.{u_x,u_y,lap} at the interior points (autograd)",
+  "inputs": "drawn in f32, then cast",
+  "versions": {
+    "python": "3.12.12",
+    "neuraloperator": "2.0.0",
+    "torch": "2.9.0",
+    "numpy": "2.3.4"
+  },
+  "platform": "Darwin arm64"
+}

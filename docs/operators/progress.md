@@ -389,3 +389,142 @@ template:
   same for the forward, the Phase 5-shaped epoch and the Gauss–Newton epoch).
 - Matrix: the centred `SpectralConv` row set to partial.
 - Follow-ups: in CM1.2's roadmap line (for CM1.5 and CM1.8).
+
+## 2026-11-25: CM1.3b The FNO's block options
+- Done: `FNOConfig` gains `activation`, `fno_skip`, `channel_mlp` (`BlockMlpConfig`:
+  expansion 0.5, rounded half to even as Python's `round`; skip, default soft gating),
+  `norm` (`layers::norm::NormKind`: instance, group, AdaIN) and `preactivation`, each `None`
+  the original block. `FNO::fourier_layers` runs 2.0.0's `FNOBlocks` per layer (`post_block`,
+  `pre_block`); `FNO::forward_with_embedding` conditions AdaIN. 2.0.0 applies the activation
+  twice without MLP or norm; for ReLU the repeat is skipped (`relu ∘ relu = relu`), so the
+  original block's ops are unchanged. The FNO's pointwise matmul is `layers::pointwise`'s
+  (`conv1x1`, `linear_cf`). Nine `FNOBlocks` fixtures (`generate.py`: the legacy layer with
+  `bias=False`; f32 only; AdaIN at one layer and 2 channels for D8); the harness gains
+  `load_into_part` (a `PathFilter` to the block's paths).
+- Tests: `tests/parity_fno_blocks.rs`, post- and pre-activation for no norm, instance, group
+  and AdaIN, plus the repeated tanh, 1D–3D: ≤ 2.3e-6 (D3 1e-5). Unit tests: absent options
+  build no new parameters, the options build 2.0.0's layers, half-to-even width, the skipped
+  ReLU repeat equals ReLU twice bit for bit, AdaIN needs and uses its embedding,
+  `linear_cf` against `Linear::forward`.
+- Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo test --features datagen`,
+  `cargo doc`, the bit-identity dumps against `main`, `--features metal` block parity, FNO
+  unit tests and `gpu_parity`, `generate.py --check`).
+- Decisions: none.
+- Review: plan review FAIL → fixed: the channel MLP's width rounded half away from zero, not
+  half to even as 2.0.0 (width 5: 3 against 2); advisories (plan text, the ReLU test) done.
+  Code quality APPROVE with findings: F1 (post/pre split), F2 (repeat decided at `init`), F3
+  (one `fno_skip` helper, `w` documented), F4 (the test map follows the config), F5 (a
+  `shortcut:` note on the redraw rule), F6 (plan), F7 (doc) fixed; F8 (struct literals) to
+  CM1.5's line.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 99edf66 and on the branch:
+  `forward`, `phase5_epoch`, `gauss_newton_epoch` byte-identical); existing tests edited
+  only to complete `FNOConfig` literals with `None` and to call the moved pointwise helpers.
+- Matrix: `FNOBlocks` partial (CM1.3b; missing `batch_norm`, `stabilizer`, precision,
+  complex data, `fno_skip=None`, the convolution's bias).
+- Merge with optimisers CO1.1: its `FNOConfig::activation` (ReLU or GELU, layers and
+  projection) is the one activation option; this task's `ActivationConfig` field is dropped,
+  2.0.0's repeated activation keys on the block options (so CO1.1's GELU FNO is unchanged),
+  and, at the author's request, CO1.1's enum widened: `Tanh`, `Sigmoid`, `Silu`, `LeakyRelu`,
+  `Selu`, `Mish`, `HardSwish`, `Softsign`, each against torch (`activations1d`, ≤ 9.4e-8).
+- Follow-ups: CM1.5's line (the convolution's bias in the block; the `FNOConfig` literals).
+
+## 2026-11-26: CM2.5 Equation losses (PINO)
+- Done: `losses/equation_losses.rs`: `BurgersEqnLoss` (2.0.0's `fdm`, or any `GridDiff`),
+  `ic_loss`, `nonlinear_poisson_lhs`, `poisson_interior_loss`, `poisson_boundary_loss`,
+  `PoissonEqnLoss` (`points`, 2.0.0's point-list form with the interior derivatives
+  supplied; `grid`, the interior residual and the boundary MSE on a grid, which 2.0.0
+  lacks). In `differentiation.rs`, `GridDiff` (implemented by `FiniteDiff`) and
+  `MatrixDiff`, a differentiation matrix per axis; `MatrixDiff::chebyshev` (behind
+  `datagen`) is the crate's Chebyshev path on the CGL grid (CONVENTIONS §12). In
+  `pointwise.rs`, `mean_squared_error`, 2.0.0's base loss `F.mse_loss` (the mean over every
+  entry, not `MSELoss`). Fixtures `equation_losses_{f32,f64}` from `generate_losses.py`.
+- Tests: parity of Burgers (defaults; visc 0.05, domain (2, 3)), IC and the three Poisson
+  losses (the left-hand side formed from 2.0.0's autograd derivatives stored in the
+  fixture): f32 ≤ 6.9e-8, f64 ≤ 5.3e-16 (D3 1e-5, 1e-12); swapped Burgers axes fail (> 0.1).
+  Unit tests (f32, Flex, M2 Pro): `MatrixDiff` with periodic central-difference matrices
+  equals `FiniteDiff` (≤ 9.8e-8); second-order convergence of the grid Poisson loss (MSE
+  ratio 17.1 for h halved); Chebyshev at 17 nodes 5.6e-11 against finite differences at
+  65 points 5.4e-5; exact on a cubic; gradients through Burgers, the grid loss and
+  `MatrixDiff`; panics.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (474 passed), `cargo test --features
+  datagen` (561 passed), `cargo doc --no-deps`, `generate_losses.py --check` (the ten
+  fixtures the same); all pass, in the task's own build directory. Not run: `--features
+  metal` (nothing backend-specific beyond matmul and slicing).
+- Decisions: none.
+- Review: plan review FAIL on one blocker (a `clippy::type_complexity` error under
+  `datagen`), fixed; advisories (panics documented, shape assert) fixed. Code quality
+  BLOCKED (the same clippy error) → APPROVE with findings (r2): F1–F5, F7 and the nits
+  fixed; r2's R2 and R4 fixed, R1 mostly (one Laplacian fold for `GridDiff`; `FiniteDiff`
+  keeps its own `partial_sum`); left: `generate.py`'s own provenance block, the argument
+  order of `PoissonEqnLoss::points`.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 6ea636b and the branch,
+  each in its own build directory: `forward`, `phase5_epoch`, `gauss_newton_epoch` `cmp`
+  same).
+- Matrix: the equation-loss row set to partial (the `autograd` method with CM3.4).
+- Follow-ups: CM3.4's line (2.0.0's `autograd` method on point clouds).
+
+## 2026-11-26: CM1.4 Lifting, projection and embeddings
+- Done: `layers::embedding`: 2.0.0's `GridEmbeddingNd` (any rank and boundaries, `j / s`
+  without the endpoint, axis order), `SinusoidalEmbedding` (`transformer`, `nerf`; sin and
+  cos interleaved), `RotaryEmbedding2d` with `rotate_half`, `apply_rotary_pos_emb`,
+  `apply_2d_rotary_pos_emb`; each parameter-free, so its own `Config`. `FNOConfig` gains
+  `lifting_channel_ratio` (`fc0` `(C + D) → L`, the activation, `lifting_out` `L → W`,
+  `L = int(r · W)`; 0 keeps one layer), `projection_channel_ratio` (`fc1`'s width instead of
+  128) and `positional_embedding` (`GridNd`, or `Disabled` for 2.0.0's `None`), each `None`
+  today's model. Sinusoidal and rotary stay standalone: 2.0.0's FNO does not use them.
+- Tests: `tests/parity_embeddings.rs`, eight f32 fixtures (the four `FNO`s with
+  `n_layers=0`: 1D defaults, 2D ratio 0 and 1.5 with tanh, 3D without a grid, 2D with
+  boundaries; the grid alone; both sinusoidal kinds; rotary): ≤ 7.8e-7 (D3 1e-5).
+  `_f64.rs`: the FNO without a grid at 1.7e-16; seven `#[ignore]`d with their errors
+  (1.6e-6 to 5.0e-10), as 2.0.0 builds its grid and frequencies in f32. Unit tests: the
+  widths truncate as Python's `int`, `Disabled` lifts C channels, absent options build
+  today's layers, the zero-width and wrong-rank panics, `rotate_half` and the grid by hand.
+- Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo test --features datagen`,
+  `cargo doc`, `generate.py --check`, the bit-identity dumps, `--features metal`).
+- Decisions: none. Question for sign-off: a sentence in CONVENTIONS §2 naming the opt-in
+  `GridNd` grid.
+- Review: plan review PASS (advisories: the plan's departures noted, a doc index made
+  clear; the f64 fixture idea to CM1.5's line). Code quality APPROVE with findings: F2 (one
+  coordinate-channel count) and F3 (`lifting_out`, before it became a checkpoint path)
+  fixed; F1 (one grid builder) and F4 (shared parity helpers) to CM1.5's line.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` cb7265d and the branch:
+  `forward`, `phase5_epoch`, `gauss_newton_epoch` byte-identical); existing tests edited only
+  to complete `FNOConfig` literals with `None`.
+- Matrix: `GridEmbeddingND` and `SinusoidalEmbedding`/`RotaryEmbedding2D` rows have; `FNO`
+  partial, noting the new options.
+- Follow-ups: CM1.5's line (F1, F4, f64 fixtures with f64 constants).
+
+## 2026-11-26: CM1.6c Fourier and non-uniform derivatives
+- Done: `losses/differentiation.rs`: `FourierDiff<D>` (`l`, 2.0.0's `L`), any order by a
+  per-axis `rfft`/`irfft` with (i k)ᵖ, k = 2π m / L, the odd-order Nyquist multiplier 0
+  (equal to 2.0.0's `fftn` and real part for a one-axis derivative). `GridDiff` now carries
+  `dx`/`dy`/`dz`, `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`
+  for every grid operator (moved from `FiniteDiff`, bodies unchanged). New
+  `losses/non_uniform_fd.rs`: `NonUniformFd` (2.0.0's arguments and defaults), `stencils`
+  on the host in f64 (k nearest points; minimum-norm weights by QR of Aᵀ as gelsy, or 2.0.0's
+  ridge system by Cholesky), `Stencils::apply` on any device with gradients to the values.
+  Fixtures `derivatives_{f32,f64}` from `generate_losses.py` (now writing every array
+  C-contiguous; the existing fixtures unchanged).
+- Tests: parity of `FourierDiff` 1D–3D (orders 1–3 per axis, Laplacian, gradient, divergence,
+  curl; grids 32, 16 × 15, 8 × 6 × 5): f32 ≤ 4.9e-7; f64 `#[ignore]`d, 4.0e-7 (Flex's f32
+  twiddles, D3 as amended). `non_uniform_fd` (2D default, radius 0.2, ridge; 3D 7
+  neighbours): f32 ≤ 6.3e-7, f64 ≤ 1.2e-15; the ridge case (condition ≈ 5e6, 2.0.0's own f32
+  result 4.0e-2 from its f64) f32 against the f64 reference 7.3e-8, f64 6.4e-11 ≤ 1e-9. A
+  swapped-axis control fails (> 0.1). Unit tests: Fourier exact on a trigonometric
+  polynomial (n = 15, 16), the Nyquist mode, panics; stencils exact on affine functions (both
+  solvers), the minimum-norm weights against Aᵀ(AAᵀ)⁻¹b, the radius mask, the gradient to the
+  values against the weights, panics.
+- Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo test --features datagen`,
+  `cargo doc`, `generate_losses.py --check`, the bit-identity dumps against `main`). Not run:
+  `--features metal` (nothing backend-specific beyond Burn's `rfft`/`irfft`, `select`).
+- Decisions: the ridge case's bounds (f32 against 2.0.0's f64 reference within D3; f64
+  within 1e-9, not 1e-12) signed off 2026-11-26 by the author: accept.
+- Review: plan review PASS (advisories fixed: plan text, the gradient test, the tie note).
+  Code quality APPROVE with findings: F1 (`partial_sum` on `GridDiff`), F2 (one
+  vector-calculus check), F3 (the ridge reference explicit), F4, F5 (`Stencils`), F8
+  (`FourierDiff`'s `partial` in its trait impl), F10, F11 fixed; F6 (one factorisation per
+  point), F7 (an enum for the solver), F9 (the ridge solve by QR) left, optional, in the PR.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` and the branch, `cmp`).
+- Matrix: `FourierDiff` partial, `non_uniform_fd` have.
+- Follow-ups: CM2.4's line (`use_fc`, `low_pass_filter_ratio`, the mixed derivative).

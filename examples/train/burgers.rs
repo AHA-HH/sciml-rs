@@ -109,6 +109,14 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
         padding: None,
         // PETScML's network uses GELU; ReLU (None) otherwise
         activation: petscml.then_some(Activation::Gelu),
+        // 2.0.0's block options (library CM1.3b); None keeps today's block
+        fno_skip: None,
+        channel_mlp: None,
+        norm: None,
+        preactivation: None,
+        lifting_channel_ratio: None,
+        projection_channel_ratio: None,
+        positional_embedding: None,
     };
 
     // Set the training configuration, test_batch_size = 20 by default
