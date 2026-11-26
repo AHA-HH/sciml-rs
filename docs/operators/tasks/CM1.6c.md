@@ -56,7 +56,7 @@ within D3.
   itself first), the radius mask keeping at least 3, and per point and derivative the
   minimum-norm solution of A w = b (A (d+1) × k: a row of ones and the coordinate offsets;
   b the unit vector of the derivative), as `torch.linalg.lstsq` (gelsy) gives for a full-row-
-  rank A; by Householder QR of Aᵀ. With `regularize`, 2.0.0's (AᵀA + 1e-6 I) w = Aᵀ b by
+  rank A; by a QR of Aᵀ (modified Gram–Schmidt, reorthogonalised). With `regularize`, 2.0.0's (AᵀA + 1e-6 I) w = Aᵀ b by
   Cholesky. `non_uniform_fd(points, values, ..)`: `values` a Burn `Tensor<1>` [N], result
   `[j, N]`, gradients flowing to `values` (gather and a weighted sum). Rank-deficient A
   (k < d + 1, or collinear neighbours) panics: 2.0.0 returns gelsy's pseudo-inverse solution
@@ -75,6 +75,10 @@ within D3.
 - Parity, `tests/parity_losses.rs` (f32, 1e-5) and `tests/parity_losses_f64.rs` (f64, 1e-12;
   the Fourier part `#[ignore]`d with its error recorded, the non-uniform part run), through a
   new `run_derivatives` in `tests/parity_losses_common/`.
+- The ridge case (`regularize_lstsq=True`): 2.0.0's system (AᵀA + 1e-6 I) has condition
+  ≈ 5e6, and its own f32 result is 3.9e-2 from its f64 result on the same inputs, so the f32
+  test checks against the f64 reference within D3 (measured 7.3e-8), and the f64 test within
+  cond · ε ≈ 1e-9 (measured 6.4e-11). Added during implementation; a question for sign-off.
 - Negative control: the 2D Fourier dx with the axes swapped fails (> 0.1).
 - Unit tests (`differentiation.rs`): `FourierDiff` exact (f32 rounding) on a trigonometric
   polynomial below Nyquist, orders 1–3, odd and even n; the Nyquist mode of an even grid has
@@ -107,4 +111,5 @@ None.
 
 ## Open questions
 
-None.
+1. The ridge case's bounds above (f32 against 2.0.0's f64 reference; f64 within 1e-9, not
+   D3's 1e-12), as `lp.rel`'s 1e-8 in CM1.6a.

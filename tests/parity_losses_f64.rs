@@ -49,7 +49,8 @@ fn equation_losses_f64_match_2_0_0() {
 }
 
 /// CM1.6c: `FourierDiff` against `derivatives_f64`. Ignored: Flex's f64 `rfft` uses f32
-/// twiddles (`upstream/burn/flex-f64-fft-f32-twiddles`); measured 4.0e-7 at worst (1D 1.8e-7, 2D 4.0e-7, 3D 2.1e-7; f32 4.9e-7).
+/// twiddles (`upstream/burn/flex-f64-fft-f32-twiddles`). Measured 2026-11-26 (Flex, M2 Pro):
+/// 1D 1.8e-7, 2D 4.0e-7, 3D 2.1e-7, f32's level (f32: 4.9e-7).
 #[cfg(feature = "flex")]
 #[test]
 #[ignore = "Flex's f64 rfft uses f32 twiddles (D3 as amended)"]
