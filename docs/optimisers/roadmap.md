@@ -89,6 +89,13 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   about 24 %. *Done when:* the profile table and where the extra time goes (nothing changed
   here; a fix, if any, is a later task, since it would move the equal-time budget).
   *Needs:* –. *Machines:* the VM.
+- [ ] **CO0.4 Record the commit when a run starts.** `train_poisson` and `train_burgers`
+  call `git_commit()` (`git rev-parse HEAD` in the source checkout) when they write
+  `costs.json` at the end of a run, so a checkout moved during a run records the wrong
+  commit (CO0.1's seeds 42 and 44 recorded CO0.2's). Read it once at the start and carry it
+  to `costs.json`. A follow-up of CO0.1 (the author, 2026-11-26), outside O0's gate.
+  *Done when:* both examples read the commit before training, and a moved checkout no
+  longer changes what a run records. *Needs:* –. *Machines:* the Mac.
 
 ## O1: The Burgers replication and the Darcy extension
 

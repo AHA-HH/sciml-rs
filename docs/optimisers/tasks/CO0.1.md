@@ -172,6 +172,9 @@ whether Burn 0.23 reproduces Phase 10's arms.
 - **Stage 3** after D1.
 
 ## Open questions
+5. **Answered 2026-11-26 by the author: read the commit at the start**, as a follow-up
+   (roadmap CO0.4). `git_commit()` runs when a run ends, so seeds 42 and 44 recorded
+   CO0.2's commits after the VM's worktree was moved (results, Provenance).
 2. **Answered 2026-11-26 by the author: pairing accepted.** Stage 1's paired runs were
    2.9–3.1 % faster than seed 42 alone (seed 43 outside the 3 % band by 0.14 %, on the
    fast side), and the lone runs spread over 10 %; the rule is there to catch a slowdown,
