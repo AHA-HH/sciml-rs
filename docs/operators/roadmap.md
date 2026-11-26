@@ -228,8 +228,14 @@ The order of M2 and M3 is set at the M1 gate (D6).
 - [ ] **CM3.4 GINO and FNOGNO.** *Needs:* CM3.3. With them 2.0.0's
   `PoissonInteriorLoss` `method="autograd"`: the output's first and second derivatives
   with respect to the query points, for `losses::equation_losses::PoissonEqnLoss::points`
-  (CM2.5 takes them as arguments; Burn's autodiff is first order, so second derivatives
-  need another route, such as nested JVPs or finite differences in the query points).
+  (CM2.5 takes them as arguments; Burn's autodiff is first order: `.grad()` returns a
+  tensor with no autodiff association, so a derivative cannot be differentiated again).
+  Routes, agreed with the author 2026-11-26 to be chosen when CM3.4 starts: first, finite
+  differences in the query points (1 + 2D forward passes, one backward; O(h²), about 1e-4
+  relative in f32, an estimate); if too inaccurate, the layers' derivatives with respect to
+  the query points written by hand (exact). Finite differences would miss D3 (1e-5)
+  against 2.0.0's autograd values, so that parity test needs a tolerance signed off by the
+  author.
 - [ ] **CM3.5 CODANO.** Attention kernel integral, CODA layer. *Needs:* M1.
 - [ ] **CM3.6 GaLore.** `tensor_galore_projector`. *Needs:* CM0.3.
 
