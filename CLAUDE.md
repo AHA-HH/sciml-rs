@@ -137,14 +137,39 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `-D warnings` rejects an undocumented public item.
 
 ## Layout
-- `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO; tests in `tests/{reference,padding,grid,checkpoint}.rs`),
+- `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO, `Activation`: ReLU, or GELU since optimisers CO1.1; tests in `tests/{reference,padding,grid,checkpoint,activation}.rs`),
   `models/operator.rs` (library CM0.3, D4: `Operator`, the trait every model implements for
   the training stack, with associated `Config`, `Input`, `Output` and `NAME`;
   `GridOperator<R>`, rank-R tensors in and out, which `training/`, `runs` and
   `predict_host` are generic over; the FNO-named functions stay as wrappers),
+  `models/registry.rs` (library CM0.4: `OperatorConfig::KIND`, the `kind` written first in
+  `model_cfg.json`, absent meaning `"fno"`; `ModelConfig` and `Model<R>`, one enum variant
+  per kind, built by name; `RunDir::any_model_config`),
   `models/predict.rs` (`predict_host`: batched inference to host f64, any rank, any
   `GridOperator`), `layers/spectral_convolution.rs`
-  (SpectralConv, SpectralInit), `losses/` (LpLoss), `data/` (loaders, `device_loader`, io for
+  (SpectralConv, SpectralInit; since library CM1.2 `new_separable` and `with_modes`, modes
+  below the stored ones), `layers/{channel_mlp,skip,norm}.rs` (library CM1.3a:
+  2.0.0's `ChannelMlp`, `SkipKind`/`Skip<R>`, `AdaIn`; `layers/pointwise.rs`, the shared
+  `conv1x1`; activations are Burn's `ActivationConfig`, instance and group norm Burn's;
+  parity in `tests/parity_block_parts*.rs`; since CM1.3b `norm::{NormKind, Norm}`, the
+  block's norm choice, and `pointwise::linear_cf`; the FNO's block options are `FNOConfig`'s
+  `activation` (CO1.1's `Activation`, ten functions since CM1.3b), `fno_skip`, `channel_mlp` (`BlockMlpConfig`), `norm`, `preactivation`, each
+  `None` the original block, run by `FNO::fourier_layers`, parity in
+  `tests/parity_fno_blocks.rs`; since CM1.4 `layers/embedding.rs`: 2.0.0's
+  `GridEmbeddingNd`, `SinusoidalEmbedding`, `RotaryEmbedding2d` and the rotary helpers, and
+  `FNOConfig`'s `lifting_channel_ratio`, `projection_channel_ratio`, `positional_embedding`
+  (`PositionalEmbedding::{GridNd, Disabled}`), each `None` today's, parity in
+  `tests/parity_embeddings*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
+  `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
+  `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
+  `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; since CM2.5
+  `equation_losses`: `BurgersEqnLoss`, `ic_loss`, the nonlinear Poisson losses, on a
+  `differentiation::GridDiff` (`FiniteDiff`, or `MatrixDiff`, a matrix per axis,
+  `chebyshev` behind `datagen`), with `pointwise::mean_squared_error` (`F.mse_loss`);
+  since CM1.6c `differentiation::FourierDiff` (periodic spectral derivatives), `GridDiff`
+  carrying `dx`/`dy`/`dz`, `gradient`, `divergence`, `curl_2d`/`curl_3d` for every grid
+  operator, and `non_uniform_fd::NonUniformFd` (point-cloud first derivatives, host f64
+  weights); parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
@@ -152,7 +177,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   (`backend_features`, `git_commit`).
 - `training/`: `config` (`TrainingConfig`; since Phase 10 T3 `optimizer`, an
   `OptimizerConfig`, `None` meaning Adam; since T5 `adam_epochs`, the Hybrid arm's Adam
-  epochs before Gauss–Newton), `step` (`flatten_pair`, `forward_loss`,
+  epochs before Gauss–Newton; since optimisers CO1.1 `OptimizerConfig::AdamW`,
+  `lr_schedule` (`None` the cosine, `LrSchedule::Step` halving every k epochs) and `loss`
+  (`TrainLoss::SquaredRelL2`, PETScML's eq. 6, for the Adam path)), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
   `training_loop` with its `EpochObserver`, `train_fno`), `gn` (Phase 10 T3:
   `FnoResidual`, the FNO's Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
@@ -170,6 +197,12 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `tests/gauss_newton_fno.rs` (helpers in `tests/gauss_newton_common/`), and the f64
   ones are `#[ignore]`d in `tests/gauss_newton_f64.rs` (flex's f64 rfft uses f32
   twiddles).
+- `optim/soap/` (optimisers CO3.2, any tensor rank; imports nothing from `models/` or
+  `training/`): `SoapConfig` (reference defaults; `init` a `ModuleOptimizer`), `Soap`, Burn's
+  per-parameter `Optimizer` (one factor per dimension, D8; first basis by Burn's host `svd`,
+  refreshes by a host f64 Householder QR, D9; M kept in the original space, V in the bases),
+  `SoapState` (`RecordState` by hand: Burn's derive works only inside `burn-optim`) and
+  `Factor`; tests in `soap/tests.rs`. Nothing calls it before CO3.3.
 - `runs` (`RunDir`, `EpochMetrics`, `RunCosts`) owns the run directory:
   `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
@@ -196,7 +229,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `#[cfg(all(test, feature = "datagen"))]` oracles for the closed forms.
 - `chebyshev/transfer` is ungated (ndarray only): `nodes` (closed-form CGL nodes),
   `uniform_nodes`, `cheb_to_uniform` (T_cu), `uniform_to_cheb` (T_uc, Floater–Hormann),
-  `apply`, `Transfers`.
+  `apply`, `Transfers` (its tests in `transfer/tests.rs`); `chebyshev/tensor` (3D CL3.3) the
+  N-D helpers: `apply_nd` (one 1D matrix along each axis, any rank), `as_matrix`, `kron`,
+  `rank2`, `check_per_axis`.
 - `chebyshev/clencurt` is ungated (ndarray only): `clencurt` (closed-form Clenshaw–Curtis
   weights, Trefethen) and `cc_rel_l2_error` (relative CC-L² error on the CGL tensor grid).
 - `src/neural_operators/pde/poisson/` (behind `datagen`): `collocation`
@@ -205,6 +240,10 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   validation oracle, test-only); `manufactured` (test-only fixtures).
 - `pde/poisson/grf3d` (3D laplace3d CL3.1): the 3D GRF, α = 3, ChaCha8 stream 3, separable
   evaluation; shares `grf::{TAU, K_MAX, sine_basis}`.
+- `pde/poisson/dataset3d` (laplace3d CL3.2): `generate_3d` / `write_split_3d`, the 3D splits
+  (`Split3d`, A3 labels, the 2D `SplitSpec` and `SidecarRecord`), named by
+  `catalogue::Poisson3dSet` (`poisson3d_n{n}_K{K}_{split}`, `GENERATED_3D`), driven by
+  `examples/generate/poisson3d.rs` (`generate_poisson3d [-- <n> ...]`).
 - `pde/poisson/grf` (GRF forcings, ChaCha8 draws, exact sine series) and `pde/poisson/dataset`
   (`generate`, `label_check`, `write_split`), driven by `examples/generate/poisson.rs`
   (`generate_poisson`), which writes `datasets/poisson/`.
@@ -224,7 +263,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `.npz` files and applies T_cu at load time, giving Darcy-shaped datasets on the uniform
   grid of s points, so one dataset serves every s) and `cheb`
   (`load_poisson_cheb_field` reads one split's raw field, `PoissonField::F` or `U`, on the
-  CGL grid, untransferred).
+  CGL grid, untransferred); since 3D CL3.3 `uniform3d` (`load_poisson3d_uniform`,
+  `load_poisson3d_uniform_test`: the 3D splits, 'ijk', nodes `x`, `y`, `z`, T_cu along every
+  axis, the same `PoissonConfig`) and `load_poisson3d_cheb_field` in `cheb`.
 - `metrics/poisson` is ungated (ndarray, f64): `poisson_errors` gives design §7's errors 2–5
   on the Chebyshev grid with the run's `Transfers` (any s since Phase 5 T6: error 2 is the
   transfer-only floor, 3 the coarse error, 4 the fine-grid error) and `check_error3` the
@@ -236,12 +277,16 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
 - `spikes/`: standalone packages, never built by CI: Phase 0 measurements, and
   `metal_diag` (op-by-op GPU vs Flex diagnostics behind `upstream/burn/*`; a non-default
-  workspace member sharing the root's lock and Burn pin: `cargo test -p metal-diag-spike`).
+  workspace member sharing the root's lock and Burn pin: `cargo test -p metal-diag-spike`),
+  and `linalg` (optimisers CO3.1: Burn's `qr` and `svd` at SOAP's sizes, and the
+  constraint 1 fingerprint; a member the same way:
+  `cargo run -p linalg-spike --release --bin linalg_check`).
 - Unit tests sit in `#[cfg(test)] mod tests` in each file. `tests/spectral_init.rs` reseeds
   Flex's process-wide RNG and `tests/run_artifacts_without_gnuplot.rs` clears `PATH`; each
   needs its own test binary, so keep such tests out of `src/`. `tests/gpu_parity.rs` holds
   the Burn bug repros and the 2D GPU replay check; only its `*_flex` twins run without a
-  GPU feature.
+  GPU feature. `tests/flex_f64/` is the one Flex-in-f64 device helper, included by the f64 test
+  binaries (`gauss_newton_f64`, `parity_*_f64`).
 - Examples are registered in `Cargo.toml`; hyperparameters are literals at the top of
   each file. Training writes `runs/<name>_<unix_secs>/`.
 - `datasets/` (.mat files and `datasets/poisson/`, see `datasets/README.md`) and `runs/` are
@@ -257,7 +302,7 @@ tests do not. `.cargo/config.toml` links with `lld` on aarch64 Linux. The option
 libfftw3, and OpenBLAS on Linux (Accelerate on macOS).
 
 GPU VM (2× A100, `ssh cricket`, repository at `~/sciml-rs`): `source ~/sciml-gpu.sh`
-before any `cargo` command. It activates the Spack environment in `env/vm-a100/` (NCCL
+before any `cargo` command (it also sets up `datagen` there: Spack FFTW, system OpenBLAS, `LIBCLANG_PATH`; env/vm-a100/README.md). It activates the Spack environment in `env/vm-a100/` (NCCL
 built for a CUDA the driver supports, gnuplot), which the system NCCL is not. Long runs
 go in tmux with a `tee` log under `logs/`. Runs of `/next-task` tasks each use a worktree
 of their own, `~/sciml-rs-wt/<id>` (`.claude/skills/next-task`, step 6), so parallel runs
@@ -297,9 +342,10 @@ An exact test filter needs the full module path:
 
 ## Burn
 - Burn is pinned exactly in `Cargo.toml` (`[workspace.dependencies]`): `burn = "=0.23.0-pre.2"`
-  from crates.io, a pre-release, features `autodiff, signal, store, train`. It replaced the
-  fork `ax1s-x1zz/burn` at `ddfa9af` on 2026-11-13 (the fork's Bluestein FFT is upstream
-  #5757); every 2D Phase 1–10 result was measured on the fork.
+  from crates.io, a pre-release, features `autodiff, linalg, signal, store, train`
+  (`linalg` since optimisers CO3.1). It replaced the fork `ax1s-x1zz/burn` at `ddfa9af`
+  on 2026-11-13 (the fork's Bluestein FFT is upstream #5757); every 2D Phase 1–10 result
+  was measured on the fork.
 - `cubek.toml` (repository root) sets `[matmul] allow_tf32 = false`: Burn 0.23's cuda matmuls
   default to TF32, which made the GPU 50× less accurate than Flex in `replay_2d_poisson`
   (1.6e-4; 1.4e-6 with it off). It is found by walking up from the working directory, so
@@ -333,7 +379,10 @@ than trusting prose when checking how an API behaves.
 - Generate the Poisson datasets: `cargo run --release --features datagen --example generate_poisson`
   (writes `datasets/poisson/`)
 - Train: `cargo run --release --example train_burgers [--features metal]`
-  (also `train_darcy`)
+  (also `train_darcy`). `train_burgers` (optimisers CO1.1): `RECIPE=petscml` is PETScML's
+  Burgers setting (n_train 1,000, s = 128, GELU, the squared loss), `OPTIMIZER=adamw`
+  AdamW with the lr halved every 100 epochs, `WEIGHT_DECAY` and `SUBSAMPLE` override; it
+  writes `costs.json`
 - `train_burgers_learner` is a showcase of Burn's `Learner` and needs a real terminal for its
   TUI: `train_epoch` is the canonical loop; this is the Burgers-only (`FNO<3>`) Learner
   equivalent. It writes `runs/burgers_fno_learner_<unix_secs>/` (configs and weights, no

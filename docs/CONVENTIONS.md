@@ -5,7 +5,8 @@
 This file is the single source of truth for tensor layouts, coordinate grids, padding,
 Fourier transforms, mode truncation and weight initialisation in `sciml-rs`, and records
 the data normalisation and losses the training code uses. Code cites it as
-`CONVENTIONS §n`. Any change to §1–§6 or §12 bumps `CONVENTION_VERSION`: §1–§6 can make a
+`CONVENTIONS §n`. Any change to §1–§6 or §12, other than to a Verification list, bumps
+`CONVENTION_VERSION`: §1–§6 can make a
 saved checkpoint load but predict differently, and §12 fixes the layout of Chebyshev
 dataset files and the grid transfers. §10 and §11 describe preprocessing and losses; a
 change to them does not bump the version (§9).
@@ -211,8 +212,9 @@ names and shapes, the grid-channel order, the spectral layout and the initialisa
 order, which saved checkpoints depend on. A design document that needs a new convention
 proposes it as a diff to this file, and the change lands here before any code that
 relies on it. §12 fixes how dataset files and grid transfers are laid out; a change to it
-bumps `CONVENTION_VERSION`. §7 and §8 change only with the tests they describe. §10 and
-§11 do not bump the version; a change to them is noted in the pull request and changes
+bumps `CONVENTION_VERSION`. A section's Verification list changes without a bump: it
+names tests and states no convention (3D L1 gate, 2026-11-25). §7 and §8 change only with
+the tests they describe. §10 and §11 do not bump the version; a change to them is noted in the pull request and changes
 the code that implements it in the same pull request.
 
 History: version 2 (Phase 5 T2) lets §12's uniform size s differ from n − 1 and names the
@@ -387,8 +389,6 @@ over i, j, the four edges) at rank 3 and apply to rank 3 only. §1 and §2 are a
 
   For Laplace, û² becomes (û − g)², with g the boundary data, in the same norm.
 
-The tests of these statements land with the code that implements them (3D CL1.2, CL1.3).
-
 ### Verification
 Tests marked † need the `datagen` feature (named `chebyshev` before Phase 4s T16).
 - CGL nodes and Clenshaw–Curtis weights (Phase 1 T1):
@@ -405,3 +405,17 @@ Tests marked † need the `datagen` feature (named `chebyshev` before Phase 4s T
   `transfers_with_s_panic_below_min_n`; `transfers_round_trip_matches_manual_recipe`
   keeps `Transfers::new` bit for bit.
 - 2D boundary norm (`metrics::poisson`): `boundary_offset_is_measured`.
+- 3D transfers (3D CL1.2, `chebyshev::transfer`): `apply_nd_preserves_ijk_layout`,
+  `apply_nd_on_separable_field_is_tensor_of_1d`,
+  `transfers_round_trip_3d_exact_on_quadratics`, `restriction_exact_on_resolved_mode_3d`,
+  `to_uniform_all_nd_matches_per_sample`; `rank_two_is_bit_identical_to_2d` keeps the 2D
+  transfers bit for bit.
+- 3D Clenshaw–Curtis norm (3D CL1.2, `chebyshev::clencurt`):
+  `cc_norm_sq_nd_integrates_3d_polynomials`, `cc_rel_l2_error_nd_known_pair_3d`,
+  `cc_rel_l2_error_nd_follows_permuted_axes`; `rank_two_is_bit_identical_to_2d` keeps the
+  2D norms bit for bit.
+- 3D errors and boundary norm (3D CL1.3, `metrics::poisson`):
+  `nd_errors_match_direct_computation`, `nd_exact_prediction_has_only_transfer_error`,
+  `nd_boundary_offset_is_measured`, `nd_u_norm_is_the_cc_norm`,
+  `nd_boundary_at_rank_two_matches_2d`; `nd_rank_two_is_bit_identical_to_2d` keeps the 2D
+  errors bit for bit.

@@ -16,34 +16,17 @@
 
 #![cfg(any(feature = "flex", feature = "cuda"))]
 
+#[cfg(feature = "flex")]
+mod flex_f64;
 mod gauss_newton_common;
 
 #[cfg(feature = "flex")]
-use std::sync::OnceLock;
-
-#[cfg(feature = "flex")]
 use burn::tensor::TensorData;
-use burn::{
-    prelude::*,
-    tensor::{DType, FloatDType},
-};
+use burn::{prelude::*, tensor::DType};
+#[cfg(feature = "flex")]
+use flex_f64::flex_f64;
 use gauss_newton_common::*;
 use sciml_rs::neural_operators::optim::gauss_newton::{adjoint_error, default_rel_step, params};
-
-/// Flex configured for f64, once per process.
-#[cfg(feature = "flex")]
-fn flex_f64() -> Device {
-    static DEVICE: OnceLock<Device> = OnceLock::new();
-    DEVICE
-        .get_or_init(|| {
-            let mut device = Device::flex();
-            device
-                .configure(FloatDType::F64)
-                .expect("flex accepts f64 as its default float dtype");
-            device
-        })
-        .clone()
-}
 
 #[cfg(feature = "flex")]
 #[test]

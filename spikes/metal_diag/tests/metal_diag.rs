@@ -875,7 +875,7 @@ fn learner_triage() {
         rel(&o1, &o2)
     );
 
-    let loss = LpLoss::new(1, 2, Reduction::Sum);
+    let loss = LpLoss::new(2, Reduction::Sum);
     let lf = loss
         .rel(model.forward(x(&f)).reshape([b, s]), t(&f))
         .into_scalar::<f32>();

@@ -1,0 +1,20 @@
+[package]
+name = "fno3d-cost-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "3D CL0.1: rank-5 FNO cost and the zip64 npz round trip (spike, not part of sciml-rs)"
+
+# A non-default member of the root workspace: it shares the root's Cargo.lock, target
+# directory and Burn pin, and root `cargo test` / CI never build it.
+
+[features]
+metal = ["sciml-rs/metal"]
+cuda = ["sciml-rs/cuda"]
+
+[dependencies]
+# Flex is always built; a GPU comes from the features above, and `BURN_DEVICE` picks one.
+sciml-rs = { path = "../..", default-features = false, features = ["flex"] }
+burn.workspace = true
+ndarray = "0.17"
+ndarray-npy = "0.10"

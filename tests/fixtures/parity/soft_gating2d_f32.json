@@ -1,0 +1,34 @@
+{
+  "config": "soft_gating2d",
+  "model": "SoftGating",
+  "kwargs": {
+    "in_features": 4,
+    "out_features": 4,
+    "n_dim": 2,
+    "skip_type": "soft-gating"
+  },
+  "dtype": "f32",
+  "weight_seed": 0,
+  "input_seed": 1,
+  "input_shape": [
+    2,
+    4,
+    6,
+    5
+  ],
+  "n_params_real": 4,
+  "param_prefix": "param.",
+  "complex_params": [],
+  "complex_layout": "trailing axis of 2: (real, imag), torch.view_as_real",
+  "mode": "eval, torch.no_grad, CPU",
+  "versions": {
+    "python": "3.12.12",
+    "neuraloperator": "2.0.0",
+    "torch": "2.9.0",
+    "tensorly": "0.9.0",
+    "tensorly-torch": "0.5.0",
+    "torch-harmonics": "0.7.4",
+    "numpy": "2.3.4"
+  },
+  "platform": "Darwin arm64"
+}

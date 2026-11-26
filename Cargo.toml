@@ -59,6 +59,12 @@ name = "poisson_resolution"
 path = "examples/predict/poisson_resolution.rs"
 
 [[example]]
+name = "gn_profile"
+path = "examples/profile/gn_profile.rs"
+# its unit tests run under `cargo test` (optimisers CO0.2)
+test = true
+
+[[example]]
 name = "poisson_conditioning"
 path = "examples/predict/poisson_conditioning.rs"
 # its unit tests run under `cargo test`
@@ -83,6 +89,11 @@ required-features = ["mlflow"]
 [[example]]
 name = "generate_poisson"
 path = "examples/generate/poisson.rs"
+required-features = ["datagen"]
+
+[[example]]
+name = "generate_poisson3d"
+path = "examples/generate/poisson3d.rs"
 required-features = ["datagen"]
 
 # Backends are additive: `Device::default()` picks the highest-priority one
@@ -127,14 +138,16 @@ datagen = [
 mlflow = ["dep:ureq", "dep:serde_json"]
 
 # The crate is the only default member, so root `cargo test` / `clippy` / `doc` build only
-# it. `spikes/metal_diag` and `spikes/transfer_floor` share this lock, target directory and
-# Burn pin; the other spikes are standalone (their own `[workspace]`).
+# it. `spikes/fno3d_cost`, `spikes/metal_diag`, `spikes/transfer_floor` and `spikes/linalg`
+# share this lock, target directory and Burn pin; the other spikes are standalone (their own
+# `[workspace]`).
 [workspace]
-members = [".", "spikes/metal_diag", "spikes/transfer_floor"]
+members = [".", "spikes/fno3d_cost", "spikes/metal_diag", "spikes/transfer_floor", "spikes/linalg"]
 default-members = ["."]
 
 [workspace.dependencies]
-burn = { version = "=0.23.0-pre.2", features = ["autodiff", "signal", "store", "train"] }
+# `linalg` (optimisers CO3.1): `qr` and `svd` for SOAP; leaves every existing output unchanged.
+burn = { version = "=0.23.0-pre.2", features = ["autodiff", "linalg", "signal", "store", "train"] }
 
 [dependencies]
 burn.workspace = true

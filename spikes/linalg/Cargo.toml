@@ -1,0 +1,21 @@
+[package]
+name = "linalg-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Optimisers CO3.1: Burn's linalg qr and svd at SOAP's sizes, and the constraint 1 fingerprint (spike, not part of sciml-rs)"
+
+# A non-default member of the root workspace: it shares the root's Cargo.lock, target
+# directory and Burn pin (with `linalg`), and root `cargo test` / CI never build it.
+
+[features]
+default = ["flex"]
+flex = ["sciml-rs/flex"]
+metal = ["sciml-rs/metal"]
+cuda = ["sciml-rs/cuda"]
+
+[dependencies]
+sciml-rs = { path = "../..", default-features = false }
+burn.workspace = true
+ndarray = "0.17"
+num-traits = "0.2"
