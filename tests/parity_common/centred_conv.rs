@@ -5,86 +5,18 @@
 //! 2.0.0 stores one weight `(in, out, *max_n_modes)` (`(channels, *max_n_modes)` if
 //! separable) in its centred layout, a complex tensor saved with a trailing (re, im) axis,
 //! and a bias `(out, 1, …)` added after the inverse transform. At load the weight becomes
-//! the crate's corners by [`centred_to_corners`] (D5) and the bias gains a leading axis.
+//! the crate's corners by `parity_common::centred_to_corners` (D5) and the bias gains a
+//! leading axis.
 //! Its default `fft_norm="forward"` needs no conversion: the layer is one forward and one
 //! inverse transform at the same size, so the scale factors multiply to 1/N under either
 //! normalisation.
 
 use burn::{module::Param, prelude::*};
-use ndarray::{ArrayD, Axis, Slice, concatenate};
+use ndarray::{ArrayD, Axis};
 use sciml_rs::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
 
+pub use crate::parity_common::centred_to_corners;
 use crate::parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into};
-
-/// 2.0.0's centred spectral weight `a`, `(lead.., K_0, .., K_{d−1}, 2)` with a trailing
-/// (re, im) axis, as the crate's `2^(d−1)` mode corners, in corner order (bit `j` of the
-/// index is axis `j`, CONVENTIONS §5), each `(lead.., m_0, .., m_{d−2}, K_{d−1}, 2)`.
-///
-/// On a non-last axis 2.0.0 keeps `K` modes around frequency 0 after `fftshift`: index `i`
-/// is frequency `i − K/2` (integer division), so `K/2` negative and `K − K/2` non-negative
-/// frequencies. Each corner gets `m = K − K/2`: the low corner indices `K/2..K` (frequencies
-/// `0..m`), the high corner indices `K/2 − m..K/2` (frequencies `−m..−1`); for odd `K` that
-/// starts one before 0, and the row is zero, a frequency 2.0.0 does not keep. The last axis
-/// (the real FFT's, frequencies `0..K`) is taken whole.
-///
-/// The corners reproduce 2.0.0 only where the grid's extent is even on every non-last
-/// axis: on an odd extent 2.0.0 applies `fftshift` (not `ifftshift`) again before the
-/// inverse, which moves its output spectrum by one bin.
-///
-/// # Panics
-/// If `a` has fewer than `d + 1` axes or no trailing axis of 2.
-pub fn centred_to_corners(a: ArrayD<f64>, d: usize) -> Vec<ArrayD<f64>> {
-    assert!(
-        a.ndim() > d,
-        "centred_to_corners: {} axes for d = {d}",
-        a.ndim()
-    );
-    assert_eq!(a.shape()[a.ndim() - 1], 2, "no trailing (re, im) axis");
-    let lead = a.ndim() - 1 - d;
-    (0..1usize << (d - 1))
-        .map(|corner| {
-            let mut c = a.clone();
-            for j in 0..d - 1 {
-                let axis = Axis(lead + j);
-                let k = c.shape()[lead + j];
-                let half = k / 2;
-                c = if corner >> j & 1 == 0 {
-                    c.slice_axis(axis, Slice::from(half..k)).to_owned()
-                } else if k.is_multiple_of(2) {
-                    c.slice_axis(axis, Slice::from(0..half)).to_owned()
-                } else {
-                    let mut zero_shape = c.shape().to_vec();
-                    zero_shape[lead + j] = 1;
-                    let zero = ArrayD::zeros(zero_shape);
-                    let neg = c.slice_axis(axis, Slice::from(0..half));
-                    concatenate(axis, &[zero.view(), neg]).unwrap()
-                };
-            }
-            c
-        })
-        .collect()
-}
-
-impl Fixture {
-    /// Replaces the parameter `name` by `parts` (each a new parameter name and its array),
-    /// for this load only, so that [`load_into`]'s checks see the converted parameters.
-    ///
-    /// # Panics
-    /// If the fixture has no parameter `name`.
-    pub fn replace(&mut self, name: &str, parts: Vec<(String, ArrayD<f64>)>) {
-        let i = self
-            .params
-            .iter()
-            .position(|p| p == name)
-            .unwrap_or_else(|| panic!("fixture: no parameter `{name}`"));
-        self.params.remove(i);
-        self.replaced.remove(&format!("param.{name}"));
-        for (part, a) in parts {
-            self.replaced.insert(format!("param.{part}"), a);
-            self.params.push(part);
-        }
-    }
-}
 
 /// 2.0.0's centred layer: the spectral convolution, then the bias.
 #[derive(Module, Debug)]
@@ -131,11 +63,7 @@ impl Case {
 
     /// The fixture's name in `precision`.
     pub fn name(&self, precision: Precision) -> String {
-        let dtype = match precision {
-            Precision::F32 => "f32",
-            Precision::F64 => "f64",
-        };
-        format!("{}_{dtype}", self.stem)
+        format!("{}_{}", self.stem, precision.suffix())
     }
 }
 

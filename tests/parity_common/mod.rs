@@ -12,7 +12,9 @@
 //! `centred_conv.rs`, D5).
 //!
 //! The reference models beside this file (`fno1d.rs`, `legacy_conv.rs`) are included only by
-//! the test binaries that use them, with `#[path]`, so no binary compiles dead code.
+//! the test binaries that use them, with `#[path]`, so no binary compiles dead code. The map
+//! pieces two of them share (the FNO's block parts, lifting and projection, 2.0.0's centred
+//! spectral weights as corners) are here, with the harness (library CM1.5a).
 
 use std::{collections::BTreeMap, path::Path};
 
@@ -21,9 +23,13 @@ use burn::{
     store::{ModuleSnapshot, PathFilter, bridge},
     tensor::TensorData,
 };
-use ndarray::{ArrayD, Axis};
+use ndarray::{ArrayD, Axis, Slice, concatenate};
 use ndarray_npy::NpzReader;
-use sciml_rs::neural_operators::data::io::readers::npz::NpzFileReader;
+use sciml_rs::neural_operators::{
+    data::io::readers::npz::NpzFileReader,
+    layers::{norm::NormKind, skip::SkipKind},
+    models::fno::FNOConfig,
+};
 
 /// D3's bound in f32: relative max error ≤ 1e-5 (roadmap, signed off 2026-11-25).
 pub const D3_F32: f64 = 1e-5;
@@ -71,6 +77,14 @@ impl Precision {
             Precision::F64 => D3_F64,
         }
     }
+
+    /// The fixture name's suffix, `f32` or `f64`.
+    pub fn suffix(self) -> &'static str {
+        match self {
+            Precision::F32 => "f32",
+            Precision::F64 => "f64",
+        }
+    }
 }
 
 /// An open fixture.
@@ -97,6 +111,41 @@ impl Fixture {
             .join("tests/fixtures/parity")
             .join(format!("{name}.npz"));
         Self::open_path(&path)
+    }
+
+    /// Opens `<stem>_f32` or `<stem>_f64`, by `precision`.
+    ///
+    /// # Panics
+    /// As [`open`](Self::open).
+    #[allow(
+        dead_code,
+        reason = "every parity binary includes this harness; some open fixtures by full name"
+    )]
+    pub fn open_as(stem: &str, precision: Precision) -> Self {
+        Self::open(&format!("{stem}_{}", precision.suffix()))
+    }
+
+    /// Replaces the parameter `name` by `parts` (each a new parameter name and its array),
+    /// for this load only, so that [`load_into`]'s checks see the converted parameters.
+    ///
+    /// # Panics
+    /// If the fixture has no parameter `name`.
+    #[allow(
+        dead_code,
+        reason = "every parity binary includes this harness; only layouts converted at load use it"
+    )]
+    pub fn replace(&mut self, name: &str, parts: Vec<(String, ArrayD<f64>)>) {
+        let i = self
+            .params
+            .iter()
+            .position(|p| p == name)
+            .unwrap_or_else(|| panic!("fixture: no parameter `{name}`"));
+        self.params.remove(i);
+        self.replaced.remove(&format!("{PARAM_PREFIX}{name}"));
+        for (part, a) in parts {
+            self.replaced.insert(format!("{PARAM_PREFIX}{part}"), a);
+            self.params.push(part);
+        }
     }
 
     /// Opens the fixture at `path`; its precision comes from the file stem's suffix.
@@ -332,4 +381,233 @@ pub fn assert_parity<const R: usize>(
         "{what}: relative max error {err:.3e} > {tol:.0e}"
     );
     err
+}
+
+/// Asserts `actual` within D3 of `fixture`'s output for its precision, prints the error for
+/// the record and returns it.
+///
+/// # Panics
+/// As [`assert_parity`].
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; some compare parts of an output"
+)]
+pub fn check_d3<const R: usize>(actual: Tensor<R>, fixture: &mut Fixture) -> f64 {
+    let name = fixture.name.clone();
+    let err = assert_parity(actual, &fixture.output(), fixture.precision.d3(), &name);
+    println!("{name}: relative max error {err:.3e}");
+    err
+}
+
+/// `[B, C, s..]` → `[B, s.., C]`: a channels-first fixture tensor for the FNO.
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; only the FNO's binaries permute"
+)]
+pub fn to_channels_last<const R: usize>(x: Tensor<R>) -> Tensor<R> {
+    x.permute(core::array::from_fn(|i| match i {
+        0 => 0,
+        i if i == R - 1 => 1,
+        i => i + 1,
+    }))
+}
+
+/// `[B, s.., C]` → `[B, C, s..]`, the inverse of [`to_channels_last`].
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; only the FNO's binaries permute"
+)]
+pub fn to_channels_first<const R: usize>(x: Tensor<R>) -> Tensor<R> {
+    x.permute(core::array::from_fn(|i| match i {
+        0 => 0,
+        1 => R - 1,
+        i => i - 1,
+    }))
+}
+
+/// 2.0.0's centred spectral weight `a`, `(lead.., K_0, .., K_{d−1}, 2)` with a trailing
+/// (re, im) axis, as the crate's `2^(d−1)` mode corners, in corner order (bit `j` of the
+/// index is axis `j`, CONVENTIONS §5), each `(lead.., m_0, .., m_{d−2}, K_{d−1}, 2)`
+/// (library CM1.2, D5).
+///
+/// On a non-last axis 2.0.0 keeps `K` modes around frequency 0 after `fftshift`: index `i`
+/// is frequency `i − K/2` (integer division), so `K/2` negative and `K − K/2` non-negative
+/// frequencies. Each corner gets `m = K − K/2`: the low corner indices `K/2..K` (frequencies
+/// `0..m`), the high corner indices `K/2 − m..K/2` (frequencies `−m..−1`); for odd `K` that
+/// starts one before 0, and the row is zero, a frequency 2.0.0 does not keep. The last axis
+/// (the real FFT's, frequencies `0..K`) is taken whole.
+///
+/// The corners reproduce 2.0.0 only where the grid's extent is even on every non-last
+/// axis: on an odd extent 2.0.0 applies `fftshift` (not `ifftshift`) again before the
+/// inverse, which moves its output spectrum by one bin.
+///
+/// # Panics
+/// If `a` has fewer than `d + 1` axes or no trailing axis of 2.
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; only the centred layer's use it"
+)]
+pub fn centred_to_corners(a: ArrayD<f64>, d: usize) -> Vec<ArrayD<f64>> {
+    assert!(
+        a.ndim() > d,
+        "centred_to_corners: {} axes for d = {d}",
+        a.ndim()
+    );
+    assert_eq!(a.shape()[a.ndim() - 1], 2, "no trailing (re, im) axis");
+    let lead = a.ndim() - 1 - d;
+    (0..1usize << (d - 1))
+        .map(|corner| {
+            let mut c = a.clone();
+            for j in 0..d - 1 {
+                let axis = Axis(lead + j);
+                let k = c.shape()[lead + j];
+                let half = k / 2;
+                c = if corner >> j & 1 == 0 {
+                    c.slice_axis(axis, Slice::from(half..k)).to_owned()
+                } else if k.is_multiple_of(2) {
+                    c.slice_axis(axis, Slice::from(0..half)).to_owned()
+                } else {
+                    let mut zero_shape = c.shape().to_vec();
+                    zero_shape[lead + j] = 1;
+                    let zero = ArrayD::zeros(zero_shape);
+                    let neg = c.slice_axis(axis, Slice::from(0..half));
+                    concatenate(axis, &[zero.view(), neg]).unwrap()
+                };
+            }
+            c
+        })
+        .collect()
+}
+
+/// A map path built at run time. Test-only: leaked, so the harness's `&'static str`
+/// entries can be built in a loop.
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; only generated maps use it"
+)]
+pub fn leak(path: String) -> &'static str {
+    path.leak()
+}
+
+/// 2.0.0's `FNO` lifting and projection (`lifting.fcs.*`, `projection.fcs.*`) to the
+/// crate's `fc0`, `lifting_out.0` (with a two-layer lifting), `fc1`, `fc2`, under the Burn
+/// path prefix `to` (library CM1.4).
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; only the FNO's binaries map it"
+)]
+pub fn lift_project(two_layer_lifting: bool, to: &str) -> Vec<MapEntry> {
+    let mut layers = vec![
+        ("lifting.fcs.0", "fc0"),
+        ("projection.fcs.0", "fc1"),
+        ("projection.fcs.1", "fc2"),
+    ];
+    if two_layer_lifting {
+        layers.push(("lifting.fcs.1", "lifting_out.0"));
+    }
+    layers
+        .into_iter()
+        .flat_map(|(from, at)| {
+            [
+                (
+                    leak(format!("{from}.weight")),
+                    leak(format!("{to}{at}.weight")),
+                    Take::Transposed,
+                ),
+                (
+                    leak(format!("{from}.bias")),
+                    leak(format!("{to}{at}.bias")),
+                    Take::Whole,
+                ),
+            ]
+        })
+        .collect()
+}
+
+/// The parts of 2.0.0's `FNOBlocks` (`fno_blocks.*`) other than the spectral convolutions,
+/// for the block options of `options`, to the crate's `FNO` under the Burn path prefix `to`:
+/// the FNO skips, channel MLPs and their skips, and the norms (library CM1.3b). Burn names
+/// an enum module's parameters after the variant (`Linear`, `SoftGating`, `Group`, `AdaIn`).
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; only the FNO's binaries map it"
+)]
+pub fn block_parts(options: &FNOConfig, to: &str) -> Vec<MapEntry> {
+    let mut m = Vec::new();
+    let skip = |m: &mut Vec<MapEntry>, from: String, to: String, kind: &Option<SkipKind>| {
+        match kind {
+            // 2.0.0's linear skip is a `Flattened1dConv`, its weight `conv.weight`.
+            Some(SkipKind::Linear) => m.push((
+                leak(format!("{from}.conv.weight")),
+                leak(format!("{to}.Linear.weight")),
+                Take::Whole,
+            )),
+            Some(SkipKind::SoftGating) => m.push((
+                leak(format!("{from}.weight")),
+                leak(format!("{to}.SoftGating")),
+                Take::Whole,
+            )),
+            Some(SkipKind::Identity) | None => {}
+        }
+    };
+    for l in 0..options.n_layers {
+        skip(
+            &mut m,
+            format!("fno_blocks.fno_skips.{l}"),
+            format!("{to}fno_skips.{l}"),
+            &options.fno_skip,
+        );
+        if let Some(mlp) = &options.channel_mlp {
+            for k in 0..2 {
+                for p in ["weight", "bias"] {
+                    let path = format!("channel_mlp.{l}.fcs.{k}.{p}");
+                    m.push((
+                        leak(format!("fno_blocks.{path}")),
+                        leak(format!("{to}{path}")),
+                        Take::Whole,
+                    ));
+                }
+            }
+            skip(
+                &mut m,
+                format!("fno_blocks.channel_mlp_skips.{l}"),
+                format!("{to}channel_mlp_skips.{l}"),
+                &mlp.skip,
+            );
+        }
+    }
+    for k in 0..2 * options.n_layers {
+        let (from, to) = (format!("fno_blocks.norm.{k}"), format!("{to}norms.{k}"));
+        match options.norm {
+            Some(NormKind::Group) => {
+                m.push((
+                    leak(format!("{from}.weight")),
+                    leak(format!("{to}.Group.gamma")),
+                    Take::Whole,
+                ));
+                m.push((
+                    leak(format!("{from}.bias")),
+                    leak(format!("{to}.Group.beta")),
+                    Take::Whole,
+                ));
+            }
+            Some(NormKind::AdaIn { .. }) => {
+                for (t, b) in [(0, "fc_hidden"), (2, "fc_out")] {
+                    let (f, t) = (format!("{from}.mlp.{t}"), format!("{to}.AdaIn.{b}"));
+                    m.push((
+                        leak(format!("{f}.weight")),
+                        leak(format!("{t}.weight")),
+                        Take::Transposed,
+                    ));
+                    m.push((
+                        leak(format!("{f}.bias")),
+                        leak(format!("{t}.bias")),
+                        Take::Whole,
+                    ));
+                }
+            }
+            Some(NormKind::Instance) | None => {}
+        }
+    }
+    m
 }

@@ -13,67 +13,22 @@ use sciml_rs::neural_operators::{
     models::fno::{Activation, FNOConfig, PositionalEmbedding},
 };
 
-use crate::parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into};
+use crate::parity_common::{
+    Fixture, Precision, check_d3, lift_project, load_into, to_channels_first, to_channels_last,
+};
 
 /// `generate.py`'s `BOUNDARIES`.
 const BOUNDARIES: [(f64, f64); 2] = [(0.0, 2.0), (-1.0, 1.0)];
 
-fn open(stem: &str, p: Precision) -> Fixture {
-    Fixture::open(&format!(
-        "{stem}_{}",
-        if p == Precision::F32 { "f32" } else { "f64" }
-    ))
-}
-
-/// Asserts D3 on `actual` against `fixture`'s output and prints the error.
-fn check<const R: usize>(actual: Tensor<R>, fixture: &mut Fixture) -> f64 {
-    let name = fixture.name.clone();
-    let err = assert_parity(actual, &fixture.output(), fixture.precision.d3(), &name);
-    println!("{name}: relative max error {err:.3e}");
-    err
-}
-
-/// `[B, C, s..]` ↔ `[B, s.., C]` (the fixtures are channels-first, the FNO channels-last).
-fn to_last<const R: usize>(x: Tensor<R>) -> Tensor<R> {
-    x.permute(core::array::from_fn(|i| match i {
-        0 => 0,
-        i if i == R - 1 => 1,
-        i => i + 1,
-    }))
-}
-fn to_first<const R: usize>(x: Tensor<R>) -> Tensor<R> {
-    x.permute(core::array::from_fn(|i| match i {
-        0 => 0,
-        1 => R - 1,
-        i => i - 1,
-    }))
-}
-
 /// An `FNO` fixture with `n_layers=0`: `config` (zero layers) loaded through 2.0.0's
 /// `lifting.fcs.*` and `projection.fcs.*`.
 fn fno<const R: usize>(stem: &str, config: FNOConfig, p: Precision, device: &Device) -> f64 {
-    let mut fixture = open(stem, p);
+    let mut fixture = Fixture::open_as(stem, p);
     let mut fno = config.with_n_layers(0).init::<R>(device);
     let two_layer_lifting = fixture.params.iter().any(|n| n == "lifting.fcs.1.weight");
-    let mut map: Vec<MapEntry> = vec![
-        ("lifting.fcs.0.weight", "fc0.weight", Take::Transposed),
-        ("lifting.fcs.0.bias", "fc0.bias", Take::Whole),
-        ("projection.fcs.0.weight", "fc1.weight", Take::Transposed),
-        ("projection.fcs.0.bias", "fc1.bias", Take::Whole),
-        ("projection.fcs.1.weight", "fc2.weight", Take::Transposed),
-        ("projection.fcs.1.bias", "fc2.bias", Take::Whole),
-    ];
-    if two_layer_lifting {
-        map.push((
-            "lifting.fcs.1.weight",
-            "lifting_out.0.weight",
-            Take::Transposed,
-        ));
-        map.push(("lifting.fcs.1.bias", "lifting_out.0.bias", Take::Whole));
-    }
-    load_into(&mut fno, &mut fixture, &map);
-    let y = fno.forward(to_last(fixture.input::<R>(device)));
-    check(to_first(y), &mut fixture)
+    load_into(&mut fno, &mut fixture, &lift_project(two_layer_lifting, ""));
+    let y = fno.forward(to_channels_last(fixture.input::<R>(device)));
+    check_d3(to_channels_first(y), &mut fixture)
 }
 
 /// 2.0.0's `FNO` defaults for this task's parts: GELU, ratios 2, the unit grid.
@@ -114,17 +69,17 @@ pub fn fno_lift_project2d_boundaries(p: Precision, device: &Device) -> f64 {
 }
 
 pub fn grid_embedding2d(p: Precision, device: &Device) -> f64 {
-    let mut fixture = open("grid_embedding2d", p);
+    let mut fixture = Fixture::open_as("grid_embedding2d", p);
     let y = GridEmbeddingNd::new(BOUNDARIES.to_vec()).forward(fixture.input::<4>(device));
-    check(y, &mut fixture)
+    check_d3(y, &mut fixture)
 }
 
 fn sinusoidal(stem: &str, kind: SinusoidalKind, p: Precision, device: &Device) -> f64 {
-    let mut fixture = open(stem, p);
+    let mut fixture = Fixture::open_as(stem, p);
     let y = SinusoidalEmbedding::new(3, 4)
         .with_kind(kind)
         .forward(fixture.input::<3>(device));
-    check(y, &mut fixture)
+    check_d3(y, &mut fixture)
 }
 
 pub fn sinusoidal_transformer(p: Precision, device: &Device) -> f64 {
@@ -140,12 +95,12 @@ pub fn sinusoidal_nerf(p: Precision, device: &Device) -> f64 {
 
 /// `generate.py`'s `Rotary2d(8)`: channels 0 and 1 the coordinates, the rest the features.
 pub fn rotary2d(p: Precision, device: &Device) -> f64 {
-    let mut fixture = open("rotary2d", p);
+    let mut fixture = Fixture::open_as("rotary2d", p);
     let x = fixture.input::<3>(device);
     let [b, n, c] = x.dims();
     let coordinate = |k| x.clone().narrow(2, k, 1).reshape([b, n]);
     let rope = RotaryEmbedding2d::new(8);
     let (fx, fy) = (rope.forward(coordinate(0)), rope.forward(coordinate(1)));
     let y = apply_2d_rotary_pos_emb(x.clone().narrow(2, 2, c - 2), fx, fy);
-    check(y, &mut fixture)
+    check_d3(y, &mut fixture)
 }
