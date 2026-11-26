@@ -200,9 +200,9 @@ pub struct FNO<const R: usize> {
     /// 2.0.0 does: only when a 2.0.0 block option (FNO skip, channel MLP, norm) is set. The
     /// original block, ReLU or GELU, applies it once.
     repeat_activation: bool,
-    /// The lifting's second layer, `L → W`, when [`FNOConfig::lifting_channel_ratio`] gives
-    /// it one (library CM1.4); empty otherwise.
-    lifting: Vec<Linear>,
+    /// The lifting's second layer, `L → W` after `fc0`'s `(C + D) → L`, when
+    /// [`FNOConfig::lifting_channel_ratio`] gives it one (library CM1.4); empty otherwise.
+    lifting_out: Vec<Linear>,
     /// [`FNOConfig::positional_embedding`]; not a parameter.
     #[module(skip)]
     positional_embedding: Option<PositionalEmbedding>,
@@ -224,19 +224,15 @@ impl FNOConfig {
             self.modes.len()
         );
 
-        let coord_channels = match &self.positional_embedding {
-            None => self.modes.len(), // D = R - 2
-            Some(PositionalEmbedding::GridNd(grid)) => {
-                assert_eq!(
-                    grid.boundaries.len(),
-                    R - 2,
-                    "the grid needs {} axes",
-                    R - 2
-                );
+        if let Some(PositionalEmbedding::GridNd(grid)) = &self.positional_embedding {
+            assert_eq!(
+                grid.boundaries.len(),
+                R - 2,
+                "the grid needs {} axes",
                 R - 2
-            }
-            Some(PositionalEmbedding::Disabled) => 0,
-        };
+            );
+        }
+        let coord_channels = coord_channels(self.positional_embedding.as_ref(), R - 2);
         let width = self.hidden_channels;
         // Python's `int(r · W)`, truncated, as 2.0.0.
         let ratio_width = |r: f64| (r * width as f64) as usize;
@@ -303,7 +299,7 @@ impl FNOConfig {
             repeat_activation: self.fno_skip.is_some()
                 || self.channel_mlp.is_some()
                 || self.norm.is_some(),
-            lifting: lifting
+            lifting_out: lifting
                 .map(|l| vec![LinearConfig::new(l, width).init(device)])
                 .unwrap_or_default(),
             positional_embedding: self.positional_embedding.clone(),
@@ -406,11 +402,8 @@ impl<const R: usize> FNO<R> {
     /// As [`FNO::forward`], and for AdaIN without an embedding.
     pub fn forward_with_embedding(&self, x: Tensor<R>, embedding: Option<Tensor<1>>) -> Tensor<R> {
         let dims = x.dims();
-        let coord_channels = match &self.positional_embedding {
-            Some(PositionalEmbedding::Disabled) => 0,
-            _ => R - 2,
-        };
-        let data_channels = self.fc0.weight.dims()[0] - coord_channels;
+        let data_channels =
+            self.fc0.weight.dims()[0] - coord_channels(self.positional_embedding.as_ref(), R - 2);
         assert_eq!(
             dims[R - 1],
             data_channels,
@@ -429,7 +422,7 @@ impl<const R: usize> FNO<R> {
         };
 
         let mut x = linear_cf(&self.fc0, to_channels_first(x));
-        for layer in &self.lifting {
+        for layer in &self.lifting_out {
             x = linear_cf(layer, self.activate(x));
         }
 
@@ -537,6 +530,15 @@ impl<const R: usize> FNO<R> {
             Some(norm) => norm.forward(x, embedding),
             None => x,
         }
+    }
+}
+
+/// The coordinate channels `embedding` appends in `d` spatial dimensions: `d`, or 0 when
+/// [`PositionalEmbedding::Disabled`].
+fn coord_channels(embedding: Option<&PositionalEmbedding>, d: usize) -> usize {
+    match embedding {
+        Some(PositionalEmbedding::Disabled) => 0,
+        None | Some(PositionalEmbedding::GridNd(_)) => d,
     }
 }
 

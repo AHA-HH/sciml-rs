@@ -125,8 +125,8 @@ impl SinusoidalEmbedding {
         2 * self.num_frequencies * self.in_channels
     }
 
-    /// `[B, N, in_channels]` → `[B, N, 2 · L · in_channels]`; channel `2(cL + k)` is
-    /// `sin(ω_k x_c)` and `2(cL + k) + 1` is `cos(ω_k x_c)`.
+    /// `[B, N, in_channels]` → `[B, N, 2 · L · in_channels]`; channel `2(c·L + k)` is
+    /// `sin(ω_k x_c)` and `2(c·L + k) + 1` is `cos(ω_k x_c)`.
     ///
     /// # Panics
     /// If the last axis is not `in_channels` wide.

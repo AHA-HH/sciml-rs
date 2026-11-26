@@ -64,8 +64,12 @@ fn fno<const R: usize>(stem: &str, config: FNOConfig, p: Precision, device: &Dev
         ("projection.fcs.1.bias", "fc2.bias", Take::Whole),
     ];
     if two_layer_lifting {
-        map.push(("lifting.fcs.1.weight", "lifting.0.weight", Take::Transposed));
-        map.push(("lifting.fcs.1.bias", "lifting.0.bias", Take::Whole));
+        map.push((
+            "lifting.fcs.1.weight",
+            "lifting_out.0.weight",
+            Take::Transposed,
+        ));
+        map.push(("lifting.fcs.1.bias", "lifting_out.0.bias", Take::Whole));
     }
     load_into(&mut fno, &mut fixture, &map);
     let y = fno.forward(to_last(fixture.input::<R>(device)));

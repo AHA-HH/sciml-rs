@@ -12,7 +12,7 @@ fn config() -> FNOConfig {
 
 /// `[in, out]` of each lifting and projection layer.
 fn widths(fno: &FNO<4>) -> Vec<[usize; 2]> {
-    let layers = [&fno.fc0].into_iter().chain(&fno.lifting);
+    let layers = [&fno.fc0].into_iter().chain(&fno.lifting_out);
     layers
         .chain([&fno.fc1, &fno.fc2])
         .map(|l| l.weight.dims())

@@ -115,6 +115,13 @@ None.
 
 None.
 
+## Departures from the plan
+
+- Each embedding has no parameters, so each is its own `Config` (`GridEmbeddingNd`,
+  `SinusoidalEmbedding`, `RotaryEmbedding2d`) instead of a `…Config` and a module.
+- The lifting's second layer is the FNO field `lifting_out` (code-quality review F3).
+
 ## Open questions
 
-None yet.
+1. CONVENTIONS §2: a sentence naming the opt-in `PositionalEmbedding::GridNd` (no version
+   bump: the convention itself is unchanged)? For sign-off.
