@@ -154,8 +154,10 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   parity in `tests/parity_block_parts*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
   `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
-  `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; parity in
-  `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
+  `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; since CM2.5
+  `equation_losses`: `BurgersEqnLoss`, `ic_loss`, the nonlinear Poisson losses, on a
+  `GridDiff` (`FiniteDiff`, or `MatrixDiff`, a matrix per axis, `chebyshev` behind
+  `datagen`); parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
