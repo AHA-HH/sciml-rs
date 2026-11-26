@@ -205,3 +205,29 @@ template:
   nothing set, two epochs each, equal `metrics.csv` rows (flex).
 - Follow-ups: CO1.2 (the `SEED` and `TIME_BUDGET_S` variables and the shared example
   helpers, added to its line); CO1.5 (split `trainer.rs`'s tests).
+
+## 2026-11-26: CO1.2 Gauss–Newton on Burgers and Darcy
+- Done: `train_burgers` and `train_darcy` take `OPTIMIZER=adam|adamw|gauss-newton`, the
+  `GN_*` variables with D12's literals (full batch, CG cap 100, the Hutchinson diagonal, 10
+  probes, μ = 1e-4 for G1, `GN_WEIGHT_DECAY=0` for G0, `GN_BATCH_SIZE=200` for G0-200),
+  `WEIGHT_DECAY`, `SEED`, `EPOCHS` (AdamW halving every `EPOCHS / 5`; the author,
+  2026-11-26) and `TIME_BUDGET_S`; checkpoints every 25 epochs and `--resume`; `costs.json`
+  with steps and passes (new for Darcy), `gn_steps.csv`. `examples/train/common.rs`, shared
+  by the three examples (CO1.1's F5): `training_config`, `session`, `run_costs`;
+  `train_poisson`'s copies replaced. `train_darcy` also gains `adamw`, which CO1.4 needs.
+- Tests: `FnoResidual` on a rank-3 batch (½‖r‖² = (1/2B) Σ eᵢ², relative 1e-5).
+- Checks: fmt, the three clippy runs, datagen clippy, `cargo test`, `cargo doc` pass, after
+  the merge of `origin/main` too. Smoke (flex): Burgers G0 and G1, `RECIPE=petscml`, full
+  batch, `TIME_BUDGET_S=1`: one step each, accepted (ρ 0.99), adjoint error 8e-7,
+  `costs.json` 1 step, 31 forward, 17 backward passes. Pending in the PR: Darcy G0 (batch 100,
+  CG cap 10; full batch does not fit flex on 16 GB) and the Burgers G0 resume.
+- Decisions: `EPOCHS` added (the author, 2026-11-26).
+- Review: plan review PASS (advisories: plan text amended, probe count fixed, CO1.3/CO1.4
+  notes added to their lines, weights compared in constraint 1); code quality APPROVE with
+  findings (F2, F3, F5, the minor ones and part of F1 fixed; F1's rest and F4 in the PR).
+- Adam and Gauss–Newton: unchanged bit for bit: `train_burgers`, `train_darcy`,
+  `train_poisson` (Adam) and `train_poisson OPTIMIZER=gauss-newton` (N = 20), two epochs on
+  flex at `6ea636b` and `a87bf41`: `metrics.csv`, `gn_steps.csv`, configs and `costs.json`
+  counts equal; `model_weights.bpk` equal but for Burn's random `param_id`s in its header.
+- Follow-ups: CO1.3 (long-budget `EPOCHS`, G0-200's `EPOCHS` cap, grouping by config) and
+  CO1.4 (full-batch Darcy on one A100), in their roadmap lines.

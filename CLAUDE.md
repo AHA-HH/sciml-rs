@@ -292,7 +292,11 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   GPU feature. `tests/flex_f64/` is the one Flex-in-f64 device helper, included by the f64 test
   binaries (`gauss_newton_f64`, `parity_*_f64`).
 - Examples are registered in `Cargo.toml`; hyperparameters are literals at the top of
-  each file. Training writes `runs/<name>_<unix_secs>/`.
+  each file. Training writes `runs/<name>_<unix_secs>/`. `examples/train/common.rs`
+  (optimisers CO1.2) is no example but `mod common;` of `train_burgers`, `train_darcy` and
+  `train_poisson`: `training_config` (`OPTIMIZER`, `WEIGHT_DECAY`, `TIME_BUDGET_S`, the
+  `GN_*` variables over each example's `Literals`), `session` (new run or `--resume`),
+  `run_costs`; every item must be used by all three (no `dead_code` allows).
 - `datasets/` (.mat files and `datasets/poisson/`, see `datasets/README.md`) and `runs/` are
   git-ignored.
 - `Cargo.lock` is committed: CI builds from it, so a yanked dependency (e.g. `zip 6.0.0`)
@@ -385,8 +389,12 @@ than trusting prose when checking how an API behaves.
 - Train: `cargo run --release --example train_burgers [--features metal]`
   (also `train_darcy`). `train_burgers` (optimisers CO1.1): `RECIPE=petscml` is PETScML's
   Burgers setting (n_train 1,000, s = 128, GELU, the squared loss), `OPTIMIZER=adamw`
-  AdamW with the lr halved every 100 epochs, `WEIGHT_DECAY` and `SUBSAMPLE` override; it
-  writes `costs.json`
+  AdamW with the lr halved every `EPOCHS / 5` epochs (100 at 500), `WEIGHT_DECAY` and
+  `SUBSAMPLE` override; it writes `costs.json`. Since CO1.2 `train_burgers` and `train_darcy`
+  take `OPTIMIZER=adam|adamw|gauss-newton` (Gauss–Newton at O1's D12: full batch, CG cap 100,
+  Hutchinson, μ 1e-4; `GN_WEIGHT_DECAY=0` is G0, `GN_BATCH_SIZE=200` G0-200), the `GN_*`
+  variables, `SEED`, `EPOCHS`, `TIME_BUDGET_S` (Gauss–Newton only), checkpoints every 25
+  epochs and `-- --resume runs/<run_dir>`, as `train_poisson`
 - `train_burgers_learner` is a showcase of Burn's `Learner` and needs a real terminal for its
   TUI: `train_epoch` is the canonical loop; this is the Burgers-only (`FNO<3>`) Learner
   equivalent. It writes `runs/burgers_fno_learner_<unix_secs>/` (configs and weights, no
