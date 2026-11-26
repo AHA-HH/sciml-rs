@@ -22,7 +22,7 @@ the library's CM0.6 may take `training/` once CO1.1 is merged. CO1.2 done 2026-1
 O1 cell runs from `train_burgers` and `train_darcy` (`EPOCHS` added, the author's choice of
 2026-11-26); next CO1.3 on the VM, and `training/` free for CO2.1, CO1.5, CM0.6, CO3.3.
 CO0.1: stages 1 and 2 done 2026-11-26 (B = 2,952 s, E = 915;
-`docs/optimisers/results/CO0.1.md`), D1 proposed to the author; stage 3 after it.
+`docs/optimisers/results/CO0.1.md`); D1 signed off (cap 150); stage 3 on the VM.
 
 ## How to read this file
 
@@ -53,7 +53,7 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | ID | Decision | Proposal's recommendation | Prepared by | Needed by | Status |
 | --- | --- | --- | --- | --- | --- |
 | D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | signed off 2026-11-24: draft 0.2, with the corrections of #128, as the plan of record |
-| D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; CG cap 50 or 150 from CO0.1 | CO0.1 | CO4.1 | open |
+| D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; CG cap 50 or 150 from CO0.1 | CO0.1 | CO4.1 | signed off 2026-11-26: cap 150 (CO0.1's proposal; given with stage 3's go, through the coordinating session) |
 | D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both); amended 2026-11-25 by the author: seeds 42–44 at 5,400 s, 42–46 at equal time; 2026-11-25, after Adam measured about 3.6× slower on Burn 0.23 (CO0.1): keep 5,400 s |
 | D3 | L-BFGS's objective and weight decay | Φ at μ = 0 | – | CO2.1 | signed off 2026-11-25: Φ, Gauss–Newton's objective, at μ ∈ {0, 1e-4} (widened by D13; ½μ‖θ‖² in the closure) |
 | D4 | L-BFGS's batch | one batch of 1,000; accumulation if memory requires | – | CO2.1 | signed off 2026-11-25: as recommended |

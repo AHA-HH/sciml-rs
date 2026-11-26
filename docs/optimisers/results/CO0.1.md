@@ -8,8 +8,8 @@ error on the learning grid, error 4 the fine-grid error on the CGL grid; the gap
 test L² minus final train L². Run directories: `runs/co0-1/` (git-ignored), mapped to run
 specs by its `progress.txt`.
 
-**Status:** stages 1 and 2 done 2026-11-26; D1 proposed to the author (cap 150, below);
-stage 3 after D1.
+**Status:** stages 1 and 2 done 2026-11-26; D1 signed off (cap 150, below); stage 3
+running since 2026-11-26 23:02 UTC.
 
 ## Stage 1: Adam, 500 epochs, seeds 42–46
 
@@ -188,8 +188,8 @@ budget. Cap 150 wins both:
 It also has fewer wild steps (19 and 0, against 43 and 108) and the lower peak memory
 (4.3–4.4 GiB against 4.7–5.0). Phase 10 found the same at μ = 0 (3.03e-3 against
 5.58e-3 at 5,400 s). The caveat: at equal time the margin is small, and cap 150 trained
-5.8 % over B against cap 50's 1.6 %. The long budget is the clear separation. The author
-decides.
+5.8 % over B against cap 50's 1.6 %. The long budget is the clear separation. **Signed
+off 2026-11-26: cap 150**, given with stage 3's go through the coordinating session.
 
 ## Provenance
 
