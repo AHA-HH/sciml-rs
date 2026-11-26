@@ -7,7 +7,7 @@
 //! error 3 cross-check compares two backends' round-off).
 //!
 //! `predict_poisson` for 3D: loads the model (`FNO<5>`), both normalizers and the dataset
-//! config from the run directory, whose n picks the 3D set (`catalogue::GENERATED_3D`);
+//! config from the run directory, whose n picks the 3D set (`catalogue::set_3d`);
 //! the test inputs come from `load_poisson3d_uniform_test`, encoded with the run's x
 //! normalizer, the raw CGL solutions from `load_poisson3d_cheb_field`; predictions are
 //! decoded with the y normalizer and copied to the host as f64. `poisson_errors_nd` gives
@@ -25,7 +25,7 @@ use ndarray::Axis;
 use sciml_rs::neural_operators::{
     chebyshev::Transfers,
     data::{
-        catalogue::GENERATED_3D,
+        catalogue::set_3d,
         loaders::poisson::{
             PoissonConfig, PoissonField, SidecarRecord, load_poisson3d_cheb_field,
             load_poisson3d_uniform_test,
@@ -57,10 +57,7 @@ fn main() {
         .data_config::<PoissonConfig>()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let n = dataset_cfg.n;
-    let set = GENERATED_3D
-        .into_iter()
-        .find(|set| set.n == n)
-        .unwrap_or_else(|| panic!("no 3D Poisson set with n = {n}"));
+    let set = set_3d(n).unwrap_or_else(|e| panic!("{e}"));
     let n_test = dataset_cfg.base.n_test;
 
     let normalizers = run
@@ -89,7 +86,7 @@ fn main() {
     assert_eq!(pred.len_of(Axis(0)), n_test);
 
     let transfers = Transfers::with_s(n, dataset_cfg.s());
-    let errors = poisson_errors_nd(pred.view(), u.view(), &transfers);
+    let errors = poisson_errors_nd(pred.view(), u.view().into_dyn(), &transfers);
     let sidecar =
         SidecarRecord::load(datasets.join(set.json("test"))).expect("load the test sidecar");
     let metrics = run.metrics().expect("read metrics.csv");

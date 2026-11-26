@@ -6,7 +6,7 @@
 use super::{AXES_2D, AXES_3D, PoissonField, check_nodes, read_samples};
 use crate::neural_operators::chebyshev::nodes;
 use crate::neural_operators::data::io::{errors::LoadError, readers::npz::NpzFileReader};
-use ndarray::{Array3, ArrayD, Axis, Ix3, Slice};
+use ndarray::{Array3, Array4, ArrayD, Axis, Ix3, Ix4, Slice};
 use std::path::Path;
 
 /// Reads the first `count` samples of the raw field `field` of one split on the n × n CGL
@@ -47,8 +47,10 @@ pub fn load_poisson3d_cheb_field(
     field: PoissonField,
     n: usize,
     count: usize,
-) -> Result<ArrayD<f64>, LoadError> {
-    read_cheb_field(path.as_ref(), field, n, count, &AXES_3D)
+) -> Result<Array4<f64>, LoadError> {
+    Ok(read_cheb_field(path.as_ref(), field, n, count, &AXES_3D)?
+        .into_dimensionality::<Ix4>()
+        .expect("checked rank"))
 }
 
 /// The reader behind both: `field` validated with the node fields `axes`, its first
@@ -169,7 +171,7 @@ mod tests {
         let u = load_poisson3d_cheb_field(&test_path, PoissonField::U, N, 1).unwrap();
         let x = nodes(N);
         let written = poly_field3(N_TEST, 0.5, &x) * -2.0;
-        assert_eq!(u, written.slice_axis(Axis(0), (..1).into()));
+        assert_eq!(u.into_dyn(), written.slice_axis(Axis(0), (..1).into()));
         let err = load_poisson3d_cheb_field(&test_path, PoissonField::U, N, N_TEST + 1)
             .expect_err("too few samples");
         assert!(matches!(err, LoadError::Invalid(_)), "{err:?}");

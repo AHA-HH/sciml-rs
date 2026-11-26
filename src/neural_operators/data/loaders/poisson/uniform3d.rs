@@ -222,7 +222,7 @@ mod tests {
                     let (_, test, _) =
                         load_poisson3d_uniform::<f64>(&path, &path, &config(s)).unwrap();
                     let u = load_poisson3d_cheb_field(&path, PoissonField::U, 65, n_test).unwrap();
-                    (test.targets().clone(), u)
+                    (test.targets().clone(), u.into_dyn())
                 };
                 let load_s = start.elapsed().as_secs_f64();
                 let errors = poisson_errors_nd(targets.view(), u.view(), &Transfers::with_s(65, s));
