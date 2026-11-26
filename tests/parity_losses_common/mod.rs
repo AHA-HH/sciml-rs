@@ -2,22 +2,24 @@
 //! `mse_loss` and `LpLoss::rel` against `neuraloperator` 2.0.0's, on the fixtures
 //! `tests/fixtures/parity/losses{1,2,3}d_{f32,f64}`; CM1.6b: the aggregators on
 //! `meta_losses_{f32,f64}`; CM2.5: the equation losses on `equation_losses_{f32,f64}` (all
-//! written by `tools/parity/generate_losses.py`).
+//! written by `tools/parity/generate_losses.py`); CM1.6c: `FourierDiff` and `non_uniform_fd`
+//! on `derivatives_{f32,f64}`.
 //! Used by `tests/parity_losses.rs` (f32) and `tests/parity_losses_f64.rs`.
 
 use burn::{prelude::*, tensor::TensorData};
 use sciml_rs::neural_operators::losses::{
     data_losses::{LpLoss, Reduction},
-    differentiation::FiniteDiff,
+    differentiation::{FiniteDiff, FourierDiff, GridDiff},
     equation_losses::{
         BurgersEqnLoss, PoissonEqnLoss, ic_loss, poisson_boundary_loss, poisson_interior_loss,
     },
     meta_losses::{Field, FieldwiseAggregatorLoss, LossFn, Relobralo, SoftAdapt, WeightedSumLoss},
+    non_uniform_fd::NonUniformFd,
     pointwise::{PointwiseQuantileLoss, mse_loss},
     sobolev::SobolevLoss,
 };
 
-use crate::parity_common::{Fixture, assert_parity};
+use crate::parity_common::{Fixture, Precision, assert_parity};
 
 /// The fixtures' finite-difference steps, domain measures and quantile level
 /// (`generate_losses.py`).
@@ -27,6 +29,14 @@ const ALPHA: f64 = 0.1;
 /// The bound on `lp.rel`: 2.0.0's eps of 1e-8 against norms ‖y‖ ≳ 1 (measured: 1.9e-9 at
 /// most, in f64).
 const LP_EPS_GAP: f64 = 1e-8;
+
+/// `FourierDiff`'s domain lengths and derivative orders in `derivatives_*`.
+const FOURIER_L: [f64; 3] = [2.0, 3.0, 1.5];
+const FOURIER_ORDERS: [usize; 3] = [1, 2, 3];
+
+/// The bound on 2.0.0's regularised `non_uniform_fd` in f64: its condition ≈ 5e6 times ε
+/// (measured: 6.4e-11).
+const RIDGE_BOUND_F64: f64 = 1e-9;
 
 /// The Poisson point cloud's boundary points, first in the list (`generate_losses.py`).
 const POISSON_BOUNDARY: usize = 6;
@@ -272,4 +282,106 @@ pub fn run_equation(name: &str, device: &Device) {
     c.check(out, "poisson.eqn");
 
     println!("{name}: worst relative max error {:.3e}", c.worst);
+}
+
+/// The `FourierDiff` comparisons of `derivatives_<precision>` (CM1.6c) in `D` dimensions, on
+/// `device`. `R` = D + 2 (u, v), `G` = R + 1 (gradient), `V` = R − 1 (divergence; curl in 2D).
+pub fn run_fourier<const D: usize, const R: usize, const G: usize, const V: usize>(
+    name: &str,
+    device: &Device,
+) {
+    let mut fx = Fixture::open(name);
+    let u: Tensor<R> = fx.tensor(&format!("u{D}"), device);
+    let v: Tensor<R> = fx.tensor(&format!("v{D}"), device);
+    let mut c = Checks { fx, worst: 0.0 };
+    let fd = FourierDiff::<D> {
+        l: std::array::from_fn(|a| FOURIER_L[a]),
+    };
+    let key = |what: &str| format!("fourier{D}.{what}");
+    for (a, axis) in ["x", "y", "z"].into_iter().take(D).enumerate() {
+        for order in FOURIER_ORDERS {
+            c.check(
+                fd.partial(u.clone(), a, order),
+                &key(&format!("d{axis}{order}")),
+            );
+        }
+    }
+    c.check(fd.laplacian(u.clone()), &key("laplacian"));
+    let grad: Tensor<G> = fd.gradient(u.clone());
+    // 2.0.0's 1D gradient has a component axis of 1 here (`unsqueeze(-2)`), as ours.
+    c.check(grad, &key("gradient"));
+    c.check(fd.divergence::<R, V>(v.clone()), &key("divergence"));
+    if D == 2 {
+        c.check(fd.curl_2d::<R, V>(v), &key("curl"));
+    } else if D == 3 {
+        c.check(fd.curl_3d(v), &key("curl"));
+    }
+    println!(
+        "{name} fourier{D}: worst relative max error {:.3e}",
+        c.worst
+    );
+}
+
+/// The `non_uniform_fd` comparisons of `derivatives_<precision>` (CM1.6c), on `device`: the
+/// weights in f64 on the host, the derivatives on `device`.
+pub fn run_non_uniform(name: &str, device: &Device) {
+    let mut fx = Fixture::open(name);
+    let base = |derivative_indices: Vec<usize>| NonUniformFd {
+        derivative_indices,
+        ..NonUniformFd::default()
+    };
+    let cases = [
+        ("nu2", base(vec![0, 1])),
+        (
+            "nu2_radius",
+            NonUniformFd {
+                radius: Some(0.2),
+                ..base(vec![0, 1])
+            },
+        ),
+        (
+            "nu2_reg",
+            NonUniformFd {
+                regularize: true,
+                ..base(vec![0, 1])
+            },
+        ),
+        (
+            "nu3",
+            NonUniformFd {
+                num_neighbors: 7,
+                ..base(vec![0, 2])
+            },
+        ),
+    ];
+    let mut inputs = vec![];
+    for (case, _) in &cases {
+        let points = fx.array(&format!("{case}.points"));
+        let values: Tensor<1> = fx.tensor(&format!("{case}.values"), device);
+        inputs.push((points.into_dimensionality().unwrap(), values));
+    }
+    let mut c = Checks { fx, worst: 0.0 };
+    for ((case, op), (points, values)) in cases.iter().zip(inputs) {
+        let key = format!("{case}.d");
+        let out = op.derivatives(&points, values);
+        if !op.regularize {
+            c.check(out, &key);
+            continue;
+        }
+        // 2.0.0's ridge system has condition ≈ ‖AᵀA‖ / 1e-6 ≈ 5e6: its own f32 result is 3.9e-2
+        // from its f64 one on the same inputs (the f32 points cast). So f32 is checked against
+        // the f64 reference within D3, and f64 within cond · ε ≈ 1e-9.
+        let err = match c.fx.precision {
+            Precision::F32 => {
+                let mut f64_fx = Fixture::open(&name.replace("f32", "f64"));
+                assert_parity(out, &f64_fx.array(&key), Precision::F32.d3(), &key)
+            }
+            Precision::F64 => assert_parity(out, &c.fx.array(&key), RIDGE_BOUND_F64, &key),
+        };
+        println!("{name} {key} (ridge): relative max error {err:.3e}");
+    }
+    println!(
+        "{name} non_uniform_fd: worst relative max error {:.3e}",
+        c.worst
+    );
 }
