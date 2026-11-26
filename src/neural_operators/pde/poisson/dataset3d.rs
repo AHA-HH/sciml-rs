@@ -221,7 +221,11 @@ mod tests {
     use crate::CONVENTION_VERSION;
     use crate::neural_operators::chebyshev::TRANSFER_DEGREE;
     use crate::neural_operators::data::io::readers::npz::NpzFileReader;
-    use crate::neural_operators::data::loaders::poisson::SidecarRecord;
+    use crate::neural_operators::data::loaders::base_dataset::DatasetConfig;
+    use crate::neural_operators::data::loaders::poisson::{
+        PoissonConfig, PoissonField, SidecarRecord, load_poisson3d_cheb_field,
+        load_poisson3d_uniform,
+    };
     use crate::neural_operators::pde::poisson::grf::{K_MAX, TAU, k_default};
     use ndarray::{Array3, s};
 
@@ -370,10 +374,6 @@ mod tests {
 
     #[test]
     fn split_3d_loads_back() {
-        use crate::neural_operators::data::loaders::base_dataset::DatasetConfig;
-        use crate::neural_operators::data::loaders::poisson::{
-            PoissonConfig, PoissonField, load_poisson3d_cheb_field, load_poisson3d_uniform,
-        };
         let dir = std::env::temp_dir().join(format!(
             "sciml_rs_split_3d_loads_back_{}",
             std::process::id()

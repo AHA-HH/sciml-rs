@@ -72,7 +72,7 @@ Proposed matrix (seeds as in Phase 5, §9):
 | --- | --- | --- | --- |
 | 32 | 42, 43, 44 | ~1.6 | ~4.8 |
 | 64 | 42, 43, 44 (45, 46 only if the spread asks, as Phase 5's D4) | ~8.9 | ~26.7 |
-| | | total | ~31.5 GPU-h; ~16 h wall on 2 GPUs |
+| | | total | ~31.5 GPU-h; ~19.4 h wall on 2 GPUs (longest queue) |
 
 Plus `predict_poisson3d` per run (minutes) and the parity tests (minutes).
 
@@ -83,33 +83,34 @@ cd ~/sciml-rs && git fetch origin
 git worktree add --detach ~/sciml-rs-wt/cl4-2 origin/laplace3d/cl4-2
 cd ~/sciml-rs-wt/cl4-2
 find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
+ls -l datasets/poisson/poisson3d_n65_K32_{train,test}.{npz,json}   # all four must exist
 source ~/sciml-gpu.sh
 export CARGO_TARGET_DIR=~/sciml-rs-target/cl4-2   # one build directory per task
 F="--release --no-default-features --features cuda"
 
-# 1. CL0.2's cases on cuda, before any 3D cuda run (must pass; stop if not)
-cargo test $F --test gpu_parity 2>&1 | tee ~/sciml-rs/logs/cl4-2-parity.log
+# 1. CL0.2's cases on cuda, before any 3D cuda run; stop here unless it prints PARITY OK
+set -o pipefail
+cargo test $F --test gpu_parity 2>&1 | tee ~/sciml-rs/logs/cl4-2-parity.log && echo PARITY OK
 
-# 2. Build once, then two queues, one per GPU. Distinct seeds within each GPU's queue
-#    and a 120 s stagger between GPUs (RunDir collision, until optimisers CO0.4).
+# 2. Build once, then one queue per GPU (balanced: ~12.1 h and ~19.4 h).
 cargo build $F --example train_poisson3d --example predict_poisson3d
 T=$CARGO_TARGET_DIR/release/examples
-tmux new -d -s cl4-2-g0 "export CUDA_VISIBLE_DEVICES=0; for a in '32 42' '32 43' '64 42' '64 44'; do set -- \$a; $T/train_poisson3d 0 65 \$1 \$2; done 2>&1 | tee ~/sciml-rs/logs/cl4-2-g0.log"
+tmux new -d -s cl4-2-g0 "source ~/sciml-gpu.sh; export CUDA_VISIBLE_DEVICES=0; for a in '32 42' '32 43' '64 42'; do set -- \$a; $T/train_poisson3d 0 65 \$1 \$2; done 2>&1 | tee ~/sciml-rs/logs/cl4-2-g0.log"
 sleep 120
-tmux new -d -s cl4-2-g1 "export CUDA_VISIBLE_DEVICES=1; for a in '32 44' '64 43'; do set -- \$a; $T/train_poisson3d 0 65 \$1 \$2; done 2>&1 | tee ~/sciml-rs/logs/cl4-2-g1.log"
+tmux new -d -s cl4-2-g1 "source ~/sciml-gpu.sh; export CUDA_VISIBLE_DEVICES=1; for a in '32 44' '64 43' '64 44'; do set -- \$a; $T/train_poisson3d 0 65 \$1 \$2; done 2>&1 | tee ~/sciml-rs/logs/cl4-2-g1.log"
 
-# 3. Check that every "run written to" line is unique:
+# 3. After both queues: every run directory distinct, then evaluate each
+#    (from the worktree, so cubek.toml applies)
 grep -h "run written to" ~/sciml-rs/logs/cl4-2-g*.log | sort | uniq -d   # must print nothing
-
-# 4. After both queues: evaluate each run (from the worktree, so cubek.toml applies)
 for d in runs/poisson3d_*; do $T/predict_poisson3d $d; done 2>&1 | tee ~/sciml-rs/logs/cl4-2-predict.log
 ```
 
-Queues: GPU 0 ~1.6 + 1.6 + 8.9 + 8.9 ≈ 21 h; GPU 1 ~1.6 + 8.9 ≈ 10.5 h. Balanced alternative
-(GPU 1 takes seed 44 at s = 64 too): GPU 0 `'32 42' '32 43' '64 42'` ≈ 12.1 h, GPU 1
-`'32 44' '64 43' '64 44'` ≈ 19.4 h; the plan uses this balanced one if the author agrees.
-The binaries are run directly so the checkout's `cubek.toml` (TF32 off) is found from the
-worktree's working directory.
+Run names already differ by s and seed (`poisson3d_fno_n65_s{s}_p0[_seed{seed}]`), so no
+two runs of this matrix can share a directory; the stagger and the uniqueness check are a
+guard against the RunDir collision of optimisers CO0.1 (until CO0.4), not a need of this
+matrix. The binaries run from the worktree, so its `cubek.toml` (TF32 off) is found and
+`runs/` and `datasets/` resolve inside it (`CARGO_MANIFEST_DIR`). An interrupted run:
+`$T/train_poisson3d --resume runs/<dir>`.
 
 What it decides: the L4 gate's baseline (errors 2–5 over seeds) and whether s = 64 needs
 seeds 45, 46.
@@ -126,7 +127,7 @@ seeds 45, 46.
 The whole VM matrix above, waiting for the author's go and a free VM.
 
 ## Open questions
-1. The run matrix: s = 32 and 64, seeds 42–44 each, p = 0, ~31.5 GPU-h (~16 h wall,
+1. The run matrix: s = 32 and 64, seeds 42–44 each, p = 0, ~31.5 GPU-h (~19.4 h wall,
    balanced queues)? Or a smaller first pass (s = 32 only, ~4.8 GPU-h)?
 2. Padding p = 0 (Phase 5's main arm, CL0.1's timings) rather than `train_poisson3d`'s
    default p = 4 (+42 % cells at s = 32, +20 % at s = 64)?

@@ -21,7 +21,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use burn::{config::Config, tensor::Device};
-use ndarray::Axis;
+use ndarray::{Axis, Ix4};
 use sciml_rs::neural_operators::{
     chebyshev::Transfers,
     data::{
@@ -82,11 +82,15 @@ fn main() {
     let inference_time_s = start.elapsed().as_secs_f64();
     println!("inference on {n_test} test samples (warm): {inference_time_s:.3} s");
     // Decode to physical scale in f64; the test targets were never encoded
-    let pred = normalizers.y.decode(pred.into_dyn());
+    let pred = normalizers
+        .y
+        .decode(pred.into_dyn())
+        .into_dimensionality::<Ix4>()
+        .expect("predictions are [N, s, s, s]");
     assert_eq!(pred.len_of(Axis(0)), n_test);
 
     let transfers = Transfers::with_s(n, dataset_cfg.s());
-    let errors = poisson_errors_nd(pred.view(), u.view().into_dyn(), &transfers);
+    let errors = poisson_errors_nd(pred.view(), u.view(), &transfers);
     let sidecar =
         SidecarRecord::load(datasets.join(set.json("test"))).expect("load the test sidecar");
     let metrics = run.metrics().expect("read metrics.csv");

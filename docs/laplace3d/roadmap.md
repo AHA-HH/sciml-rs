@@ -16,7 +16,7 @@ written 2026-11-25; n = 65 generated on the Mac and uploaded to the VM), CL3.3 (
 loader, 2026-11-26; the N-D helpers in `chebyshev/tensor.rs`), CL3.4 (one sidecar writer
 for 2D and 3D, 2026-11-26), CL4.1 (`train_poisson3d`, `predict_poisson3d`, `evaluate_3d`,
 one per-sample error loop; a two-epoch n = 33 run on the Mac evaluated, 2026-11-26). D8
-signed off at the L0 gate. Next: CL4.2 (the VM); then CL3.5 and CL3.6 (L3 gate Q1).
+signed off at the L0 gate. Next: CL4.2 (first commit done 2026-11-26, PR draft; the VM runs wait for the author's go); then CL3.5 and CL3.6 (L3 gate Q1).
 
 ## How to read this file
 
