@@ -161,14 +161,21 @@ whether Burn 0.23 reproduces Phase 10's arms.
 - One seed decides the cap (D1), as the roadmap plans; the decision is the author's.
 
 ## Pending runs
-Stage 1 started 2026-11-25 at the author's go (commit `29a21e2`): `adam:42` done alone on
-GPU 0; `adam:43` never ran (the script's copy race, fixed in `co0_1_runs.sh` since:
-two instances started together, and the second `cp` over the binary the first was
-running failed with "Text file busy"); `adam:44` ran alone on GPU 1, so the side-by-side
-check is still to make. Next: `adam:43` again, beside another run for the check, then
-45 and 46. Stages 2 and 3 wait for the open question below.
+- **Stage 1 done 2026-11-26** (seeds 42 and 44 at `29a21e2`, 43, 45, 46 at `911a64e`;
+  the copy race of 2026-11-25 fixed in `9609232`): `docs/optimisers/results/CO0.1.md`.
+  B = 2,952 s (wall-clock mean; `costs.json` gives 2,949.1 s), E = 915.
+- **Stage 2 running** since 2026-11-26 11:29:56 UTC on the VM (tmux `co01-s2`, driver
+  `~/sciml-rs/logs/co01-s2.sh`, commit `911a64e`, started by the coordinating session at
+  the author's go): `gn:42:50:2952` then `gn:42:150:2952` alone on GPU 0; then
+  `gn:42:50:5400` and `adam:42:915` on GPU 0 beside `gn:42:150:5400` and `adam:43:915` on
+  GPU 1. About 4.5 h. Decides D1 (proposed from seed 42), and Adam's long budget on 42–43.
+- **Stage 3** after D1.
 
 ## Open questions
+2. **Answered 2026-11-26 by the author: pairing accepted.** Stage 1's paired runs were
+   2.9–3.1 % faster than seed 42 alone (seed 43 outside the 3 % band by 0.14 %, on the
+   fast side), and the lone runs spread over 10 %; the rule is there to catch a slowdown,
+   and there is none.
 1. **Answered 2026-11-25 by the author: keep 5,400 s** (D2 amended; option A below), and
    the Adam step profile added to the roadmap as CO0.3. **Adam is about 3.6× slower on Burn 0.23.** Seed 42: 3,067 s for 500 epochs (6.1 s
    per epoch at the end, peak 3,048 MiB), against 859.4 s on the fork (Phase 10, same

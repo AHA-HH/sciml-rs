@@ -93,3 +93,20 @@ template:
   example's configs are its only input to training).
 - Follow-ups: `poisson_matrix --by-optimizer` labels arms by batch and preconditioner only
   (cap and budget merge); CO4.1's extension of the tool covers it.
+
+## 2026-11-26: CO0.1 stage 1 (Adam at equal time)
+- Done: Adam on seeds 42–46, 500 epochs, on the VM; `docs/optimisers/results/CO0.1.md`.
+  Error 4 1.029e-2 [9.637e-3–1.105e-2] (seeds 42–44: 1.055e-2 against the fork's 1.061e-2);
+  training 2,949 s against the fork's 859 s, 3.4× slower, which a bisect puts on the move
+  to Burn 0.23 (#119). B = 2,952 s, E = 915. Seed 46 data-parallel on both GPUs: 2.09× the
+  one-GPU time.
+- Tests: none new.
+- Checks: ran `poisson_matrix --by-optimizer` on the five runs (the table); pending stages
+  2 and 3.
+- Decisions: D2 amended 2026-11-25 by the author (keep 5,400 s); pairing accepted
+  2026-11-26 by the author; D1 after stage 2.
+- Review: –
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO0.3 (the Adam step profile); `git_commit()` reads HEAD at the end of a run,
+  so a checkout moved mid-run records the wrong commit (seeds 42 and 44): a question for the
+  PR.
