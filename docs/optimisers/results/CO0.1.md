@@ -8,9 +8,10 @@ error on the learning grid, error 4 the fine-grid error on the CGL grid; the gap
 test L² minus final train L². Run directories: `runs/co0-1/` (git-ignored), mapped to run
 specs by its `progress.txt`.
 
-**Status:** stage 1 (Adam at equal time) done 2026-11-26; stage 2 (GN200-D at μ = 0,
-seed 42, caps 50 and 150; Adam at the long budget, seeds 42 and 43) running; stage 3 after
-D1.
+**Status:** stage 1 (Adam at equal time) done 2026-11-26. Stage 2 (GN200-D at μ = 0,
+seed 42, caps 50 and 150; Adam at the long budget, seeds 42 and 43): the equal-time GN runs
+done, the long Adam runs running, the two long GN runs void (they shared a run directory,
+plan "Pending runs") and to be rerun. Stage 3 after D1.
 
 ## Stage 1: Adam, 500 epochs, seeds 42–46
 

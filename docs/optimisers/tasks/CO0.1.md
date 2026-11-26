@@ -164,14 +164,39 @@ whether Burn 0.23 reproduces Phase 10's arms.
 - **Stage 1 done 2026-11-26** (seeds 42 and 44 at `29a21e2`, 43, 45, 46 at `911a64e`;
   the copy race of 2026-11-25 fixed in `9609232`): `docs/optimisers/results/CO0.1.md`.
   B = 2,952 s (wall-clock mean; `costs.json` gives 2,949.1 s), E = 915.
-- **Stage 2 running** since 2026-11-26 11:29:56 UTC on the VM (tmux `co01-s2`, driver
+- **Stage 2** since 2026-11-26 11:29:56 UTC on the VM (tmux `co01-s2`, driver
   `~/sciml-rs/logs/co01-s2.sh`, commit `911a64e`, started by the coordinating session at
-  the author's go): `gn:42:50:2952` then `gn:42:150:2952` alone on GPU 0; then
+  the author's go): `gn:42:50:2952` then `gn:42:150:2952` alone on GPU 0 (done:
+  `_gn_1795692596`, 3,002 s, 220 steps; `_gn_1795695598`, 3,126 s, 115 steps); then
   `gn:42:50:5400` and `adam:42:915` on GPU 0 beside `gn:42:150:5400` and `adam:43:915` on
-  GPU 1. About 4.5 h. Decides D1 (proposed from seed 42), and Adam's long budget on 42–43.
+  GPU 1. **The two long GN runs are void:** both started at 13:12:05, both are named
+  `poisson_fno_n129_s64_p0_gn_<unix_secs>` (seed 42 is the default, so no seed tag), and
+  `RunDir::create` reuses an existing directory, so both wrote into `_gn_1795698725`
+  (`gn_steps.csv` and `metrics.csv` interleaved, 605 rows, 88 of them NaN from step 58 on,
+  from which run cannot be told); the cap-150 run then failed saving its weights (exit 101,
+  "File already exists"). The fix is roadmap CO0.4. The long Adam runs have their own
+  directories (different seeds and start times) and were still running at 15:43 UTC.
+- **Rerun of the long GN runs** (the author's go; after the long Adam runs end, about
+  16:15 UTC; 1.6 h wall, 3.1 GPU-h), started 60 s apart so the names differ:
+  ```sh
+  # void the progress line, or the script skips the spec as done
+  sed -i 's/^done gn:42:50:5400 /void gn:42:50:5400 /' ~/sciml-rs/logs/co0-1/progress.txt
+  tmux new -d -s co01-r0 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=0 bash docs/optimisers/co0_1_runs.sh gn:42:50:5400"
+  tmux new -d -s co01-r1 "sleep 60; source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=1 bash docs/optimisers/co0_1_runs.sh gn:42:150:5400"
+  ```
+  Afterwards check that the two `run written to` lines name different directories.
+  `_gn_1795698725` stays where it is, unused. Stage 3's paired runs differ by seed, so
+  their names differ.
 - **Stage 3** after D1.
 
 ## Open questions
+6. **Open: NaN and blow-up steps at small φ (μ = 0).** The collided long-GN directory has
+   88 NaN rows of `gn_steps.csv` from step 58 on (which run made them cannot be told), and
+   the equal-time cap-150 run's last row (step 114) has step norm 6.8e3, predicted −136.8,
+   actual 6.0e16, ρ −4.4e14 at φ 1.55e-5. With ρ < 0 the step is rejected, so the weights
+   should be those before it; the evaluation will show. Whether f32 at μ = 0 runs out of
+   precision near φ ≈ 1e-5 (Phase 10's long μ = 0 runs, on the fork, did not NaN) is
+   checked on the reruns' `gn_steps.csv` before D1 is proposed.
 5. **Answered 2026-11-26 by the author: read the commit at the start**, as a follow-up
    (roadmap CO0.4). `git_commit()` runs when a run ends, so seeds 42 and 44 recorded
    CO0.2's commits after the VM's worktree was moved (results, Provenance).
