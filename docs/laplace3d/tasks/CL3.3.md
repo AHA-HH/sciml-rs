@@ -51,9 +51,9 @@ the function, and a 3D run's saved config type is CL4.1's to settle):
   the spatial rank, keeping the 2D messages byte for byte.
 - `uniform.rs`: one private split reader for both ranks (`read_uniform_split`, with the
   node fields), through `Transfers::to_uniform_all_nd` (rank 3 equals `to_uniform_all` bit
-  for bit); `Rows::take` generic over the rank (a slice or a select of axis 0, no
-  arithmetic); `Rows`, `transfers` and the reader `pub(super)`. The 2D public functions
-  change only by the axes argument at their calls (code review F1).
+  for bit), and `Rows::take` generic over the rank (a slice or a select of axis 0, no
+  arithmetic). The 2D and 3D public loaders wrap `load_uniform` and `load_uniform_test`,
+  which take the node fields (code review F1, F7).
 - `uniform3d.rs` (new): `load_poisson3d_uniform` (inputs `[N, s, s, s, 1]`, targets
   `[N, s, s, s]`), `load_poisson3d_uniform_test` (with a run's normalisers), and the shared
   normalisation (CONVENTIONS §10).

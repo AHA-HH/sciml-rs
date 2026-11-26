@@ -1,7 +1,7 @@
-//! The Chebyshev reader: one split's raw fields on the n × n (or, 3D, n × n × n) CGL grid,
-//! validated and
-//! untransferred (design §7, CONVENTIONS §12), with the validation the uniform loader
-//! shares (`check_nodes`, `read_samples` in the parent module).
+//! The Chebyshev reader: one split's raw fields on the CGL grid (n × n, or n × n × n for
+//! the 3D splits), validated and untransferred (design §7, CONVENTIONS §12), with the
+//! validation the uniform loader shares (`check_nodes`, `read_samples` in the parent
+//! module).
 
 use super::{AXES_2D, AXES_3D, PoissonField, check_nodes, read_samples};
 use crate::neural_operators::chebyshev::nodes;
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn cheb_reader_returns_raw_u() {
+    fn cheb_loader_3d_reads_raw_u() {
         let dir = fresh_dir("3d_cheb");
         let (_, test_path) = write_valid_pair3(&dir);
         let u = load_poisson3d_cheb_field(&test_path, PoissonField::U, N, 1).unwrap();

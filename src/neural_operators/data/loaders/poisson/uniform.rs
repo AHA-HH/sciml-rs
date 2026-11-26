@@ -45,23 +45,7 @@ pub fn load_poisson_uniform<T: HostFloat>(
     test_path: impl AsRef<Path>,
     config: &PoissonConfig,
 ) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
-    check_n_train(config.base.n_train)?;
-    let train_rows = Rows::train(config)?;
-
-    // The transfers are built once and shared by both splits; each split's reader and
-    // Chebyshev fields are freed before the next file is parsed.
-    let transfers = transfers(config)?;
-    let (f_train, u_train) = read_uniform_split(
-        train_path.as_ref(),
-        "train",
-        &train_rows,
-        &transfers,
-        &AXES_2D,
-    )?;
-    let test_rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) =
-        read_uniform_split(test_path.as_ref(), "test", &test_rows, &transfers, &AXES_2D)?;
-    Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
+    load_uniform(train_path.as_ref(), test_path.as_ref(), config, &AXES_2D)
 }
 
 /// Builds the Poisson test split only, on the uniform grid, encoded with `normalizers` (a
@@ -85,16 +69,46 @@ pub fn load_poisson_uniform_test<T: HostFloat>(
     config: &PoissonConfig,
     normalizers: &Normalizers,
 ) -> Result<OperatorDataset<T>, LoadError> {
+    load_uniform_test(test_path.as_ref(), config, normalizers, &AXES_2D)
+}
+
+/// [`load_poisson_uniform`] for the node fields `axes`, one per spatial axis: 2D with
+/// [`AXES_2D`], 3D with `AXES_3D` (`load_poisson3d_uniform`).
+pub(super) fn load_uniform<T: HostFloat>(
+    train_path: &Path,
+    test_path: &Path,
+    config: &PoissonConfig,
+    axes: &[&str],
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
+    check_n_train(config.base.n_train)?;
+    let train_rows = Rows::train(config)?;
+
+    // The transfers are built once and shared by both splits; each split's reader and
+    // Chebyshev fields are freed before the next file is parsed.
+    let transfers = transfers(config)?;
+    let (f_train, u_train) =
+        read_uniform_split(train_path, "train", &train_rows, &transfers, axes)?;
+    let test_rows = Rows::Prefix(config.base.n_test);
+    let (f_test, u_test) = read_uniform_split(test_path, "test", &test_rows, &transfers, axes)?;
+    Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
+}
+
+/// [`load_poisson_uniform_test`] for the node fields `axes`, one per spatial axis.
+pub(super) fn load_uniform_test<T: HostFloat>(
+    test_path: &Path,
+    config: &PoissonConfig,
+    normalizers: &Normalizers,
+    axes: &[&str],
+) -> Result<OperatorDataset<T>, LoadError> {
     let transfers = transfers(config)?;
     let rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) =
-        read_uniform_split(test_path.as_ref(), "test", &rows, &transfers, &AXES_2D)?;
+    let (f_test, u_test) = read_uniform_split(test_path, "test", &rows, &transfers, axes)?;
     normalize_test_split(f_test, u_test, normalizers)
 }
 
 /// The transfers for `config`'s n and s ([`Transfers::with_s`]), or [`LoadError::Invalid`]
 /// where that would panic: n below [`Transfers::MIN_N`] or s below [`Transfers::MIN_S`].
-pub(super) fn transfers(config: &PoissonConfig) -> Result<Transfers, LoadError> {
+fn transfers(config: &PoissonConfig) -> Result<Transfers, LoadError> {
     let (n, s) = (config.n, config.s());
     if n < Transfers::MIN_N {
         return Err(LoadError::Invalid(format!(
@@ -112,7 +126,7 @@ pub(super) fn transfers(config: &PoissonConfig) -> Result<Transfers, LoadError> 
 }
 
 /// The samples of a split to load.
-pub(super) enum Rows {
+enum Rows {
     /// The first `n`.
     Prefix(usize),
     /// These sorted rows of a split of at least `population` samples.
@@ -123,7 +137,7 @@ impl Rows {
     /// The train rows of `config`: its subset's, recomputed and checked against the hash
     /// before any file is read ([`SubsetConfig::rows`](super::SubsetConfig::rows)), else
     /// the first `base.n_train`.
-    pub(super) fn train(config: &PoissonConfig) -> Result<Self, LoadError> {
+    fn train(config: &PoissonConfig) -> Result<Self, LoadError> {
         let n = config.base.n_train;
         Ok(match &config.subset {
             Some(subset) => Self::Subset {
@@ -135,7 +149,7 @@ impl Rows {
     }
 
     /// The samples the split must hold.
-    pub(super) fn required(&self) -> usize {
+    fn required(&self) -> usize {
         match self {
             Self::Prefix(n) => *n,
             Self::Subset { population, .. } => *population,
@@ -143,7 +157,7 @@ impl Rows {
     }
 
     /// The selected samples of `values` (`[samples, n, …, n]`, any rank), in file order.
-    pub(super) fn take<D: RemoveAxis>(&self, mut values: Array<f64, D>) -> Array<f64, D> {
+    fn take<D: RemoveAxis>(&self, mut values: Array<f64, D>) -> Array<f64, D> {
         match self {
             Self::Prefix(n) => {
                 values.slice_axis_inplace(Axis(0), Slice::from(..*n));
@@ -159,7 +173,7 @@ impl Rows {
 /// uniform grid with T_cu along every axis ([`Transfers::to_uniform_all_nd`], in 2D
 /// [`Transfers::to_uniform_all`] bit for bit): `([k, s, …, s], [k, s, …, s])` for k
 /// samples. `split` only labels the error messages.
-pub(super) fn read_uniform_split(
+fn read_uniform_split(
     path: &Path,
     split: &str,
     rows: &Rows,

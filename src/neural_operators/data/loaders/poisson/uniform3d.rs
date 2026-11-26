@@ -6,12 +6,10 @@
 
 use super::AXES_3D;
 use super::PoissonConfig;
-use super::uniform::{Rows, read_uniform_split, transfers};
+use super::uniform::{load_uniform, load_uniform_test};
 use crate::neural_operators::data::{
-    dataset::OperatorDataset,
-    host_float::HostFloat,
-    io::errors::LoadError,
-    loaders::common::{Normalizers, check_n_train, normalize_split_pair, normalize_test_split},
+    dataset::OperatorDataset, host_float::HostFloat, io::errors::LoadError,
+    loaders::common::Normalizers,
 };
 use std::path::Path;
 
@@ -31,20 +29,7 @@ pub fn load_poisson3d_uniform<T: HostFloat>(
     test_path: impl AsRef<Path>,
     config: &PoissonConfig,
 ) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
-    check_n_train(config.base.n_train)?;
-    let train_rows = Rows::train(config)?;
-    let transfers = transfers(config)?;
-    let (f_train, u_train) = read_uniform_split(
-        train_path.as_ref(),
-        "train",
-        &train_rows,
-        &transfers,
-        &AXES_3D,
-    )?;
-    let test_rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) =
-        read_uniform_split(test_path.as_ref(), "test", &test_rows, &transfers, &AXES_3D)?;
-    Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
+    load_uniform(train_path.as_ref(), test_path.as_ref(), config, &AXES_3D)
 }
 
 /// [`load_poisson_uniform_test`](super::load_poisson_uniform_test) for the 3D splits: the
@@ -60,11 +45,7 @@ pub fn load_poisson3d_uniform_test<T: HostFloat>(
     config: &PoissonConfig,
     normalizers: &Normalizers,
 ) -> Result<OperatorDataset<T>, LoadError> {
-    let transfers = transfers(config)?;
-    let rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) =
-        read_uniform_split(test_path.as_ref(), "test", &rows, &transfers, &AXES_3D)?;
-    normalize_test_split(f_test, u_test, normalizers)
+    load_uniform_test(test_path.as_ref(), config, normalizers, &AXES_3D)
 }
 
 #[cfg(test)]
