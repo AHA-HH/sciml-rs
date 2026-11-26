@@ -22,6 +22,7 @@ import torch
 import torch.nn.functional as F
 import torch_harmonics
 from neuralop.layers.channel_mlp import ChannelMLP
+from neuralop.layers.embeddings import GridEmbeddingND, RotaryEmbedding2D, SinusoidalEmbedding
 from neuralop.layers.fno_block import FNOBlocks
 from neuralop.layers.legacy_spectral_convolution import SpectralConv as LegacySpectralConv
 from neuralop.layers.spectral_convolution import SpectralConv
@@ -83,6 +84,29 @@ class Activations(torch.nn.Module):
         return torch.cat([f(x) for f in ACTIVATIONS], dim=1)
 
 
+class Rotary2d(torch.nn.Module):
+    """2.0.0's `RotaryEmbedding2D(dim)` applied in 2D: channels 0 and 1 of the input are the x
+    and y coordinates, the remaining `2 · dim` the features `t`; the output is
+    `apply_2d_rotary_pos_emb(t, rope(x), rope(y))`."""
+
+    def __init__(self, dim):
+        super().__init__()
+        self.rope = RotaryEmbedding2D(dim)
+
+    def forward(self, x):
+        freqs_x, freqs_y = self.rope(x[..., 0]), self.rope(x[..., 1])
+        return RotaryEmbedding2D.apply_2d_rotary_pos_emb(x[..., 2:], freqs_x, freqs_y)
+
+
+BOUNDARIES = [[0.0, 2.0], [-1.0, 1.0]]
+
+
+def fno_boundaries(in_channels, **kwargs):
+    """2.0.0's `FNO` with a `GridEmbeddingND` on `BOUNDARIES` instead of the unit square."""
+    grid = GridEmbeddingND(in_channels=in_channels, dim=2, grid_boundaries=BOUNDARIES)
+    return FNO(in_channels=in_channels, positional_embedding=grid, **kwargs)
+
+
 def blocks(n_modes, channels=4, n_layers=2, **kwargs):
     """`FNOBlocks(channels, channels, n_modes, n_layers, **kwargs)`, 2.0.0's defaults otherwise."""
     return FNOBlocksRun(in_channels=channels, out_channels=channels, n_modes=n_modes, n_layers=n_layers, **kwargs)
@@ -128,6 +152,16 @@ CONFIGS = {
     # No channel MLP, no norm: 2.0.0 applies the activation twice per layer (tanh shows it).
     "fno_blocks_plain1d": (blocks, dict(n_modes=(8,), use_channel_mlp=False, fno_skip="soft-gating", non_linearity=torch.tanh), (2, 4, 20)),
     "activations1d": (Activations, dict(), (2, 1, 64)),
+    # CM1.4: the embedding, lifting and projection alone (`n_layers=0`: no Fourier layer).
+    "fno_lift_project1d": (FNO, dict(n_modes=(8,), in_channels=2, out_channels=1, hidden_channels=6, n_layers=0), (2, 2, 20)),
+    # Lifting ratio 0: one layer; projection int(1.5 · 5) = 7 wide.
+    "fno_lift_project2d_linear": (FNO, dict(n_modes=(4, 4), in_channels=2, out_channels=3, hidden_channels=5, n_layers=0, lifting_channel_ratio=0, projection_channel_ratio=1.5, non_linearity=torch.tanh), (2, 2, 6, 5)),
+    "fno_lift_project3d_no_grid": (FNO, dict(n_modes=(4, 4, 4), in_channels=3, out_channels=2, hidden_channels=4, n_layers=0, positional_embedding=None), (2, 3, 5, 4, 3)),
+    "fno_lift_project2d_boundaries": (fno_boundaries, dict(n_modes=(4, 4), in_channels=2, out_channels=1, hidden_channels=4, n_layers=0), (2, 2, 6, 5)),
+    "grid_embedding2d": (GridEmbeddingND, dict(in_channels=3, dim=2, grid_boundaries=BOUNDARIES), (2, 3, 6, 5)),
+    "sinusoidal_transformer": (SinusoidalEmbedding, dict(in_channels=3, num_frequencies=4), (2, 10, 3)),
+    "sinusoidal_nerf": (SinusoidalEmbedding, dict(in_channels=3, num_frequencies=4, embedding_type="nerf"), (2, 10, 3)),
+    "rotary2d": (Rotary2d, dict(dim=8), (2, 10, 18)),
 }
 # Models with parameters whose 2.0.0 init is a constant (ones, zeros): those parameters (and
 # only those) are redrawn from a seeded normal, so the fixture tests the map and not only the

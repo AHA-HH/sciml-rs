@@ -1,4 +1,4 @@
-"""Write loss and finite-difference parity fixtures from neuraloperator 2.0.0 (library CM1.6a, b; CM2.5).
+"""Write loss and derivative parity fixtures from neuraloperator 2.0.0 (library CM1.6a–c; CM2.5).
 
 Each fixture is `tests/fixtures/parity/losses<D>d_<dtype>.npz` with a `.json` sidecar: a
 seeded pair `x`, `y` (2, 2, *grid), a seeded vector field `v` (2, D, *grid), and 2.0.0's
@@ -6,6 +6,8 @@ seeded pair `x`, `y` (2, 2, *grid), a seeded vector field `v` (2, D, *grid), and
 them. `meta_losses_<dtype>.npz` (CM1.6b): the aggregators `WeightedSumLoss`,
 `FieldwiseAggregatorLoss`, `SoftAdapt` and `Relobralo` over seeded losses.
 `equation_losses_<dtype>.npz` (CM2.5): `BurgersEqnLoss`, `ICLoss` and the Poisson losses.
+`derivatives_<dtype>.npz` (CM1.6c): `FourierDiff` (no Fourier continuation) and
+`non_uniform_fd`.
 See README.md.
 
     uv run python generate_losses.py            # write the fixtures
@@ -22,7 +24,7 @@ import neuralop
 import numpy as np
 import torch
 from neuralop.losses.data_losses import H1Loss, HdivLoss, LpLoss, MSELoss, PointwiseQuantileLoss
-from neuralop.losses.differentiation import FiniteDiff
+from neuralop.losses.differentiation import FiniteDiff, FourierDiff, non_uniform_fd
 from neuralop.losses.equation_losses import (
     BurgersEqnLoss,
     ICLoss,
@@ -49,6 +51,17 @@ BURGERS_GRID = (10, 12)  # (n_t, n_x), non-square, so a swapped axis fails parit
 BURGERS = {"default": {}, "visc": {"visc": 0.05, "domain_length": [2.0, 3.0]}}
 POISSON_POINTS = (6, 20)  # boundary, interior
 POISSON_WEIGHTS = {"boundary_weight": 2.0, "interior_weight": 0.5}
+DERIV_SEED = 6  # the derivatives' inputs
+FOURIER_GRIDS = {1: (32,), 2: (16, 15), 3: (8, 6, 5)}  # 2D: one even, one odd axis
+FOURIER_L = (2.0, 3.0, 1.5)  # FourierDiff domain lengths, per axis
+FOURIER_ORDERS = (1, 2, 3)
+# name -> (d, N points, non_uniform_fd kwargs); points uniform in [0, 1)^d
+NON_UNIFORM = {
+    "nu2": (2, 40, {"derivative_indices": [0, 1]}),
+    "nu2_radius": (2, 40, {"derivative_indices": [0, 1], "radius": 0.2}),
+    "nu2_reg": (2, 40, {"derivative_indices": [0, 1], "regularize_lstsq": True}),
+    "nu3": (3, 30, {"derivative_indices": [0, 2], "num_neighbors": 7}),
+}
 # name -> (class, kwargs); weights keyed as 2.0.0's dict, missing keys meaning 1.
 ADAPTIVE = {
     "softadapt": (SoftAdapt, {}),
@@ -215,6 +228,51 @@ def equation_arrays(dtype):
     return finish(out, dtype)
 
 
+def derivative_arrays(dtype):
+    """2.0.0's `FourierDiff` on seeded fields `u<d>` (2, 2, *grid) and `v<d>` (2, d, *grid),
+    and `non_uniform_fd` on seeded points and values."""
+    g = torch.Generator().manual_seed(DERIV_SEED)
+    out = {}
+    for d, grid in FOURIER_GRIDS.items():
+        u = torch.randn((2, 2) + grid, generator=g).to(dtype)
+        v = torch.randn((2, d) + grid, generator=g).to(dtype)
+        out[f"u{d}"], out[f"v{d}"] = u, v
+        fd = FourierDiff(dim=d, L=FOURIER_L[:d] if d > 1 else FOURIER_L[0])
+        for a in range(d):
+            op = getattr(fd, "d" + AXES[a])
+            for order in FOURIER_ORDERS:
+                out[f"fourier{d}.d{AXES[a]}{order}"] = op(u, order=order)
+        out[f"fourier{d}.laplacian"] = fd.laplacian(u)
+        out[f"fourier{d}.gradient"] = fd.gradient(u)
+        out[f"fourier{d}.divergence"] = fd.divergence(v)
+        if d >= 2:
+            out[f"fourier{d}.curl"] = fd.curl(v)
+    for name, (d, n, kwargs) in NON_UNIFORM.items():
+        points = torch.rand((n, d), generator=g).to(dtype)
+        values = torch.randn((n,), generator=g).to(dtype)
+        out[f"{name}.points"], out[f"{name}.values"] = points, values
+        out[f"{name}.d"] = non_uniform_fd(points, values, **kwargs)
+    return finish(out, dtype)
+
+
+def derivative_sidecar(dtype_name):
+    return {
+        "config": "derivatives",
+        "dtype": dtype_name,
+        "input_seed": DERIV_SEED,
+        "fourier_grids": {d: list(g) for d, g in FOURIER_GRIDS.items()},
+        "fourier_L": list(FOURIER_L),
+        "fourier_orders": list(FOURIER_ORDERS),
+        "fourier": "FourierDiff(dim=d, L=fourier_L[:d]), use_fc=False, no low-pass filter",
+        "non_uniform": {k: {"d": d, "n": n, "kwargs": kw} for k, (d, n, kw) in NON_UNIFORM.items()},
+        "keys": "u<d> (2, 2, *grid), v<d> (2, d, *grid); fourier<d>.d<axis><order>, "
+        "fourier<d>.{laplacian,gradient,divergence,curl}; <nu>.{points (N, d),values (N),d (j, N)}",
+        "inputs": "drawn in f32, then cast; points uniform in [0, 1)^d",
+        "mode": "CPU, deterministic algorithms",
+        **provenance(),
+    }
+
+
 def equation_sidecar(dtype_name):
     return {
         "config": "equation_losses",
@@ -236,7 +294,8 @@ def equation_sidecar(dtype_name):
 
 def finish(out, dtype):
     # Scalars as shape (1,): the Rust losses return [1].
-    data = {k: np.atleast_1d(t.detach().numpy()) for k, t in out.items()}
+    # C order: einsum's outputs are strided views, which np.savez would store in Fortran order.
+    data = {k: np.ascontiguousarray(np.atleast_1d(t.detach().numpy())) for k, t in out.items()}
     want = np.dtype(np.float32 if dtype == torch.float32 else np.float64)
     bad = {k: a.dtype for k, a in data.items() if a.dtype != want}
     assert not bad, f"arrays not in {want} (NpzFileReader reads f32/f64 only): {bad}"
@@ -325,6 +384,10 @@ def main():
     for dtype_name, dtype in DTYPES.items():
         data = equation_arrays(dtype)
         failed |= not emit(f"equation_losses_{dtype_name}", data, equation_sidecar(dtype_name), check)
+    for dtype_name, dtype in DTYPES.items():
+        with torch.no_grad():
+            data = derivative_arrays(dtype)
+        failed |= not emit(f"derivatives_{dtype_name}", data, derivative_sidecar(dtype_name), check)
     sys.exit(1 if failed else 0)
 
 

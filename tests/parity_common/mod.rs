@@ -46,7 +46,8 @@ pub enum Take {
     Re,
     /// The imaginary half (index 1 of its trailing axis of 2).
     Im,
-    /// A matrix transposed: torch's `Linear` weight `[out, in]` to Burn's `[in, out]`.
+    /// A matrix transposed: torch's `Linear` weight `[out, in]` to Burn's `[in, out]`; also a
+    /// pointwise convolution's weight `[out, in, 1]` (2.0.0's `ChannelMLP`) to a `Linear`'s.
     Transposed,
 }
 
@@ -74,7 +75,8 @@ impl Precision {
 
 /// An open fixture.
 pub struct Fixture {
-    name: String,
+    /// The fixture's file stem, `<config>_<dtype>`.
+    pub(crate) name: String,
     reader: NpzFileReader,
     /// The 2.0.0 parameter names, `param.` stripped (as replaced, if any).
     pub(crate) params: Vec<String>,
@@ -183,13 +185,17 @@ impl Fixture {
 /// axis.
 ///
 /// # Panics
-/// For `Transposed`, if `a` is not a matrix; for `Re` / `Im`, if the trailing axis is not
-/// of length 2.
+/// For `Transposed`, if `a` is neither a matrix nor `[out, in, 1]`; for `Re` / `Im`, if the
+/// trailing axis is not of length 2.
 pub fn take(a: ArrayD<f64>, take: Take) -> ArrayD<f64> {
     let part = match take {
         Take::Whole => return a,
         Take::Transposed => {
-            assert_eq!(a.ndim(), 2, "Transposed needs a matrix");
+            let a = match a.shape() {
+                &[o, i, 1] => a.into_shape_with_order((o, i)).unwrap().into_dyn(),
+                _ => a,
+            };
+            assert_eq!(a.ndim(), 2, "Transposed needs a matrix or [out, in, 1]");
             return a.reversed_axes().as_standard_layout().to_owned();
         }
         Take::Re => 0,

@@ -155,14 +155,21 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   block's norm choice, and `pointwise::linear_cf`; the FNO's block options are `FNOConfig`'s
   `activation` (CO1.1's `Activation`, ten functions since CM1.3b), `fno_skip`, `channel_mlp` (`BlockMlpConfig`), `norm`, `preactivation`, each
   `None` the original block, run by `FNO::fourier_layers`, parity in
-  `tests/parity_fno_blocks.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
+  `tests/parity_fno_blocks.rs`; since CM1.4 `layers/embedding.rs`: 2.0.0's
+  `GridEmbeddingNd`, `SinusoidalEmbedding`, `RotaryEmbedding2d` and the rotary helpers, and
+  `FNOConfig`'s `lifting_channel_ratio`, `projection_channel_ratio`, `positional_embedding`
+  (`PositionalEmbedding::{GridNd, Disabled}`), each `None` today's, parity in
+  `tests/parity_embeddings*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
   `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
   `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; since CM2.5
   `equation_losses`: `BurgersEqnLoss`, `ic_loss`, the nonlinear Poisson losses, on a
   `differentiation::GridDiff` (`FiniteDiff`, or `MatrixDiff`, a matrix per axis,
   `chebyshev` behind `datagen`), with `pointwise::mean_squared_error` (`F.mse_loss`);
-  parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
+  since CM1.6c `differentiation::FourierDiff` (periodic spectral derivatives), `GridDiff`
+  carrying `dx`/`dy`/`dz`, `gradient`, `divergence`, `curl_2d`/`curl_3d` for every grid
+  operator, and `non_uniform_fd::NonUniformFd` (point-cloud first derivatives, host f64
+  weights); parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
