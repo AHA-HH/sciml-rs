@@ -166,7 +166,7 @@ Q2 the 3D label check to CL3.2, the three doc fixes to CL3.3's first commit.
   example (`train_poisson` unchanged). *Done when:* a short run at n = 33 on the Mac writes
   a run directory that the 3D predict example evaluates. Near the three-module limit: split
   when it starts if it exceeds it. *Needs:* CL0.2, CL1.3, CL3.3, D4. The 3D `evaluate` and
-  errors record are new 3D types (proposal §6). Also one per-sample loop in
+  errors record reuse the 2D types (no new fields; the author, 2026-11-26, plan Q1). Also one per-sample loop in
   `metrics/poisson` for 2D and 3D, keeping a frozen copy of today's `poisson_errors` as
   the D2 oracle, and passing max |u| to `boundary_errors_nd` (CL1.3 review F1, N2); it
   needs no 3D types (the generic loop already gives the 2D bits, L1 gate Q2), and first
