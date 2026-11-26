@@ -179,3 +179,29 @@ template:
 - Adam and Gauss–Newton: not touched (no library file changed).
 - Follow-ups: the savings list of the report (for later work, nothing changed here); the
   1.29× per-step slowdown against the fork goes with CO0.1's bisect of Adam's 3.5×.
+
+## 2026-11-25: CO1.1 The reference recipe
+- Done: `OptimizerConfig::AdamW` (Burn's `AdamWConfig`, ε 1e-8); `TrainingConfig.lr_schedule`
+  (`LrSchedule::Step`, Burn's `StepLrSchedulerConfig`, γ 0.5) and `.loss`
+  (`TrainLoss::SquaredRelL2`, PETScML's eq. 6, the Adam path only, metrics unchanged);
+  `FNOConfig.activation` (`Activation::Gelu`, erf form); `train_burgers`: `RECIPE=petscml`
+  (n_train 1,000, s = 128, GELU, the squared loss; the author's choice of a preset,
+  2026-11-25), `OPTIMIZER=adamw` (with the step schedule every 100 epochs), `WEIGHT_DECAY`,
+  `SUBSAMPLE`, and `costs.json`. Source check: s = 128 and the 1,000/100 split confirmed
+  (PETScML's text, Lu et al.'s and Li et al.'s code; PETScML's repository has no Burgers
+  script). A1, seed 42, metal: test L² 7.11e-4 final, 7.07e-4 best so far, against 1.4e-3
+  (`docs/optimisers/results/CO1.1.md`).
+- Tests: parameter count 549,569; GELU against a hand-written forward; `Relu` and `None` bit
+  for bit; old configs load; AdamW at weight decay 0 equal to Adam (1e-6), different at 0.1;
+  the step schedule's rate at every step, bit for bit; the squared loss's closed form, a
+  trainer step against one taken by hand on it, and the unsquared metric; the replica guard.
+- Checks: see the PR (`/verify`); the constraint 1 runs below.
+- Decisions: the GELU form answered by the author 2026-11-25: keep erf.
+- Review: plan review PASS with findings (docs, two tests tightened; fixed); code quality
+  APPROVE with findings, no blockers (F2–F4, F7 fixed; F1 declined: `train_epoch`'s public
+  signature and the existing tests stay unchanged; F5 into CO1.2, F6 as CO1.5; F8 accepted).
+- Adam and Gauss–Newton: unchanged bit for bit: `spikes/linalg`'s fingerprint
+  `84e63f28a21024db` on `origin/main` and the branch; `train_burgers` and `train_darcy` with
+  nothing set, two epochs each, equal `metrics.csv` rows (flex).
+- Follow-ups: CO1.2 (the `SEED` and `TIME_BUDGET_S` variables and the shared example
+  helpers, added to its line); CO1.5 (split `trainer.rs`'s tests).

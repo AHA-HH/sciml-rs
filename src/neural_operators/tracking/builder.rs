@@ -391,6 +391,7 @@ mod tests {
             n_layers: 4,
             spectral_init: None,
             padding: Some(0),
+            activation: None,
         }
     }
 

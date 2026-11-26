@@ -13,7 +13,11 @@ use burn::{
         Linear, LinearConfig,
         conv::{Conv1d, Conv1dConfig},
     },
-    tensor::{DType, Device, FloatDType, Int, activation::relu, ops::PadMode},
+    tensor::{
+        DType, Device, FloatDType, Int,
+        activation::{gelu, relu},
+        ops::PadMode,
+    },
 };
 
 use crate::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
@@ -50,6 +54,20 @@ pub struct FNOConfig {
     /// default) and `Some(0)` both mean no padding. An `Option` so that saved configs
     /// without this field still load (as `None`).
     pub padding: Option<usize>,
+    /// The nonlinearity after each Fourier layer but the last and after `fc1`. `None` (the
+    /// default, and every config before optimisers CO1.1) is [`Activation::Relu`]. An
+    /// `Option` so that saved configs without this field still load.
+    pub activation: Option<Activation>,
+}
+
+/// The FNO's nonlinearity ([`FNOConfig::activation`], optimisers CO1.1).
+#[derive(Config, Debug, PartialEq)]
+pub enum Activation {
+    /// ReLU, the default: `train_burgers`, `train_darcy` and every run before CO1.1.
+    Relu,
+    /// GELU in its erf form (Burn's `gelu`, PyTorch's default), as in Li et al.'s
+    /// `fourier_1d.py` and PETScML's Burgers model (D10).
+    Gelu,
 }
 
 /// A Fourier Neural Operator on rank-`R` channels-last tensors `[B, s_1..s_D, C]`
@@ -65,6 +83,8 @@ pub struct FNO<const R: usize> {
     /// Zero cells appended to each spatial axis; 0 disables padding.
     /// Not a parameter, so it is not part of a saved checkpoint.
     padding: usize,
+    /// GELU instead of ReLU ([`FNOConfig::activation`]); not a parameter either.
+    gelu: bool,
 }
 
 impl FNOConfig {
@@ -109,6 +129,7 @@ impl FNOConfig {
             fc1: LinearConfig::new(self.hidden_channels, 128).init(device),
             fc2: LinearConfig::new(128, self.out_channels).init(device),
             padding: self.padding.unwrap_or(0),
+            gelu: self.activation == Some(Activation::Gelu),
         }
     }
 }
@@ -222,6 +243,11 @@ impl<const R: usize> FNO<R> {
         Tensor::cat(channels, R - 1)
     }
 
+    /// The configured nonlinearity ([`FNOConfig::activation`]).
+    fn activate(&self, x: Tensor<R>) -> Tensor<R> {
+        if self.gelu { gelu(x) } else { relu(x) }
+    }
+
     /// `[B, spatial.., data_channels]` → `[B, spatial.., out_channels]`.
     ///
     /// The input carries data channels only: the model appends the `D` coordinate
@@ -264,14 +290,18 @@ impl<const R: usize> FNO<R> {
         for idx in 0..n {
             let x1 = self.conv[idx].forward(x.clone());
             let x2 = Self::conv1x1_cf(&self.w[idx], x);
-            x = if idx == n - 1 { x1 + x2 } else { relu(x1 + x2) };
+            x = if idx == n - 1 {
+                x1 + x2
+            } else {
+                self.activate(x1 + x2)
+            };
         }
 
         if self.padding > 0 {
             x = Self::crop_spatial(x, unpadded);
         }
 
-        let x = relu(Self::linear_cf(&self.fc1, x));
+        let x = self.activate(Self::linear_cf(&self.fc1, x));
         let x = Self::linear_cf(&self.fc2, x);
 
         to_channels_last(x)

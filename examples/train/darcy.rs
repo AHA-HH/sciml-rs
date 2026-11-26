@@ -71,6 +71,7 @@ fn main() {
         // of each axis before the spectral layers (cropped after), as Li et al.'s
         // fourier_2d.py does. The padded 94 x 94 grid is not a power of two
         padding: Some(9),
+        activation: None,
     };
 
     let train_cfg = TrainingConfig::new()

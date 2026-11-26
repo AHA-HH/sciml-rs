@@ -74,6 +74,7 @@ mod tests {
             n_layers: 1,
             spectral_init: None,
             padding: Some(2),
+            activation: None,
         }
     }
 
