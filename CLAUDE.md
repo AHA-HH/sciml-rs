@@ -271,7 +271,11 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   transfer-only floor, 3 the coarse error, 4 the fine-grid error) and `check_error3` the
   cross-check against the run's metrics, driven by `examples/predict/poisson.rs`
   (`predict_poisson`), which writes `errors.json` (`ERRORS_JSON`) into the run directory;
-  `poisson_matrix` tabulates evaluated runs.
+  `poisson_matrix` tabulates evaluated runs. Since 3D CL4.1 one per-sample loop serves
+  `poisson_errors` and `poisson_errors_nd` (the old 2D body frozen in its tests as the D2
+  oracle), and `evaluate_3d` (the 2D record, error 1 quoted from 3D CL2.1) is driven by
+  `examples/predict/poisson3d.rs` (`predict_poisson3d`) on runs of
+  `examples/train/poisson3d.rs` (`train_poisson3d`, `FNO<5>`, D4).
 - `training/trainer` (`train_fno`, one trainer for every PDE: `Some(y)` decodes with the
   target normaliser, `None` trains in physical units), driven on those datasets by
   `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
@@ -419,6 +423,10 @@ than trusting prose when checking how an API behaves.
   `predict_darcy`, `darcy_plot` on Darcy runs)
 - Evaluate a Poisson run (the five errors, the boundary verdict, the worst sample):
   `cargo run --release --example predict_poisson [--features metal] -- runs/<run_dir>`
+- Train and evaluate on 3D Poisson (3D CL4.1; n ∈ {33, 65}, default 65, s default n − 1;
+  `EPOCHS` overrides 500; `--resume runs/<run_dir>` as in 2D):
+  `cargo run --release --example train_poisson3d [--features metal] [-- [<padding>] [<n>] [<s>] [<seed>]]`,
+  then `cargo run --release --example predict_poisson3d [--features metal] -- runs/<run_dir>`
 - Phase 5 comparison table and plots from evaluated Poisson runs (mean and min–max over
   seeds per (padding, s); plots `<stem>_*.png` beside the table, skipped without gnuplot):
   `cargo run --release --example poisson_matrix -- docs/poisson2d/phase5/results.md runs/<run_dir> ...`;

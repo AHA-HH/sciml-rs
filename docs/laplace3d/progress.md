@@ -365,3 +365,39 @@ template:
   The blocker goes to CL3.5 and CL3.6 (Q1), not fixed here.
 - 2D: not touched (no code).
 - Follow-ups: CL4.1 (in progress), CL4.2 (its first commit per Q2), then CL3.5 and CL3.6.
+
+## 2026-11-26: CL4.1 3D training and prediction examples
+- Done: `examples/train/poisson3d.rs` (`train_poisson3d`: `FNO<5>`, D4's width 32, 4 layers,
+  modes min(12, s/2)³, batch 20, Adam with `train_poisson`'s literals; n ∈ {33, 65};
+  `EPOCHS` override; checkpoints and `--resume`; `costs.json`) and
+  `examples/predict/poisson3d.rs` (`predict_poisson3d`: errors 2–5 in 3D, both
+  cross-checks, `errors.json`, inference time). `metrics/poisson`: one private per-sample
+  loop behind `poisson_errors` and `poisson_errors_nd` (the rank-3 shortcut and the 2D
+  `boundary_errors` removed; `boundary_errors_nd` takes max |u|; CL1.3 review F1, N2, L1
+  gate Q2); `evaluate_3d` and `ERROR1_QUOTE_3D` through a private `evaluate_core`;
+  `PoissonEvaluation::plot_run_dir` replaces `run_dir`. `training/` untouched (rank-generic
+  since CM0.3). Plan `docs/laplace3d/tasks/CL4.1.md`, with the short run.
+- Tests: the D2 oracle `poisson_errors_frozen` (d466d46's body, verbatim) in
+  `nd_rank_two_is_bit_identical_to_2d`, with a prediction zero on ∂Ω and one zero
+  everywhere (asserting û = 0 on ∂Ω), both entry points and layouts;
+  `evaluate_3d_differs_only_in_error1_and_the_plot_hint`. Short run on the Mac (metal):
+  two epochs at n = 33, s = 32, then `predict_poisson3d` exit 0: error 2 against the sidecar
+  1.4e-16, mean error 3 against test_l2 1.7e-7; errors 3, 4 ≈ 0.21 after two epochs (not a
+  result). Epoch times (1,600–2,000 s) were on a loaded Mac, not a measurement.
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, `cargo test`
+  (500 passed), `cargo doc` (also with `-D warnings`), datagen clippy, `cargo test
+  --features datagen` (587 passed), all on the final code; `cargo clippy --features metal
+  --examples` (the plan reviewer, before the review fixes). Not run: `gpu_parity` and metal
+  tests (no backend-sensitive code changed).
+- Decisions: plan Q1, the 3D errors record reuses the 2D types (the author, 2026-11-26);
+  the roadmap line amended.
+- Review: plan review PASS (should-fix: a broken doc link, the rank-3 shortcut; advisories:
+  the oracle made byte-faithful, the D2 premise asserted, the plan's test names; all
+  taken). Code quality APPROVE with findings, B+: F1 (the shortcut), F2 (`evaluate_core`,
+  `plot_run_dir`), F5 (test name) fixed; F3 (a 3D set lookup in `catalogue`) to CL4.2's
+  first commit; F4 (the examples' copied helpers, the price of leaving `train_poisson`
+  alone) left for the objective's repo review.
+- 2D: unchanged bit for bit: the frozen-oracle D2 test (the zero-on-∂Ω cases included),
+  the 2D `metrics::poisson` tests unedited but for their reference function, the whole
+  2D suite; `train_poisson`, `predict_poisson` and the 2D record not edited.
+- Follow-ups: CL4.2's first commit (F3, roadmap).

@@ -14,8 +14,9 @@ errors, 2D bit for bit unchanged), CL2.1 (A3, `CollocationSolver3d`, f64 floor b
 CL3.1 (the 3D GRF; D3 confirmed 2026-11-24), CL3.2 (the 3D datasets of D5, n = 33 and 65,
 written 2026-11-25; n = 65 generated on the Mac and uploaded to the VM), CL3.3 (the 3D
 loader, 2026-11-26; the N-D helpers in `chebyshev/tensor.rs`), CL3.4 (one sidecar writer
-for 2D and 3D, 2026-11-26). D8 signed off at the L0 gate. Next: CL4.1 (in progress), CL4.2;
-then CL3.5 and CL3.6 (L3 gate Q1).
+for 2D and 3D, 2026-11-26), CL4.1 (`train_poisson3d`, `predict_poisson3d`, `evaluate_3d`,
+one per-sample error loop; a two-epoch n = 33 run on the Mac evaluated, 2026-11-26). D8
+signed off at the L0 gate. Next: CL4.2 (the VM); then CL3.5 and CL3.6 (L3 gate Q1).
 
 ## How to read this file
 
@@ -184,11 +185,12 @@ Follow-ups of the L3 gate (Q1), not part of its gate; they run after CL4.2:
 
 **Gate:** a 3D Poisson baseline with errors 2–5 over seeds; D6 and D7 put to the author.
 
-- [ ] **CL4.1 3D training and prediction examples.** `train_poisson3d` and the 3D predict
+- [x] **CL4.1 3D training and prediction examples.** (Plan `tasks/CL4.1.md`, with its
+  short run.) `train_poisson3d` and the 3D predict
   example (`train_poisson` unchanged). *Done when:* a short run at n = 33 on the Mac writes
   a run directory that the 3D predict example evaluates. Near the three-module limit: split
   when it starts if it exceeds it. *Needs:* CL0.2, CL1.3, CL3.3, D4. The 3D `evaluate` and
-  errors record are new 3D types (proposal §6). Also one per-sample loop in
+  errors record reuse the 2D types (no new fields; the author, 2026-11-26, plan Q1). Also one per-sample loop in
   `metrics/poisson` for 2D and 3D, keeping a frozen copy of today's `poisson_errors` as
   the D2 oracle, and passing max |u| to `boundary_errors_nd` (CL1.3 review F1, N2); it
   needs no 3D types (the generic loop already gives the 2D bits, L1 gate Q2), and first
@@ -197,6 +199,9 @@ Follow-ups of the L3 gate (Q1), not part of its gate; they run after CL4.2:
   with errors 2–5 against the 3D floor, and 2D Phase 5 at the same s as context (the
   input families differ, proposal §3.3). Before its first cuda run, CL0.2's cases run on
   cuda: `cargo test --release --no-default-features --features cuda --test gpu_parity`.
+  First commit (CL4.1 code-quality review F3): a 3D set lookup by n in
+  `data/catalogue` (as `stage` for 2D), used by `train_poisson3d` and `predict_poisson3d`
+  in place of their two inline `GENERATED_3D` searches.
   Follow-up (L0 gate Q2), for whichever task next edits `tests/gpu_parity.rs`: one gated
   `mod gpu`, one `compare` helper, a named `Side` struct, and the qualified "zeroed entries
   cannot hide" doc comment; test-only, no behaviour change.
