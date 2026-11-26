@@ -9,11 +9,12 @@
 //!   of proposal §3.3, with the 2D rule: for n ≥ [`LABEL_CHECK_MIN_N`] (65) a sample above
 //!   [`LABEL_CHECK_TOL`] aborts the split; below that n it is recorded only (n = 33,
 //!   K = 16 gives about 4e-7, as in 2D; n = 65, K = 32 about 4e-10, CL3.2's report);
-//! - **error 2**: the transfer round trip T_uc(T_cu u) − u with d = [`TRANSFER_DEGREE`] and
+//! - **error 2**: the transfer round trip T_uc(T_cu u) − u with d = [`TRANSFER_DEGREE`](crate::neural_operators::chebyshev::TRANSFER_DEGREE) and
 //!   s = n − 1 along every axis, recorded only.
 //!
 //! [`write_split_3d`] writes the split as one `.npz` and one JSON sidecar named by
-//! [`Poisson3dSet`]. The sidecar is the 2D [`SidecarRecord`] with the 3D α, RNG and ε_K.
+//! [`Poisson3dSet`]. The sidecar is the 2D one, written by the shared
+//! `dataset::write_sidecar` with the 3D α, RNG and ε_K.
 
 use ndarray::{Array1, Array4, ArrayView3, Axis};
 use ndarray_npy::NpzWriter;
@@ -23,15 +24,12 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use super::collocation::CollocationSolver3d;
-use super::dataset::{LABEL_CHECK_MIN_N, LABEL_CHECK_TOL, LabelCheckError, SplitSpec};
-use super::grf::{K_MAX, TAU};
-use super::grf3d::{ALPHA, RNG, draw_xi, eps_k, evaluate, forcing_coeffs, solution_coeffs};
-use crate::CONVENTION_VERSION;
-use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, cc_rel_l2_error_nd, nodes};
-use crate::neural_operators::data::catalogue::Poisson3dSet;
-use crate::neural_operators::data::loaders::poisson::{
-    SidecarError2, SidecarLabelCheck, SidecarRecord,
+use super::dataset::{
+    LABEL_CHECK_MIN_N, LABEL_CHECK_TOL, LabelCheckError, SidecarFacts, SplitSpec, write_sidecar,
 };
+use super::grf3d::{ALPHA, RNG, draw_xi, eps_k, evaluate, forcing_coeffs, solution_coeffs};
+use crate::neural_operators::chebyshev::{Transfers, cc_rel_l2_error_nd, nodes};
+use crate::neural_operators::data::catalogue::Poisson3dSet;
 use crate::neural_operators::metrics::stats::ErrorStats;
 
 /// One generated 3D split.
@@ -112,7 +110,7 @@ pub fn label_check_3d(
 /// n ≥ [`LABEL_CHECK_MIN_N`].
 ///
 /// # Panics
-/// If `count` is 0, `n < 3`, K is 0 or above [`K_MAX`], or `base_seed + i` overflows.
+/// If `count` is 0, `n < 3`, K is 0 or above [`K_MAX`](super::grf::K_MAX), or `base_seed + i` overflows.
 pub fn generate_3d(spec: &SplitSpec) -> Result<Split3d, LabelCheckError> {
     let start = Instant::now();
     let n = spec.n;
@@ -171,7 +169,8 @@ pub fn generate_3d(spec: &SplitSpec) -> Result<Split3d, LabelCheckError> {
 /// `z` (`[n]`, each [`Split3d::x`]), uncompressed: zip64 lets the archive pass 4 GiB, but each array must stay below 4 GiB
 /// (the `zip` writer refuses a larger member; at n = 65 that is N ≤ 1954, well above
 /// D5's 1000). The sidecar is a
-/// [`SidecarRecord`] as in 2D, with the 3D α ([`ALPHA`]), RNG ([`RNG`]) and ε_K
+/// [`SidecarRecord`](crate::neural_operators::data::loaders::poisson::SidecarRecord) as in
+/// 2D, written by `dataset::write_sidecar`, with the 3D α ([`ALPHA`]), RNG ([`RNG`]) and ε_K
 /// ([`eps_k`]). `name` is the split's name, e.g. `"train"`. Returns the two paths.
 ///
 /// # Errors
@@ -197,47 +196,29 @@ pub fn write_split_3d(
     }
     npz.finish().map_err(io::Error::other)?;
 
-    let n = split.spec.n;
-    let sidecar = SidecarRecord {
+    let facts = SidecarFacts {
+        spec: &split.spec,
         k: split.k,
-        k_explicit: split.spec.k.is_some(),
-        k_max: K_MAX,
+        label_check: split.label_check,
+        label_check_enforced: split.label_check_enforced,
+        error2: split.error2,
+        wall_time: split.wall_time,
         alpha: ALPHA,
-        base_seed: split.spec.base_seed,
-        convention_version: CONVENTION_VERSION,
-        count: split.spec.count,
-        crate_version: env!("CARGO_PKG_VERSION").to_string(),
+        rng: RNG,
         eps_k: eps_k(split.k),
-        error2: SidecarError2 {
-            d: TRANSFER_DEGREE,
-            max: split.error2.max,
-            mean: split.error2.mean,
-            s: n - 1,
-        },
-        git_commit: git_commit.to_string(),
-        label_check: SidecarLabelCheck {
-            enforced: split.label_check_enforced,
-            max: split.label_check.max,
-            mean: split.label_check.mean,
-            tolerance: LABEL_CHECK_TOL,
-        },
-        n,
-        rng: RNG.to_string(),
-        s: n - 1,
-        split: name.to_string(),
-        tau: TAU,
-        wall_time_s: split.wall_time.as_secs_f64(),
     };
-    let text = serde_json::to_string_pretty(&sidecar).map_err(io::Error::other)?;
-    fs::write(&json_path, text + "\n")?;
+    write_sidecar(&json_path, name, git_commit, &facts)?;
     Ok((npz_path, json_path))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CONVENTION_VERSION;
+    use crate::neural_operators::chebyshev::TRANSFER_DEGREE;
     use crate::neural_operators::data::io::readers::npz::NpzFileReader;
-    use crate::neural_operators::pde::poisson::grf::k_default;
+    use crate::neural_operators::data::loaders::poisson::SidecarRecord;
+    use crate::neural_operators::pde::poisson::grf::{K_MAX, TAU, k_default};
     use ndarray::{Array3, s};
 
     /// u_A3 and u_series for one seed, n, K.
@@ -378,6 +359,8 @@ mod tests {
         assert_eq!((record.error2.d, record.error2.s), (TRANSFER_DEGREE, 8));
         assert_eq!(record.convention_version, CONVENTION_VERSION);
         assert_eq!(record.git_commit, "abc123");
+        assert_eq!(record.crate_version, env!("CARGO_PKG_VERSION"));
+        assert!(record.wall_time_s > 0.0);
         fs::remove_dir_all(&dir).unwrap();
     }
 }
