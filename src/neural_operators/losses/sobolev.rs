@@ -10,7 +10,7 @@ use burn::tensor::Tensor;
 
 use super::{
     data_losses::{Reduction, root_zero_safe},
-    differentiation::FiniteDiff,
+    differentiation::{FiniteDiff, GridDiff},
 };
 
 /// Which Sobolev norm a [`SobolevLoss`] measures.

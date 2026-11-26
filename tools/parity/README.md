@@ -142,3 +142,13 @@ interior_weight=0.5)` (`poisson.{interior,boundary,eqn}`), with the source `pois
 differentiates u by autograd; the fixture also stores u at every point and its autograd
 derivatives at the interior points (`poisson.{u,u_x,u_y,lap}`), from which the Rust side
 forms the left-hand side. Inputs drawn in f32 and cast for f64.
+
+`derivatives_{f32,f64}` (CM1.6c), from the same script: `FourierDiff(dim=d, L=(2, 3, 1.5)[:d])`
+(no Fourier continuation, no low-pass filter) on seeded `u<d>` (2, 2, *grid) and `v<d>`
+(2, d, *grid) over the grids 32, 16 × 15 (one even, one odd axis) and 8 × 6 × 5: orders 1, 2,
+3 per axis (`fourier<d>.d<axis><order>`) and `fourier<d>.{laplacian,gradient,divergence,curl}`;
+and `non_uniform_fd` on seeded points in [0, 1)ᵈ with seeded values: 2D, N = 40, x and y, at
+the defaults (`nu2`), with `radius=0.2` (`nu2_radius`) and with `regularize_lstsq=True`
+(`nu2_reg`); 3D, N = 30, x and z, `num_neighbors=7` (`nu3`); keys `<case>.{points,values,d}`.
+Inputs drawn in f32 and cast for f64. Every array is written C-contiguous (einsum's outputs
+are strided views, which `np.savez` would store in Fortran order).

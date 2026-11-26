@@ -166,7 +166,10 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `equation_losses`: `BurgersEqnLoss`, `ic_loss`, the nonlinear Poisson losses, on a
   `differentiation::GridDiff` (`FiniteDiff`, or `MatrixDiff`, a matrix per axis,
   `chebyshev` behind `datagen`), with `pointwise::mean_squared_error` (`F.mse_loss`);
-  parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
+  since CM1.6c `differentiation::FourierDiff` (periodic spectral derivatives), `GridDiff`
+  carrying `dx`/`dy`/`dz`, `gradient`, `divergence`, `curl_2d`/`curl_3d` for every grid
+  operator, and `non_uniform_fd::NonUniformFd` (point-cloud first derivatives, host f64
+  weights); parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`

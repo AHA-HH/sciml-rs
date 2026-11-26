@@ -1,0 +1,85 @@
+{
+  "config": "derivatives",
+  "dtype": "f64",
+  "input_seed": 6,
+  "fourier_grids": {
+    "1": [
+      32
+    ],
+    "2": [
+      16,
+      15
+    ],
+    "3": [
+      8,
+      6,
+      5
+    ]
+  },
+  "fourier_L": [
+    2.0,
+    3.0,
+    1.5
+  ],
+  "fourier_orders": [
+    1,
+    2,
+    3
+  ],
+  "fourier": "FourierDiff(dim=d, L=fourier_L[:d]), use_fc=False, no low-pass filter",
+  "non_uniform": {
+    "nu2": {
+      "d": 2,
+      "n": 40,
+      "kwargs": {
+        "derivative_indices": [
+          0,
+          1
+        ]
+      }
+    },
+    "nu2_radius": {
+      "d": 2,
+      "n": 40,
+      "kwargs": {
+        "derivative_indices": [
+          0,
+          1
+        ],
+        "radius": 0.2
+      }
+    },
+    "nu2_reg": {
+      "d": 2,
+      "n": 40,
+      "kwargs": {
+        "derivative_indices": [
+          0,
+          1
+        ],
+        "regularize_lstsq": true
+      }
+    },
+    "nu3": {
+      "d": 3,
+      "n": 30,
+      "kwargs": {
+        "derivative_indices": [
+          0,
+          2
+        ],
+        "num_neighbors": 7
+      }
+    }
+  },
+  "keys": "u<d> (2, 2, *grid), v<d> (2, d, *grid); fourier<d>.d<axis><order>, fourier<d>.{laplacian,gradient,divergence,curl}; <nu>.{points (N, d),values (N),d (j, N)}",
+  "inputs": "drawn in f32, then cast; points uniform in [0, 1)^d",
+  "mode": "CPU, deterministic algorithms",
+  "versions": {
+    "python": "3.12.12",
+    "neuraloperator": "2.0.0",
+    "torch": "2.9.0",
+    "numpy": "2.3.4"
+  },
+  "platform": "Darwin arm64"
+}

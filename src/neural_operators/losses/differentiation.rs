@@ -1,16 +1,18 @@
-//! Finite differences on a uniform grid, as `neuraloperator` 2.0.0's `FiniteDiff`
-//! (`neuralop/losses/differentiation.py`; library CM1.6a).
+//! Derivatives on a uniform grid, as `neuraloperator` 2.0.0's `FiniteDiff` (library CM1.6a)
+//! and `FourierDiff` (CM1.6c; `neuralop/losses/differentiation.py`).
 //!
 //! The last `D` axes of a tensor are the spatial axes x, y, z, …; every axis before them is a
 //! batch-like axis the stencils leave alone. Along a periodic axis the stencils wrap round;
 //! along a non-periodic one they are central inside and one-sided at the two ends, with
 //! 2.0.0's coefficients. 2.0.0's `central_diff_{1,2,3}d` are [`FiniteDiff::partial`] on each
-//! axis. [`GridDiff`] is any such operator, [`MatrixDiff`] one by a matrix per axis
+//! axis. [`FourierDiff`] differentiates spectrally on a periodic grid. [`GridDiff`] is any such
+//! operator, with the vector-calculus operators on top; [`MatrixDiff`] one by a matrix per axis
 //! (library CM2.5).
 
 use burn::prelude::Device;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Tensor, TensorData, signal};
 use ndarray::Array2;
+use std::f64::consts::TAU;
 
 /// First and second derivatives on a uniform grid of `D` spatial axes.
 ///
@@ -78,30 +80,20 @@ impl<const D: usize> FiniteDiff<D> {
         };
         Tensor::cat(vec![first, inside, last], dim)
     }
+}
 
-    /// ∂u/∂x: [`partial`](Self::partial) on axis 0.
+/// Partial derivatives along the spatial axes of a grid: the last `D` axes of a tensor, x
+/// first, as [`FiniteDiff`], [`FourierDiff`] and [`MatrixDiff`] (library CM2.5, for the
+/// equation losses), and the vector-calculus operators built on them (CM1.6c).
+pub trait GridDiff<const D: usize> {
+    /// The derivative of order `order` of `u` along spatial axis `axis` (0 = x), for the
+    /// orders the operator supports (each implementor says which). `u`: `[.., s_1, .., s_D]`;
+    /// the result has the same shape.
     ///
     /// # Panics
-    /// As [`partial`](Self::partial).
-    pub fn dx<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
-        self.partial(u, 0, order)
-    }
-
-    /// ∂u/∂y: [`partial`](Self::partial) on axis 1.
-    ///
-    /// # Panics
-    /// As [`partial`](Self::partial).
-    pub fn dy<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
-        self.partial(u, 1, order)
-    }
-
-    /// ∂u/∂z: [`partial`](Self::partial) on axis 2.
-    ///
-    /// # Panics
-    /// As [`partial`](Self::partial).
-    pub fn dz<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
-        self.partial(u, 2, order)
-    }
+    /// If `R < D`, `axis >= D`, the operator has no derivative of that order, or the axis
+    /// does not fit the operator.
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R>;
 
     /// Σₐ ∂ᵏu/∂xₐᵏ over every spatial axis, k = `order`: for k = 1 the sum of the first
     /// partials (2.0.0's `HdivLoss` term), for k = 2 the Laplacian. `u`: `[.., s_1, .., s_D]`;
@@ -109,7 +101,7 @@ impl<const D: usize> FiniteDiff<D> {
     ///
     /// # Panics
     /// As [`partial`](Self::partial).
-    pub fn partial_sum<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
+    fn partial_sum<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
         (1..D).fold(self.partial(u.clone(), 0, order), |acc, a| {
             acc + self.partial(u.clone(), a, order)
         })
@@ -119,18 +111,42 @@ impl<const D: usize> FiniteDiff<D> {
     ///
     /// # Panics
     /// As [`partial`](Self::partial).
-    pub fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
+    fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
         self.partial_sum(u, 2)
     }
 
+    /// ∂u/∂x: [`partial`](Self::partial) on axis 0.
+    ///
+    /// # Panics
+    /// As [`partial`](Self::partial).
+    fn dx<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
+        self.partial(u, 0, order)
+    }
+
+    /// ∂u/∂y: [`partial`](Self::partial) on axis 1.
+    ///
+    /// # Panics
+    /// As [`partial`](Self::partial).
+    fn dy<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
+        self.partial(u, 1, order)
+    }
+
+    /// ∂u/∂z: [`partial`](Self::partial) on axis 2.
+    ///
+    /// # Panics
+    /// As [`partial`](Self::partial).
+    fn dz<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
+        self.partial(u, 2, order)
+    }
+
     /// The gradient: `u` `[.., s_1, .., s_D]` to `[.., D, s_1, .., s_D]`, the components
-    /// stacked on a new axis before the spatial ones. 2.0.0 omits that axis in 1D only; here
-    /// it is always present.
+    /// stacked on a new axis before the spatial ones. 2.0.0's `FiniteDiff` omits that axis in
+    /// 1D only (its `FourierDiff` keeps it); here it is always present.
     ///
     /// # Panics
     /// If `S != R + 1`, or as [`partial`](Self::partial).
-    pub fn gradient<const R: usize, const S: usize>(&self, u: Tensor<R>) -> Tensor<S> {
-        assert_eq!(S, R + 1, "FiniteDiff::gradient: output rank must be R + 1");
+    fn gradient<const R: usize, const S: usize>(&self, u: Tensor<R>) -> Tensor<S> {
+        assert_eq!(S, R + 1, "GridDiff::gradient: output rank must be R + 1");
         let parts = (0..D).map(|a| self.partial(u.clone(), a, 1)).collect();
         Tensor::stack(parts, R - D)
     }
@@ -141,13 +157,9 @@ impl<const D: usize> FiniteDiff<D> {
     /// # Panics
     /// If `S + 1 != R`, the component axis is not of length `D`, or as
     /// [`partial`](Self::partial).
-    pub fn divergence<const R: usize, const S: usize>(&self, v: Tensor<R>) -> Tensor<S> {
-        assert_eq!(
-            S + 1,
-            R,
-            "FiniteDiff::divergence: output rank must be R − 1"
-        );
-        let c = self.component_axis(&v);
+    fn divergence<const R: usize, const S: usize>(&self, v: Tensor<R>) -> Tensor<S> {
+        assert_eq!(S + 1, R, "GridDiff::divergence: output rank must be R − 1");
+        let c = component_axis::<D, R>(&v);
         (1..D)
             .fold(self.partial(v.clone().narrow(c, 0, 1), 0, 1), |acc, a| {
                 acc + self.partial(v.clone().narrow(c, a, 1), a, 1)
@@ -161,10 +173,10 @@ impl<const D: usize> FiniteDiff<D> {
     /// # Panics
     /// If `D != 2`, `S + 1 != R`, the component axis is not of length 2, or as
     /// [`partial`](Self::partial).
-    pub fn curl_2d<const R: usize, const S: usize>(&self, v: Tensor<R>) -> Tensor<S> {
-        assert_eq!(D, 2, "FiniteDiff::curl_2d in {D}D");
-        assert_eq!(S + 1, R, "FiniteDiff::curl_2d: output rank must be R − 1");
-        let c = self.component_axis(&v);
+    fn curl_2d<const R: usize, const S: usize>(&self, v: Tensor<R>) -> Tensor<S> {
+        assert_eq!(D, 2, "GridDiff::curl_2d in {D}D");
+        assert_eq!(S + 1, R, "GridDiff::curl_2d: output rank must be R − 1");
+        let c = component_axis::<D, R>(&v);
         let d = |i: usize, axis: usize| self.partial(v.clone().narrow(c, i, 1), axis, 1);
         (d(1, 0) - d(0, 1)).squeeze_dim(c)
     }
@@ -174,55 +186,84 @@ impl<const D: usize> FiniteDiff<D> {
     ///
     /// # Panics
     /// If `D != 3`, the component axis is not of length 3, or as [`partial`](Self::partial).
-    pub fn curl_3d<const R: usize>(&self, v: Tensor<R>) -> Tensor<R> {
-        assert_eq!(D, 3, "FiniteDiff::curl_3d in {D}D");
-        let c = self.component_axis(&v);
+    fn curl_3d<const R: usize>(&self, v: Tensor<R>) -> Tensor<R> {
+        assert_eq!(D, 3, "GridDiff::curl_3d in {D}D");
+        let c = component_axis::<D, R>(&v);
         let d = |i: usize, axis: usize| self.partial(v.clone().narrow(c, i, 1), axis, 1);
         Tensor::cat(
             vec![d(2, 1) - d(1, 2), d(0, 2) - d(2, 0), d(1, 0) - d(0, 1)],
             c,
         )
     }
-
-    /// The axis of a vector field's components, just before the spatial axes.
-    fn component_axis<const R: usize>(&self, v: &Tensor<R>) -> usize {
-        assert!(R > D, "FiniteDiff: a vector field needs a component axis");
-        let c = R - D - 1;
-        assert_eq!(
-            v.dims()[c],
-            D,
-            "FiniteDiff: {} components on axis {c}, expected {D}",
-            v.dims()[c]
-        );
-        c
-    }
 }
 
-/// Partial derivatives of order 1 or 2 along the spatial axes of a grid: the last `D` axes
-/// of a tensor, x first, as [`FiniteDiff`] (library CM2.5, for the equation losses).
-pub trait GridDiff<const D: usize> {
-    /// The derivative of order `order` (1 or 2) of `u` along spatial axis `axis` (0 = x).
-    /// `u`: `[.., s_1, .., s_D]`; the result has the same shape.
-    ///
-    /// # Panics
-    /// If `R < D`, `axis >= D`, `order` is not 1 or 2, or the axis does not fit the
-    /// operator.
-    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R>;
-
-    /// The Laplacian Σₐ ∂²u/∂xₐ². `u`: `[.., s_1, .., s_D]`; the result has the same shape.
-    ///
-    /// # Panics
-    /// As [`partial`](Self::partial).
-    fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
-        (1..D).fold(self.partial(u.clone(), 0, 2), |acc, a| {
-            acc + self.partial(u.clone(), a, 2)
-        })
-    }
+/// The axis of a vector field's components, just before the spatial axes.
+fn component_axis<const D: usize, const R: usize>(v: &Tensor<R>) -> usize {
+    assert!(R > D, "GridDiff: a vector field needs a component axis");
+    let c = R - D - 1;
+    assert_eq!(
+        v.dims()[c],
+        D,
+        "GridDiff: {} components on axis {c}, expected {D}",
+        v.dims()[c]
+    );
+    c
 }
 
 impl<const D: usize> GridDiff<D> for FiniteDiff<D> {
     fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
         FiniteDiff::partial(self, u, axis, order)
+    }
+}
+
+/// Spectral derivatives on a periodic uniform grid, as 2.0.0's `FourierDiff` without Fourier
+/// continuation and without its low-pass filter (library CM1.6c).
+///
+/// Along an axis of n points on a domain of length L (step L / n, the point L left out), the
+/// derivative of order p multiplies the `rfft` coefficient of wavenumber k = 2π m / L,
+/// m = 0, …, ⌊n/2⌋, by (i k)ᵖ and transforms back by `irfft`. 2.0.0 takes `fftn` and the real
+/// part of `ifftn` in 2D and 3D; for a derivative along one axis that is the same per-axis
+/// transform. At the Nyquist bin of an even n an odd order contributes nothing to the real
+/// part, so its multiplier is 0 here.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FourierDiff<const D: usize> {
+    /// The length of the periodic domain along each spatial axis (2.0.0's `L`; its default
+    /// is 2π, [`TAU`]).
+    pub l: [f64; D],
+}
+
+impl<const D: usize> GridDiff<D> for FourierDiff<D> {
+    /// Any order from 1.
+    ///
+    /// # Panics
+    /// If `R < D`, `axis >= D` or `order == 0`.
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
+        assert!(R >= D, "FourierDiff: rank {R} below the {D} spatial axes");
+        assert!(axis < D, "FourierDiff: axis {axis} of {D}");
+        assert!(order >= 1, "FourierDiff: order 0");
+        let dim = R - D + axis;
+        let n = u.dims()[dim];
+        let bins = n / 2 + 1;
+        // (i k)ᵖ = iᵖ kᵖ: the real factor ±kᵖ, times i for an odd p.
+        let sign = if order % 4 < 2 { 1.0 } else { -1.0 };
+        let odd = order % 2 == 1;
+        let factor: Vec<f64> = (0..bins)
+            .map(|m| match odd && 2 * m == n {
+                true => 0.0,
+                false => sign * (TAU * m as f64 / self.l[axis]).powi(order as i32),
+            })
+            .collect();
+        let mut shape = [1; R];
+        shape[dim] = bins;
+        let factor =
+            Tensor::<1>::from_data(TensorData::new(factor, [bins]), &u.device()).reshape(shape);
+        let (re, im) = signal::rfft(u, dim, None);
+        let (re, im) = match odd {
+            // i · (re + i im) = −im + i re
+            true => ((im * factor.clone()).neg(), re * factor),
+            false => (re * factor.clone(), im * factor),
+        };
+        signal::irfft(re, im, dim, Some(n))
     }
 }
 
@@ -435,6 +476,69 @@ mod tests {
             periodic: [true],
         }
         .curl_2d(v);
+    }
+
+    /// A trigonometric polynomial below the Nyquist mode, u = sin(3ωx) + cos(5ωx) with
+    /// ω = 2π / L, on odd and even grids: orders 1–3 equal the closed forms up to f32 rounding
+    /// (relative 1e-4).
+    #[test]
+    fn fourier_exact_on_a_trigonometric_polynomial() {
+        let l = 2.0;
+        let w = TAU / l;
+        for n in [15, 16] {
+            let xs: Vec<f64> = (0..n).map(|i| i as f64 * l / n as f64).collect();
+            let u = row(xs
+                .iter()
+                .map(|x| (3.0 * w * x).sin() + (5.0 * w * x).cos())
+                .collect());
+            let fd = FourierDiff { l: [l] };
+            // d^p/dx^p sin(ax) = a^p sin(ax + pπ/2), and cos likewise.
+            for p in 1..=3 {
+                let shift = p as f64 * PI / 2.0;
+                let exact: Vec<f64> = xs
+                    .iter()
+                    .map(|x| {
+                        (3.0 * w).powi(p) * (3.0 * w * x + shift).sin()
+                            + (5.0 * w).powi(p) * (5.0 * w * x + shift).cos()
+                    })
+                    .collect();
+                let got = values(fd.dx(u.clone(), p as usize));
+                let scale = exact.iter().fold(0.0_f64, |m, e| m.max(e.abs()));
+                let err = max_abs_diff(&got, &exact) / scale;
+                assert!(err < 1e-4, "n {n}, order {p}: {err:e}");
+            }
+        }
+    }
+
+    /// The Nyquist mode (−1)ʲ of an even grid: odd orders give 0 (2.0.0's real part), order 2
+    /// gives −k² u with k = π n / L.
+    #[test]
+    fn fourier_nyquist_mode() {
+        let (n, l) = (8, 2.0);
+        let u: Vec<f64> = (0..n)
+            .map(|j| if j % 2 == 0 { 1.0 } else { -1.0 })
+            .collect();
+        let fd = FourierDiff { l: [l] };
+        let k = PI * n as f64 / l;
+        for p in [1, 3] {
+            let got = values(fd.dx(row(u.clone()), p));
+            assert!(got.iter().all(|x| x.abs() < 1e-4), "order {p}: {got:?}");
+        }
+        let got = values(fd.dx(row(u.clone()), 2));
+        let exact: Vec<f64> = u.iter().map(|x| -k * k * x).collect();
+        assert!(max_abs_diff(&got, &exact) < 1e-4 * k * k, "{got:?}");
+    }
+
+    #[test]
+    #[should_panic(expected = "order 0")]
+    fn fourier_order_zero_panics() {
+        FourierDiff { l: [1.0] }.partial(row(vec![0.0; 4]), 0, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "axis 1 of 1")]
+    fn fourier_axis_beyond_d_panics() {
+        FourierDiff { l: [1.0] }.partial(row(vec![0.0; 4]), 1, 1);
     }
 
     /// The periodic central-difference matrices of `n` points with step `h`.

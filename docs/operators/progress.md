@@ -494,3 +494,37 @@ template:
 - Matrix: `GridEmbeddingND` and `SinusoidalEmbedding`/`RotaryEmbedding2D` rows have; `FNO`
   partial, noting the new options.
 - Follow-ups: CM1.5's line (F1, F4, f64 fixtures with f64 constants).
+
+## 2026-11-26: CM1.6c Fourier and non-uniform derivatives
+- Done: `losses/differentiation.rs`: `FourierDiff<D>` (`l`, 2.0.0's `L`), any order by a
+  per-axis `rfft`/`irfft` with (i k)ᵖ, k = 2π m / L, the odd-order Nyquist multiplier 0
+  (equal to 2.0.0's `fftn` and real part for a one-axis derivative). `GridDiff` now carries
+  `dx`/`dy`/`dz`, `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`
+  for every grid operator (moved from `FiniteDiff`, bodies unchanged). New
+  `losses/non_uniform_fd.rs`: `NonUniformFd` (2.0.0's arguments and defaults), `stencils`
+  on the host in f64 (k nearest points; minimum-norm weights by QR of Aᵀ as gelsy, or 2.0.0's
+  ridge system by Cholesky), `Stencils::apply` on any device with gradients to the values.
+  Fixtures `derivatives_{f32,f64}` from `generate_losses.py` (now writing every array
+  C-contiguous; the existing fixtures unchanged).
+- Tests: parity of `FourierDiff` 1D–3D (orders 1–3 per axis, Laplacian, gradient, divergence,
+  curl; grids 32, 16 × 15, 8 × 6 × 5): f32 ≤ 4.9e-7; f64 `#[ignore]`d, 4.0e-7 (Flex's f32
+  twiddles, D3 as amended). `non_uniform_fd` (2D default, radius 0.2, ridge; 3D 7
+  neighbours): f32 ≤ 6.3e-7, f64 ≤ 1.2e-15; the ridge case (condition ≈ 5e6, 2.0.0's own f32
+  result 4.0e-2 from its f64) f32 against the f64 reference 7.3e-8, f64 6.4e-11 ≤ 1e-9. A
+  swapped-axis control fails (> 0.1). Unit tests: Fourier exact on a trigonometric
+  polynomial (n = 15, 16), the Nyquist mode, panics; stencils exact on affine functions (both
+  solvers), the minimum-norm weights against Aᵀ(AAᵀ)⁻¹b, the radius mask, the gradient to the
+  values against the weights, panics.
+- Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo test --features datagen`,
+  `cargo doc`, `generate_losses.py --check`, the bit-identity dumps against `main`). Not run:
+  `--features metal` (nothing backend-specific beyond Burn's `rfft`/`irfft`, `select`).
+- Decisions: the ridge case's bounds (f32 against 2.0.0's f64 reference within D3; f64
+  within 1e-9, not 1e-12) signed off 2026-11-26 by the author: accept.
+- Review: plan review PASS (advisories fixed: plan text, the gradient test, the tie note).
+  Code quality APPROVE with findings: F1 (`partial_sum` on `GridDiff`), F2 (one
+  vector-calculus check), F3 (the ridge reference explicit), F4, F5 (`Stencils`), F8
+  (`FourierDiff`'s `partial` in its trait impl), F10, F11 fixed; F6 (one factorisation per
+  point), F7 (an enum for the solver), F9 (the ridge solve by QR) left, optional, in the PR.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` and the branch, `cmp`).
+- Matrix: `FourierDiff` partial, `non_uniform_fd` have.
+- Follow-ups: CM2.4's line (`use_fc`, `low_pass_filter_ratio`, the mixed derivative).
