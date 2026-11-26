@@ -164,7 +164,7 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   positional_embedding}`; `tests/parity_embeddings.rs` (eight fixtures, `FNO` with
   `n_layers=0` for the lifting and projection, f32 ≤ 7.8e-7), `_f64.rs` (seven `#[ignore]`d:
   2.0.0's grid and frequencies are f32); the CM0.3 dumps identical to `main`.
-- [ ] **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
+- **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
   Darcy- and Burgers-shaped inputs; resampling (`resolution_scaling_factor`) and domain
   padding. *Needs:* CM1.2, CM1.3b, CM1.4. Also from CM1.3b: the spectral convolution's bias
   inside the block (2.0.0 adds it before the norm; CM1.3b's fixtures turn it off), and the
@@ -177,6 +177,33 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   embeddings}.rs`; from its plan review: the f64 fixtures of 2.0.0's grid and frequencies
   generated under `torch.set_default_dtype(torch.float64)`, so their seven f64 tests run
   (CM1.4's are `#[ignore]`d, f32-accurate), if CM1.5's own f64 FNO fixtures need it.
+  Split 2026-11-26 (over 1,000 lines across the FNO, two new layers and the parity tests):
+  - [ ] **CM1.5a Whole-FNO parity, defaults and block sweeps.** 2.0.0's `FNO` end to end
+    (grid, lifting, centred convolutions with their bias, blocks, projection) through one
+    parameter map; `FNOConfig` gains the convolution's bias, `separable`, `max_n_modes` and
+    the tanh stabiliser, each off by default; with it CM1.4's shared parity helpers (F4).
+    *Done when:* `fno1d` and `fno2d` (2.0.0's defaults, Burgers- and Darcy-shaped) and the
+    sweep fixtures (norms, pre-activation, skips, ratios, activations, no grid, separable,
+    `max_n_modes`, an odd mode count, 3D, the stabiliser) pass through `FNO` within D3 in
+    f32; the f64 tests `#[ignore]`d with their errors recorded; the FNO's bit-identity
+    dumps equal `main`'s. *Needs:* CM1.2, CM1.3b, CM1.4.
+  - [ ] **CM1.5b Domain padding and resampling.** 2.0.0's `DomainPadding` (symmetric, a
+    fraction of the resolution, unpadded at the scaled size) as an FNO option beside
+    CONVENTIONS §3's one-sided `padding`; `resample` (linear in 1D, bicubic in 2D, Fourier
+    for three or more axes) and the convolution's output size (`resolution_scaling_factor`
+    per layer, `forward`'s `output_shape`). *Done when:* fixtures with padding and with
+    scaling factors, 1D–3D, pass through `FNO` within D3 in f32; the dumps equal `main`'s.
+    *Needs:* CM1.5a.
+  - [ ] **CM1.5c Batch norm.** `NormKind::Batch` as 2.0.0's `batch_norm` (eval mode: the
+    running statistics), and 2.0.0's `fno_skip=None` if the author wants it (CM1.5a PR).
+    *Done when:* an `FNO` fixture with `norm="batch_norm"` passes within D3 in f32; the
+    dumps equal `main`'s. *Needs:* CM1.5a.
+  - [ ] **CM1.5d Tidy after full parity.** The CM1.3b, CM1.4 and CM1.2 follow-ups above
+    not taken by CM1.5a: the `FNOConfig` literals, one coordinate-channel builder (the
+    dumps and `gpu_parity` decide), `layers/spectral_convolution.rs` split, one shared
+    biased test layer, converted arrays passed to `load_into` with `Fixture`'s fields
+    private. *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
+    *Needs:* CM1.5a.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
   `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
