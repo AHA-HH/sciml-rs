@@ -18,7 +18,7 @@ split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. CM1.6
 2026-11-25 (the aggregators). CM1.2 done 2026-11-25 (the centred layer, separable, modes
 below the stored maximum). CM1.3b done 2026-11-25 (the FNO's block options; FNO outputs
 unchanged bit for bit). CM2.5 done 2026-11-26 (the equation losses, PINO; independent of
-D6). Next CM0.6, CM1.4 and CM1.6c.
+D6). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). Next CM0.6 and CM1.4.
 
 ## How to read this file
 
@@ -192,9 +192,14 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     done (`tests/flex_f64/` for the four f64 binaries), except the `#[allow(dead_code)]` on
     `mod parity_common` in the two loss binaries, which use no parameter map (kept, see
     the plan).
-  - [ ] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
+  - [x] **CM1.6c Fourier and non-uniform derivatives.** `FourierDiff` without Fourier
     continuation (that option with CM2.4), `non_uniform_fd`. *Done when:* each against
-    fixtures. *Needs:* CM0.5.
+    fixtures. *Needs:* CM0.5. Done 2026-11-26: plan `docs/operators/tasks/CM1.6c.md`;
+    `losses/differentiation.rs` (`FourierDiff`; the vector operators on `GridDiff`),
+    `losses/non_uniform_fd.rs`; parity `tests/parity_losses.rs` (f32 ≤ 6.3e-7),
+    `tests/parity_losses_f64.rs` (`non_uniform_fd` ≤ 1.2e-15; Fourier `#[ignore]`d at 4.0e-7,
+    Flex's f32 twiddles; the ridge case within 1e-9, a question for sign-off); fixtures
+    `derivatives_{f32,f64}` from `tools/parity/generate_losses.py`.
 - [ ] **CM1.7 Training features.** Incremental modes and resolution, AdamW as 2.0.0's,
   mixed precision, multigrid patching. *Needs:* CM0.3, CM1.5.
 - [ ] **CM1.8 Training parity on the 2D Poisson baseline.** The protocol of proposal §5,
@@ -212,7 +217,9 @@ The order of M2 and M3 is set at the M1 gate (D6).
   (CM0.4 review F4).
 - [ ] **CM2.2 UNO.** Resolution-changing blocks on `resample`. *Needs:* M1.
 - [ ] **CM2.3 LocalNO.** Differential and DISCO convolutions, `local_no_block`. *Needs:* M1.
-- [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1.
+- [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1. With it,
+  `FourierDiff`'s `use_fc`, and the two `FourierDiff` options CM1.6c left out:
+  `low_pass_filter_ratio` and the mixed `derivative` / `compute_multiple_derivatives`.
 - [x] **CM2.5 Equation losses (PINO).** `equation_losses` on CM1.6's derivatives; the
   crate's Chebyshev differentiation as a second path. *Needs:* CM1.6a (2.0.0's
   `equation_losses` imports only `FiniteDiff`). Done 2026-11-26: plan
