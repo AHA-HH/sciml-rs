@@ -5,14 +5,14 @@
 
 use burn::prelude::*;
 use ndarray::{ArrayD, Axis};
-use sciml_rs::neural_operators::{
-    layers::{embedding::GridEmbeddingNd, skip::SkipKind},
-    models::fno::{Activation, BlockMlpConfig, FNOConfig, PositionalEmbedding},
-};
+use sciml_rs::neural_operators::models::fno::FNOConfig;
 
-use crate::parity_common::{
-    Fixture, MapEntry, Precision, Take, block_parts, centred_to_corners, check_d3, leak,
-    lift_project, load_into, to_channels_first, to_channels_last,
+use crate::{
+    fno_map::{
+        block_defaults, block_parts, leak, lift_defaults, lift_project, to_channels_first,
+        to_channels_last,
+    },
+    parity_common::{Fixture, MapEntry, Precision, Take, centred_to_corners, check_d3, load_into},
 };
 
 /// A fixture's configuration, as `generate.py`'s `CONFIGS`.
@@ -32,18 +32,10 @@ pub struct Case {
     pub options: fn(FNOConfig) -> FNOConfig,
 }
 
-/// 2.0.0's `FNO` defaults, as `FNOConfig`'s options: GELU, the linear FNO skip, the channel
-/// MLP of expansion 0.5 with a soft-gating skip, lifting and projection ratios 2, the unit
-/// grid, the convolution's bias.
+/// 2.0.0's `FNO` defaults: the block's and the lifting's ([`block_defaults`],
+/// [`lift_defaults`]), and the convolution's bias.
 pub fn defaults(c: FNOConfig) -> FNOConfig {
-    let d = c.modes.len();
-    c.with_activation(Some(Activation::Gelu))
-        .with_fno_skip(Some(SkipKind::Linear))
-        .with_channel_mlp(Some(BlockMlpConfig::new()))
-        .with_lifting_channel_ratio(Some(2.0))
-        .with_projection_channel_ratio(Some(2.0))
-        .with_positional_embedding(Some(PositionalEmbedding::GridNd(GridEmbeddingNd::unit(d))))
-        .with_conv_bias(Some(true))
+    lift_defaults(block_defaults(c)).with_conv_bias(Some(true))
 }
 
 /// 2.0.0's defaults, `FNO(n_modes=(8,), in=1, out=1, hidden=8)` on (2, 1, 64): Burgers-shaped.
@@ -110,20 +102,16 @@ fn convert(fixture: &mut Fixture, config: &FNOConfig, d: usize) {
 
 /// The whole map, from 2.0.0's `FNO` names to the crate's `FNO` paths, for `config`.
 fn map(config: &FNOConfig, d: usize) -> Vec<MapEntry> {
-    let two_layer_lifting = config
-        .lifting_channel_ratio
-        .is_some_and(|r| (r * config.hidden_channels as f64) as usize > 0);
-    let mut m = lift_project(two_layer_lifting, "");
+    let mut m = lift_project(config, "");
     for l in 0..config.n_layers {
         for c in 0..1 << (d - 1) {
             let from = leak(format!("fno_blocks.convs.{l}.weight.corner{c}"));
             m.push((from, leak(format!("conv.{l}.weights_re.{c}")), Take::Re));
             m.push((from, leak(format!("conv.{l}.weights_im.{c}")), Take::Im));
         }
-        if config.conv_bias == Some(true) {
-            let from = leak(format!("fno_blocks.convs.{l}.bias"));
-            m.push((from, leak(format!("conv_biases.{l}")), Take::Whole));
-        }
+        // 2.0.0's convolutions always have a bias here (`defaults`).
+        let from = leak(format!("fno_blocks.convs.{l}.bias"));
+        m.push((from, leak(format!("conv_biases.{l}")), Take::Whole));
     }
     m.extend(block_parts(config, ""));
     m

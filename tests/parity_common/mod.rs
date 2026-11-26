@@ -12,9 +12,9 @@
 //! `centred_conv.rs`, D5).
 //!
 //! The reference models beside this file (`fno1d.rs`, `legacy_conv.rs`) are included only by
-//! the test binaries that use them, with `#[path]`, so no binary compiles dead code. The map
-//! pieces two of them share (the FNO's block parts, lifting and projection, 2.0.0's centred
-//! spectral weights as corners) are here, with the harness (library CM1.5a).
+//! the test binaries that use them, with `#[path]`, so no binary compiles dead code; the FNO
+//! family's shared map pieces are `fno_map.rs`, included the same way (library CM1.5a).
+//! 2.0.0's centred spectral weights as corners (`centred_to_corners`) are here.
 
 use std::{collections::BTreeMap, path::Path};
 
@@ -25,11 +25,7 @@ use burn::{
 };
 use ndarray::{ArrayD, Axis, Slice, concatenate};
 use ndarray_npy::NpzReader;
-use sciml_rs::neural_operators::{
-    data::io::readers::npz::NpzFileReader,
-    layers::{norm::NormKind, skip::SkipKind},
-    models::fno::FNOConfig,
-};
+use sciml_rs::neural_operators::data::io::readers::npz::NpzFileReader;
 
 /// D3's bound in f32: relative max error ≤ 1e-5 (roadmap, signed off 2026-11-25).
 pub const D3_F32: f64 = 1e-5;
@@ -399,32 +395,6 @@ pub fn check_d3<const R: usize>(actual: Tensor<R>, fixture: &mut Fixture) -> f64
     err
 }
 
-/// `[B, C, s..]` → `[B, s.., C]`: a channels-first fixture tensor for the FNO.
-#[allow(
-    dead_code,
-    reason = "every parity binary includes this harness; only the FNO's binaries permute"
-)]
-pub fn to_channels_last<const R: usize>(x: Tensor<R>) -> Tensor<R> {
-    x.permute(core::array::from_fn(|i| match i {
-        0 => 0,
-        i if i == R - 1 => 1,
-        i => i + 1,
-    }))
-}
-
-/// `[B, s.., C]` → `[B, C, s..]`, the inverse of [`to_channels_last`].
-#[allow(
-    dead_code,
-    reason = "every parity binary includes this harness; only the FNO's binaries permute"
-)]
-pub fn to_channels_first<const R: usize>(x: Tensor<R>) -> Tensor<R> {
-    x.permute(core::array::from_fn(|i| match i {
-        0 => 0,
-        1 => R - 1,
-        i => i - 1,
-    }))
-}
-
 /// 2.0.0's centred spectral weight `a`, `(lead.., K_0, .., K_{d−1}, 2)` with a trailing
 /// (re, im) axis, as the crate's `2^(d−1)` mode corners, in corner order (bit `j` of the
 /// index is axis `j`, CONVENTIONS §5), each `(lead.., m_0, .., m_{d−2}, K_{d−1}, 2)`
@@ -477,137 +447,4 @@ pub fn centred_to_corners(a: ArrayD<f64>, d: usize) -> Vec<ArrayD<f64>> {
             c
         })
         .collect()
-}
-
-/// A map path built at run time. Test-only: leaked, so the harness's `&'static str`
-/// entries can be built in a loop.
-#[allow(
-    dead_code,
-    reason = "every parity binary includes this harness; only generated maps use it"
-)]
-pub fn leak(path: String) -> &'static str {
-    path.leak()
-}
-
-/// 2.0.0's `FNO` lifting and projection (`lifting.fcs.*`, `projection.fcs.*`) to the
-/// crate's `fc0`, `lifting_out.0` (with a two-layer lifting), `fc1`, `fc2`, under the Burn
-/// path prefix `to` (library CM1.4).
-#[allow(
-    dead_code,
-    reason = "every parity binary includes this harness; only the FNO's binaries map it"
-)]
-pub fn lift_project(two_layer_lifting: bool, to: &str) -> Vec<MapEntry> {
-    let mut layers = vec![
-        ("lifting.fcs.0", "fc0"),
-        ("projection.fcs.0", "fc1"),
-        ("projection.fcs.1", "fc2"),
-    ];
-    if two_layer_lifting {
-        layers.push(("lifting.fcs.1", "lifting_out.0"));
-    }
-    layers
-        .into_iter()
-        .flat_map(|(from, at)| {
-            [
-                (
-                    leak(format!("{from}.weight")),
-                    leak(format!("{to}{at}.weight")),
-                    Take::Transposed,
-                ),
-                (
-                    leak(format!("{from}.bias")),
-                    leak(format!("{to}{at}.bias")),
-                    Take::Whole,
-                ),
-            ]
-        })
-        .collect()
-}
-
-/// The parts of 2.0.0's `FNOBlocks` (`fno_blocks.*`) other than the spectral convolutions,
-/// for the block options of `options`, to the crate's `FNO` under the Burn path prefix `to`:
-/// the FNO skips, channel MLPs and their skips, and the norms (library CM1.3b). Burn names
-/// an enum module's parameters after the variant (`Linear`, `SoftGating`, `Group`, `AdaIn`).
-#[allow(
-    dead_code,
-    reason = "every parity binary includes this harness; only the FNO's binaries map it"
-)]
-pub fn block_parts(options: &FNOConfig, to: &str) -> Vec<MapEntry> {
-    let mut m = Vec::new();
-    let skip = |m: &mut Vec<MapEntry>, from: String, to: String, kind: &Option<SkipKind>| {
-        match kind {
-            // 2.0.0's linear skip is a `Flattened1dConv`, its weight `conv.weight`.
-            Some(SkipKind::Linear) => m.push((
-                leak(format!("{from}.conv.weight")),
-                leak(format!("{to}.Linear.weight")),
-                Take::Whole,
-            )),
-            Some(SkipKind::SoftGating) => m.push((
-                leak(format!("{from}.weight")),
-                leak(format!("{to}.SoftGating")),
-                Take::Whole,
-            )),
-            Some(SkipKind::Identity) | None => {}
-        }
-    };
-    for l in 0..options.n_layers {
-        skip(
-            &mut m,
-            format!("fno_blocks.fno_skips.{l}"),
-            format!("{to}fno_skips.{l}"),
-            &options.fno_skip,
-        );
-        if let Some(mlp) = &options.channel_mlp {
-            for k in 0..2 {
-                for p in ["weight", "bias"] {
-                    let path = format!("channel_mlp.{l}.fcs.{k}.{p}");
-                    m.push((
-                        leak(format!("fno_blocks.{path}")),
-                        leak(format!("{to}{path}")),
-                        Take::Whole,
-                    ));
-                }
-            }
-            skip(
-                &mut m,
-                format!("fno_blocks.channel_mlp_skips.{l}"),
-                format!("{to}channel_mlp_skips.{l}"),
-                &mlp.skip,
-            );
-        }
-    }
-    for k in 0..2 * options.n_layers {
-        let (from, to) = (format!("fno_blocks.norm.{k}"), format!("{to}norms.{k}"));
-        match options.norm {
-            Some(NormKind::Group) => {
-                m.push((
-                    leak(format!("{from}.weight")),
-                    leak(format!("{to}.Group.gamma")),
-                    Take::Whole,
-                ));
-                m.push((
-                    leak(format!("{from}.bias")),
-                    leak(format!("{to}.Group.beta")),
-                    Take::Whole,
-                ));
-            }
-            Some(NormKind::AdaIn { .. }) => {
-                for (t, b) in [(0, "fc_hidden"), (2, "fc_out")] {
-                    let (f, t) = (format!("{from}.mlp.{t}"), format!("{to}.AdaIn.{b}"));
-                    m.push((
-                        leak(format!("{f}.weight")),
-                        leak(format!("{t}.weight")),
-                        Take::Transposed,
-                    ));
-                    m.push((
-                        leak(format!("{f}.bias")),
-                        leak(format!("{t}.bias")),
-                        Take::Whole,
-                    ));
-                }
-            }
-            Some(NormKind::Instance) | None => {}
-        }
-    }
-    m
 }

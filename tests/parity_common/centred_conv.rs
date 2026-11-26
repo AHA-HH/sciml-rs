@@ -15,8 +15,9 @@ use burn::{module::Param, prelude::*};
 use ndarray::{ArrayD, Axis};
 use sciml_rs::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
 
-pub use crate::parity_common::centred_to_corners;
-use crate::parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into};
+use crate::parity_common::{
+    Fixture, MapEntry, Precision, Take, assert_parity, centred_to_corners, load_into,
+};
 
 /// 2.0.0's centred layer: the spectral convolution, then the bias.
 #[derive(Module, Debug)]
@@ -178,7 +179,7 @@ pub fn output<const R: usize>(
     (out, fixture.output())
 }
 
-/// Asserts `case` in `precision`, through [`centred_to_corners`], is within D3; prints and
+/// Asserts `case` in `precision`, through `centred_to_corners`, is within D3; prints and
 /// returns the error.
 ///
 /// # Panics

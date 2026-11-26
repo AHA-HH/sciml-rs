@@ -13,14 +13,15 @@ fn sizes(fno: &FNO<4>) -> Vec<(String, usize)> {
     params(fno).into_iter().map(|(n, v)| (n, v.len())).collect()
 }
 
-/// Every option given its "off" value builds the parameters of every option absent.
+/// Every option given its "off" value (`max_modes` equal to `modes`) builds the parameters of
+/// every option absent.
 #[test]
 fn options_off_build_today_s_parameters() {
     let device = Device::default();
     let off = config()
         .with_conv_bias(Some(false))
         .with_separable(Some(false))
-        .with_max_modes(None)
+        .with_max_modes(Some(vec![3, 2]))
         .with_tanh_stabilizer(Some(false))
         .init::<4>(&device);
     assert_eq!(sizes(&off), sizes(&config().init::<4>(&device)));
@@ -75,5 +76,13 @@ fn max_modes_stores_more_than_it_uses() {
 fn max_modes_below_modes_panics() {
     config()
         .with_max_modes(Some(vec![2, 2]))
+        .init::<4>(&Device::default());
+}
+
+#[test]
+#[should_panic(expected = "one entry per spatial axis")]
+fn max_modes_of_the_wrong_rank_panics() {
+    config()
+        .with_max_modes(Some(vec![5, 4, 4]))
         .init::<4>(&Device::default());
 }

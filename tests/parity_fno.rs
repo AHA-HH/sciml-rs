@@ -5,6 +5,8 @@
 
 #[path = "parity_common/fno.rs"]
 mod fno;
+#[path = "parity_common/fno_map.rs"]
+mod fno_map;
 mod parity_common;
 
 use burn::prelude::*;

@@ -267,6 +267,8 @@ impl FNOConfig {
         fn layers<T>(n: usize, build: impl Fn() -> T) -> Vec<T> {
             (0..n).map(|_| build()).collect()
         }
+        let stored = self.max_modes.as_deref().unwrap_or(&self.modes);
+        let init = self.spectral_init.clone().unwrap_or_default();
         let skips = |kind: Option<&SkipKind>| match kind {
             Some(kind) => layers(self.n_layers, || kind.init(width, width, device)),
             None => Vec::new(),
@@ -281,12 +283,10 @@ impl FNOConfig {
 
             conv: (0..self.n_layers)
                 .map(|_| {
-                    let stored = self.max_modes.as_deref().unwrap_or(&self.modes);
-                    let init = self.spectral_init.clone().unwrap_or_default();
                     let conv = if self.separable == Some(true) {
-                        SpectralConv::<R>::new_separable(device, width, stored, init)
+                        SpectralConv::<R>::new_separable(device, width, stored, init.clone())
                     } else {
-                        SpectralConv::<R>::new_with_init(device, width, width, stored, init)
+                        SpectralConv::<R>::new_with_init(device, width, width, stored, init.clone())
                     };
                     match self.max_modes {
                         Some(_) => conv.with_modes(&self.modes),

@@ -13,8 +13,9 @@ use sciml_rs::neural_operators::{
     models::fno::{Activation, FNOConfig, PositionalEmbedding},
 };
 
-use crate::parity_common::{
-    Fixture, Precision, check_d3, lift_project, load_into, to_channels_first, to_channels_last,
+use crate::{
+    fno_map::{lift_defaults, lift_project, to_channels_first, to_channels_last},
+    parity_common::{Fixture, Precision, check_d3, load_into},
 };
 
 /// `generate.py`'s `BOUNDARIES`.
@@ -24,22 +25,17 @@ const BOUNDARIES: [(f64, f64); 2] = [(0.0, 2.0), (-1.0, 1.0)];
 /// `lifting.fcs.*` and `projection.fcs.*`.
 fn fno<const R: usize>(stem: &str, config: FNOConfig, p: Precision, device: &Device) -> f64 {
     let mut fixture = Fixture::open_as(stem, p);
-    let mut fno = config.with_n_layers(0).init::<R>(device);
-    let two_layer_lifting = fixture.params.iter().any(|n| n == "lifting.fcs.1.weight");
-    load_into(&mut fno, &mut fixture, &lift_project(two_layer_lifting, ""));
+    let config = config.with_n_layers(0);
+    let mut fno = config.init::<R>(device);
+    let map = lift_project(&config, "");
+    load_into(&mut fno, &mut fixture, &map);
     let y = fno.forward(to_channels_last(fixture.input::<R>(device)));
     check_d3(to_channels_first(y), &mut fixture)
 }
 
-/// 2.0.0's `FNO` defaults for this task's parts: GELU, ratios 2, the unit grid.
+/// 2.0.0's `FNO` defaults for this task's parts ([`lift_defaults`]).
 fn defaults(modes: Vec<usize>, data: usize, out: usize, hidden: usize) -> FNOConfig {
-    let d = modes.len();
-    FNOConfig::new(modes, data, out)
-        .with_hidden_channels(hidden)
-        .with_activation(Some(Activation::Gelu))
-        .with_lifting_channel_ratio(Some(2.0))
-        .with_projection_channel_ratio(Some(2.0))
-        .with_positional_embedding(Some(PositionalEmbedding::GridNd(GridEmbeddingNd::unit(d))))
+    lift_defaults(FNOConfig::new(modes, data, out).with_hidden_channels(hidden))
 }
 
 pub fn fno_lift_project1d(p: Precision, device: &Device) -> f64 {

@@ -11,7 +11,7 @@ mod parity_common;
 use burn::prelude::*;
 use centred_conv::*;
 use ndarray::{ArrayD, Axis, IxDyn, Slice};
-use parity_common::{Precision::F32, rel_max_error};
+use parity_common::{Precision::F32, centred_to_corners, rel_max_error};
 
 #[test]
 fn spectral_conv2d_f32_matches_2_0_0() {

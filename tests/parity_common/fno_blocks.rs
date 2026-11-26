@@ -10,7 +10,10 @@ use sciml_rs::neural_operators::{
     models::fno::{Activation, BlockMlpConfig, FNO, FNOConfig},
 };
 
-use crate::parity_common::{Fixture, MapEntry, Take, block_parts, check_d3, leak, load_into_part};
+use crate::{
+    fno_map::{block_defaults as defaults, block_parts, leak},
+    parity_common::{Fixture, MapEntry, Precision, Take, check_d3, load_into_part},
+};
 
 /// The FNO and, for AdaIN, the fixture's embedding as a test-only parameter.
 #[derive(Module, Debug)]
@@ -30,14 +33,6 @@ pub struct Case {
     pub n_modes: &'static [usize],
     /// The block options on top of `FNOConfig`'s; the map follows them.
     pub options: fn(FNOConfig) -> FNOConfig,
-}
-
-/// 2.0.0's defaults: GELU, the linear (bias-free) FNO skip, the channel MLP of expansion 0.5
-/// with a soft-gating skip.
-fn defaults(c: FNOConfig) -> FNOConfig {
-    c.with_activation(Some(Activation::Gelu))
-        .with_fno_skip(Some(SkipKind::Linear))
-        .with_channel_mlp(Some(BlockMlpConfig::new()))
 }
 
 fn pre(c: FNOConfig) -> FNOConfig {
@@ -177,8 +172,7 @@ pub fn check<const R: usize>(case: &Case, device: &Device) -> f64 {
         fno: config.init(device),
         embedding: embed_dim(&config).map(|e| Param::from_tensor(Tensor::zeros([e], device))),
     };
-    let name = format!("{}_f32", case.stem);
-    let mut fixture = Fixture::open(&name);
+    let mut fixture = Fixture::open_as(case.stem, Precision::F32);
     // Every block path; the lifting `fc0` and projection `fc1`, `fc2` are not in the fixture.
     let filter = PathFilter::new()
         .with_regex(r"^(embedding|fno\.(conv|w|fno_skips|channel_mlp|channel_mlp_skips|norms)\.)");
