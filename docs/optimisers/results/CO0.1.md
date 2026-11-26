@@ -10,8 +10,8 @@ specs by its `progress.txt`.
 
 **Status:** stage 1 (Adam at equal time) done 2026-11-26. Stage 2 (GN200-D at μ = 0,
 seed 42, caps 50 and 150; Adam at the long budget, seeds 42 and 43): the equal-time GN runs
-done, the long Adam runs running, the two long GN runs void (they shared a run directory,
-plan "Pending runs") and to be rerun. Stage 3 after D1.
+and the long Adam runs done; the two long GN runs void (they shared a run directory, plan
+"Pending runs") and rerunning since 16:52 UTC. Stage 3 after D1.
 
 ## Stage 1: Adam, 500 epochs, seeds 42–46
 
@@ -90,6 +90,23 @@ final test L² 1.008e-2. That is 2.09 × the one-GPU run's time (0.48 × its spe
 the fork (0.44 × at s = 64): the step is host-bound, and splitting a batch of 20 adds the
 all-reduce without adding work per device. Run directory
 `poisson_fno_n129_s64_p0_seed46_1795627012`; no peak memory recorded.
+
+## Stage 2: Adam at the long budget, seeds 42 and 43
+
+915 epochs (E), the cosine schedule over all of them, otherwise stage 1's settings; seed 42
+on GPU 0 beside seed 43 on GPU 1, commit `911a64e`.
+
+| seed | training time (s) | median epoch (s, from epoch 4) | final train L² | final test L² | gap | error 4 mean / max | at 500 epochs (stage 1) | change | peak memory |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 42 | 5,322.1 | 5.823 | 2.168e-3 | 8.582e-3 | 6.41e-3 | 8.585e-3 / 2.893e-2 | 9.637e-3 | −10.9 % | 1,128 MiB |
+| 43 | 5,335.1 | 5.837 | 2.226e-3 | 9.407e-3 | 7.18e-3 | 9.410e-3 / 3.016e-2 | 1.096e-2 | −14.1 % | 983 MiB |
+
+Each run: 45,750 updates, forward and backward passes. With 1.8× the time Adam gains
+11–14 % in error 4, and the train error falls more than the test error (the gap stays
+6.4–7.2e-3). Both median epochs are within 3 % of seed 42's alone in stage 1 (−2.5 %,
+−2.3 %), so the pair kept a lone run's pace; the training times, 1.80–1.81 × B, fall
+1.4 % short of 5,400 s since E came from B's wall-clock seconds and these epochs were
+faster.
 
 ## Provenance
 

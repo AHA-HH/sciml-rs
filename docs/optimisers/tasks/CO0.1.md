@@ -176,7 +176,11 @@ whether Burn 0.23 reproduces Phase 10's arms.
   from which run cannot be told); the cap-150 run then failed saving its weights (exit 101,
   "File already exists"). The fix is roadmap CO0.4. The long Adam runs have their own
   directories (different seeds and start times) and were still running at 15:43 UTC.
-- **Rerun of the long GN runs** (the author's go; after the long Adam runs end, about
+- **Long Adam runs done** (`_1795704170`, seed 42; `_seed43_1795704306`): results file.
+- **Rerun of the long GN runs, running** since 16:52:52 UTC (the author's go, 2026-11-26;
+  tmux `co01-r0` cap 50 on GPU 0 → `_gn_1795711972`, `co01-r1` cap 150 on GPU 1 →
+  `_gn_1795712032`, separate directories confirmed; end about 18:25 UTC; old progress
+  line marked `void`, backup `progress.txt.bak-before-rerun`). As planned (after the long Adam runs end, about
   16:15 UTC; 1.6 h wall, 3.1 GPU-h), started 60 s apart so the names differ:
   ```sh
   # void the progress line, or the script skips the spec as done
