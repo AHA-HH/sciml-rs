@@ -464,6 +464,37 @@ template:
 - Matrix: the equation-loss row set to partial (the `autograd` method with CM3.4).
 - Follow-ups: CM3.4's line (2.0.0's `autograd` method on point clouds).
 
+## 2026-11-26: CM1.4 Lifting, projection and embeddings
+- Done: `layers::embedding`: 2.0.0's `GridEmbeddingNd` (any rank and boundaries, `j / s`
+  without the endpoint, axis order), `SinusoidalEmbedding` (`transformer`, `nerf`; sin and
+  cos interleaved), `RotaryEmbedding2d` with `rotate_half`, `apply_rotary_pos_emb`,
+  `apply_2d_rotary_pos_emb`; each parameter-free, so its own `Config`. `FNOConfig` gains
+  `lifting_channel_ratio` (`fc0` `(C + D) → L`, the activation, `lifting_out` `L → W`,
+  `L = int(r · W)`; 0 keeps one layer), `projection_channel_ratio` (`fc1`'s width instead of
+  128) and `positional_embedding` (`GridNd`, or `Disabled` for 2.0.0's `None`), each `None`
+  today's model. Sinusoidal and rotary stay standalone: 2.0.0's FNO does not use them.
+- Tests: `tests/parity_embeddings.rs`, eight f32 fixtures (the four `FNO`s with
+  `n_layers=0`: 1D defaults, 2D ratio 0 and 1.5 with tanh, 3D without a grid, 2D with
+  boundaries; the grid alone; both sinusoidal kinds; rotary): ≤ 7.8e-7 (D3 1e-5).
+  `_f64.rs`: the FNO without a grid at 1.7e-16; seven `#[ignore]`d with their errors
+  (1.6e-6 to 5.0e-10), as 2.0.0 builds its grid and frequencies in f32. Unit tests: the
+  widths truncate as Python's `int`, `Disabled` lifts C channels, absent options build
+  today's layers, the zero-width and wrong-rank panics, `rotate_half` and the grid by hand.
+- Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo test --features datagen`,
+  `cargo doc`, `generate.py --check`, the bit-identity dumps, `--features metal`).
+- Decisions: none. Question for sign-off: a sentence in CONVENTIONS §2 naming the opt-in
+  `GridNd` grid.
+- Review: plan review PASS (advisories: the plan's departures noted, a doc index made
+  clear; the f64 fixture idea to CM1.5's line). Code quality APPROVE with findings: F2 (one
+  coordinate-channel count) and F3 (`lifting_out`, before it became a checkpoint path)
+  fixed; F1 (one grid builder) and F4 (shared parity helpers) to CM1.5's line.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` cb7265d and the branch:
+  `forward`, `phase5_epoch`, `gauss_newton_epoch` byte-identical); existing tests edited only
+  to complete `FNOConfig` literals with `None`.
+- Matrix: `GridEmbeddingND` and `SinusoidalEmbedding`/`RotaryEmbedding2D` rows have; `FNO`
+  partial, noting the new options.
+- Follow-ups: CM1.5's line (F1, F4, f64 fixtures with f64 constants).
+
 ## 2026-11-26: CM1.6c Fourier and non-uniform derivatives
 - Done: `losses/differentiation.rs`: `FourierDiff<D>` (`l`, 2.0.0's `L`), any order by a
   per-axis `rfft`/`irfft` with (i k)ᵖ, k = 2π m / L, the odd-order Nyquist multiplier 0

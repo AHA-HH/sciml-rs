@@ -3,6 +3,7 @@
 mod activation;
 mod blocks;
 mod checkpoint;
+mod embedding;
 mod grid;
 mod padding;
 mod reference;

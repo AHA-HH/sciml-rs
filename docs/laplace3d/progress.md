@@ -325,3 +325,43 @@ template:
   tests and the datagen suite after the move; the 2D split reader now calls
   `to_uniform_all_nd`, `to_uniform_all` itself on 2D samples.
 - Follow-ups: none new; CL3.4 and CL4.1 (which can use the 3D loader) stay as in the roadmap.
+
+## 2026-11-26: CL3.4 One sidecar constructor for 2D and 3D
+- Done: `pde/poisson/dataset.rs`: `SidecarFacts` and `write_sidecar` (`pub(super)`), the one
+  `SidecarRecord` literal and JSON write; `write_split` (2D) and `write_split_3d` call it,
+  each with its GRF's α, RNG and ε_K function. `dataset3d.rs` builds no sidecar field by
+  field. The author's go to edit the 2D `write_split` body was given 2026-11-26. Plan
+  `docs/laplace3d/tasks/CL3.4.md`.
+- Tests: none new; `files_round_trip_3d` gains `crate_version` and `wall_time_s`. The 2D
+  exact-bytes `files_round_trip` unedited and passing.
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, datagen clippy,
+  `cargo test` (499 passed), `cargo test --features datagen` (586 passed), `cargo doc`
+  (and with datagen, `-D warnings`); not run: metal and gpu_parity (host code only).
+- Decisions: the author's go for the 2D function body (2026-11-26); F2 of CL3.2's review (a
+  shared label-check rule) stays not taken.
+- Review: plan review PASS (should-fix, the full suites on the final commit: done;
+  advisory, the plan's ε_K wording: taken). Code quality APPROVE, A−: F2 (ε_K evaluated
+  by the writer at K) and F3 (long doc lines) taken; F1 (one stats struct inside `Split`
+  and `Split3d`) left in the PR, as it edits the 2D struct.
+- 2D: unchanged bit for bit: the sidecar bytes by `files_round_trip`, the `.npz` writer not
+  touched, the whole datagen suite passing.
+- Follow-ups: none in the roadmap; the L3 gate is next.
+
+## 2026-11-26: L3 gate
+- Done: gate report `docs/laplace3d/gates/L3.md`: the 3D datasets of D5 written (n = 33 and
+  65, 1000/200, 0.690 GB and 5.273 GB), label-checked (n = 65 max 6.2e-10, enforced ≤ 1e-8),
+  loadable (error 2 at n = 65 within 15 % of the 2D floor's mean at s = 32 and 64); met. The
+  roadmap's L3 gate closed 2026-11-26.
+- Tests: none new or re-run; the eight files in the main checkout's `datasets/poisson/`
+  re-checked for size and sidecar figures, the n = 65 SHA-256 equal to `results/cl3-2.md`;
+  `main`'s CI green after #164 (run 45834459796).
+- Checks: none beyond that (docs only: proposal §7 and Appendix A, roadmap, this log).
+- Decisions: signed off by the author 2026-11-26: the gate with C1 (§7's measured storage
+  and generation time, n = 65 generated on the Mac); Q1 "two tasks after L4" (CL3.5,
+  CL3.6); Q2 "split as proposed" (CL4.2's first commit, CL3.6, the sidecar key later).
+- Review: thermo-nuclear review of the four L3 PRs BLOCKED, B−, on 2D/3D duplication in
+  `dataset3d.rs`, `SidecarFacts` and `Poisson3dSet`; no correctness or constraint 1 problem
+  (report git-ignored, `docs/code-quality/thermo-nuclear-review-2026-11-26-laplace3d-L3-gate.md`).
+  The blocker goes to CL3.5 and CL3.6 (Q1), not fixed here.
+- 2D: not touched (no code).
+- Follow-ups: CL4.1 (in progress), CL4.2 (its first commit per Q2), then CL3.5 and CL3.6.

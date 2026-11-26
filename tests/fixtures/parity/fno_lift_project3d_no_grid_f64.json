@@ -1,0 +1,41 @@
+{
+  "config": "fno_lift_project3d_no_grid",
+  "model": "FNO",
+  "kwargs": {
+    "n_modes": [
+      4,
+      4,
+      4
+    ],
+    "in_channels": 3,
+    "out_channels": 2,
+    "hidden_channels": 4,
+    "n_layers": 0,
+    "positional_embedding": null
+  },
+  "dtype": "f64",
+  "weight_seed": 0,
+  "input_seed": 1,
+  "input_shape": [
+    2,
+    3,
+    5,
+    4,
+    3
+  ],
+  "n_params_real": 126,
+  "param_prefix": "param.",
+  "complex_params": [],
+  "complex_layout": "trailing axis of 2: (real, imag), torch.view_as_real",
+  "mode": "eval, torch.no_grad, CPU",
+  "versions": {
+    "python": "3.12.12",
+    "neuraloperator": "2.0.0",
+    "torch": "2.9.0",
+    "tensorly": "0.9.0",
+    "tensorly-torch": "0.5.0",
+    "torch-harmonics": "0.7.4",
+    "numpy": "2.3.4"
+  },
+  "platform": "Darwin arm64"
+}

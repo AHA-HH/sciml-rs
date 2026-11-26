@@ -24,6 +24,9 @@ fn fno_forward_shape_check<const R: usize>(
         channel_mlp: None,
         norm: None,
         preactivation: None,
+        lifting_channel_ratio: None,
+        projection_channel_ratio: None,
+        positional_embedding: None,
     };
     let model: FNO<R> = config.init::<R>(&device);
 
@@ -80,6 +83,9 @@ fn init_rejects_rank_mismatch() {
         channel_mlp: None,
         norm: None,
         preactivation: None,
+        lifting_channel_ratio: None,
+        projection_channel_ratio: None,
+        positional_embedding: None,
     };
     let _: FNO<4> = config.init::<4>(&device); // asking for rank 4
 }

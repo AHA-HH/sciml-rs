@@ -270,40 +270,90 @@ pub fn write_split(
     }
     npz.finish().map_err(io::Error::other)?;
 
-    let n = split.spec.n;
-    let sidecar = SidecarRecord {
+    let facts = SidecarFacts {
+        spec: &split.spec,
         k: split.k,
-        k_explicit: split.spec.k.is_some(),
-        k_max: K_MAX,
+        label_check: split.label_check,
+        label_check_enforced: split.label_check_enforced,
+        error2: split.error2,
+        wall_time: split.wall_time,
         alpha: ALPHA,
-        base_seed: split.spec.base_seed,
+        rng: RNG,
+        eps_k,
+    };
+    write_sidecar(&json_path, name, git_commit, &facts)?;
+    Ok((npz_path, json_path))
+}
+
+/// What a sidecar records of one generated split, 2D or 3D, besides its name and commit:
+/// the split's own figures and its GRF's α, RNG and ε_K. [`write_sidecar`] derives the rest.
+pub(super) struct SidecarFacts<'a> {
+    /// What was generated.
+    pub spec: &'a SplitSpec,
+    /// The truncation K in effect.
+    pub k: usize,
+    /// The label check over the samples.
+    pub label_check: ErrorStats,
+    /// Whether [`LABEL_CHECK_TOL`] was enforced.
+    pub label_check_enforced: bool,
+    /// Error 2 over the samples, at s = n − 1.
+    pub error2: ErrorStats,
+    /// Wall time of the generation.
+    pub wall_time: Duration,
+    /// The GRF's α.
+    pub alpha: f64,
+    /// The GRF's RNG stream.
+    pub rng: &'static str,
+    /// The GRF's ε_K, evaluated at `k` by [`write_sidecar`].
+    pub eps_k: fn(usize) -> f64,
+}
+
+/// Writes the [`SidecarRecord`] of a split to `path`, pretty JSON and a newline, the one
+/// sidecar writer of [`write_split`] and [`write_split_3d`](super::dataset3d::write_split_3d).
+/// Records s = n − 1, d = [`TRANSFER_DEGREE`], [`LABEL_CHECK_TOL`], τ, K_MAX,
+/// [`CONVENTION_VERSION`] and the crate version beside `facts`.
+///
+/// # Errors
+/// Any I/O error from writing the file.
+pub(super) fn write_sidecar(
+    path: &Path,
+    name: &str,
+    git_commit: &str,
+    facts: &SidecarFacts,
+) -> io::Result<()> {
+    let n = facts.spec.n;
+    let sidecar = SidecarRecord {
+        k: facts.k,
+        k_explicit: facts.spec.k.is_some(),
+        k_max: K_MAX,
+        alpha: facts.alpha,
+        base_seed: facts.spec.base_seed,
         convention_version: CONVENTION_VERSION,
-        count: split.spec.count,
+        count: facts.spec.count,
         crate_version: env!("CARGO_PKG_VERSION").to_string(),
-        eps_k: eps_k(split.k),
+        eps_k: (facts.eps_k)(facts.k),
         error2: SidecarError2 {
             d: TRANSFER_DEGREE,
-            max: split.error2.max,
-            mean: split.error2.mean,
+            max: facts.error2.max,
+            mean: facts.error2.mean,
             s: n - 1,
         },
         git_commit: git_commit.to_string(),
         label_check: SidecarLabelCheck {
-            enforced: split.label_check_enforced,
-            max: split.label_check.max,
-            mean: split.label_check.mean,
+            enforced: facts.label_check_enforced,
+            max: facts.label_check.max,
+            mean: facts.label_check.mean,
             tolerance: LABEL_CHECK_TOL,
         },
         n,
-        rng: RNG.to_string(),
+        rng: facts.rng.to_string(),
         s: n - 1,
         split: name.to_string(),
         tau: TAU,
-        wall_time_s: split.wall_time.as_secs_f64(),
+        wall_time_s: facts.wall_time.as_secs_f64(),
     };
     let text = serde_json::to_string_pretty(&sidecar).map_err(io::Error::other)?;
-    fs::write(&json_path, text + "\n")?;
-    Ok((npz_path, json_path))
+    fs::write(path, text + "\n")
 }
 
 #[cfg(test)]
