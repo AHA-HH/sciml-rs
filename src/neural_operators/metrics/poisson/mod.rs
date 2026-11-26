@@ -23,7 +23,8 @@
 //! error is summarised over the samples with [`ErrorStats`]. [`evaluate`] applies the
 //! evaluation policy, the worst sample, both cross-checks and the boundary verdict, and
 //! returns a [`PoissonEvaluation`]: the [`PoissonErrorsRecord`] a run's `errors.json`
-//! holds, with the report `predict_poisson` prints.
+//! holds, with the report `predict_poisson` prints; [`evaluate_3d`] the same for a 3D run,
+//! the report `predict_poisson3d` prints (3D CL4.1).
 //!
 //! Error 1 (the solver) needs the `datagen` feature and is quoted, not recomputed (design
 //! §12, decision 16). Everything here is ndarray and f64, built without `datagen`
@@ -35,15 +36,12 @@
 
 use super::stats::ErrorStats;
 use crate::neural_operators::chebyshev::{
-    TRANSFER_DEGREE, Transfers, cc_norm_sq, cc_norm_sq_nd, cc_rel_l2_error_weighted,
-    cc_rel_l2_error_weighted_nd, clencurt,
+    TRANSFER_DEGREE, Transfers, cc_norm_sq_nd, cc_rel_l2_error_weighted_nd, clencurt,
 };
 use crate::neural_operators::data::loaders::poisson::SidecarRecord;
 use crate::neural_operators::runs::EpochMetrics;
 use burn::config::Config;
-use ndarray::{
-    Array1, Array2, ArrayView, ArrayView2, ArrayView3, ArrayViewD, Axis, Dimension, Ix3, RemoveAxis,
-};
+use ndarray::{Array1, ArrayView, ArrayView3, ArrayViewD, Axis, Dimension, RemoveAxis};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -79,7 +77,8 @@ pub struct PoissonErrors {
 /// as a tensor product, and along each of the four edges of ∂Ω, so each corner node
 /// carries the end weights of both its edges; the boundary maximum visits it twice, which
 /// does not change the maximum. A sample with u ≡ 0 gives NaN or infinity, as
-/// [`cc_rel_l2_error_weighted`] does.
+/// [`cc_rel_l2_error_weighted`](crate::neural_operators::chebyshev::cc_rel_l2_error_weighted)
+/// does.
 ///
 /// # Panics
 /// If `pred` and `u` hold different numbers of samples, either is not square in its
@@ -113,42 +112,7 @@ pub fn poisson_errors(
         "poisson_errors: pred and u must be on the transfers' grids (s, n)"
     );
 
-    let w = clencurt(n);
-
-    let mut errors = PoissonErrors {
-        transfer: Vec::with_capacity(nu),
-        model: Vec::with_capacity(nu),
-        total: Vec::with_capacity(nu),
-        u_norm: Vec::with_capacity(nu),
-        boundary_max_ratio: Vec::with_capacity(nu),
-        boundary_rel_rms: Vec::with_capacity(nu),
-    };
-    for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
-        let u_uni = transfers.to_uniform(ui);
-        let round_trip = transfers.to_cheb(u_uni.view());
-        let u_hat = transfers.to_cheb(p);
-
-        errors.transfer.push(cc_rel_l2_error_weighted(
-            round_trip.view(),
-            ui,
-            w.view(),
-            w.view(),
-        ));
-        errors.model.push(rel_l2_equal_weights(p, u_uni.view()));
-        errors.total.push(cc_rel_l2_error_weighted(
-            u_hat.view(),
-            ui,
-            w.view(),
-            w.view(),
-        ));
-        errors
-            .u_norm
-            .push(cc_norm_sq(ui, w.view(), w.view()).sqrt());
-        let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
-        errors.boundary_max_ratio.push(ratio);
-        errors.boundary_rel_rms.push(rms);
-    }
-    errors
+    per_sample(pred, u, transfers)
 }
 
 /// [`poisson_errors`] for 2D or 3D fields (rank r = 2 or 3, the ranks CONVENTIONS §12
@@ -158,8 +122,8 @@ pub fn poisson_errors(
 /// - `u`: the raw solutions on the CGL grid, `[N, n, …, n]`, of the same rank.
 /// - `transfers`: the run's R and P, applied along every axis.
 ///
-/// Rank 3 arrays (2D fields) are [`poisson_errors`] itself, bit for bit (3D D1, D2).
-/// Otherwise the errors are those of the module docs with tensor Clenshaw–Curtis weights
+/// Rank 3 arrays (2D fields) give [`poisson_errors`]' bits: both run one per-sample loop
+/// (3D D1, D2; CL4.1). The errors are those of the module docs with tensor Clenshaw–Curtis weights
 /// over every axis, and error 5 sums the 2r faces of ∂Ω, each with the tensor weights of
 /// its r − 1 coordinates, so a node on an edge or corner is counted once per face that
 /// holds it. The relative boundary RMS normalises by the total face area r · 2^r against
@@ -185,13 +149,6 @@ pub fn poisson_errors_nd<D: RemoveAxis>(
         pred.ndim(),
         u.ndim()
     );
-    if u.ndim() == 3 {
-        return poisson_errors(
-            pred.into_dimensionality::<Ix3>().expect("rank 3"),
-            u.into_dimensionality::<Ix3>().expect("rank 3"),
-            transfers,
-        );
-    }
     let (np, nu) = (pred.len_of(Axis(0)), u.len_of(Axis(0)));
     assert_eq!(
         np, nu,
@@ -205,7 +162,18 @@ pub fn poisson_errors_nd<D: RemoveAxis>(
         u.shape()
     );
 
-    let w = clencurt(n);
+    per_sample(pred, u, transfers)
+}
+
+/// The errors of every sample, for [`poisson_errors`] and [`poisson_errors_nd`] after their
+/// checks: `pred: [N, s, …, s]` and `u: [N, n, …, n]`, two or three spatial axes. At rank 2
+/// it gives the bits of `poisson_errors` before 3D CL4.1 (the D2 oracle in the tests).
+fn per_sample<D: RemoveAxis>(
+    pred: ArrayView<f64, D>,
+    u: ArrayView<f64, D>,
+    transfers: &Transfers,
+) -> PoissonErrors {
+    let w = clencurt(transfers.n());
     let ws = vec![w.view(); u.ndim() - 1];
     let mut errors = PoissonErrors::default();
     for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
@@ -224,7 +192,8 @@ pub fn poisson_errors_nd<D: RemoveAxis>(
             .push(cc_rel_l2_error_weighted_nd(u_hat.view(), ui.view(), &ws));
         let u_sq = cc_norm_sq_nd(ui.view(), &ws);
         errors.u_norm.push(u_sq.sqrt());
-        let (ratio, rms) = boundary_errors_nd(u_hat.view().into_dyn(), ui.into_dyn(), &w, u_sq);
+        let max_u = ui.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let (ratio, rms) = boundary_errors_nd(u_hat.view().into_dyn(), &w, u_sq, max_u);
         errors.boundary_max_ratio.push(ratio);
         errors.boundary_rel_rms.push(rms);
     }
@@ -285,6 +254,9 @@ pub const BOUNDARY_THRESHOLD: f64 = 0.10;
 /// Error 1, quoted from Phase 1's Results: it is not recomputed (design §12, decision 16).
 pub const ERROR1_QUOTE: &str =
     "solver A floor <= 1e-12 from n = 33 (manufactured); A vs C order 1.993-1.999 (Phase 1 T2, T3)";
+
+/// Error 1 of a 3D run, quoted from the 3D solver A3's results, as [`evaluate_3d`] records it.
+pub const ERROR1_QUOTE_3D: &str = "solver A3 floor <= 1e-12 from n = 33 (manufactured and sine-series closed forms, max norm and CC L2; 3D CL2.1)";
 
 /// The error 2 cross-check against the test split's sidecar, from [`evaluate`].
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -395,8 +367,9 @@ pub struct PoissonEvaluation {
     pub error2: Error2Check,
     /// The error 3 cross-check against the run's last test_l2.
     pub error3: Error3Check,
-    /// The run directory, for the report's `poisson_plot` command.
-    pub run_dir: PathBuf,
+    /// The run directory for the report's `poisson_plot` command (2D, from [`evaluate`]);
+    /// `None` from [`evaluate_3d`], as no example plots a 3D sample.
+    pub plot_run_dir: Option<PathBuf>,
 }
 
 /// Evaluates the per-sample `errors` of a run's test split, as `predict_poisson` reports
@@ -427,6 +400,56 @@ pub fn evaluate(
     device: String,
     backend_features: Vec<String>,
     run_dir: &Path,
+) -> PoissonEvaluation {
+    PoissonEvaluation {
+        plot_run_dir: Some(run_dir.to_path_buf()),
+        ..evaluate_core(
+            errors,
+            transfers,
+            sidecar,
+            last,
+            device,
+            backend_features,
+            ERROR1_QUOTE,
+        )
+    }
+}
+
+/// [`evaluate`] for a 3D run, whose `errors` come from [`poisson_errors_nd`] on 3D fields
+/// (3D CL4.1): the same record, the 2D type (no 3D field is new), with error 1 quoted as
+/// [`ERROR1_QUOTE_3D`], and a report without the `poisson_plot` command.
+///
+/// # Panics
+/// As [`evaluate`].
+pub fn evaluate_3d(
+    errors: &PoissonErrors,
+    transfers: &Transfers,
+    sidecar: &SidecarRecord,
+    last: &EpochMetrics,
+    device: String,
+    backend_features: Vec<String>,
+) -> PoissonEvaluation {
+    evaluate_core(
+        errors,
+        transfers,
+        sidecar,
+        last,
+        device,
+        backend_features,
+        ERROR1_QUOTE_3D,
+    )
+}
+
+/// [`evaluate`] and [`evaluate_3d`] but for the plot's run directory (`None` here): the
+/// record with error 1 quoted as `error1`, and both cross-checks.
+fn evaluate_core(
+    errors: &PoissonErrors,
+    transfers: &Transfers,
+    sidecar: &SidecarRecord,
+    last: &EpochMetrics,
+    device: String,
+    backend_features: Vec<String>,
+    error1: &str,
 ) -> PoissonEvaluation {
     let (n, s) = (transfers.n(), transfers.s());
     let n_test = errors.total.len();
@@ -480,7 +503,7 @@ pub fn evaluate(
         s,
         device,
         backend_features,
-        error1: ERROR1_QUOTE.to_string(),
+        error1: error1.to_string(),
         error2: e2,
         error2_sidecar: e2_sidecar,
         error2_compared: e2_rel_diff.is_some(),
@@ -501,7 +524,7 @@ pub fn evaluate(
         record,
         error2: e2_check,
         error3: e3_check,
-        run_dir: run_dir.to_path_buf(),
+        plot_run_dir: None,
     }
 }
 
@@ -545,11 +568,15 @@ impl fmt::Display for PoissonEvaluation {
             writeln!(f, "{name:<34} {:>12.4e} {:>12.4e}", st.mean, st.max)?;
         }
         let worst = r.error4_worst_sample;
-        writeln!(
-            f,
-            "worst sample (max error 4): {worst}; plot it with: poisson_plot -- {} {worst}",
-            self.run_dir.display()
-        )?;
+        if let Some(dir) = &self.plot_run_dir {
+            writeln!(
+                f,
+                "worst sample (max error 4): {worst}; plot it with: poisson_plot -- {} {worst}",
+                dir.display()
+            )?;
+        } else {
+            writeln!(f, "worst sample (max error 4): {worst}")?;
+        }
         writeln!(
             f,
             "correlation of ln(error 4) with ln ||u|| over the test split: {:.3}",
@@ -584,41 +611,17 @@ fn rel_l2_equal_weights<D: Dimension>(a: ArrayView<f64, D>, b: ArrayView<f64, D>
     (num / den).sqrt()
 }
 
-/// Error 5 for one sample: `(max ratio, relative boundary RMS)` of `u_hat: [n, n]` against
-/// `u: [n, n]`, both on the CGL grid, with Clenshaw–Curtis weights `w: [n]`.
-fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> (f64, f64) {
-    let last = u_hat.nrows() - 1;
-    let edges = [
-        u_hat.row(0),
-        u_hat.row(last),
-        u_hat.column(0),
-        u_hat.column(last),
-    ];
-    let max_edge = edges
-        .iter()
-        .flat_map(|e| e.iter())
-        .fold(0.0_f64, |m, v| m.max(v.abs()));
-    let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-
-    // ∮ û² ds as four edge integrals of length 2 each (the weights sum to 2 per edge)
-    let line: f64 = edges
-        .iter()
-        .map(|e| e.iter().zip(w).map(|(v, wi)| wi * v * v).sum::<f64>())
-        .sum();
-    let area = cc_norm_sq(u, w.view(), w.view());
-    (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
-}
-
 /// Error 5 for one sample of rank r: `(max ratio, relative boundary RMS)` of
-/// `u_hat: [n, …, n]` against `u: [n, …, n]`, both on the CGL grid, with Clenshaw–Curtis
-/// weights `w: [n]` on every axis and `u_sq`, ‖u‖² in that norm (see [`poisson_errors_nd`]).
+/// `u_hat: [n, …, n]` on the CGL grid, with Clenshaw–Curtis weights `w: [n]` on every
+/// axis, against u through `u_sq`, ‖u‖² in that norm, and `max_u`, max over Ω of |u| (see
+/// [`poisson_errors_nd`]).
 fn boundary_errors_nd(
     u_hat: ArrayViewD<f64>,
-    u: ArrayViewD<f64>,
     w: &Array1<f64>,
     u_sq: f64,
+    max_u: f64,
 ) -> (f64, f64) {
-    let r = u.ndim();
+    let r = u_hat.ndim();
     let last = u_hat.len_of(Axis(0)) - 1;
     let face_ws = vec![w.view(); r - 1];
     let (mut surface, mut max_face) = (0.0, 0.0_f64);
@@ -629,8 +632,6 @@ fn boundary_errors_nd(
             surface += cc_norm_sq_nd(face, &face_ws);
         }
     }
-    let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-
     // 2r faces of area 2^(r − 1) each, against the volume 2^r: 8 and 4 in 2D, 24 and 8 in 3D
     let cube = 2.0_f64.powi(r as i32);
     let faces = r as f64 * cube;

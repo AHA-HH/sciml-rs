@@ -155,8 +155,34 @@ mod tests {
         data::{device_batcher::device_loader, transforms::normalizers::UnitGaussianNormalizer},
         losses::data_losses::{LpLoss, Reduction},
         models::fno::FNOConfig,
-        training::fixtures::tiny_dataset_2d,
+        training::fixtures::{tiny_dataset, tiny_dataset_2d, tiny_model_cfg},
     };
+
+    /// Optimisers CO1.2: the same identity on a rank-3 (Burgers-shaped) batch, without a
+    /// decoder, as Burgers trains in physical units.
+    #[test]
+    fn half_squared_residual_is_the_mean_squared_relative_error_rank_3() {
+        let device = Device::default().autodiff();
+        let data = tiny_dataset(5);
+        let model = tiny_model_cfg().init::<3>(&device);
+        let batch = device_loader::<3, 2, _>(&data, &device, 5, None)
+            .iter()
+            .next()
+            .expect("one batch")
+            .expect("dataset error");
+
+        let r = FnoResidual::<3, 2>::new(None).residual(&model, &batch);
+        assert_eq!(r.dims(), [5 * 8]);
+        let half: f64 = 0.5 * r.inner().powf_scalar(2.0).sum().into_scalar::<f64>();
+
+        let (out, target) = flatten_pair::<3, 2>(model.forward(batch.inputs), batch.targets);
+        let e = LpLoss::new(2, Reduction::None).rel(out, target);
+        let expected = e.inner().powf_scalar(2.0).sum().into_scalar::<f64>() / (2.0 * 5.0);
+        assert!(
+            (half - expected).abs() <= 1e-5 * expected,
+            "{half} != {expected}"
+        );
+    }
 
     /// ½‖r‖² over a batch is (1/2B) Σᵢ eᵢ², eᵢ the per-sample relative L² of `LpLoss`
     /// with `Reduction::None`, to round-off, with a decoder.
