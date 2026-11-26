@@ -158,6 +158,14 @@ CONFIGS = {
     "fno_lift_project2d_linear": (FNO, dict(n_modes=(4, 4), in_channels=2, out_channels=3, hidden_channels=5, n_layers=0, lifting_channel_ratio=0, projection_channel_ratio=1.5, non_linearity=torch.tanh), (2, 2, 6, 5)),
     "fno_lift_project3d_no_grid": (FNO, dict(n_modes=(4, 4, 4), in_channels=3, out_channels=2, hidden_channels=4, n_layers=0, positional_embedding=None), (2, 3, 5, 4, 3)),
     "fno_lift_project2d_boundaries": (fno_boundaries, dict(n_modes=(4, 4), in_channels=2, out_channels=1, hidden_channels=4, n_layers=0), (2, 2, 6, 5)),
+    # CM1.5a: the whole FNO (centred convolutions with bias) over a sweep of its options.
+    "fno3d": (FNO, dict(n_modes=(4, 4, 4), in_channels=2, out_channels=1, hidden_channels=4, n_layers=2), (2, 2, 8, 6, 5)),
+    "fno2d_instance_pre": (FNO, dict(n_modes=(6, 4), in_channels=1, out_channels=1, hidden_channels=6, norm="instance_norm", preactivation=True, non_linearity=torch.tanh), (2, 1, 16, 12)),
+    "fno1d_group_skips": (FNO, dict(n_modes=(10,), in_channels=2, out_channels=1, hidden_channels=6, norm="group_norm", fno_skip="soft-gating", channel_mlp_skip="linear", channel_mlp_expansion=1.0, lifting_channel_ratio=0, projection_channel_ratio=1.5, positional_embedding=None, non_linearity=F.silu), (2, 2, 40)),
+    "fno2d_separable": (FNO, dict(n_modes=(6, 6), max_n_modes=(8, 8), separable=True, in_channels=1, out_channels=1, hidden_channels=6), (2, 1, 16, 16)),
+    # An odd centred count (7): the crate's corners carry a zero row for it (CM1.2).
+    "fno2d_odd_stabilizer": (FNO, dict(n_modes=(7, 6), in_channels=1, out_channels=1, hidden_channels=6, fno_skip="identity", channel_mlp_skip=None, stabilizer="tanh"), (2, 1, 16, 14)),
+    "fno1d_pre_no_mlp": (FNO, dict(n_modes=(8,), in_channels=1, out_channels=1, hidden_channels=6, use_channel_mlp=False, preactivation=True, stabilizer="tanh", non_linearity=F.relu), (2, 1, 32)),
     "grid_embedding2d": (GridEmbeddingND, dict(in_channels=3, dim=2, grid_boundaries=BOUNDARIES), (2, 3, 6, 5)),
     "sinusoidal_transformer": (SinusoidalEmbedding, dict(in_channels=3, num_frequencies=4), (2, 10, 3)),
     "sinusoidal_nerf": (SinusoidalEmbedding, dict(in_channels=3, num_frequencies=4, embedding_type="nerf"), (2, 10, 3)),
@@ -166,7 +174,9 @@ CONFIGS = {
 # Models with parameters whose 2.0.0 init is a constant (ones, zeros): those parameters (and
 # only those) are redrawn from a seeded normal, so the fixture tests the map and not only the
 # constant.
-REDRAW = {"soft_gating2d", "group_norm3d"} | {n for n in CONFIGS if n.startswith("fno_blocks")}
+# CM1.5a's sweeps: the soft-gating and group-norm weights.
+SWEEPS = {"fno3d", "fno2d_instance_pre", "fno1d_group_skips", "fno2d_separable", "fno2d_odd_stabilizer", "fno1d_pre_no_mlp"}
+REDRAW = {"soft_gating2d", "group_norm3d"} | {n for n in CONFIGS if n.startswith("fno_blocks")} | SWEEPS
 DTYPES = {"f32": torch.float32, "f64": torch.float64}
 # f32 only: the legacy layer computes its spectrum in `cfloat` and returns f32 (no bias to
 # promote it), so an f64 reference would be f32-accurate, and torch refuses a norm with f64
@@ -174,6 +184,8 @@ DTYPES = {"f32": torch.float32, "f64": torch.float64}
 F32_ONLY = {n for n in CONFIGS if n.startswith("fno_blocks")}
 # And the activations: D3 needs f32 parity, and an f64 test would need a binary of its own.
 F32_ONLY.add("activations1d")
+# And the sweeps: f32 parity is D3's test; the f64 defaults (`fno1d`, `fno2d`) record the f64 error.
+F32_ONLY |= SWEEPS
 PREFIX = "param."
 
 
@@ -191,8 +203,9 @@ def build(name, dtype):
         with torch.no_grad():
             for p in model.parameters():
                 # shortcut: "constant" is read from the values, so a 1-element parameter is
-                # never redrawn; name the parameters if a constant scalar init appears.
-                if p.numel() > 1 and p.unique().numel() == 1:
+                # never redrawn; name the parameters if a constant scalar init appears. Complex
+                # (spectral) weights are drawn at random, never constant.
+                if not p.is_complex() and p.numel() > 1 and p.unique().numel() == 1:
                     p.copy_(torch.randn_like(p))
     x = torch.randn(shape, generator=torch.Generator().manual_seed(INPUT_SEED))
     if dtype == torch.float64:
