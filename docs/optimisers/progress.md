@@ -245,6 +245,20 @@ template:
   so a checkout moved mid-run records the wrong commit (seeds 42 and 44): a question for the
   PR.
 
+## 2026-11-26: CO0.1 stage 2 (Gauss–Newton on seed 42; Adam at the long budget)
+- Done: GN200-D at μ = 0, seed 42, caps 50 and 150, at B and at 5,400 s; Adam at 915
+  epochs on seeds 42 and 43; `docs/optimisers/results/CO0.1.md`. Error 4 on seed 42:
+  at equal time Adam 9.637e-3, GN cap 50 6.129e-3, cap 150 5.846e-3; at the long budget
+  Adam 8.585e-3, cap 50 4.579e-3, cap 150 2.469e-3. The first long GN pair shared a run
+  directory (same name, same second) and was void; rerun at the author's go.
+- Tests: none new.
+- Checks: after merging `origin/main` (CO1.2's `common::training_config`; `EPOCHS` moved
+  into `Literals`): fmt, clippy (lib, examples, all targets), `cargo test`, `cargo doc` pass.
+- Decisions: D1 proposed (cap 150); the long GN rerun, the author, 2026-11-26.
+- Review: –
+- Adam and Gauss–Newton: not touched (the merge keeps main's code with `EPOCHS` unset).
+- Follow-ups: CO0.4 (the commit read at run start; one directory per run).
+
 ## 2026-11-26: CO1.2 Gauss–Newton on Burgers and Darcy
 - Done: `train_burgers` and `train_darcy` take `OPTIMIZER=adam|adamw|gauss-newton`, the
   `GN_*` variables with D12's literals (full batch, CG cap 100, the Hutchinson diagonal, 10

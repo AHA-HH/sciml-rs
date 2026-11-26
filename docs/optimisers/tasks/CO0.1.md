@@ -177,24 +177,15 @@ whether Burn 0.23 reproduces Phase 10's arms.
   "File already exists"). The fix is roadmap CO0.4. The long Adam runs have their own
   directories (different seeds and start times) and were still running at 15:43 UTC.
 - **Long Adam runs done** (`_1795704170`, seed 42; `_seed43_1795704306`): results file.
-- **Rerun of the long GN runs, running** since 16:52:52 UTC (the author's go, 2026-11-26;
-  tmux `co01-r0` cap 50 on GPU 0 → `_gn_1795711972`, `co01-r1` cap 150 on GPU 1 →
-  `_gn_1795712032`, separate directories confirmed; end about 18:25 UTC; old progress
-  line marked `void`, backup `progress.txt.bak-before-rerun`). As planned (after the long Adam runs end, about
-  16:15 UTC; 1.6 h wall, 3.1 GPU-h), started 60 s apart so the names differ:
-  ```sh
-  # void the progress line, or the script skips the spec as done
-  sed -i 's/^done gn:42:50:5400 /void gn:42:50:5400 /' ~/sciml-rs/logs/co0-1/progress.txt
-  tmux new -d -s co01-r0 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=0 bash docs/optimisers/co0_1_runs.sh gn:42:50:5400"
-  tmux new -d -s co01-r1 "sleep 60; source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/optimisers; cd ~/sciml-rs-wt/co0-1; GPU=1 bash docs/optimisers/co0_1_runs.sh gn:42:150:5400"
-  ```
-  Afterwards check that the two `run written to` lines name different directories.
-  `_gn_1795698725` stays where it is, unused. Stage 3's paired runs differ by seed, so
-  their names differ.
+- **Long GN reruns done** (the author's go, 2026-11-26; started 16:52:52 and 16:53:52 UTC,
+  `_gn_1795711972` cap 50, `_gn_1795712032` cap 150, separate directories): results file.
+  Stage 2 is complete; D1 proposed (cap 150).
 - **Stage 3** after D1.
 
 ## Open questions
-6. **Open: NaN and blow-up steps at small φ (μ = 0).** The collided long-GN directory has
+6. **Answered by the reruns (results, "Wild steps"): no NaN in any valid run; the blow-ups
+   are rejected steps of a breaking quadratic model, 20–27 % of cap 50's steps and up to
+   17 % of cap 150's; stage 3 reports any NaN row.** The question as first put: The collided long-GN directory has
    88 NaN rows of `gn_steps.csv` from step 58 on (which run made them cannot be told), and
    the equal-time cap-150 run's last row (step 114) has step norm 6.8e3, predicted −136.8,
    actual 6.0e16, ρ −4.4e14 at φ 1.55e-5. With ρ < 0 the step is rejected, so the weights

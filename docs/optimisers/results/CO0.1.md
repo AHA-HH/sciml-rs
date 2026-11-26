@@ -8,10 +8,8 @@ error on the learning grid, error 4 the fine-grid error on the CGL grid; the gap
 test L² minus final train L². Run directories: `runs/co0-1/` (git-ignored), mapped to run
 specs by its `progress.txt`.
 
-**Status:** stage 1 (Adam at equal time) done 2026-11-26. Stage 2 (GN200-D at μ = 0,
-seed 42, caps 50 and 150; Adam at the long budget, seeds 42 and 43): the equal-time GN runs
-and the long Adam runs done; the two long GN runs void (they shared a run directory, plan
-"Pending runs") and rerunning since 16:52 UTC. Stage 3 after D1.
+**Status:** stages 1 and 2 done 2026-11-26; D1 proposed to the author (cap 150, below);
+stage 3 after D1.
 
 ## Stage 1: Adam, 500 epochs, seeds 42–46
 
@@ -107,6 +105,91 @@ Each run: 45,750 updates, forward and backward passes. With 1.8× the time Adam 
 −2.3 %), so the pair kept a lone run's pace; the training times, 1.80–1.81 × B, fall
 1.2–1.4 % short of 5,400 s since E came from B's wall-clock seconds and these epochs were
 faster.
+
+## Stage 2: Gauss–Newton, seed 42
+
+GN200-D: batch 200, μ = 0, the Hutchinson diagonal, warm-started CG with Martens' stop,
+seed 42, commit `911a64e`. The equal-time runs ran alone on GPU 0, one after the other.
+The long runs were paired (cap 50 on GPU 0, cap 150 on GPU 1, started 60 s apart). They
+are the rerun of 2026-11-26 16:52 UTC: the first pair had shared a run directory and is
+void (plan, "Pending runs").
+
+| cap | budget | training time (s) | steps (accepted) | passes fwd / bwd | passes per s | final train L² | final test L² | gap | error 4 mean / max | peak memory |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 50 | 2,952 s | 3,000.6 | 220 (129) | 32,407 / 10,571 | 14.32 | 5.032e-3 | 6.124e-3 | 1.09e-3 | 6.129e-3 / 2.029e-2 | 4,650 MiB |
+| 150 | 2,952 s | 3,123.8 | 115 (80) | 33,500 / 11,078 | 14.27 | 4.790e-3 | 5.841e-3 | 1.05e-3 | **5.846e-3** / 2.575e-2 | 4,406 MiB |
+| 50 | 5,400 s | 5,439.5 | 405 (266) | 62,188 / 20,418 | 15.19 | 3.599e-3 | 4.575e-3 | 9.8e-4 | 4.579e-3 / 2.006e-2 | 5,016 MiB |
+| 150 | 5,400 s | 5,453.1 | 170 (143) | 60,828 / 20,245 | 14.87 | 2.046e-3 | 2.465e-3 | 4.2e-4 | **2.469e-3** / 1.209e-2 | 4,261 MiB |
+
+A run stops after the first epoch (5 steps of 200) that ends at or over the budget. At
+cap 150 an epoch takes about 135 s, so the equal-time cap-150 run trained 5.8 % over B
+(cap 50: 1.6 %).
+
+### Against Adam and against Phase 10 (seed 42)
+
+| | equal time | long budget |
+| --- | --- | --- |
+| Adam (stage 1; stage 2's 915 epochs) | 9.637e-3 | 8.585e-3 |
+| GN cap 50 | 6.129e-3 | 4.579e-3 |
+| GN cap 150 | 5.846e-3 | 2.469e-3 |
+| Phase 10 (fork), GN cap 50, μ = 0 | 1.200e-2 (at 859.4 s) | 5.584e-3 (475 steps) |
+| Phase 10 (fork), GN cap 150, μ = 0 | – | 3.030e-3 (230 steps) |
+
+- **GN now beats Adam at equal time on seed 42**, by 36 % (cap 50) and 39 % (cap 150). On
+  the fork it lost (1.200e-2 against Adam's 1.095e-2). Adam's step slowed 3.4× on
+  Burn 0.23 and GN's only about 24 % (CO0.2), so the same budget buys GN far more work.
+  At the long budget, cap 150 is 3.5× below Adam.
+- **The long runs match or beat Phase 10's on fewer steps:** 405 against 475 at cap 50 and
+  170 against 230 at cap 150, so GN's step is slower here too. Two Burns are not
+  bit-comparable and this is one seed, so the difference is no finding.
+- **The train/test gap stays small for GN** (4.2e-4–1.1e-3, against Adam's 6.4–7.2e-3), as
+  in Phase 10.
+
+### Side by side
+
+Passes per second over the first 2,952 s of each long run, against its cap's run alone
+(summed from `gn_steps.csv`): cap 50 15.16 against 14.50 (+4.5 %), cap 150 14.86 against
+14.30 (+3.9 %). As with Adam's pairs, the paired runs were faster, not slower, and outside
+the 3 % band on the fast side.
+
+### Wild steps (open question 6)
+
+A step is wild here when |ρ| > 1e3:
+
+| run | wild steps | first at step (φ there) | accepted |
+| --- | --- | --- | --- |
+| cap 50, 2,952 s | 43 of 220 | 47 (1.5e-4) | none |
+| cap 150, 2,952 s | 19 of 115 | 47 (1.1e-4) | none |
+| cap 50, 5,400 s | 108 of 405 | 53 (6.6e-5) | none |
+| cap 150, 5,400 s | 0 of 170 | – | – |
+
+- **No NaN in any of the four runs.** Every wild step was rejected; φ is unchanged on
+  every rejected step, and λ was raised.
+- **The quadratic model breaks down rather than being noisy.** The median predicted
+  reduction of a wild step is 48 to 2.9e4, while φ itself is below 1.5e-4 by then. A step
+  that the model says lowers φ by 10⁵–10⁸ times φ can only be a step along directions
+  where G + λI is almost singular. At μ = 0 nothing holds those directions, and λ had
+  fallen to 1e-5–1e-6. Example: the equal-time cap-150 run's last step had norm 6.8e3,
+  predicted reduction 136.8 and ρ −4.4e14.
+- **The cost is wasted steps, not wrong ones.** Wild steps are 20–27 % of cap
+  50's steps and up to 17 % of cap 150's. At the longer cap, CG's stop on progress ends
+  most solves early (73 of 170 steps at 5,400 s).
+- **The void directory's 88 NaN rows** (from step 58 on) cannot be tied to a run. Its
+  rerun at the same settings has none, but GPU runs are not bit-reproducible, so these
+  settings could still produce NaN on some run. Stage 3 reports any NaN row.
+
+### D1, proposed: CG cap 150
+
+The plan's rule is the lower error 4 on seed 42 at equal time first, then at the long
+budget. Cap 150 wins both:
+- 5.846e-3 against 6.129e-3 at equal time (4.6 % lower, within one seed's noise);
+- 2.469e-3 against 4.579e-3 at 5,400 s (46 % lower).
+
+It also has fewer wild steps (19 and 0, against 43 and 108) and the lower peak memory
+(4.3–4.4 GiB against 4.7–5.0). Phase 10 found the same at μ = 0 (3.03e-3 against
+5.58e-3 at 5,400 s). The caveat: at equal time the margin is small, and cap 150 trained
+5.8 % over B against cap 50's 1.6 %. The long budget is the clear separation. The author
+decides.
 
 ## Provenance
 
