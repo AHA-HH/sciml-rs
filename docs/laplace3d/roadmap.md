@@ -13,8 +13,10 @@ Mac and cuda, #123; D5 signed off 2026-11-24, D4 2026-11-25 on the cuda figures)
 errors, 2D bit for bit unchanged), CL2.1 (A3, `CollocationSolver3d`, f64 floor by n = 33),
 CL3.1 (the 3D GRF; D3 confirmed 2026-11-24), CL3.2 (the 3D datasets of D5, n = 33 and 65,
 written 2026-11-25; n = 65 generated on the Mac and uploaded to the VM), CL3.3 (the 3D
-loader, 2026-11-26; the N-D helpers in `chebyshev/tensor.rs`). D8 signed off at the L0
-gate. Next: the L3 gate; CL3.4 (the author's go first) and CL4.1.
+loader, 2026-11-26; the N-D helpers in `chebyshev/tensor.rs`), CL4.1 (`train_poisson3d`,
+`predict_poisson3d`, `evaluate_3d`, one per-sample error loop; a two-epoch n = 33 run on
+the Mac evaluated, 2026-11-26). D8 signed off at the L0 gate. Next: the L3 gate; CL3.4
+(the author's go first) and CL4.2 (the VM).
 
 ## How to read this file
 
@@ -162,7 +164,8 @@ Q2 the 3D label check to CL3.2, the three doc fixes to CL3.3's first commit.
 
 **Gate:** a 3D Poisson baseline with errors 2–5 over seeds; D6 and D7 put to the author.
 
-- [ ] **CL4.1 3D training and prediction examples.** `train_poisson3d` and the 3D predict
+- [x] **CL4.1 3D training and prediction examples.** (Plan `tasks/CL4.1.md`, with its
+  short run.) `train_poisson3d` and the 3D predict
   example (`train_poisson` unchanged). *Done when:* a short run at n = 33 on the Mac writes
   a run directory that the 3D predict example evaluates. Near the three-module limit: split
   when it starts if it exceeds it. *Needs:* CL0.2, CL1.3, CL3.3, D4. The 3D `evaluate` and
