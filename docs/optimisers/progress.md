@@ -219,8 +219,13 @@ template:
 - Checks: fmt, the three clippy runs, datagen clippy, `cargo test`, `cargo doc` pass, after
   the merge of `origin/main` too. Smoke (flex): Burgers G0 and G1, `RECIPE=petscml`, full
   batch, `TIME_BUDGET_S=1`: one step each, accepted (ρ 0.99), adjoint error 8e-7,
-  `costs.json` 1 step, 31 forward, 17 backward passes. Pending in the PR: Darcy G0 (batch 100,
-  CG cap 10; full batch does not fit flex on 16 GB) and the Burgers G0 resume.
+  `costs.json` 1 step, 31 forward, 17 backward passes. Darcy G0 (batch 100, CG cap 10; full
+  batch does not fit flex on 16 GB): 10 steps, all accepted, test L² 0.162, 10 steps, 208
+  forward, 76 backward passes. Resume (`5f5fa3e`): Burgers G0, `EPOCHS=27`, CG cap 5, killed
+  after its epoch-25 checkpoint and resumed with no variable set, against the run
+  uninterrupted: `metrics.csv` and `gn_steps.csv` bit for bit, weights' tensor data equal,
+  `costs.json` equal but `resumes` (1). The final binary writes the smoke runs' configs (the
+  merge's seven `None` `FNOConfig` fields aside).
 - Decisions: `EPOCHS` added (the author, 2026-11-26).
 - Review: plan review PASS (advisories: plan text amended, probe count fixed, CO1.3/CO1.4
   notes added to their lines, weights compared in constraint 1); code quality APPROVE with

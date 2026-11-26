@@ -98,7 +98,7 @@ G0, G1 and G0-200, share one): CO1.3 groups runs by their `train_cfg.json`.
 - The 2D objective: unaffected (no library change).
 
 ## Pending runs
-None.
+None. Every run above is done (2026-11-26); results in `progress.md` and the PR.
 
 ## Open questions
 - Answered 2026-11-26 by the author: `EPOCHS` in both examples, AdamW halving every
