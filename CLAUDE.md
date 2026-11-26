@@ -162,8 +162,11 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `tests/parity_embeddings*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
   `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
-  `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; parity in
-  `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
+  `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; since CM2.5
+  `equation_losses`: `BurgersEqnLoss`, `ic_loss`, the nonlinear Poisson losses, on a
+  `differentiation::GridDiff` (`FiniteDiff`, or `MatrixDiff`, a matrix per axis,
+  `chebyshev` behind `datagen`), with `pointwise::mean_squared_error` (`F.mse_loss`);
+  parity in `tests/parity_losses*.rs`), `data/` (loaders, `device_loader`, io for
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
@@ -223,7 +226,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `#[cfg(all(test, feature = "datagen"))]` oracles for the closed forms.
 - `chebyshev/transfer` is ungated (ndarray only): `nodes` (closed-form CGL nodes),
   `uniform_nodes`, `cheb_to_uniform` (T_cu), `uniform_to_cheb` (T_uc, Floater–Hormann),
-  `apply`, `Transfers`.
+  `apply`, `Transfers` (its tests in `transfer/tests.rs`); `chebyshev/tensor` (3D CL3.3) the
+  N-D helpers: `apply_nd` (one 1D matrix along each axis, any rank), `as_matrix`, `kron`,
+  `rank2`, `check_per_axis`.
 - `chebyshev/clencurt` is ungated (ndarray only): `clencurt` (closed-form Clenshaw–Curtis
   weights, Trefethen) and `cc_rel_l2_error` (relative CC-L² error on the CGL tensor grid).
 - `src/neural_operators/pde/poisson/` (behind `datagen`): `collocation`
@@ -255,7 +260,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `.npz` files and applies T_cu at load time, giving Darcy-shaped datasets on the uniform
   grid of s points, so one dataset serves every s) and `cheb`
   (`load_poisson_cheb_field` reads one split's raw field, `PoissonField::F` or `U`, on the
-  CGL grid, untransferred).
+  CGL grid, untransferred); since 3D CL3.3 `uniform3d` (`load_poisson3d_uniform`,
+  `load_poisson3d_uniform_test`: the 3D splits, 'ijk', nodes `x`, `y`, `z`, T_cu along every
+  axis, the same `PoissonConfig`) and `load_poisson3d_cheb_field` in `cheb`.
 - `metrics/poisson` is ungated (ndarray, f64): `poisson_errors` gives design §7's errors 2–5
   on the Chebyshev grid with the run's `Transfers` (any s since Phase 5 T6: error 2 is the
   transfer-only floor, 3 the coarse error, 4 the fine-grid error) and `check_error3` the

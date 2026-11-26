@@ -428,6 +428,42 @@ template:
   `Selu`, `Mish`, `HardSwish`, `Softsign`, each against torch (`activations1d`, ≤ 9.4e-8).
 - Follow-ups: CM1.5's line (the convolution's bias in the block; the `FNOConfig` literals).
 
+## 2026-11-26: CM2.5 Equation losses (PINO)
+- Done: `losses/equation_losses.rs`: `BurgersEqnLoss` (2.0.0's `fdm`, or any `GridDiff`),
+  `ic_loss`, `nonlinear_poisson_lhs`, `poisson_interior_loss`, `poisson_boundary_loss`,
+  `PoissonEqnLoss` (`points`, 2.0.0's point-list form with the interior derivatives
+  supplied; `grid`, the interior residual and the boundary MSE on a grid, which 2.0.0
+  lacks). In `differentiation.rs`, `GridDiff` (implemented by `FiniteDiff`) and
+  `MatrixDiff`, a differentiation matrix per axis; `MatrixDiff::chebyshev` (behind
+  `datagen`) is the crate's Chebyshev path on the CGL grid (CONVENTIONS §12). In
+  `pointwise.rs`, `mean_squared_error`, 2.0.0's base loss `F.mse_loss` (the mean over every
+  entry, not `MSELoss`). Fixtures `equation_losses_{f32,f64}` from `generate_losses.py`.
+- Tests: parity of Burgers (defaults; visc 0.05, domain (2, 3)), IC and the three Poisson
+  losses (the left-hand side formed from 2.0.0's autograd derivatives stored in the
+  fixture): f32 ≤ 6.9e-8, f64 ≤ 5.3e-16 (D3 1e-5, 1e-12); swapped Burgers axes fail (> 0.1).
+  Unit tests (f32, Flex, M2 Pro): `MatrixDiff` with periodic central-difference matrices
+  equals `FiniteDiff` (≤ 9.8e-8); second-order convergence of the grid Poisson loss (MSE
+  ratio 17.1 for h halved); Chebyshev at 17 nodes 5.6e-11 against finite differences at
+  65 points 5.4e-5; exact on a cubic; gradients through Burgers, the grid loss and
+  `MatrixDiff`; panics.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (474 passed), `cargo test --features
+  datagen` (561 passed), `cargo doc --no-deps`, `generate_losses.py --check` (the ten
+  fixtures the same); all pass, in the task's own build directory. Not run: `--features
+  metal` (nothing backend-specific beyond matmul and slicing).
+- Decisions: none.
+- Review: plan review FAIL on one blocker (a `clippy::type_complexity` error under
+  `datagen`), fixed; advisories (panics documented, shape assert) fixed. Code quality
+  BLOCKED (the same clippy error) → APPROVE with findings (r2): F1–F5, F7 and the nits
+  fixed; r2's R2 and R4 fixed, R1 mostly (one Laplacian fold for `GridDiff`; `FiniteDiff`
+  keeps its own `partial_sum`); left: `generate.py`'s own provenance block, the argument
+  order of `PoissonEqnLoss::points`.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 6ea636b and the branch,
+  each in its own build directory: `forward`, `phase5_epoch`, `gauss_newton_epoch` `cmp`
+  same).
+- Matrix: the equation-loss row set to partial (the `autograd` method with CM3.4).
+- Follow-ups: CM3.4's line (2.0.0's `autograd` method on point clouds).
+
 ## 2026-11-26: CM1.4 Lifting, projection and embeddings
 - Done: `layers::embedding`: 2.0.0's `GridEmbeddingNd` (any rank and boundaries, `j / s`
   without the endpoint, axis order), `SinusoidalEmbedding` (`transformer`, `nerf`; sin and

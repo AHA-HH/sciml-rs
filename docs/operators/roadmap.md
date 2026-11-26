@@ -17,8 +17,9 @@ into CM1.6a–c; CM1.6a done 2026-11-25 (finite differences, H1, Hdiv, quantile,
 split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. CM1.6b done
 2026-11-25 (the aggregators). CM1.2 done 2026-11-25 (the centred layer, separable, modes
 below the stored maximum). CM1.3b done 2026-11-25 (the FNO's block options; FNO outputs
-unchanged bit for bit). CM1.4 done 2026-11-26 (embeddings, lifting and projection
-ratios; FNO outputs unchanged bit for bit). Next CM0.6, CM1.5 and CM1.6c.
+unchanged bit for bit). CM2.5 done 2026-11-26 (the equation losses, PINO; independent of
+D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outputs
+unchanged bit for bit). Next CM0.6, CM1.5 and CM1.6c.
 
 ## How to read this file
 
@@ -224,9 +225,14 @@ The order of M2 and M3 is set at the M1 gate (D6).
 - [ ] **CM2.2 UNO.** Resolution-changing blocks on `resample`. *Needs:* M1.
 - [ ] **CM2.3 LocalNO.** Differential and DISCO convolutions, `local_no_block`. *Needs:* M1.
 - [ ] **CM2.4 Fourier continuation.** `FCLegendre`, `FCGram`. *Needs:* M1.
-- [ ] **CM2.5 Equation losses (PINO).** `equation_losses` on CM1.6's derivatives; the
+- [x] **CM2.5 Equation losses (PINO).** `equation_losses` on CM1.6's derivatives; the
   crate's Chebyshev differentiation as a second path. *Needs:* CM1.6a (2.0.0's
-  `equation_losses` imports only `FiniteDiff`).
+  `equation_losses` imports only `FiniteDiff`). Done 2026-11-26: plan
+  `docs/operators/tasks/CM2.5.md`; `losses/equation_losses.rs` (`BurgersEqnLoss`,
+  `ic_loss`, the nonlinear Poisson losses on a point list and on a grid), `GridDiff` and
+  `MatrixDiff` in `losses/differentiation.rs` (`MatrixDiff::chebyshev` behind `datagen`);
+  parity `tests/parity_losses{,_f64}.rs` (≤ 6.9e-8 f32, ≤ 5.3e-16 f64). 2.0.0's
+  `autograd` method (derivatives with respect to point-cloud queries) moves to CM3.4.
 - [ ] **CM2.6 UQNO.** *Needs:* M1, CM1.6a (quantile loss).
 - [ ] **CM2.7 Divergence-free spectral projection.** *Needs:* M1.
 
@@ -238,7 +244,17 @@ The order of M2 and M3 is set at the M1 gate (D6).
 - [ ] **CM3.2 SFNO.** *Needs:* CM3.1.
 - [ ] **CM3.3 Point-cloud inputs.** Neighbour search, segment reductions, the GNO block,
   the trait's input type (R4). *Needs:* M1.
-- [ ] **CM3.4 GINO and FNOGNO.** *Needs:* CM3.3.
+- [ ] **CM3.4 GINO and FNOGNO.** *Needs:* CM3.3. With them 2.0.0's
+  `PoissonInteriorLoss` `method="autograd"`: the output's first and second derivatives
+  with respect to the query points, for `losses::equation_losses::PoissonEqnLoss::points`
+  (CM2.5 takes them as arguments; Burn's autodiff is first order: `.grad()` returns a
+  tensor with no autodiff association, so a derivative cannot be differentiated again).
+  Routes, agreed with the author 2026-11-26 to be chosen when CM3.4 starts: first, finite
+  differences in the query points (1 + 2D forward passes, one backward; O(h²), about 1e-4
+  relative in f32, an estimate); if too inaccurate, the layers' derivatives with respect to
+  the query points written by hand (exact). Finite differences would miss D3 (1e-5)
+  against 2.0.0's autograd values, so that parity test needs a tolerance signed off by the
+  author.
 - [ ] **CM3.5 CODANO.** Attention kernel integral, CODA layer. *Needs:* M1.
 - [ ] **CM3.6 GaLore.** `tensor_galore_projector`. *Needs:* CM0.3.
 

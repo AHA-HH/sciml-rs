@@ -88,7 +88,7 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | `FiniteDiff` (exported), `central_diff_1d`, `central_diff_2d`, `central_diff_3d` | `losses/differentiation.py` | `FiniteDiff<D>`: `partial` (orders 1, 2; periodic or one-sided), `dx`/`dy`/`dz`, `partial_sum`, `laplacian`, `gradient`, `divergence`, `curl_2d`, `curl_3d`, any D; the deprecated `central_diff_*` are `partial` per axis; the 1D gradient keeps its component axis; parity as `H1Loss` | have | CM1.6a |
 | `FourierDiff` (exported; optional Fourier continuation) | `losses/differentiation.py` | – | missing | CM1.6c |
 | `non_uniform_fd` (exported), `get_non_uniform_fd_weights` | `losses/differentiation.py` | Chebyshev `diff_matrix`, `diff2_matrix` (`datagen`): a different, spectral method | missing | CM1.6c |
-| `BurgersEqnLoss` (exported), `ICLoss` (exported), `PoissonInteriorLoss`, `PoissonBoundaryLoss`, `PoissonEqnLoss` | `losses/equation_losses.py` | – | missing | CM2.5 |
+| `BurgersEqnLoss` (exported), `ICLoss` (exported), `PoissonInteriorLoss`, `PoissonBoundaryLoss`, `PoissonEqnLoss` | `losses/equation_losses.py` | `equation_losses::{BurgersEqnLoss, ic_loss, nonlinear_poisson_lhs, poisson_interior_loss, poisson_boundary_loss, PoissonEqnLoss}` with `pointwise::mean_squared_error` (`F.mse_loss`); derivatives from a `GridDiff` (`FiniteDiff`, or `MatrixDiff`: Chebyshev on the CGL grid, a second path 2.0.0 lacks); `PoissonEqnLoss::grid` on a grid (2.0.0's `finite_difference` method is `NotImplementedError`). The point-list Poisson losses take the interior derivatives as arguments: 2.0.0's `autograd` method is not ported (CM3.4). `out_sub_level` fixed at 1. Parity ≤ 6.9e-8 (f32), ≤ 5.3e-16 (f64) | partial | CM2.5, CM3.4 |
 
 ## Training
 
