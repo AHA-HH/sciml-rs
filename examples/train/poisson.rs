@@ -48,7 +48,7 @@
 //! for Gauss–Newton applies to it too.
 //!
 //! `GN_PRECONDITIONER=hutchinson` picks the Hutchinson diagonal (`GN_HUTCHINSON_PROBES`
-//! probes) over `GN_PRECONDITIONER`'s literal, `none` keeps it (T4's choice, T5's GN20-D).
+//! probes) over the literal `GN_HUTCHINSON`, `none` keeps it (T4's choice, T5's GN20-D).
 //! `GN_WEIGHT_DECAY` and `GN_CG_MAX_ITERS` override the literals of those names (Phase 10
 //! follow-ups: μ = 0, a higher CG cap). `WEIGHT_DECAY` overrides Adam's literal of that
 //! name (Phase 10 follow-up: Adam at μ = 0, the control for GN at μ = 0).
@@ -89,7 +89,7 @@
 mod common;
 
 use burn::{config::Config, module::Module, tensor::Device};
-use common::{GnLiterals, Literals, Measured};
+use common::{CHECKPOINT_EVERY, GnLiterals, Literals, Measured};
 use sciml_rs::neural_operators::{
     chebyshev::TRANSFER_DEGREE,
     data::{
@@ -104,7 +104,6 @@ use sciml_rs::neural_operators::{
         },
     },
     models::fno::FNOConfig,
-    optim::gauss_newton::Preconditioner,
     runs::{RunCosts, RunDir},
     training::{
         config::TrainingConfig,
@@ -136,8 +135,6 @@ const MIN_LR: f64 = 1e-5;
 /// sweep over {0, 4, 8, 16}: p = 8 scored lowest and p = 4 lies within 2% of it, so the
 /// smaller p wins (design §12, decision 16; Phase 4 T2).
 const PADDING: usize = 4;
-/// Epochs between checkpoints; the last epoch is always checkpointed (Phase 9 P2).
-const CHECKPOINT_EVERY: usize = 25;
 
 // Gauss–Newton (`OPTIMIZER=gauss-newton`, Phase 10 T3); the other `GaussNewtonConfig`
 // settings keep their defaults
@@ -150,9 +147,9 @@ const GN_CG_MAX_ITERS: usize = 50;
 const GN_LAMBDA_INIT: f64 = 1.0;
 /// Weight decay μ as a Tikhonov term, Adam's for parity (G5).
 const GN_WEIGHT_DECAY: f64 = 1e-4;
-/// The CG preconditioner (T4 picks between this and the Hutchinson diagonal);
+/// Whether CG uses the Hutchinson diagonal (T4 picked between it and none; none here);
 /// `GN_PRECONDITIONER` overrides it.
-const GN_PRECONDITIONER: Preconditioner = Preconditioner::None;
+const GN_HUTCHINSON: bool = false;
 /// Probes per Hutchinson estimate (`GN_PRECONDITIONER=hutchinson`), re-estimated every
 /// `GaussNewtonConfig::precond_every` steps.
 const GN_HUTCHINSON_PROBES: usize = 10;
@@ -289,23 +286,14 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
             cg_max_iters: GN_CG_MAX_ITERS,
             lambda_init: GN_LAMBDA_INIT,
             weight_decay: GN_WEIGHT_DECAY,
-            preconditioner: GN_PRECONDITIONER,
+            hutchinson: GN_HUTCHINSON,
             hutchinson_probes: GN_HUTCHINSON_PROBES,
             adjoint_check_every: GN_ADJOINT_CHECK_EVERY,
         },
+        hybrid_adam_epochs: Some(HYBRID_ADAM_EPOCHS),
     };
     let train_cfg = common::training_config(&["adam", "gauss-newton", "hybrid"], seed, &lit);
-    let adam_epochs =
-        (std::env::var("OPTIMIZER").as_deref() == Ok("hybrid")).then_some(HYBRID_ADAM_EPOCHS);
-    // the Adam half must match the Adam reruns' steps for HYBRID_ADAM_EPOCHS to be half
-    // their time
-    assert!(
-        adam_epochs.is_none() || train_cfg.batch_size == BATCH_SIZE,
-        "OPTIMIZER=hybrid trains at BATCH_SIZE = {BATCH_SIZE}, got GN_BATCH_SIZE = {}",
-        train_cfg.batch_size
-    );
     let gn = train_cfg.gauss_newton().is_some();
-    let train_cfg = train_cfg.with_adam_epochs(adam_epochs);
 
     // Stage 2 at s = n − 1 keeps its run name; other stages carry n, other s carry n and s,
     // then a subset its N and seed, and a seed other than the default is appended
@@ -323,7 +311,7 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
     } else {
         format!("_seed{seed}")
     };
-    let gn_tag = match (gn, adam_epochs) {
+    let gn_tag = match (gn, train_cfg.adam_epochs) {
         (_, Some(_)) => "_hybrid",
         (true, None) => "_gn",
         (false, None) => "",
@@ -342,17 +330,8 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
 fn main() {
     let devices = train_devices();
     let device = devices[0].clone();
-    let (run, model_cfg, train_cfg, dataset_cfg, resume) = match common::resume_dir() {
-        Some(dir) => {
-            let (run, model_cfg, train_cfg, dataset_cfg, ck) =
-                common::reopen::<4, PoissonConfig>(&dir, &device);
-            (run, model_cfg, train_cfg, dataset_cfg, Some(ck))
-        }
-        None => {
-            let (run, model_cfg, train_cfg, dataset_cfg) = new_run(&device);
-            (run, model_cfg, train_cfg, dataset_cfg, None)
-        }
-    };
+    let (run, model_cfg, train_cfg, dataset_cfg, resume) =
+        common::session::<4, PoissonConfig>(&device, || new_run(&device));
     assert!(
         train_cfg.gauss_newton().is_none() || devices.len() == 1,
         "Gauss-Newton trains on one device: unset TRAIN_DEVICES"
@@ -438,7 +417,8 @@ fn main() {
     let measured = Measured {
         load_time_s,
         training_time_s,
-        host_to_device_bytes: (train_bytes, test_bytes),
+        host_to_device_bytes_train: train_bytes,
+        host_to_device_bytes_test: test_bytes,
         device: device_name,
         num_params: model.num_params(),
         resumes,

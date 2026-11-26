@@ -20,7 +20,7 @@
 mod common;
 
 use burn::{module::Module, tensor::Device};
-use common::{GnLiterals, Literals, Measured};
+use common::{CHECKPOINT_EVERY, GnLiterals, Literals, Measured};
 use sciml_rs::neural_operators::data::catalogue::DarcyFiles;
 use sciml_rs::neural_operators::{
     data::dataset::OperatorDataset,
@@ -29,7 +29,6 @@ use sciml_rs::neural_operators::{
         darcy::{DarcyConfig, load_darcy_uniform},
     },
     models::fno::FNOConfig,
-    optim::gauss_newton::Preconditioner,
     runs::RunDir,
     training::{
         config::TrainingConfig,
@@ -38,9 +37,6 @@ use sciml_rs::neural_operators::{
 };
 use std::path::Path;
 use std::time::Instant;
-
-/// Epochs between checkpoints; the last epoch is always checkpointed (Phase 9 P2).
-const CHECKPOINT_EVERY: usize = 25;
 
 /// A new run from the literals below and the environment: creates its directory and saves
 /// its configs there before training, so `--resume` can read them.
@@ -87,10 +83,11 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
             cg_max_iters: 100,
             lambda_init: 1.0,
             weight_decay: 1e-4,
-            preconditioner: Preconditioner::HutchinsonDiagonal { probes: 10 },
+            hutchinson: true,
             hutchinson_probes: 10,
             adjoint_check_every: 10,
         },
+        hybrid_adam_epochs: None,
     };
     let train_cfg = common::training_config(&["adam", "adamw", "gauss-newton"], seed, &lit);
 
@@ -121,17 +118,8 @@ fn main() {
     let device = Device::default().autodiff();
     println!("device: {device:?}");
 
-    let (run, model_cfg, train_cfg, dataset_cfg, resume) = match common::resume_dir() {
-        Some(dir) => {
-            let (run, model_cfg, train_cfg, dataset_cfg, ck) =
-                common::reopen::<4, DarcyConfig>(&dir, &device);
-            (run, model_cfg, train_cfg, dataset_cfg, Some(ck))
-        }
-        None => {
-            let (run, model_cfg, train_cfg, dataset_cfg) = new_run();
-            (run, model_cfg, train_cfg, dataset_cfg, None)
-        }
-    };
+    let (run, model_cfg, train_cfg, dataset_cfg, resume) =
+        common::session::<4, DarcyConfig>(&device, new_run);
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets");
     let train_path = datasets.join(DarcyFiles::TRAIN);
@@ -191,7 +179,8 @@ fn main() {
         Measured {
             load_time_s,
             training_time_s,
-            host_to_device_bytes: (train_bytes, test_bytes),
+            host_to_device_bytes_train: train_bytes,
+            host_to_device_bytes_test: test_bytes,
             device: format!("{device:?}"),
             num_params: model.num_params(),
             resumes,

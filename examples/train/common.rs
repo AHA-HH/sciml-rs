@@ -39,7 +39,7 @@ where
     let v = std::env::var(name).ok()?;
     Some(
         v.parse()
-            .unwrap_or_else(|e| panic!("{name} must be a number, got {v:?}: {e}")),
+            .unwrap_or_else(|e| panic!("{name} has an invalid value {v:?}: {e}")),
     )
 }
 
@@ -53,9 +53,10 @@ pub struct GnLiterals {
     pub lambda_init: f64,
     /// Weight decay μ as a Tikhonov term (`GN_WEIGHT_DECAY`).
     pub weight_decay: f64,
-    /// The CG preconditioner (`GN_PRECONDITIONER`).
-    pub preconditioner: Preconditioner,
-    /// Probes per Hutchinson estimate when `GN_PRECONDITIONER=hutchinson`.
+    /// Whether CG is preconditioned with the Hutchinson diagonal (`GN_PRECONDITIONER`
+    /// overrides: `hutchinson` or `none`).
+    pub hutchinson: bool,
+    /// Probes per Hutchinson estimate.
     pub hutchinson_probes: usize,
     /// The adjoint check, every this many steps (`gn_steps.csv`'s `adjoint_error`).
     pub adjoint_check_every: usize,
@@ -75,18 +76,22 @@ pub struct Literals {
     pub min_lr: f64,
     /// Gauss–Newton's literals.
     pub gn: GnLiterals,
+    /// A hybrid run's Adam epochs (`OPTIMIZER=hybrid`, Phase 10 T5); `None` for an example
+    /// that takes no `hybrid`.
+    pub hybrid_adam_epochs: Option<usize>,
 }
 
 /// The training configuration `OPTIMIZER`, one of `allowed` (unset is `adam`), asks for,
 /// from `lit` and the environment (see the module docs), with seed `seed` (the weights,
-/// the shuffle and Gauss–Newton's probes). `hybrid` gives Gauss–Newton without
-/// `adam_epochs`, which the caller sets.
+/// the shuffle and Gauss–Newton's probes). `hybrid` is Gauss–Newton after
+/// `lit.hybrid_adam_epochs` Adam epochs, at Adam's batch size.
 ///
 /// # Panics
 /// For an `OPTIMIZER` not in `allowed`, a negative or non-finite `WEIGHT_DECAY` or
 /// `GN_WEIGHT_DECAY`, a `TIME_BUDGET_S` without Gauss–Newton or not positive and finite, a
 /// batch size or `GN_CG_MAX_ITERS` of 0, a `GN_PRECONDITIONER` but `none` and `hutchinson`,
-/// `lit.epochs` of 0, or AdamW with `lit.epochs` not a multiple of 5.
+/// `lit.epochs` of 0, AdamW with `lit.epochs` not a multiple of 5, or `hybrid` without
+/// `lit.hybrid_adam_epochs` or with a `GN_BATCH_SIZE` other than `lit.batch_size`.
 pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingConfig {
     let name = std::env::var("OPTIMIZER").unwrap_or_else(|_| "adam".to_string());
     assert!(
@@ -95,8 +100,8 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
         allowed.join(", ")
     );
     assert!(lit.epochs > 0, "EPOCHS must be positive");
-    let (optimizer, lr_schedule) = match name.as_str() {
-        "adam" => (None, None),
+    let (optimizer, lr_schedule, adam_epochs) = match name.as_str() {
+        "adam" => (None, None, None),
         "adamw" => {
             assert!(
                 lit.epochs.is_multiple_of(5),
@@ -108,13 +113,23 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
             (
                 Some(OptimizerConfig::AdamW),
                 Some(LrSchedule::Step { every_epochs }),
+                None,
             )
         }
-        "gauss-newton" | "hybrid" => (
+        "gauss-newton" => (
             Some(OptimizerConfig::GaussNewton(gauss_newton(seed, &lit.gn))),
             None,
+            None,
         ),
-        other => panic!("unknown OPTIMIZER {other:?}"),
+        "hybrid" => (
+            Some(OptimizerConfig::GaussNewton(gauss_newton(seed, &lit.gn))),
+            None,
+            Some(
+                lit.hybrid_adam_epochs
+                    .expect("OPTIMIZER=hybrid needs the example's hybrid_adam_epochs"),
+            ),
+        ),
+        other => unreachable!("{other:?} is in `allowed` but names no optimiser"),
     };
     let gn = matches!(optimizer, Some(OptimizerConfig::GaussNewton(_)));
 
@@ -135,6 +150,13 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
         lit.batch_size
     };
     assert!(batch_size > 0, "GN_BATCH_SIZE must be positive");
+    // the Adam half must match the Adam reruns' steps for hybrid_adam_epochs to be half
+    // their time
+    assert!(
+        adam_epochs.is_none() || batch_size == lit.batch_size,
+        "OPTIMIZER=hybrid trains at the batch size {}, got GN_BATCH_SIZE = {batch_size}",
+        lit.batch_size
+    );
     let weight_decay = env_var("WEIGHT_DECAY").unwrap_or(lit.weight_decay);
     assert!(
         weight_decay.is_finite() && weight_decay >= 0.0,
@@ -150,17 +172,23 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
         .with_seed(seed)
         .with_optimizer(optimizer)
         .with_lr_schedule(lr_schedule)
+        .with_adam_epochs(adam_epochs)
 }
 
 /// Gauss–Newton from `lit` and the `GN_*` variables, its probes seeded with `seed`.
 fn gauss_newton(seed: u64, lit: &GnLiterals) -> GaussNewtonConfig {
     let preconditioner = match std::env::var("GN_PRECONDITIONER").as_deref() {
-        Err(_) => lit.preconditioner.clone(),
-        Ok("none") => Preconditioner::None,
-        Ok("hutchinson") => Preconditioner::HutchinsonDiagonal {
-            probes: lit.hutchinson_probes,
-        },
+        Err(_) => lit.hutchinson,
+        Ok("none") => false,
+        Ok("hutchinson") => true,
         Ok(other) => panic!("GN_PRECONDITIONER must be none or hutchinson, got {other:?}"),
+    };
+    let preconditioner = if preconditioner {
+        Preconditioner::HutchinsonDiagonal {
+            probes: lit.hutchinson_probes,
+        }
+    } else {
+        Preconditioner::None
     };
     let cg_max_iters = env_var("GN_CG_MAX_ITERS").unwrap_or(lit.cg_max_iters);
     assert!(cg_max_iters > 0, "GN_CG_MAX_ITERS must be positive");
@@ -178,12 +206,41 @@ fn gauss_newton(seed: u64, lit: &GnLiterals) -> GaussNewtonConfig {
         .with_seed(seed)
 }
 
+/// Epochs between checkpoints; the last epoch is always checkpointed (Phase 9 P2).
+pub const CHECKPOINT_EVERY: usize = 25;
+
+/// A run's directory, model, training and data (`C`) configs, and the checkpoint of a
+/// rank-`R` FNO it resumes from (`None` for a new run).
+pub type Session<const R: usize, C> = (RunDir, FNOConfig, TrainingConfig, C, Option<Checkpoint<R>>);
+
+/// The run to train: with `--resume <dir>` as the first arguments, that run reopened from
+/// its checkpoint on `device` ([`reopen`]); otherwise `new_run()`, a new run whose configs
+/// it has saved.
+///
+/// # Panics
+/// As [`resume_dir`] and [`reopen`].
+pub fn session<const R: usize, C: Config>(
+    device: &Device,
+    new_run: impl FnOnce() -> (RunDir, FNOConfig, TrainingConfig, C),
+) -> Session<R, C> {
+    match resume_dir() {
+        Some(dir) => {
+            let (run, model_cfg, train_cfg, data_cfg, ck) = reopen::<R, C>(&dir, device);
+            (run, model_cfg, train_cfg, data_cfg, Some(ck))
+        }
+        None => {
+            let (run, model_cfg, train_cfg, data_cfg) = new_run();
+            (run, model_cfg, train_cfg, data_cfg, None)
+        }
+    }
+}
+
 /// The run directory given after `--resume` as the first argument, or `None` for a new
 /// run when the first argument is anything else or absent.
 ///
 /// # Panics
 /// If `--resume` has no directory after it.
-pub fn resume_dir() -> Option<String> {
+fn resume_dir() -> Option<String> {
     match std::env::args().nth(1).as_deref() {
         Some("--resume") => Some(
             std::env::args()
@@ -200,7 +257,7 @@ pub fn resume_dir() -> Option<String> {
 ///
 /// # Panics
 /// If the run, a config or the checkpoint cannot be read, or the run has no checkpoint.
-pub fn reopen<const R: usize, C: Config>(
+fn reopen<const R: usize, C: Config>(
     dir: &str,
     device: &Device,
 ) -> (RunDir, FNOConfig, TrainingConfig, C, Checkpoint<R>) {
@@ -230,8 +287,10 @@ pub struct Measured {
     pub load_time_s: f64,
     /// Training, every session's up to the last checkpoint and this one's.
     pub training_time_s: f64,
-    /// Bytes uploaded for the train split (every device's copy) and the test split.
-    pub host_to_device_bytes: (usize, usize),
+    /// Bytes uploaded for the train split (every device's copy).
+    pub host_to_device_bytes_train: usize,
+    /// Bytes uploaded for the test split.
+    pub host_to_device_bytes_test: usize,
     /// The training device or devices.
     pub device: String,
     /// The model's parameters.
@@ -281,8 +340,8 @@ pub fn run_costs(
         load_time_s: m.load_time_s,
         training_time_s: m.training_time_s,
         inference_time_s: None,
-        host_to_device_bytes_train: m.host_to_device_bytes.0,
-        host_to_device_bytes_test: m.host_to_device_bytes.1,
+        host_to_device_bytes_train: m.host_to_device_bytes_train,
+        host_to_device_bytes_test: m.host_to_device_bytes_test,
         // no backend reports it; never estimated (design §13.9)
         peak_gpu_memory: "unavailable".to_string(),
         backend_features: backend_features().into_iter().map(String::from).collect(),
