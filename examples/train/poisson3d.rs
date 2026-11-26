@@ -168,6 +168,10 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         lifting_channel_ratio: None,
         projection_channel_ratio: None,
         positional_embedding: None,
+        conv_bias: None,
+        separable: None,
+        max_modes: None,
+        tanh_stabilizer: None,
     };
     let train_cfg = TrainingConfig::new()
         .with_epochs(epochs)
