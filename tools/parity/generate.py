@@ -19,8 +19,10 @@ import numpy as np
 import tensorly
 import tltorch
 import torch
+import torch.nn.functional as F
 import torch_harmonics
 from neuralop.layers.channel_mlp import ChannelMLP
+from neuralop.layers.fno_block import FNOBlocks
 from neuralop.layers.legacy_spectral_convolution import SpectralConv as LegacySpectralConv
 from neuralop.layers.spectral_convolution import SpectralConv
 from neuralop.layers.normalization_layers import AdaIN, InstanceNorm
@@ -42,6 +44,48 @@ class AdaINWithEmbedding(AdaIN):
         super().__init__(embed_dim, in_channels)
         del self.embedding
         self.register_buffer("embedding", torch.randn(embed_dim))
+
+
+def legacy_conv(in_channels, out_channels, n_modes, **_):
+    """2.0.0's legacy layer as `FNOBlocks`' `conv_module`, without its bias (the crate's
+    `SpectralConv` has none). `FNOBlocks` also passes the new layer's keywords
+    (`max_n_modes`, `separable`, …), all at their defaults, which the legacy layer lacks."""
+    return LegacySpectralConv(in_channels, out_channels, n_modes, bias=False)
+
+
+class FNOBlocksRun(torch.nn.Module):
+    """2.0.0's `FNOBlocks` over every layer index, as its `FNO.forward` runs them, with the
+    legacy convolution; with AdaIN one seeded embedding, a buffer, set on every norm."""
+
+    def __init__(self, ada_in_features=None, **kwargs):
+        super().__init__()
+        self.fno_blocks = FNOBlocks(conv_module=legacy_conv, ada_in_features=ada_in_features, **kwargs)
+        embedding = None if ada_in_features is None else torch.randn(ada_in_features)
+        self.register_buffer("embedding", embedding)
+
+    def forward(self, x):
+        if self.embedding is not None:
+            self.fno_blocks.set_ada_in_embeddings(self.embedding)
+        for i in range(self.fno_blocks.n_layers):
+            x = self.fno_blocks(x, i)
+        return x
+
+
+# The activations `FNOConfig::activation` offers, in the order of the crate's `Activation`
+# (`F.leaky_relu` at its default slope, 0.01).
+ACTIVATIONS = [F.relu, F.gelu, torch.tanh, torch.sigmoid, F.silu, F.leaky_relu, F.selu, F.mish, F.hardswish, F.softsign]
+
+
+class Activations(torch.nn.Module):
+    """Each of `ACTIVATIONS` applied to a one-channel input, stacked along the channels."""
+
+    def forward(self, x):
+        return torch.cat([f(x) for f in ACTIVATIONS], dim=1)
+
+
+def blocks(n_modes, channels=4, n_layers=2, **kwargs):
+    """`FNOBlocks(channels, channels, n_modes, n_layers, **kwargs)`, 2.0.0's defaults otherwise."""
+    return FNOBlocksRun(in_channels=channels, out_channels=channels, n_modes=n_modes, n_layers=n_layers, **kwargs)
 
 
 # name -> (model class, kwargs, input shape (batch, channels, *grid)).
@@ -71,11 +115,31 @@ CONFIGS = {
     "instance_norm1d": (InstanceNorm, dict(), (2, 4, 9)),
     "group_norm3d": (torch.nn.GroupNorm, dict(num_groups=1, num_channels=4), (2, 4, 5, 4, 3)),
     "ada_in2d": (AdaINWithEmbedding, dict(embed_dim=3, in_channels=4), (2, 4, 6, 5)),
+    # CM1.3b: FNOBlocks, post- and pre-activation, for each norm.
+    "fno_blocks_post1d": (blocks, dict(n_modes=(8,)), (2, 4, 20)),
+    "fno_blocks_pre1d": (blocks, dict(n_modes=(8,), preactivation=True), (2, 4, 20)),
+    "fno_blocks_instance_post2d": (blocks, dict(n_modes=(6, 4), norm="instance_norm"), (2, 4, 12, 10)),
+    "fno_blocks_instance_pre2d": (blocks, dict(n_modes=(6, 4), norm="instance_norm", preactivation=True), (2, 4, 12, 10)),
+    "fno_blocks_group_post3d": (blocks, dict(n_modes=(4, 4, 4), norm="group_norm", fno_skip="soft-gating", channel_mlp_skip="linear", channel_mlp_expansion=1.0), (2, 4, 8, 7, 6)),
+    "fno_blocks_group_pre3d": (blocks, dict(n_modes=(4, 4, 4), norm="group_norm", fno_skip="identity", channel_mlp_skip="identity", preactivation=True), (2, 4, 8, 7, 6)),
+    # AdaIN's MLP is 512 wide: one layer and 2 channels keep P within D8.
+    "fno_blocks_ada_in_post2d": (blocks, dict(n_modes=(6, 4), channels=2, n_layers=1, norm="ada_in", ada_in_features=2), (2, 2, 12, 10)),
+    "fno_blocks_ada_in_pre2d": (blocks, dict(n_modes=(6, 4), channels=2, n_layers=1, norm="ada_in", ada_in_features=2, preactivation=True), (2, 2, 12, 10)),
+    # No channel MLP, no norm: 2.0.0 applies the activation twice per layer (tanh shows it).
+    "fno_blocks_plain1d": (blocks, dict(n_modes=(8,), use_channel_mlp=False, fno_skip="soft-gating", non_linearity=torch.tanh), (2, 4, 20)),
+    "activations1d": (Activations, dict(), (2, 1, 64)),
 }
-# Parts whose 2.0.0 init is a constant (ones, zeros): their parameters are redrawn from a
-# seeded normal, so the fixture tests the map and not only the constant.
-REDRAW = {"soft_gating2d", "group_norm3d"}
+# Models with parameters whose 2.0.0 init is a constant (ones, zeros): those parameters (and
+# only those) are redrawn from a seeded normal, so the fixture tests the map and not only the
+# constant.
+REDRAW = {"soft_gating2d", "group_norm3d"} | {n for n in CONFIGS if n.startswith("fno_blocks")}
 DTYPES = {"f32": torch.float32, "f64": torch.float64}
+# f32 only: the legacy layer computes its spectrum in `cfloat` and returns f32 (no bias to
+# promote it), so an f64 reference would be f32-accurate, and torch refuses a norm with f64
+# parameters on it.
+F32_ONLY = {n for n in CONFIGS if n.startswith("fno_blocks")}
+# And the activations: D3 needs f32 parity, and an f64 test would need a binary of its own.
+F32_ONLY.add("activations1d")
 PREFIX = "param."
 
 
@@ -92,7 +156,10 @@ def build(name, dtype):
     if name in REDRAW:
         with torch.no_grad():
             for p in model.parameters():
-                p.copy_(torch.randn_like(p))
+                # shortcut: "constant" is read from the values, so a 1-element parameter is
+                # never redrawn; name the parameters if a constant scalar init appears.
+                if p.numel() > 1 and p.unique().numel() == 1:
+                    p.copy_(torch.randn_like(p))
     x = torch.randn(shape, generator=torch.Generator().manual_seed(INPUT_SEED))
     if dtype == torch.float64:
         for t in list(model.parameters()) + list(model.buffers()):
@@ -204,6 +271,8 @@ def main():
     failed = False
     for name in CONFIGS:
         for dtype_name, dtype in DTYPES.items():
+            if dtype_name == "f64" and name in F32_ONLY:
+                continue
             model, x = build(name, dtype)
             data, complex_names = arrays(model, x, dtype)
             path = OUT / f"{name}_{dtype_name}.npz"

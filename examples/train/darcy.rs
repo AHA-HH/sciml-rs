@@ -72,6 +72,11 @@ fn main() {
         // fourier_2d.py does. The padded 94 x 94 grid is not a power of two
         padding: Some(9),
         activation: None,
+        // 2.0.0's block options (library CM1.3b); None keeps today's block
+        fno_skip: None,
+        channel_mlp: None,
+        norm: None,
+        preactivation: None,
     };
 
     let train_cfg = TrainingConfig::new()

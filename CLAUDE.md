@@ -151,7 +151,11 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   below the stored ones), `layers/{channel_mlp,skip,norm}.rs` (library CM1.3a:
   2.0.0's `ChannelMlp`, `SkipKind`/`Skip<R>`, `AdaIn`; `layers/pointwise.rs`, the shared
   `conv1x1`; activations are Burn's `ActivationConfig`, instance and group norm Burn's;
-  parity in `tests/parity_block_parts*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
+  parity in `tests/parity_block_parts*.rs`; since CM1.3b `norm::{NormKind, Norm}`, the
+  block's norm choice, and `pointwise::linear_cf`; the FNO's block options are `FNOConfig`'s
+  `activation` (CO1.1's `Activation`, ten functions since CM1.3b), `fno_skip`, `channel_mlp` (`BlockMlpConfig`), `norm`, `preactivation`, each
+  `None` the original block, run by `FNO::fourier_layers`, parity in
+  `tests/parity_fno_blocks.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
   `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
   `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; parity in

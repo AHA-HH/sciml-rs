@@ -331,6 +331,11 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         // spectral layers (cropped after). Some(0) means no padding
         padding: Some(padding),
         activation: None,
+        // 2.0.0's block options (library CM1.3b); None keeps today's block
+        fno_skip: None,
+        channel_mlp: None,
+        norm: None,
+        preactivation: None,
     };
 
     let (optimizer, adam_epochs) = optimizer(seed);

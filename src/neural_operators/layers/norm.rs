@@ -10,7 +10,7 @@ use burn::{
     Tensor,
     config::Config,
     module::Module,
-    nn::{InstanceNorm, InstanceNormConfig, Linear, LinearConfig},
+    nn::{GroupNorm, GroupNormConfig, InstanceNorm, InstanceNormConfig, Linear, LinearConfig},
     tensor::{Device, activation::gelu},
 };
 
@@ -84,6 +84,73 @@ impl AdaIn {
     }
 }
 
+/// Which norm a block uses, as 2.0.0's `FNOBlocks(norm=…)`; [`NormKind::init`] builds it.
+/// 2.0.0's `"batch_norm"` is left out (stateful running statistics).
+#[derive(Config, Debug)]
+pub enum NormKind {
+    /// `"instance_norm"`: 2.0.0's `InstanceNorm()`, without affine.
+    Instance,
+    /// `"group_norm"`: `nn.GroupNorm(1, C)`, one group, affine.
+    Group,
+    /// `"ada_in"`: [`AdaIn`] conditioned on an embedding of length `embed_dim` (2.0.0's
+    /// `ada_in_features`).
+    AdaIn {
+        /// Length of the conditioning embedding.
+        embed_dim: usize,
+    },
+}
+
+/// A norm on channels-first `[B, C, s_1..s_D]` tensors of any rank, built by
+/// [`NormKind::init`].
+#[derive(Module, Debug)]
+pub enum Norm {
+    /// Burn's `InstanceNorm` without affine, eps 1e-5.
+    Instance(InstanceNorm),
+    /// Burn's `GroupNorm` with one group, eps 1e-5.
+    Group(GroupNorm),
+    /// The crate's [`AdaIn`], boxed: its MLP makes it far larger than the other variants.
+    AdaIn(Box<AdaIn>),
+}
+
+impl NormKind {
+    /// Builds the norm of `channels` channels on `device`, as 2.0.0 initialises it.
+    pub fn init(&self, channels: usize, device: &Device) -> Norm {
+        match self {
+            NormKind::Instance => Norm::Instance(
+                InstanceNormConfig::new(channels)
+                    .with_affine(false)
+                    .init(device),
+            ),
+            NormKind::Group => Norm::Group(GroupNormConfig::new(1, channels).init(device)),
+            NormKind::AdaIn { embed_dim } => Norm::AdaIn(Box::new(
+                AdaInConfig::new(*embed_dim, channels).init(device),
+            )),
+        }
+    }
+}
+
+impl Norm {
+    /// `[B, C, s..]` → `[B, C, s..]`; `embedding` (`[embed_dim]`) conditions AdaIN and is
+    /// ignored by the other norms.
+    ///
+    /// # Panics
+    /// For AdaIN without an embedding, and as [`AdaIn::forward`].
+    pub fn forward<const R: usize>(
+        &self,
+        x: Tensor<R>,
+        embedding: Option<&Tensor<1>>,
+    ) -> Tensor<R> {
+        match self {
+            Norm::Instance(norm) => norm.forward(x),
+            Norm::Group(norm) => norm.forward(x),
+            Norm::AdaIn(norm) => norm.forward(
+                x,
+                embedding.expect("an AdaIN norm needs an embedding").clone(),
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use burn::{
@@ -131,6 +198,27 @@ mod tests {
             Tensor::ones([3], &device),
         );
         assert_eq!(y.dims(), [2, 4, 3, 2, 2]);
+    }
+
+    #[test]
+    #[should_panic(expected = "an AdaIN norm needs an embedding")]
+    fn ada_in_norm_without_an_embedding_panics() {
+        let device = Device::default();
+        let norm = NormKind::AdaIn { embed_dim: 3 }.init(4, &device);
+        norm.forward(Tensor::<3>::ones([1, 4, 2], &device), None);
+    }
+
+    #[test]
+    fn norm_kinds_build_2_0_0_s_norms() {
+        let device = Device::default();
+        let Norm::Group(group) = NormKind::Group.init(4, &device) else {
+            panic!("not a group norm")
+        };
+        assert_eq!((group.num_groups, group.num_channels), (1, 4));
+        let Norm::Instance(instance) = NormKind::Instance.init(4, &device) else {
+            panic!("not an instance norm")
+        };
+        assert!(instance.gamma.is_none());
     }
 
     #[test]
