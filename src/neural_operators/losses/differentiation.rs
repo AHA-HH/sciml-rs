@@ -224,10 +224,6 @@ impl<const D: usize> GridDiff<D> for FiniteDiff<D> {
     fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
         FiniteDiff::partial(self, u, axis, order)
     }
-
-    fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
-        FiniteDiff::laplacian(self, u)
-    }
 }
 
 /// Differentiation by a matrix per spatial axis: `(∂ᵏu)[.., i, ..] = Σⱼ Mₖ[i, j] u[.., j, ..]`
@@ -439,5 +435,97 @@ mod tests {
             periodic: [true],
         }
         .curl_2d(v);
+    }
+
+    /// The periodic central-difference matrices of `n` points with step `h`.
+    fn periodic_matrices(n: usize, h: f64) -> (Array2<f64>, Array2<f64>) {
+        let at = |i: usize, j: usize, c: [f64; 3]| {
+            if j == (i + n - 1) % n {
+                c[0]
+            } else if j == i {
+                c[1]
+            } else if j == (i + 1) % n {
+                c[2]
+            } else {
+                0.0
+            }
+        };
+        let d1 = Array2::from_shape_fn((n, n), |(i, j)| at(i, j, [-0.5 / h, 0.0, 0.5 / h]));
+        let d2 = Array2::from_shape_fn((n, n), |(i, j)| {
+            at(i, j, [1.0 / (h * h), -2.0 / (h * h), 1.0 / (h * h)])
+        });
+        (d1, d2)
+    }
+
+    /// `MatrixDiff` with the periodic central-difference matrices is `FiniteDiff` periodic,
+    /// on both axes of a non-square grid, up to f32 rounding (≤ 9.8e-8 measured); so is
+    /// the Laplacian of `GridDiff`'s default.
+    #[test]
+    fn matrix_diff_matches_finite_diff() {
+        let device = Device::default();
+        let (h, (nx, ny)) = ([0.3, 0.2], (8, 6));
+        let (ax, bx) = periodic_matrices(nx, h[0]);
+        let (ay, by) = periodic_matrices(ny, h[1]);
+        let md = MatrixDiff::new([ax, ay], [bx, by], &device);
+        let fd = FiniteDiff {
+            h,
+            periodic: [true, true],
+        };
+        let data: Vec<f64> = (0..2 * nx * ny)
+            .map(|k| ((k * 37 % 11) as f64).sin())
+            .collect();
+        let u: Tensor<3> = Tensor::from_data(TensorData::new(data, [2, nx, ny]), &device);
+        let rel = |a: Tensor<3>, b: Tensor<3>| {
+            let scale = b.clone().abs().max().into_scalar::<f64>();
+            (a - b).abs().max().into_scalar::<f64>() / scale
+        };
+        for axis in 0..2 {
+            for order in [1, 2] {
+                let a = GridDiff::partial(&md, u.clone(), axis, order);
+                let err = rel(a, fd.partial(u.clone(), axis, order));
+                assert!(err < 1e-6, "axis {axis} order {order}: {err:e}");
+            }
+        }
+        let err = rel(GridDiff::laplacian(&md, u.clone()), fd.laplacian(u));
+        assert!(err < 1e-6, "laplacian: {err:e}");
+    }
+
+    /// Gradients flow through `MatrixDiff`: d Σ (M u)² / du = 2 Mᵀ M u, finite and non-zero.
+    #[test]
+    fn matrix_diff_gradient_flows() {
+        let device = Device::default().autodiff();
+        let (a, b) = periodic_matrices(6, 0.2);
+        let md = MatrixDiff::new([a], [b], &device);
+        let values: Vec<f64> = (0..6).map(|i| (i as f64).sin()).collect();
+        let u = Tensor::<2>::from_data(TensorData::new(values, [1, 6]), &device).require_grad();
+        let loss = GridDiff::partial(&md, u.clone(), 0, 1).square().sum();
+        let g = u.grad(&loss.backward()).unwrap();
+        let g = g.abs().max().into_scalar::<f64>();
+        assert!(g.is_finite() && g > 0.0, "{g}");
+    }
+
+    /// The Chebyshev matrices differentiate x³ exactly on 6 CGL nodes, up to f32 rounding
+    /// (≤ 3.3e-6 measured, in 2D).
+    #[cfg(feature = "datagen")]
+    #[test]
+    fn chebyshev_exact_on_a_cubic() {
+        use crate::neural_operators::chebyshev::nodes;
+        let x = nodes(6).to_vec();
+        let md = MatrixDiff::chebyshev([6], &Device::default());
+        let u = row(x.iter().map(|x| x.powi(3)).collect());
+        let d1 = values(GridDiff::partial(&md, u.clone(), 0, 1));
+        let d2 = values(GridDiff::partial(&md, u, 0, 2));
+        let exact1: Vec<f64> = x.iter().map(|x| 3.0 * x * x).collect();
+        let exact2: Vec<f64> = x.iter().map(|x| 6.0 * x).collect();
+        assert!(max_abs_diff(&d1, &exact1) < 1e-4, "{d1:?}");
+        assert!(max_abs_diff(&d2, &exact2) < 1e-4, "{d2:?}");
+    }
+
+    #[test]
+    #[should_panic(expected = "has 5 points, its matrix 6")]
+    fn matrix_diff_size_mismatch_panics() {
+        let (a, b) = periodic_matrices(6, 1.0);
+        let md = MatrixDiff::new([a], [b], &Device::default());
+        GridDiff::partial(&md, row(vec![0.0; 5]), 0, 1);
     }
 }

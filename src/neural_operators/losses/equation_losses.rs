@@ -8,12 +8,12 @@
 //! over every entry: [`mean_squared_error`], not 2.0.0's `MSELoss`
 //! ([`mse_loss`](super::pointwise::mse_loss)).
 //!
-//! [`MatrixDiff`]: super::differentiation::MatrixDiff
-//!
 //! 2.0.0's Poisson interior loss differentiates a point-cloud model's output by autograd
 //! with respect to the query points. Here the left-hand side takes the derivatives as
 //! arguments ([`nonlinear_poisson_lhs`]), and [`PoissonEqnLoss::grid`] supplies them on a
 //! grid.
+//!
+//! [`MatrixDiff`]: super::differentiation::MatrixDiff
 
 use burn::tensor::Tensor;
 
@@ -242,10 +242,8 @@ impl PoissonEqnLoss {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::losses::differentiation::MatrixDiff;
     use burn::prelude::Device;
     use burn::tensor::TensorData;
-    use ndarray::Array2;
     use std::f64::consts::PI;
 
     /// A `[1, nx, ny]` grid function of the node coordinates.
@@ -288,54 +286,6 @@ mod tests {
             .collect()
     }
 
-    /// The periodic central-difference matrices of `n` points with step `h`.
-    fn periodic_matrices(n: usize, h: f64) -> (Array2<f64>, Array2<f64>) {
-        let at = |i: usize, j: usize, c: [f64; 3]| {
-            if j == (i + n - 1) % n {
-                c[0]
-            } else if j == i {
-                c[1]
-            } else if j == (i + 1) % n {
-                c[2]
-            } else {
-                0.0
-            }
-        };
-        let d1 = Array2::from_shape_fn((n, n), |(i, j)| at(i, j, [-0.5 / h, 0.0, 0.5 / h]));
-        let d2 = Array2::from_shape_fn((n, n), |(i, j)| {
-            at(i, j, [1.0 / (h * h), -2.0 / (h * h), 1.0 / (h * h)])
-        });
-        (d1, d2)
-    }
-
-    /// `MatrixDiff` with the periodic central-difference matrices is `FiniteDiff` periodic,
-    /// on both axes of a non-square grid, up to f32 rounding.
-    #[test]
-    fn matrix_diff_matches_finite_diff() {
-        let device = Device::default();
-        let (h, (nx, ny)) = ([0.3, 0.2], (8, 6));
-        let (ax, bx) = periodic_matrices(nx, h[0]);
-        let (ay, by) = periodic_matrices(ny, h[1]);
-        let md = MatrixDiff::new([ax, ay], [bx, by], &device);
-        let fd = FiniteDiff {
-            h,
-            periodic: [true, true],
-        };
-        let data: Vec<f64> = (0..2 * nx * ny)
-            .map(|k| ((k * 37 % 11) as f64).sin())
-            .collect();
-        let u: Tensor<3> = Tensor::from_data(TensorData::new(data, [2, nx, ny]), &device);
-        for axis in 0..2 {
-            for order in [1, 2] {
-                let a = GridDiff::partial(&md, u.clone(), axis, order);
-                let b = fd.partial(u.clone(), axis, order);
-                let scale = b.clone().abs().max().into_scalar::<f64>();
-                let err = (a - b).abs().max().into_scalar::<f64>() / scale;
-                assert!(err < 1e-6, "axis {axis} order {order}: {err:e}");
-            }
-        }
-    }
-
     /// Finite differences converge at second order on the interior: halving h divides the
     /// mean squared residual by about 16. The boundary part vanishes for g = u and is the
     /// mean of (u − g)² = 1 over the boundary nodes for g = u + 1.
@@ -375,12 +325,12 @@ mod tests {
 
     /// The Chebyshev path is spectral: at 17 CGL nodes per axis its mean squared residual
     /// (5.6e-11 measured, f32, Flex) is far below that of finite differences at 65 points
-    /// (5.4e-5). And the matrices differentiate a polynomial of degree < n exactly, up to
-    /// rounding.
+    /// (5.4e-5).
     #[cfg(feature = "datagen")]
     #[test]
     fn poisson_grid_chebyshev_spectral() {
         use crate::neural_operators::chebyshev::nodes;
+        use crate::neural_operators::losses::differentiation::MatrixDiff;
         let device = Device::default();
         let n = 17;
         let cgl = nodes(n).to_vec();
@@ -391,31 +341,12 @@ mod tests {
         };
         let finite = sine_interior_loss(&fd, &uniform(65, -1.0, 1.0));
         assert!(
-            cheb < finite / 100.0,
+            cheb < finite * 1e-4,
             "Chebyshev {cheb:e}, finite differences {finite:e}"
         );
-
-        let n = 6;
-        let x = nodes(n).to_vec();
-        let md = MatrixDiff::chebyshev([n, n], &device);
-        let u = field(&x, &x, |x, y| x.powi(3) * y * y, &device);
-        // (axis, order, the exact derivative)
-        type Check = (usize, usize, fn(f64, f64) -> f64);
-        let checks: [Check; 3] = [
-            (0, 1, |x, y| 3.0 * x * x * y * y),
-            (0, 2, |x, y| 6.0 * x * y * y),
-            (1, 2, |x, _| 2.0 * x.powi(3)),
-        ];
-        for (axis, order, exact) in checks {
-            let err = (md.partial(u.clone(), axis, order) - field(&x, &x, exact, &device))
-                .abs()
-                .max()
-                .into_scalar::<f64>();
-            assert!(err < 1e-4, "axis {axis} order {order}: {err:e}");
-        }
     }
 
-    /// Gradients flow through the Burgers loss and through `MatrixDiff` in the Poisson loss.
+    /// Gradients flow through the Burgers loss and the grid Poisson loss.
     #[test]
     fn gradients_flow() {
         let device = Device::default().autodiff();
@@ -433,15 +364,17 @@ mod tests {
             .into_scalar::<f64>();
         assert!(g.is_finite() && g > 0.0, "{g}");
 
-        let (a, b) = periodic_matrices(6, 0.2);
-        let md = MatrixDiff::new([a.clone(), a], [b.clone(), b], &device);
+        let fd = FiniteDiff {
+            h: [0.2; 2],
+            periodic: [false, false],
+        };
         let v: Tensor<3> = Tensor::ones([1, 6, 6], &device).require_grad();
         let eqn = PoissonEqnLoss {
             interior_weight: 1.0,
             boundary_weight: 1.0,
         };
         let zero = Tensor::zeros([1, 6, 6], &device);
-        let loss = eqn.grid(&md, v.clone(), zero.clone(), zero.add_scalar(1.0));
+        let loss = eqn.grid(&fd, v.clone(), zero.clone(), zero.add_scalar(1.0));
         let g = v
             .grad(&loss.backward())
             .unwrap()
@@ -465,24 +398,5 @@ mod tests {
     fn boundary_beyond_points_panics() {
         let t = Tensor::<1>::zeros([4], &Device::default());
         poisson_boundary_loss(t.clone(), t, 5);
-    }
-
-    #[test]
-    #[should_panic(expected = "shapes differ")]
-    fn mean_squared_error_shapes_differ_panics() {
-        let device = Device::default();
-        mean_squared_error(
-            Tensor::<1>::zeros([3], &device),
-            Tensor::<1>::zeros([4], &device),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "has 5 points, its matrix 6")]
-    fn matrix_diff_size_mismatch_panics() {
-        let device = Device::default();
-        let (a, b) = periodic_matrices(6, 1.0);
-        let md = MatrixDiff::new([a], [b], &device);
-        md.partial(Tensor::<2>::zeros([1, 5], &device), 0, 1);
     }
 }

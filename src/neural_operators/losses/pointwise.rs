@@ -68,7 +68,8 @@ impl PointwiseQuantileLoss {
 }
 
 /// 2.0.0's `MSELoss()`: the mean squared error of each example over all its non-batch
-/// entries, summed over the batch; [`mean_squared_error`] is the mean over every entry. `y_pred`, `y`: `[batch, ..]` of one shape; returns `[1]`.
+/// entries, summed over the batch; [`mean_squared_error`] is the mean over every entry.
+/// `y_pred`, `y`: `[batch, ..]` of one shape; returns `[1]`.
 ///
 /// # Panics
 /// If the shapes differ.
@@ -147,5 +148,15 @@ mod tests {
     #[should_panic(expected = "outside (0, 1)")]
     fn quantile_rejects_alpha_one() {
         PointwiseQuantileLoss::new(1.0, Reduction::Sum);
+    }
+
+    #[test]
+    #[should_panic(expected = "shapes differ")]
+    fn mean_squared_error_shapes_differ_panics() {
+        let device = Device::default();
+        mean_squared_error(
+            Tensor::<1>::zeros([3], &device),
+            Tensor::<1>::zeros([4], &device),
+        );
     }
 }
