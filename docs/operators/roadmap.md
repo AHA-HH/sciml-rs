@@ -18,7 +18,8 @@ split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. CM1.6
 2026-11-25 (the aggregators). CM1.2 done 2026-11-25 (the centred layer, separable, modes
 below the stored maximum). CM1.3b done 2026-11-25 (the FNO's block options; FNO outputs
 unchanged bit for bit). CM2.5 done 2026-11-26 (the equation losses, PINO; independent of
-D6). Next CM0.6, CM1.4 and CM1.6c.
+D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outputs
+unchanged bit for bit). Next CM0.6, CM1.5 and CM1.6c.
 
 ## How to read this file
 
@@ -155,15 +156,26 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     `FNO::fourier_layers`, `layers::norm::{NormKind, Norm}`; `tests/parity_fno_blocks.rs`
     (nine `FNOBlocks` fixtures, f32 only as the legacy layer computes in `cfloat`, ≤ 2.3e-6);
     the CM0.3 dumps identical to `main`.
-- [ ] **CM1.4 Lifting, projection and embeddings.** Channel-MLP lifting and projection with
+- [x] **CM1.4 Lifting, projection and embeddings.** Channel-MLP lifting and projection with
   their ratios; `GridEmbeddingND`, `SinusoidalEmbedding`, `RotaryEmbedding2D`. *Needs:*
-  CM1.3a (the channel MLP).
+  CM1.3a (the channel MLP). Done 2026-11-26: plan `docs/operators/tasks/CM1.4.md`;
+  `layers::embedding`; `FNOConfig::{lifting_channel_ratio, projection_channel_ratio,
+  positional_embedding}`; `tests/parity_embeddings.rs` (eight fixtures, `FNO` with
+  `n_layers=0` for the lifting and projection, f32 ≤ 7.8e-7), `_f64.rs` (seven `#[ignore]`d:
+  2.0.0's grid and frequencies are f32); the CM0.3 dumps identical to `main`.
 - [ ] **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
   Darcy- and Burgers-shaped inputs; resampling (`resolution_scaling_factor`) and domain
   padding. *Needs:* CM1.2, CM1.3b, CM1.4. Also from CM1.3b: the spectral convolution's bias
   inside the block (2.0.0 adds it before the norm; CM1.3b's fixtures turn it off), and the
   block options' `FNOConfig` struct literals in the examples and tests (five `None` lines
-  each) replaced by `FNOConfig::new(..).with_*` where that keeps them readable.
+  each) replaced by `FNOConfig::new(..).with_*` where that keeps them readable. From CM1.4's
+  code-quality review: one coordinate-channel builder for `FNO::grid_cl` and
+  `GridEmbeddingNd::grid` (each keeps its own copy of the single-input `cat` workaround;
+  the dumps and `gpu_parity` decide), and the parity helpers shared (`Fixture::open_as`,
+  a D3 check that prints, the two permutes) across `parity_common/{block_parts,fno_blocks,
+  embeddings}.rs`; from its plan review: the f64 fixtures of 2.0.0's grid and frequencies
+  generated under `torch.set_default_dtype(torch.float64)`, so their seven f64 tests run
+  (CM1.4's are `#[ignore]`d, f32-accurate), if CM1.5's own f64 FNO fixtures need it.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
   `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25

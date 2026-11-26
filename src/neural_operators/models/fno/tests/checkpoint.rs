@@ -104,6 +104,9 @@ fn autodiff_trained_weights_give_identical_inference_on_plain_device() {
         channel_mlp: None,
         norm: None,
         preactivation: None,
+        lifting_channel_ratio: None,
+        projection_channel_ratio: None,
+        positional_embedding: None,
     };
 
     let trained: FNO<3> = config.init::<3>(&ad);

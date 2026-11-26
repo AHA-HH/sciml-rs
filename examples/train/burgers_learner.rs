@@ -81,6 +81,9 @@ fn main() {
         channel_mlp: None,
         norm: None,
         preactivation: None,
+        lifting_channel_ratio: None,
+        projection_channel_ratio: None,
+        positional_embedding: None,
     };
 
     // 100 epochs, fewer than `train_burgers`' 500, so a TUI run finishes

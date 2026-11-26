@@ -336,6 +336,9 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         channel_mlp: None,
         norm: None,
         preactivation: None,
+        lifting_channel_ratio: None,
+        projection_channel_ratio: None,
+        positional_embedding: None,
     };
 
     let (optimizer, adam_epochs) = optimizer(seed);

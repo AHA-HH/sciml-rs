@@ -74,10 +74,21 @@ files, absent from the wheel, differ).
 | `fno_blocks_ada_in_{post,pre}2d_f32` | `FNOBlocks(2, 2, n_modes=(6, 4), n_layers=1, norm="ada_in", ada_in_features=2)`, one seeded embedding buffer; input (2, 2, 12, 10) | 7,285 | 39 kB |
 | `fno_blocks_plain1d_f32` | `use_channel_mlp=False`, `fno_skip="soft-gating"`, `non_linearity=torch.tanh`; input (2, 4, 20) | 264 | 4 kB |
 | `activations1d_f32` | `Activations`: `ACTIVATIONS` (relu, gelu, tanh, sigmoid, silu, leaky_relu, selu, mish, hardswish, softsign) each on the input, stacked as channels; input (2, 1, 64) | 0 | 6 kB |
+| `fno_lift_project1d_{f32,f64}` | `FNO(n_modes=(8,), in_channels=2, out_channels=1, hidden_channels=6, n_layers=0)`: the grid, lifting and projection alone (CM1.4); input (2, 2, 20) | 223 | 6 kB |
+| `fno_lift_project2d_linear_{f32,f64}` | `n_modes=(4, 4)`, 2 → 3 channels, hidden 5, `lifting_channel_ratio=0`, `projection_channel_ratio=1.5`, tanh; input (2, 2, 6, 5) | 91 | 5 kB |
+| `fno_lift_project3d_no_grid_{f32,f64}` | `n_modes=(4, 4, 4)`, 3 → 2 channels, hidden 4, `positional_embedding=None`; input (2, 3, 5, 4, 3) | 126 | 9 kB |
+| `fno_lift_project2d_boundaries_{f32,f64}` | `fno_boundaries`: a `GridEmbeddingND` on `BOUNDARIES` = [[0, 2], [−1, 1]], 2 → 1 channels, hidden 4; input (2, 2, 6, 5) | 125 | 5 kB |
+| `grid_embedding2d_{f32,f64}` | `GridEmbeddingND(3, dim=2, grid_boundaries=BOUNDARIES)`; input (2, 3, 6, 5) | 0 | 4 kB |
+| `sinusoidal_{transformer,nerf}_{f32,f64}` | `SinusoidalEmbedding(3, num_frequencies=4)`, `embedding_type` as named; input (2, 10, 3) | 0 | 5 kB |
+| `rotary2d_{f32,f64}` | `Rotary2d(8)`: `RotaryEmbedding2D(8)` on channels 0 and 1 as x and y, `apply_2d_rotary_pos_emb` on the other 16; input (2, 10, 18) | 0 | 6 kB |
 
 The legacy layer's `forward` builds its spectrum as `cfloat`, so its f64 fixtures are only
 f32-accurate (library CM1.1). tltorch stores its weights as real tensors with the trailing
 (re, im) axis, so their sidecars list no `complex_params`.
+
+2.0.0 builds its grid (`regular_grid_nd`) and the embeddings' frequencies in f32, torch's
+default dtype, whatever the input's, so those f64 fixtures are only f32-accurate too
+(library CM1.4); `fno_lift_project3d_no_grid_f64` has no such constant.
 
 Library CM1.3a: parts whose 2.0.0 initialisation is a constant (soft gating's ones, group
 norm's ones and zeros; `REDRAW`) have their parameters redrawn from the weight seed's normal,

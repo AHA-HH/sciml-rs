@@ -511,6 +511,9 @@ mod tests {
             channel_mlp: None,
             norm: None,
             preactivation: None,
+            lifting_channel_ratio: None,
+            projection_channel_ratio: None,
+            positional_embedding: None,
         }
     }
 
