@@ -22,8 +22,8 @@ use rlst::{DynArray, EigenvalueDecomposition};
 
 use crate::neural_operators::chebyshev::{apply_nd, diff2_matrix};
 
-/// Largest imaginary part accepted in the eigendecomposition of D_xx or D_yy: relative
-/// to the largest |λ| for eigenvalues, absolute for the entries of the unit-norm
+/// Largest imaginary part accepted in the eigendecomposition of an interior D² block:
+/// relative to the largest |λ| for eigenvalues, absolute for the entries of the unit-norm
 /// eigenvectors. Phase 0 T4 measured exactly 0.
 const IMAG_TOL: f64 = 1e-10;
 

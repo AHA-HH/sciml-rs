@@ -10,7 +10,8 @@
 use ndarray::{Array1, ArrayView, ArrayView1, ArrayView2, Dimension, Zip};
 use std::f64::consts::PI;
 
-use super::{as_matrix, check_n};
+use super::check_n;
+use super::tensor::{as_matrix, check_per_axis, kron, rank2};
 
 /// Clenshaw–Curtis weights w, shape `[n]`, on the ascending CGL nodes (CONVENTIONS §12),
 /// in closed form (Trefethen, *Spectral Methods in MATLAB*, ch. 12, `clencurt`):
@@ -126,14 +127,19 @@ pub fn cc_rel_l2_error_weighted(
 
 /// Squared Clenshaw–Curtis L² norm of `v: [n_0, …, n_{r−1}]`, a field of any rank on the CGL
 /// tensor grid (CONVENTIONS §12): Σ w0_i · w1_j · … · v[i, j, …]², with `ws[a]: [n_a]` the weights
-/// along axis a, e.g. [`clencurt`]. Rank 2 is [`cc_norm_sq`] itself, bit for bit (design
+/// along axis a, e.g. [`clencurt`]. Rank 2 is [`cc_norm_sq`] itself, bit for bit (3D
 /// D1, D2); otherwise `v` is read as `[n_0, rest]` with w0 and the Kronecker product of the
 /// other weights. Unscaled, as [`cc_norm_sq`].
 ///
 /// # Panics
 /// If `ws.len()` is not the rank of `v` (at least 1), or `ws[a]` has not `n_a` entries.
 pub fn cc_norm_sq_nd<D: Dimension>(v: ArrayView<f64, D>, ws: &[ArrayView1<f64>]) -> f64 {
-    check_weights("cc_norm_sq_nd", v.shape(), ws);
+    check_per_axis(
+        "cc_norm_sq_nd",
+        ("weight vector", "ws", "entries"),
+        v.shape(),
+        ws.iter().map(|w| w.len()),
+    );
     if let [wx, wy] = ws {
         return cc_norm_sq(rank2(v), *wx, *wy);
     }
@@ -144,7 +150,7 @@ pub fn cc_norm_sq_nd<D: Dimension>(v: ArrayView<f64, D>, ws: &[ArrayView1<f64>])
 /// [`cc_rel_l2_error`] for fields `a`, `b: [n_0, …, n_{r−1}]` of any rank: ‖a − b‖ / ‖b‖ in the norm of
 /// [`cc_norm_sq_nd`] with [`clencurt`] weights on every axis (CONVENTIONS §12), `b` the
 /// reference, scaled against underflow and overflow as [`cc_rel_l2_error`]. Rank 2 is
-/// [`cc_rel_l2_error`] itself, bit for bit (design D1, D2).
+/// [`cc_rel_l2_error`] itself, bit for bit (3D D1, D2).
 ///
 /// # Panics
 /// If `a` and `b` differ in shape, have rank 0, or an axis has fewer than 2 nodes.
@@ -163,7 +169,7 @@ pub fn cc_rel_l2_error_nd<D: Dimension>(a: ArrayView<f64, D>, b: ArrayView<f64, 
 
 /// [`cc_rel_l2_error_nd`] with the weights given, `ws[a]: [n_a]` along axis a: with
 /// [`clencurt`] weights the two agree exactly. Rank 2 is [`cc_rel_l2_error_weighted`]
-/// itself, bit for bit (design D1, D2); otherwise that function on `a` and `b` read as
+/// itself, bit for bit (3D D1, D2); otherwise that function on `a` and `b` read as
 /// `[n_0, rest]`, with w0 and the Kronecker product of the other weights.
 ///
 /// # Panics
@@ -179,7 +185,12 @@ pub fn cc_rel_l2_error_weighted_nd<D: Dimension>(
         b.shape(),
         "cc_rel_l2_error_weighted_nd: shapes differ"
     );
-    check_weights("cc_rel_l2_error_weighted_nd", b.shape(), ws);
+    check_per_axis(
+        "cc_rel_l2_error_weighted_nd",
+        ("weight vector", "ws", "entries"),
+        b.shape(),
+        ws.iter().map(|w| w.len()),
+    );
     if let [wx, wy] = ws {
         return cc_rel_l2_error_weighted(rank2(a), rank2(b), *wx, *wy);
     }
@@ -190,34 +201,6 @@ pub fn cc_rel_l2_error_weighted_nd<D: Dimension>(
         ws[0],
         w_rest.view(),
     )
-}
-
-/// A view the caller knows to be rank 2, as `[n_x, n_y]`.
-fn rank2<D: Dimension>(v: ArrayView<'_, f64, D>) -> ArrayView2<'_, f64> {
-    v.into_dimensionality().expect("rank 2")
-}
-
-/// Panic unless `ws` holds one weight vector of the right length per axis of `shape`.
-fn check_weights(caller: &str, shape: &[usize], ws: &[ArrayView1<f64>]) {
-    assert!(
-        ws.len() == shape.len() && !ws.is_empty(),
-        "{caller}: one weight vector per axis, got {} for rank {}",
-        ws.len(),
-        shape.len()
-    );
-    for (a, (w, &n)) in ws.iter().zip(shape).enumerate() {
-        assert_eq!(w.len(), n, "{caller}: ws[{a}] must have {n} entries");
-    }
-}
-
-/// The Kronecker product of the weight vectors, earlier axes outer: the weights of the
-/// trailing axes flattened in row-major order. `[1.0]` for none.
-fn kron(ws: &[ArrayView1<f64>]) -> Array1<f64> {
-    ws.iter().fold(Array1::ones(1), |acc, w| {
-        acc.iter()
-            .flat_map(|&p| w.iter().map(move |&q| p * q))
-            .collect()
-    })
 }
 
 #[cfg(test)]
