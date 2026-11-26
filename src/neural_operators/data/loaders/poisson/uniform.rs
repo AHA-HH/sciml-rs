@@ -2,7 +2,7 @@
 //! (default n − 1), every sample transferred with T_cu and then normalized (see the module
 //! above).
 
-use super::{PoissonConfig, PoissonField, check_nodes, read_samples};
+use super::{AXES_2D, PoissonConfig, PoissonField, check_nodes, read_samples};
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes};
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
@@ -10,7 +10,7 @@ use crate::neural_operators::data::{
     io::{errors::LoadError, readers::npz::NpzFileReader},
     loaders::common::{Normalizers, check_n_train, normalize_split_pair, normalize_test_split},
 };
-use ndarray::{Array3, ArrayD, Axis, s};
+use ndarray::{Array, ArrayD, Axis, RemoveAxis, Slice};
 use std::path::Path;
 
 /// Builds the Poisson dataset on the uniform grid: inputs `[N, s, s, 1]` (the normalized
@@ -45,17 +45,7 @@ pub fn load_poisson_uniform<T: HostFloat>(
     test_path: impl AsRef<Path>,
     config: &PoissonConfig,
 ) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
-    check_n_train(config.base.n_train)?;
-    let train_rows = Rows::train(config)?;
-
-    // The transfers are built once and shared by both splits; each split's reader and
-    // Chebyshev fields are freed before the next file is parsed.
-    let transfers = transfers(config)?;
-    let (f_train, u_train) =
-        read_uniform_split(train_path.as_ref(), "train", &train_rows, &transfers)?;
-    let test_rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) = read_uniform_split(test_path.as_ref(), "test", &test_rows, &transfers)?;
-    Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
+    load_uniform(train_path.as_ref(), test_path.as_ref(), config, &AXES_2D)
 }
 
 /// Builds the Poisson test split only, on the uniform grid, encoded with `normalizers` (a
@@ -79,9 +69,40 @@ pub fn load_poisson_uniform_test<T: HostFloat>(
     config: &PoissonConfig,
     normalizers: &Normalizers,
 ) -> Result<OperatorDataset<T>, LoadError> {
+    load_uniform_test(test_path.as_ref(), config, normalizers, &AXES_2D)
+}
+
+/// [`load_poisson_uniform`] for the node fields `axes`, one per spatial axis: 2D with
+/// [`AXES_2D`], 3D with `AXES_3D` (`load_poisson3d_uniform`).
+pub(super) fn load_uniform<T: HostFloat>(
+    train_path: &Path,
+    test_path: &Path,
+    config: &PoissonConfig,
+    axes: &[&str],
+) -> Result<(OperatorDataset<T>, OperatorDataset<T>, Normalizers), LoadError> {
+    check_n_train(config.base.n_train)?;
+    let train_rows = Rows::train(config)?;
+
+    // The transfers are built once and shared by both splits; each split's reader and
+    // Chebyshev fields are freed before the next file is parsed.
+    let transfers = transfers(config)?;
+    let (f_train, u_train) =
+        read_uniform_split(train_path, "train", &train_rows, &transfers, axes)?;
+    let test_rows = Rows::Prefix(config.base.n_test);
+    let (f_test, u_test) = read_uniform_split(test_path, "test", &test_rows, &transfers, axes)?;
+    Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
+}
+
+/// [`load_poisson_uniform_test`] for the node fields `axes`, one per spatial axis.
+pub(super) fn load_uniform_test<T: HostFloat>(
+    test_path: &Path,
+    config: &PoissonConfig,
+    normalizers: &Normalizers,
+    axes: &[&str],
+) -> Result<OperatorDataset<T>, LoadError> {
     let transfers = transfers(config)?;
     let rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) = read_uniform_split(test_path.as_ref(), "test", &rows, &transfers)?;
+    let (f_test, u_test) = read_uniform_split(test_path, "test", &rows, &transfers, axes)?;
     normalize_test_split(f_test, u_test, normalizers)
 }
 
@@ -135,33 +156,36 @@ impl Rows {
         }
     }
 
-    /// The selected samples of `values` (`[samples, n, n]`), in file order.
-    fn take(&self, values: Array3<f64>) -> Array3<f64> {
+    /// The selected samples of `values` (`[samples, n, …, n]`, any rank), in file order.
+    fn take<D: RemoveAxis>(&self, mut values: Array<f64, D>) -> Array<f64, D> {
         match self {
-            Self::Prefix(n) => values.slice_move(s![..*n, .., ..]),
+            Self::Prefix(n) => {
+                values.slice_axis_inplace(Axis(0), Slice::from(..*n));
+                values
+            }
             Self::Subset { rows, .. } => values.select(Axis(0), rows),
         }
     }
 }
 
-/// Reads one split's `f` and `u`, validated (at least [`Rows::required`] samples), and
-/// transfers the `rows` of each to the uniform grid with `transfers`
-/// ([`Transfers::to_uniform_all`]): `([k, s, s], [k, s, s])` for k samples. `split` only
-/// labels the error messages.
+/// Reads one split's `f` and `u` with the node fields `axes` (one per spatial axis),
+/// validated (at least [`Rows::required`] samples), and transfers the `rows` of each to the
+/// uniform grid with T_cu along every axis ([`Transfers::to_uniform_all_nd`], in 2D
+/// [`Transfers::to_uniform_all`] bit for bit): `([k, s, …, s], [k, s, …, s])` for k
+/// samples. `split` only labels the error messages.
 fn read_uniform_split(
     path: &Path,
     split: &str,
     rows: &Rows,
     transfers: &Transfers,
+    axes: &[&str],
 ) -> Result<(ArrayD<f64>, ArrayD<f64>), LoadError> {
     let n = transfers.n();
     let mut reader = NpzFileReader::new(path)?;
-    check_nodes(&mut reader, split, n, &nodes(n))?;
+    check_nodes(&mut reader, split, n, &nodes(n), axes)?;
     let mut read = |field| -> Result<ArrayD<f64>, LoadError> {
-        let values = read_samples(&mut reader, split, field, n, rows.required())?;
-        Ok(transfers
-            .to_uniform_all(rows.take(values).view())
-            .into_dyn())
+        let values = read_samples(&mut reader, split, field, n, axes.len(), rows.required())?;
+        Ok(transfers.to_uniform_all_nd(rows.take(values).view()))
     };
     let f = read(PoissonField::F)?;
     let u = read(PoissonField::U)?;

@@ -1,4 +1,5 @@
-//! −Δu = f on [−1, 1]² with u = 0 on the boundary (design §4).
+//! −Δu = f on [−1, 1]² (design §4) and on [−1, 1]³ (3D proposal §3.1), with u = 0 on the
+//! boundary.
 //!
 //! [`collocation`] is solver A, the source of every training label, and A3, its 3D form.
 //! `sparse` (test-only) is solver C, the validation oracle that checks A; it never produces
