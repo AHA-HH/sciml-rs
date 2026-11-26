@@ -10,7 +10,7 @@ use burn::prelude::*;
 use parity_common::{Fixture, rel_max_error};
 use parity_losses_common::{run, run_equation, run_fourier, run_meta, run_non_uniform};
 use sciml_rs::neural_operators::losses::{
-    differentiation::{FiniteDiff, FourierDiff},
+    differentiation::{FiniteDiff, FourierDiff, GridDiff},
     equation_losses::BurgersEqnLoss,
 };
 
@@ -91,5 +91,5 @@ fn fourier_swapped_axes_fail_parity() {
 /// CM1.6c: `non_uniform_fd` against `derivatives_f32`.
 #[test]
 fn non_uniform_fd_f32_match_2_0_0() {
-    run_non_uniform("derivatives_f32", &Device::default());
+    run_non_uniform("derivatives_f32", "derivatives_f64", &Device::default());
 }

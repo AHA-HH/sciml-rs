@@ -56,6 +56,34 @@ impl Checks {
     }
 }
 
+/// The Laplacian, gradient, divergence and curl (D = 2, 3) of `diff` on `u` and `v` against
+/// the keys `key("laplacian")` and so on. `drop_1d_axis`: the 1D reference gradient has no
+/// component axis.
+fn vector_calculus<O, const D: usize, const R: usize, const G: usize, const V: usize>(
+    c: &mut Checks,
+    diff: &O,
+    u: &Tensor<R>,
+    v: &Tensor<R>,
+    key: impl Fn(&str) -> String,
+    drop_1d_axis: bool,
+) where
+    O: GridDiff<D>,
+{
+    c.check(diff.laplacian(u.clone()), &key("laplacian"));
+    let grad: Tensor<G> = diff.gradient(u.clone());
+    if D == 1 && drop_1d_axis {
+        c.check(grad.reshape(u.dims()), &key("gradient"));
+    } else {
+        c.check(grad, &key("gradient"));
+    }
+    c.check(diff.divergence::<R, V>(v.clone()), &key("divergence"));
+    if D == 2 {
+        c.check(diff.curl_2d::<R, V>(v.clone()), &key("curl"));
+    } else if D == 3 {
+        c.check(diff.curl_3d(v.clone()), &key("curl"));
+    }
+}
+
 /// Periodicity per axis by the fixture's boundary name: `per`, `non`, `mix` (x one-sided).
 fn boundaries<const D: usize>() -> Vec<(&'static str, [bool; D])> {
     let mut out = vec![("per", [true; D]), ("non", [false; D])];
@@ -89,24 +117,9 @@ pub fn run<const D: usize, const R: usize, const G: usize, const V: usize>(
                 c.check(fd.partial(x.clone(), a, order), &key);
             }
         }
-        let key = format!("fd.laplacian.{bc}");
-        c.check(fd.laplacian(x.clone()), &key);
-        let grad: Tensor<G> = fd.gradient(x.clone());
-        let key = format!("fd.gradient.{bc}");
-        // 2.0.0's 1D gradient has no component axis; ours keeps one of length 1.
-        if D == 1 {
-            c.check(grad.reshape(x.dims()), &key);
-        } else {
-            c.check(grad, &key);
-        }
-        let key = format!("fd.divergence.{bc}");
-        c.check(fd.divergence::<R, V>(v.clone()), &key);
-        let key = format!("fd.curl.{bc}");
-        if D == 2 {
-            c.check(fd.curl_2d::<R, V>(v.clone()), &key);
-        } else if D == 3 {
-            c.check(fd.curl_3d(v.clone()), &key);
-        }
+        let key = |what: &str| format!("fd.{what}.{bc}");
+        // 2.0.0's `FiniteDiff` gradient has no component axis in 1D; ours keeps one of length 1.
+        vector_calculus::<_, D, R, G, V>(&mut c, &fd, &x, &v, key, true);
 
         for (norm, loss) in [
             ("h1", SobolevLoss::<D>::h1(Reduction::Sum)),
@@ -306,16 +319,8 @@ pub fn run_fourier<const D: usize, const R: usize, const G: usize, const V: usiz
             );
         }
     }
-    c.check(fd.laplacian(u.clone()), &key("laplacian"));
-    let grad: Tensor<G> = fd.gradient(u.clone());
-    // 2.0.0's 1D gradient has a component axis of 1 here (`unsqueeze(-2)`), as ours.
-    c.check(grad, &key("gradient"));
-    c.check(fd.divergence::<R, V>(v.clone()), &key("divergence"));
-    if D == 2 {
-        c.check(fd.curl_2d::<R, V>(v), &key("curl"));
-    } else if D == 3 {
-        c.check(fd.curl_3d(v), &key("curl"));
-    }
+    // 2.0.0's `FourierDiff` keeps the 1D gradient's component axis, as ours.
+    vector_calculus::<_, D, R, G, V>(&mut c, &fd, &u, &v, key, false);
     println!(
         "{name} fourier{D}: worst relative max error {:.3e}",
         c.worst
@@ -323,9 +328,12 @@ pub fn run_fourier<const D: usize, const R: usize, const G: usize, const V: usiz
 }
 
 /// The `non_uniform_fd` comparisons of `derivatives_<precision>` (CM1.6c), on `device`: the
-/// weights in f64 on the host, the derivatives on `device`.
-pub fn run_non_uniform(name: &str, device: &Device) {
-    let mut fx = Fixture::open(name);
+/// weights in f64 on the host, the derivatives on `device`. The ridge case
+/// (`regularize_lstsq`) is checked against `ridge_reference`'s result: 2.0.0's system has
+/// condition ≈ ‖AᵀA‖ / 1e-6 ≈ 5e6, and its own f32 result is about 4e-2 from its f64 one on
+/// the same inputs (the f32 points cast), so the f32 test passes the f64 fixture, within D3,
+/// and the f64 test its own, within [`RIDGE_BOUND_F64`].
+pub fn run_non_uniform(name: &str, ridge_reference: &str, device: &Device) {
     let base = |derivative_indices: Vec<usize>| NonUniformFd {
         derivative_indices,
         ..NonUniformFd::default()
@@ -354,31 +362,28 @@ pub fn run_non_uniform(name: &str, device: &Device) {
             },
         ),
     ];
-    let mut inputs = vec![];
-    for (case, _) in &cases {
-        let points = fx.array(&format!("{case}.points"));
-        let values: Tensor<1> = fx.tensor(&format!("{case}.values"), device);
-        inputs.push((points.into_dimensionality().unwrap(), values));
-    }
-    let mut c = Checks { fx, worst: 0.0 };
-    for ((case, op), (points, values)) in cases.iter().zip(inputs) {
-        let key = format!("{case}.d");
+    let mut c = Checks {
+        fx: Fixture::open(name),
+        worst: 0.0,
+    };
+    let mut ridge_fx = Fixture::open(ridge_reference);
+    for (case, op) in cases {
+        let points = c.fx.array(&format!("{case}.points"));
+        let points = points.into_dimensionality().unwrap();
+        let values: Tensor<1> = c.fx.tensor(&format!("{case}.values"), device);
         let out = op.derivatives(&points, values);
+        let key = format!("{case}.d");
         if !op.regularize {
             c.check(out, &key);
             continue;
         }
-        // 2.0.0's ridge system has condition ≈ ‖AᵀA‖ / 1e-6 ≈ 5e6: its own f32 result is 3.9e-2
-        // from its f64 one on the same inputs (the f32 points cast). So f32 is checked against
-        // the f64 reference within D3, and f64 within cond · ε ≈ 1e-9.
-        let err = match c.fx.precision {
-            Precision::F32 => {
-                let mut f64_fx = Fixture::open(&name.replace("f32", "f64"));
-                assert_parity(out, &f64_fx.array(&key), Precision::F32.d3(), &key)
-            }
-            Precision::F64 => assert_parity(out, &c.fx.array(&key), RIDGE_BOUND_F64, &key),
+        let tol = match c.fx.precision {
+            Precision::F32 => Precision::F32.d3(),
+            Precision::F64 => RIDGE_BOUND_F64,
         };
-        println!("{name} {key} (ridge): relative max error {err:.3e}");
+        let err = assert_parity(out, &ridge_fx.array(&key), tol, &key);
+        println!("{name} {key} against {ridge_reference}: relative max error {err:.3e}");
+        c.worst = c.worst.max(err);
     }
     println!(
         "{name} non_uniform_fd: worst relative max error {:.3e}",

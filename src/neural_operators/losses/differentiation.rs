@@ -80,6 +80,20 @@ impl<const D: usize> FiniteDiff<D> {
         };
         Tensor::cat(vec![first, inside, last], dim)
     }
+}
+
+/// Partial derivatives along the spatial axes of a grid: the last `D` axes of a tensor, x
+/// first, as [`FiniteDiff`], [`FourierDiff`] and [`MatrixDiff`] (library CM2.5, for the
+/// equation losses), and the vector-calculus operators built on them (CM1.6c).
+pub trait GridDiff<const D: usize> {
+    /// The derivative of order `order` of `u` along spatial axis `axis` (0 = x), for the
+    /// orders the operator supports (each implementor says which). `u`: `[.., s_1, .., s_D]`;
+    /// the result has the same shape.
+    ///
+    /// # Panics
+    /// If `R < D`, `axis >= D`, the operator has no derivative of that order, or the axis
+    /// does not fit the operator.
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R>;
 
     /// Σₐ ∂ᵏu/∂xₐᵏ over every spatial axis, k = `order`: for k = 1 the sum of the first
     /// partials (2.0.0's `HdivLoss` term), for k = 2 the Laplacian. `u`: `[.., s_1, .., s_D]`;
@@ -87,7 +101,7 @@ impl<const D: usize> FiniteDiff<D> {
     ///
     /// # Panics
     /// As [`partial`](Self::partial).
-    pub fn partial_sum<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
+    fn partial_sum<const R: usize>(&self, u: Tensor<R>, order: usize) -> Tensor<R> {
         (1..D).fold(self.partial(u.clone(), 0, order), |acc, a| {
             acc + self.partial(u.clone(), a, order)
         })
@@ -97,32 +111,8 @@ impl<const D: usize> FiniteDiff<D> {
     ///
     /// # Panics
     /// As [`partial`](Self::partial).
-    pub fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
-        self.partial_sum(u, 2)
-    }
-}
-
-/// Partial derivatives along the spatial axes of a grid: the last `D` axes of a tensor, x
-/// first, as [`FiniteDiff`], [`FourierDiff`] and [`MatrixDiff`] (library CM2.5, for the
-/// equation losses), and the vector-calculus operators built on them (CM1.6c).
-pub trait GridDiff<const D: usize> {
-    /// The derivative of order `order` of `u` along spatial axis `axis` (0 = x): orders 1 and
-    /// 2 for [`FiniteDiff`] and [`MatrixDiff`], any order from 1 for [`FourierDiff`].
-    /// `u`: `[.., s_1, .., s_D]`; the result has the same shape.
-    ///
-    /// # Panics
-    /// If `R < D`, `axis >= D`, the operator has no derivative of that order, or the axis
-    /// does not fit the operator.
-    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R>;
-
-    /// The Laplacian Σₐ ∂²u/∂xₐ². `u`: `[.., s_1, .., s_D]`; the result has the same shape.
-    ///
-    /// # Panics
-    /// As [`partial`](Self::partial).
     fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
-        (1..D).fold(self.partial(u.clone(), 0, 2), |acc, a| {
-            acc + self.partial(u.clone(), a, 2)
-        })
+        self.partial_sum(u, 2)
     }
 
     /// ∂u/∂x: [`partial`](Self::partial) on axis 0.
@@ -238,18 +228,16 @@ impl<const D: usize> GridDiff<D> for FiniteDiff<D> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FourierDiff<const D: usize> {
     /// The length of the periodic domain along each spatial axis (2.0.0's `L`; its default
-    /// is 2π, [`TAU`](std::f64::consts::TAU)).
+    /// is 2π, [`TAU`]).
     pub l: [f64; D],
 }
 
-impl<const D: usize> FourierDiff<D> {
-    /// The derivative of order `order` (any from 1) of `u` along spatial axis `axis` (0 = x).
-    ///
-    /// `u`: `[.., s_1, .., s_D]`; the result has the same shape.
+impl<const D: usize> GridDiff<D> for FourierDiff<D> {
+    /// Any order from 1.
     ///
     /// # Panics
     /// If `R < D`, `axis >= D` or `order == 0`.
-    pub fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
         assert!(R >= D, "FourierDiff: rank {R} below the {D} spatial axes");
         assert!(axis < D, "FourierDiff: axis {axis} of {D}");
         assert!(order >= 1, "FourierDiff: order 0");
@@ -276,12 +264,6 @@ impl<const D: usize> FourierDiff<D> {
             false => (re * factor.clone(), im * factor),
         };
         signal::irfft(re, im, dim, Some(n))
-    }
-}
-
-impl<const D: usize> GridDiff<D> for FourierDiff<D> {
-    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
-        FourierDiff::partial(self, u, axis, order)
     }
 }
 

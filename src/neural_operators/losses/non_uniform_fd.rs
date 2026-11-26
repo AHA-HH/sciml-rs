@@ -42,15 +42,15 @@ impl Default for NonUniformFd {
 }
 
 impl NonUniformFd {
-    /// The stencils of `points` `(N, d)`: the indices of each point's k nearest points
-    /// `(N, k)`, nearest first (the point itself), and their weights `(N, j, k)` for the j
-    /// derivatives, as 2.0.0's `get_non_uniform_fd_weights`. Ties in distance are broken by
-    /// the lower index.
+    /// The stencils of `points` `(N, d)`, as 2.0.0's `get_non_uniform_fd_weights`; they depend
+    /// on the points only, so one set serves any number of value sets. Ties in distance go to
+    /// the lower index (torch's `topk` leaves them unspecified), so with a duplicate point of
+    /// lower index a point's own index is not first.
     ///
     /// # Panics
     /// If `N == 0`, a derivative index is not below d, or (without `regularize`) a stencil's
     /// A has rank below d + 1: fewer than d + 1 neighbours kept, or all on one hyperplane.
-    pub fn weights(&self, points: &Array2<f64>) -> (Array2<usize>, Array3<f64>) {
+    pub fn stencils(&self, points: &Array2<f64>) -> Stencils {
         let (n, d) = points.dim();
         assert!(n > 0, "NonUniformFd: no points");
         for &j in &self.derivative_indices {
@@ -92,18 +92,36 @@ impl NonUniformFd {
             }
             indices.row_mut(i).assign(&Array1::from(near.to_vec()));
         }
-        (indices, weights)
+        Stencils { indices, weights }
     }
 
     /// The derivatives of `values` `[N]` at `points` `(N, d)`, as 2.0.0's `non_uniform_fd`:
-    /// `[j, N]`, row r the derivative along `derivative_indices[r]`. On `values`'s device and
-    /// float type; gradients flow to `values`.
+    /// [`stencils`](Self::stencils), then [`Stencils::apply`].
     ///
     /// # Panics
-    /// If `values` has not N entries, or as [`weights`](Self::weights).
+    /// As [`stencils`](Self::stencils) and [`Stencils::apply`].
     pub fn derivatives(&self, points: &Array2<f64>, values: Tensor<1>) -> Tensor<2> {
-        let (indices, weights) = self.weights(points);
-        let (n, j, k) = weights.dim();
+        self.stencils(points).apply(values)
+    }
+}
+
+/// The stencils of a point cloud ([`NonUniformFd::stencils`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stencils {
+    /// Each point's k nearest points, nearest first: `(N, k)`.
+    pub indices: Array2<usize>,
+    /// Their weights for each of the j derivatives: `(N, j, k)`.
+    pub weights: Array3<f64>,
+}
+
+impl Stencils {
+    /// The derivatives of `values` `[N]`: `[j, N]`, row r the derivative along the r-th
+    /// derivative index. On `values`'s device and float type; gradients flow to `values`.
+    ///
+    /// # Panics
+    /// If `values` has not N entries.
+    pub fn apply(&self, values: Tensor<1>) -> Tensor<2> {
+        let (n, j, k) = self.weights.dim();
         assert_eq!(
             values.dims()[0],
             n,
@@ -111,11 +129,17 @@ impl NonUniformFd {
             values.dims()[0]
         );
         let device: Device = values.device();
-        let flat: Vec<i64> = indices.iter().map(|&i| i as i64).collect();
+        let flat: Vec<i64> = self.indices.iter().map(|&i| i as i64).collect();
         let idx = Tensor::<1, Int>::from_data(TensorData::new(flat, [n * k]), &device);
         let neighbours: Tensor<3> = values.select(0, idx).reshape([1, n, k]);
         // (N, j, k) to (j, N, k), row-major.
-        let w: Vec<f64> = weights.permuted_axes([1, 0, 2]).iter().copied().collect();
+        let w: Vec<f64> = self
+            .weights
+            .view()
+            .permuted_axes([1, 0, 2])
+            .iter()
+            .copied()
+            .collect();
         let w = Tensor::<3>::from_data(TensorData::new(w, [j, n, k]), &device);
         (w * neighbours).sum_dim(2).reshape([j, n])
     }
@@ -273,7 +297,10 @@ mod tests {
             radius: Some(0.0),
             ..NonUniformFd::default()
         };
-        let (idx, w) = op.weights(&points);
+        let Stencils {
+            indices: idx,
+            weights: w,
+        } = op.stencils(&points);
         for i in 0..12 {
             assert_eq!(idx[[i, 0]], i);
             assert_eq!(w[[i, 0, 3]], 0.0);
@@ -281,30 +308,39 @@ mod tests {
         }
     }
 
-    /// Gradients flow to the values: d Σ ∂f/∂x / d f is the column sums of the weights.
+    /// Gradients flow to the values: d Σᵢ (∂f/∂x)ᵢ / d f_p is the sum of the weights that
+    /// stencils give point p (f32: 1e-5 relative).
     #[test]
     fn gradients_flow_to_values() {
         let device = Device::default().autodiff();
         let points = cloud(10);
+        let st = NonUniformFd::default().stencils(&points);
         let values =
             Tensor::<1>::from_data(TensorData::new(vec![0.5; 10], [10]), &device).require_grad();
-        let out = NonUniformFd::default().derivatives(&points, values.clone());
+        let out = st.apply(values.clone());
         let g = values.grad(&out.sum().backward()).unwrap();
-        let g = g.abs().max().into_scalar::<f64>();
-        assert!(g.is_finite() && g > 0.0, "{g}");
+        let g: Vec<f64> = g.into_data().convert::<f64>().try_to_vec::<f64>().unwrap();
+        let mut want = vec![0.0; 10];
+        for ((i, m), &p) in st.indices.indexed_iter() {
+            want[p] += st.weights[[i, 0, m]];
+        }
+        let scale = want.iter().fold(0.0_f64, |s, w| s.max(w.abs()));
+        for (p, (a, e)) in g.iter().zip(&want).enumerate() {
+            assert!((a - e).abs() <= 1e-5 * scale, "point {p}: {a} against {e}");
+        }
     }
 
     #[test]
     #[should_panic(expected = "needs at least 4")]
     fn too_few_neighbours_panic() {
         let points = Array2::from_shape_fn((3, 3), |(i, c)| (i * 3 + c) as f64);
-        NonUniformFd::default().weights(&points);
+        NonUniformFd::default().stencils(&points);
     }
 
     #[test]
     #[should_panic(expected = "rank below 3")]
     fn collinear_points_panic() {
         let points = Array2::from_shape_fn((5, 2), |(i, c)| i as f64 * (c + 1) as f64);
-        NonUniformFd::default().weights(&points);
+        NonUniformFd::default().stencils(&points);
     }
 }

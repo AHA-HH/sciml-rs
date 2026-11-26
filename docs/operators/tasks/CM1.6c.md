@@ -49,18 +49,22 @@ within D3.
     `derivative(order=(1, 1))` and `compute_multiple_derivatives` (per-axis `partial`s
     compose to the same result except at the double-Nyquist bin of two even axes),
     `partial(direction="x")` strings.
-- `losses/non_uniform_fd.rs` (new): `non_uniform_fd_weights(points, num_neighbors,
-  derivative_indices, radius, regularize)` on the host in f64 (`points`: `Array2<f64>` (N, d))
-  returning the neighbour indices (N, k) and weights (N, j, k), as 2.0.0's
-  `get_non_uniform_fd_weights`: k = min(max(num_neighbors, 3), N) nearest points (the point
-  itself first), the radius mask keeping at least 3, and per point and derivative the
-  minimum-norm solution of A w = b (A (d+1) × k: a row of ones and the coordinate offsets;
-  b the unit vector of the derivative), as `torch.linalg.lstsq` (gelsy) gives for a full-row-
-  rank A; by a QR of Aᵀ (modified Gram–Schmidt, reorthogonalised). With `regularize`, 2.0.0's (AᵀA + 1e-6 I) w = Aᵀ b by
-  Cholesky. `non_uniform_fd(points, values, ..)`: `values` a Burn `Tensor<1>` [N], result
-  `[j, N]`, gradients flowing to `values` (gather and a weighted sum). Rank-deficient A
+- `losses/non_uniform_fd.rs` (new): `NonUniformFd` (fields `num_neighbors`,
+  `derivative_indices`, `radius`, `regularize`; `Default` at 2.0.0's defaults 5, `[0]`, none,
+  false). `stencils(points)` (`points`: `Array2<f64>` (N, d)) gives `Stencils { indices (N, k),
+  weights (N, j, k) }`, as 2.0.0's `get_non_uniform_fd_weights`, on the host in f64:
+  k = min(max(num_neighbors, 3), N) nearest points (the point itself first, ties to the lower
+  index), the radius mask keeping at least 3, and per point and derivative the minimum-norm
+  solution of A w = b (A (d+1) × k: a row of ones and the coordinate offsets; b the unit vector
+  of the derivative), as `torch.linalg.lstsq` (gelsy) gives for a full-row-rank A, by a QR of
+  Aᵀ (modified Gram–Schmidt, reorthogonalised); with `regularize`, 2.0.0's
+  (AᵀA + 1e-6 I) w = Aᵀ b by Cholesky. `Stencils::apply(values)`: `values` a Burn `Tensor<1>`
+  [N], result `[j, N]`, gradients flowing to `values` (gather and a weighted sum);
+  `derivatives(points, values)` is 2.0.0's `non_uniform_fd`, the two in one. Rank-deficient A
   (k < d + 1, or collinear neighbours) panics: 2.0.0 returns gelsy's pseudo-inverse solution
   there; `shortcut:` note.
+- `losses/differentiation.rs` also: `partial_sum` and `laplacian` become `GridDiff` defaults
+  (code-quality F1; `FiniteDiff`'s copies removed, `sobolev.rs` imports `GridDiff`).
 - `losses/mod.rs`: the new module; doc line.
 - `tools/parity/generate_losses.py`: fixtures `derivatives_{f32,f64}` (D8: well under
   1 MB): `FourierDiff` with L = (2, 3, 1.5) on seeded fields over grids 32 (1D), 16 × 15 (2D,
@@ -76,7 +80,7 @@ within D3.
   the Fourier part `#[ignore]`d with its error recorded, the non-uniform part run), through a
   new `run_derivatives` in `tests/parity_losses_common/`.
 - The ridge case (`regularize_lstsq=True`): 2.0.0's system (AᵀA + 1e-6 I) has condition
-  ≈ 5e6, and its own f32 result is 3.9e-2 from its f64 result on the same inputs, so the f32
+  ≈ 5e6, and its own f32 result is 4.0e-2 from its f64 result on the same inputs, so the f32
   test checks against the f64 reference within D3 (measured 7.3e-8), and the f64 test within
   cond · ε ≈ 1e-9 (measured 6.4e-11). Added during implementation; a question for sign-off.
 - Negative control: the 2D Fourier dx with the axes swapped fails (> 0.1).

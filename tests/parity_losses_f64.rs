@@ -65,5 +65,5 @@ fn fourier_diff_f64_match_2_0_0() {
 #[cfg(feature = "flex")]
 #[test]
 fn non_uniform_fd_f64_match_2_0_0() {
-    run_non_uniform("derivatives_f64", &flex_f64());
+    run_non_uniform("derivatives_f64", "derivatives_f64", &flex_f64());
 }
