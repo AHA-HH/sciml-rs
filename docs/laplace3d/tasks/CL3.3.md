@@ -47,15 +47,18 @@ Commit 1 (no behaviour change):
 Then the loader, in `data/loaders/poisson/` only (no new config type: a 3D split needs
 nothing `PoissonConfig` lacks, n, s, the counts and the optional subset; the rank comes from
 the function, and a 3D run's saved config type is CL4.1's to settle):
-- `mod.rs`: `check_nodes` and `read_samples` gain rank-generic siblings
-  (`check_nodes_nd` over the axis names, `read_samples_nd` over the spatial rank); the 2D
-  ones call them with rank 2, keeping their messages byte for byte.
-- `uniform.rs`: `Rows::take` generic over the rank (a slice or a select of axis 0, no
-  arithmetic); `Rows` and `transfers` become `pub(super)`.
+- `mod.rs`: `check_nodes` takes the node fields (`AXES_2D`, `AXES_3D`) and `read_samples`
+  the spatial rank, keeping the 2D messages byte for byte.
+- `uniform.rs`: one private split reader for both ranks (`read_uniform_split`, with the
+  node fields), through `Transfers::to_uniform_all_nd` (rank 3 equals `to_uniform_all` bit
+  for bit); `Rows::take` generic over the rank (a slice or a select of axis 0, no
+  arithmetic); `Rows`, `transfers` and the reader `pub(super)`. The 2D public functions
+  change only by the axes argument at their calls (code review F1).
 - `uniform3d.rs` (new): `load_poisson3d_uniform` (inputs `[N, s, s, s, 1]`, targets
-  `[N, s, s, s]`), `load_poisson3d_uniform_test` (with a run's normalisers), both through
-  `Transfers::to_uniform_all_nd` and the shared normalisation (CONVENTIONS §10).
-- `cheb.rs`: `load_poisson3d_cheb_field`, `[count, n, n, n]`, untransferred.
+  `[N, s, s, s]`), `load_poisson3d_uniform_test` (with a run's normalisers), and the shared
+  normalisation (CONVENTIONS §10).
+- `cheb.rs`: `load_poisson3d_cheb_field`, `[count, n, n, n]`, untransferred; both public
+  readers wrap one private `read_cheb_field` (code review F1).
 - CLAUDE.md "Layout": the 3D loader and `chebyshev/tensor.rs`.
 
 Conventions: none changed.
@@ -66,8 +69,9 @@ Conventions: none changed.
   `norms.x.encode(to_uniform_all_nd(f))`, targets raw (CONVENTIONS §10), bit for bit;
   the test-only loader equal to the full loader's test split bit for bit; a subset equal
   to the selected rows of the whole split; `load_poisson3d_cheb_field` equal to the written
-  `u` bit for bit; invalid files (missing or wrong `z`, a 2D file, too few samples) give
-  `LoadError::Invalid` with the shape in the message.
+  `u` bit for bit; invalid files (wrong `z`, a 2D file, too few samples) give
+  `LoadError::Invalid` with the shape in the message, and a missing `z` a
+  `LoadError::Reader`, as a missing `x` or `y` does in 2D.
 - 2D (D2): the 2D loader's whole suite unedited, including its exact error messages and
   the bit-for-bit `normalization_matches_darcy` against `Transfers::to_uniform_all`; the
   chebyshev D2 tests (`*_rank_two_is_bit_identical*`) and the datagen suite after the move.
@@ -87,9 +91,11 @@ ndarray only.
 None (the n = 65 test splits are on the Mac).
 
 ## Constraints and risks
-- Constraint 1 (D2): no 2D public function body edited; the private helpers the 2D loader
-  shares change only in rank genericity, without arithmetic, and the 2D suite checks their
-  outputs and messages exactly. The C4 move is a move: the D2 tests and the datagen suite
+- Constraint 1 (D2): no arithmetic changed in a 2D path; the 2D split reader now calls
+  `to_uniform_all_nd`, which is `to_uniform_all` bit for bit on 2D samples (CL1.2's D2
+  test), and the private helpers change only in rank genericity. The 2D suite checks
+  their outputs (`normalization_matches_darcy` against `to_uniform_all`, bit for bit) and
+  messages exactly. The C4 move is a move: the D2 tests and the datagen suite
   (A3 uses `apply_nd`) check it.
 - Memory: the 3D n = 65 train split is 4.4 GB (two fields of 2.2 GB); the measurement reads
   only the test splits (879 MB).
@@ -99,3 +105,8 @@ None.
 
 ## Open questions
 None.
+
+## Notes
+- `collocation.rs:146`, the L2 gate's "115-column doc line": 115 bytes but 87 characters
+  (⊗, ⊕ and ⁻¹ are multi-byte), under the 100-column width; the gate measured bytes. Not
+  edited; L2 gate Q2's item closed by this note.

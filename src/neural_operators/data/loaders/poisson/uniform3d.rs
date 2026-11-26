@@ -4,20 +4,16 @@
 //! does. The validation and the train rows are the 2D loader's, with a third node field
 //! `z` and fields `[samples, n, n, n]` stored 'ijk' (3D proposal §3.2).
 
-use super::uniform::{Rows, transfers};
-use super::{PoissonConfig, PoissonField, check_nodes_nd, read_samples_nd};
-use crate::neural_operators::chebyshev::{Transfers, nodes};
+use super::AXES_3D;
+use super::PoissonConfig;
+use super::uniform::{Rows, read_uniform_split, transfers};
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
     host_float::HostFloat,
-    io::{errors::LoadError, readers::npz::NpzFileReader},
+    io::errors::LoadError,
     loaders::common::{Normalizers, check_n_train, normalize_split_pair, normalize_test_split},
 };
-use ndarray::ArrayD;
 use std::path::Path;
-
-/// The 3D node fields, in axis order.
-pub(super) const AXES_3D: [&str; 3] = ["x", "y", "z"];
 
 /// [`load_poisson_uniform`](super::load_poisson_uniform) for the 3D splits: inputs
 /// `[N, s, s, s, 1]` (the normalized forcing; the model appends the grid channels),
@@ -38,9 +34,16 @@ pub fn load_poisson3d_uniform<T: HostFloat>(
     check_n_train(config.base.n_train)?;
     let train_rows = Rows::train(config)?;
     let transfers = transfers(config)?;
-    let (f_train, u_train) = read_split(train_path.as_ref(), "train", &train_rows, &transfers)?;
+    let (f_train, u_train) = read_uniform_split(
+        train_path.as_ref(),
+        "train",
+        &train_rows,
+        &transfers,
+        &AXES_3D,
+    )?;
     let test_rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) = read_split(test_path.as_ref(), "test", &test_rows, &transfers)?;
+    let (f_test, u_test) =
+        read_uniform_split(test_path.as_ref(), "test", &test_rows, &transfers, &AXES_3D)?;
     Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
 }
 
@@ -59,82 +62,21 @@ pub fn load_poisson3d_uniform_test<T: HostFloat>(
 ) -> Result<OperatorDataset<T>, LoadError> {
     let transfers = transfers(config)?;
     let rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) = read_split(test_path.as_ref(), "test", &rows, &transfers)?;
+    let (f_test, u_test) =
+        read_uniform_split(test_path.as_ref(), "test", &rows, &transfers, &AXES_3D)?;
     normalize_test_split(f_test, u_test, normalizers)
-}
-
-/// Reads one 3D split's `f` and `u`, validated, and transfers their `rows` to the uniform
-/// grid: `([k, s, s, s], [k, s, s, s])` for k samples. `split` only labels the errors.
-fn read_split(
-    path: &Path,
-    split: &str,
-    rows: &Rows,
-    transfers: &Transfers,
-) -> Result<(ArrayD<f64>, ArrayD<f64>), LoadError> {
-    let n = transfers.n();
-    let mut reader = NpzFileReader::new(path)?;
-    check_nodes_nd(&mut reader, split, n, &nodes(n), &AXES_3D)?;
-    let mut read = |field| -> Result<ArrayD<f64>, LoadError> {
-        let values = read_samples_nd(&mut reader, split, field, n, 3, rows.required())?;
-        Ok(transfers.to_uniform_all_nd(rows.take(values).view()))
-    };
-    let f = read(PoissonField::F)?;
-    let u = read(PoissonField::U)?;
-    Ok((f, u))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::fixtures::{N, N_TEST, N_TRAIN, cfg, fresh_dir};
-    use super::super::{SubsetConfig, load_poisson3d_cheb_field};
+    use super::super::fixtures::{
+        N, N_TEST, N_TRAIN, cfg, fresh_dir, poly_field3, write_npz3, write_valid_pair3,
+    };
+    use super::super::{PoissonField, SubsetConfig, load_poisson3d_cheb_field};
     use super::*;
-    use crate::neural_operators::chebyshev::uniform_nodes;
+    use crate::neural_operators::chebyshev::{Transfers, nodes, uniform_nodes};
     use crate::neural_operators::data::io::errors::ReaderError;
-    use ndarray::{Array1, Array4, Axis, IxDyn};
-    use ndarray_npy::NpzWriter;
-    use std::fs::File;
-    use std::path::PathBuf;
-
-    /// A polynomial of degree < N in each variable, reproduced exactly by T_cu.
-    fn poly3(x: f64, y: f64, z: f64) -> f64 {
-        (1.0 + x - 2.0 * x.powi(3)) * (y * y + 0.5 * y.powi(4) - 0.3) * (0.7 - z + z.powi(5))
-    }
-
-    /// `[count, xs.len(), xs.len(), xs.len()]`, sample i = (1 + i + offset) · poly3.
-    fn poly_field3(count: usize, offset: f64, xs: &Array1<f64>) -> ArrayD<f64> {
-        let m = xs.len();
-        Array4::from_shape_fn((count, m, m, m), |(i, a, b, c)| {
-            (1.0 + i as f64 + offset) * poly3(xs[a], xs[b], xs[c])
-        })
-        .into_dyn()
-    }
-
-    /// Writes `f`, `u` and the node fields `axes` (each `x`) to `dir/name`.
-    fn write_npz3(
-        dir: &Path,
-        name: &str,
-        f: &ArrayD<f64>,
-        axes: &[(&str, &Array1<f64>)],
-    ) -> PathBuf {
-        let path = dir.join(name);
-        let mut npz = NpzWriter::new(File::create(&path).unwrap());
-        npz.add_array("f", f).unwrap();
-        npz.add_array("u", &(f * -2.0)).unwrap();
-        for (key, x) in axes {
-            npz.add_array(*key, *x).unwrap();
-        }
-        npz.finish().unwrap();
-        path
-    }
-
-    /// A valid 3D train/test pair of polynomial fields, u = −2 f, test samples offset.
-    fn write_valid_pair3(dir: &Path) -> (PathBuf, PathBuf) {
-        let x = nodes(N);
-        let axes = [("x", &x), ("y", &x), ("z", &x)];
-        let train = write_npz3(dir, "train.npz", &poly_field3(N_TRAIN, 0.0, &x), &axes);
-        let test = write_npz3(dir, "test.npz", &poly_field3(N_TEST, 0.5, &x), &axes);
-        (train, test)
-    }
+    use ndarray::{ArrayD, Axis, IxDyn};
 
     fn rel_err(a: &ArrayD<f64>, b: &ArrayD<f64>) -> f64 {
         (a - b).mapv(|v| v * v).sum().sqrt() / b.mapv(|v| v * v).sum().sqrt()
@@ -215,20 +157,6 @@ mod tests {
     }
 
     #[test]
-    fn cheb_reader_returns_raw_u() {
-        let dir = fresh_dir("3d_cheb");
-        let (_, test_path) = write_valid_pair3(&dir);
-        let u = load_poisson3d_cheb_field(&test_path, PoissonField::U, N, 1).unwrap();
-        let x = nodes(N);
-        let written = poly_field3(N_TEST, 0.5, &x) * -2.0;
-        assert_eq!(u, written.slice_axis(Axis(0), (..1).into()));
-        expect_invalid(
-            load_poisson3d_cheb_field(&test_path, PoissonField::U, N, N_TEST + 1),
-            "requested 3 test.npz samples but 'u' has 2",
-        );
-    }
-
-    #[test]
     fn invalid_files_are_rejected() {
         let dir = fresh_dir("3d_invalid");
         let (train_path, _) = write_valid_pair3(&dir);
@@ -301,6 +229,7 @@ mod tests {
         ] {
             let path = root.join(&npz);
             let sidecar = SidecarRecord::load(root.join(&json)).unwrap();
+            assert_eq!(sidecar.error2.s, 64, "{dim}D sidecar's s");
             for s in [32, 64] {
                 let start = std::time::Instant::now();
                 let (targets, u) = if dim == 2 {
@@ -326,7 +255,7 @@ mod tests {
                     "| {dim}D | {s} | {:.3e} | {:.3e} | {load_s:.1} |",
                     e2.mean, e2.max
                 );
-                if s == sidecar.error2.s {
+                if s == 64 {
                     let close = |a: f64, b: f64| (a - b).abs() <= 1e-12 * b.abs();
                     assert!(close(e2.mean, sidecar.error2.mean), "{dim}D sidecar mean");
                     assert!(close(e2.max, sidecar.error2.max), "{dim}D sidecar max");

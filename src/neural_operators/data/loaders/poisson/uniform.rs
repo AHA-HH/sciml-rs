@@ -2,7 +2,7 @@
 //! (default n − 1), every sample transferred with T_cu and then normalized (see the module
 //! above).
 
-use super::{PoissonConfig, PoissonField, check_nodes, read_samples};
+use super::{AXES_2D, PoissonConfig, PoissonField, check_nodes, read_samples};
 use crate::neural_operators::chebyshev::{TRANSFER_DEGREE, Transfers, nodes};
 use crate::neural_operators::data::{
     dataset::OperatorDataset,
@@ -51,10 +51,16 @@ pub fn load_poisson_uniform<T: HostFloat>(
     // The transfers are built once and shared by both splits; each split's reader and
     // Chebyshev fields are freed before the next file is parsed.
     let transfers = transfers(config)?;
-    let (f_train, u_train) =
-        read_uniform_split(train_path.as_ref(), "train", &train_rows, &transfers)?;
+    let (f_train, u_train) = read_uniform_split(
+        train_path.as_ref(),
+        "train",
+        &train_rows,
+        &transfers,
+        &AXES_2D,
+    )?;
     let test_rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) = read_uniform_split(test_path.as_ref(), "test", &test_rows, &transfers)?;
+    let (f_test, u_test) =
+        read_uniform_split(test_path.as_ref(), "test", &test_rows, &transfers, &AXES_2D)?;
     Ok(normalize_split_pair(f_train, u_train, f_test, u_test))
 }
 
@@ -81,7 +87,8 @@ pub fn load_poisson_uniform_test<T: HostFloat>(
 ) -> Result<OperatorDataset<T>, LoadError> {
     let transfers = transfers(config)?;
     let rows = Rows::Prefix(config.base.n_test);
-    let (f_test, u_test) = read_uniform_split(test_path.as_ref(), "test", &rows, &transfers)?;
+    let (f_test, u_test) =
+        read_uniform_split(test_path.as_ref(), "test", &rows, &transfers, &AXES_2D)?;
     normalize_test_split(f_test, u_test, normalizers)
 }
 
@@ -147,24 +154,24 @@ impl Rows {
     }
 }
 
-/// Reads one split's `f` and `u`, validated (at least [`Rows::required`] samples), and
-/// transfers the `rows` of each to the uniform grid with `transfers`
-/// ([`Transfers::to_uniform_all`]): `([k, s, s], [k, s, s])` for k samples. `split` only
-/// labels the error messages.
-fn read_uniform_split(
+/// Reads one split's `f` and `u` with the node fields `axes` (one per spatial axis),
+/// validated (at least [`Rows::required`] samples), and transfers the `rows` of each to the
+/// uniform grid with T_cu along every axis ([`Transfers::to_uniform_all_nd`], in 2D
+/// [`Transfers::to_uniform_all`] bit for bit): `([k, s, …, s], [k, s, …, s])` for k
+/// samples. `split` only labels the error messages.
+pub(super) fn read_uniform_split(
     path: &Path,
     split: &str,
     rows: &Rows,
     transfers: &Transfers,
+    axes: &[&str],
 ) -> Result<(ArrayD<f64>, ArrayD<f64>), LoadError> {
     let n = transfers.n();
     let mut reader = NpzFileReader::new(path)?;
-    check_nodes(&mut reader, split, n, &nodes(n))?;
+    check_nodes(&mut reader, split, n, &nodes(n), axes)?;
     let mut read = |field| -> Result<ArrayD<f64>, LoadError> {
-        let values = read_samples(&mut reader, split, field, n, rows.required())?;
-        Ok(transfers
-            .to_uniform_all(rows.take(values).view())
-            .into_dyn())
+        let values = read_samples(&mut reader, split, field, n, axes.len(), rows.required())?;
+        Ok(transfers.to_uniform_all_nd(rows.take(values).view()))
     };
     let f = read(PoissonField::F)?;
     let u = read(PoissonField::U)?;
