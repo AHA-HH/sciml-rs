@@ -86,7 +86,10 @@
 //! the trainer undoes before computing the loss. Needs the chosen stage's dataset: see
 //! datasets/README.md.
 
+mod common;
+
 use burn::{config::Config, module::Module, tensor::Device};
+use common::{GnLiterals, Literals, Measured};
 use sciml_rs::neural_operators::{
     chebyshev::TRANSFER_DEGREE,
     data::{
@@ -101,15 +104,13 @@ use sciml_rs::neural_operators::{
         },
     },
     models::fno::FNOConfig,
-    optim::gauss_newton::{GaussNewtonConfig, Preconditioner},
-    runs::{Checkpoint, RunCosts, RunDir},
+    optim::gauss_newton::Preconditioner,
+    runs::{RunCosts, RunDir},
     training::{
-        config::{OptimizerConfig, TrainingConfig},
+        config::TrainingConfig,
         data_parallel::replicas,
-        gn::training_passes,
         trainer::{build_training_components, train_components},
     },
-    utils::backend::{backend_features, git_commit},
 };
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -177,21 +178,6 @@ where
     }
 }
 
-/// The environment variable `name` parsed as `T`, or `None` when it is unset.
-///
-/// # Panics
-/// If it is set and does not parse.
-fn env_var<T: FromStr>(name: &str) -> Option<T>
-where
-    T::Err: Display,
-{
-    let v = std::env::var(name).ok()?;
-    Some(
-        v.parse()
-            .unwrap_or_else(|e| panic!("{name} must be a number, got {v:?}: {e}")),
-    )
-}
-
 /// The training devices, autodiff: the cuda devices `TRAIN_DEVICES` lists (Phase 9 T2),
 /// or the one default device when it is unset.
 ///
@@ -215,47 +201,6 @@ fn train_devices() -> Vec<Device> {
     // cubecl implements the all_reduce data-parallel training needs on cuda only
     #[cfg(not(feature = "cuda"))]
     panic!("TRAIN_DEVICES={list} needs the cuda feature")
-}
-
-/// The optimiser `OPTIMIZER` asks for and a hybrid run's Adam epochs: `(None, None)`
-/// (Adam) when it is unset or `adam`, the `GN_*` literals for `gauss-newton`, and those
-/// with `HYBRID_ADAM_EPOCHS` for `hybrid`; the probe seed is `seed`.
-///
-/// `GN_WEIGHT_DECAY` and `GN_CG_MAX_ITERS` override those literals.
-///
-/// # Panics
-/// For any other value, any `GN_PRECONDITIONER` but `none` and `hutchinson`, a
-/// `GN_WEIGHT_DECAY` that is negative or not finite, or a `GN_CG_MAX_ITERS` of 0.
-fn optimizer(seed: u64) -> (Option<OptimizerConfig>, Option<usize>) {
-    let adam_epochs = match std::env::var("OPTIMIZER").as_deref() {
-        Err(_) | Ok("adam") => return (None, None),
-        Ok("gauss-newton") => None,
-        Ok("hybrid") => Some(HYBRID_ADAM_EPOCHS),
-        Ok(other) => panic!("OPTIMIZER must be adam, gauss-newton or hybrid, got {other:?}"),
-    };
-    let preconditioner = match std::env::var("GN_PRECONDITIONER").as_deref() {
-        Err(_) => GN_PRECONDITIONER,
-        Ok("none") => Preconditioner::None,
-        Ok("hutchinson") => Preconditioner::HutchinsonDiagonal {
-            probes: GN_HUTCHINSON_PROBES,
-        },
-        Ok(other) => panic!("GN_PRECONDITIONER must be none or hutchinson, got {other:?}"),
-    };
-    let cg_max_iters = env_var("GN_CG_MAX_ITERS").unwrap_or(GN_CG_MAX_ITERS);
-    assert!(cg_max_iters > 0, "GN_CG_MAX_ITERS must be positive");
-    let weight_decay = env_var("GN_WEIGHT_DECAY").unwrap_or(GN_WEIGHT_DECAY);
-    assert!(
-        weight_decay.is_finite() && weight_decay >= 0.0,
-        "GN_WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
-    );
-    let gn = GaussNewtonConfig::new()
-        .with_cg_max_iters(cg_max_iters)
-        .with_lambda_init(GN_LAMBDA_INIT)
-        .with_weight_decay(weight_decay)
-        .with_preconditioner(preconditioner)
-        .with_adjoint_check_every(GN_ADJOINT_CHECK_EVERY)
-        .with_seed(seed);
-    (Some(OptimizerConfig::GaussNewton(gn)), adam_epochs)
 }
 
 /// `datasets/poisson/` in the repository.
@@ -333,46 +278,34 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         activation: None,
     };
 
-    let (optimizer, adam_epochs) = optimizer(seed);
-    let gn = optimizer.is_some();
-    let time_budget_s = env_var::<f64>("TIME_BUDGET_S");
-    // Adam's cosine schedule spans EPOCHS, so a budget would cut it short
-    assert!(
-        gn || time_budget_s.is_none(),
-        "TIME_BUDGET_S is for OPTIMIZER=gauss-newton runs"
-    );
-    // NaN would never stop the run
-    assert!(
-        time_budget_s.is_none_or(|b| b.is_finite() && b > 0.0),
-        "TIME_BUDGET_S must be a positive number of seconds, got {time_budget_s:?}"
-    );
-    let batch_size = if gn {
-        env_var("GN_BATCH_SIZE").unwrap_or(GN_BATCH_SIZE)
-    } else {
-        BATCH_SIZE
+    let lit = Literals {
+        epochs: EPOCHS,
+        batch_size: BATCH_SIZE,
+        learning_rate: LEARNING_RATE,
+        weight_decay: WEIGHT_DECAY,
+        min_lr: MIN_LR,
+        gn: GnLiterals {
+            batch_size: GN_BATCH_SIZE,
+            cg_max_iters: GN_CG_MAX_ITERS,
+            lambda_init: GN_LAMBDA_INIT,
+            weight_decay: GN_WEIGHT_DECAY,
+            preconditioner: GN_PRECONDITIONER,
+            hutchinson_probes: GN_HUTCHINSON_PROBES,
+            adjoint_check_every: GN_ADJOINT_CHECK_EVERY,
+        },
     };
-    assert!(batch_size > 0, "GN_BATCH_SIZE must be positive");
+    let train_cfg = common::training_config(&["adam", "gauss-newton", "hybrid"], seed, &lit);
+    let adam_epochs =
+        (std::env::var("OPTIMIZER").as_deref() == Ok("hybrid")).then_some(HYBRID_ADAM_EPOCHS);
     // the Adam half must match the Adam reruns' steps for HYBRID_ADAM_EPOCHS to be half
     // their time
     assert!(
-        adam_epochs.is_none() || batch_size == BATCH_SIZE,
-        "OPTIMIZER=hybrid trains at BATCH_SIZE = {BATCH_SIZE}, got GN_BATCH_SIZE = {batch_size}"
+        adam_epochs.is_none() || train_cfg.batch_size == BATCH_SIZE,
+        "OPTIMIZER=hybrid trains at BATCH_SIZE = {BATCH_SIZE}, got GN_BATCH_SIZE = {}",
+        train_cfg.batch_size
     );
-    let weight_decay = env_var("WEIGHT_DECAY").unwrap_or(WEIGHT_DECAY);
-    assert!(
-        weight_decay.is_finite() && weight_decay >= 0.0,
-        "WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
-    );
-    let train_cfg = TrainingConfig::new()
-        .with_epochs(EPOCHS)
-        .with_time_budget_s(time_budget_s)
-        .with_batch_size(batch_size)
-        .with_learning_rate(LEARNING_RATE)
-        .with_weight_decay(weight_decay)
-        .with_min_lr(MIN_LR)
-        .with_seed(seed)
-        .with_optimizer(optimizer)
-        .with_adam_epochs(adam_epochs);
+    let gn = train_cfg.gauss_newton().is_some();
+    let train_cfg = train_cfg.with_adam_epochs(adam_epochs);
 
     // Stage 2 at s = n − 1 keeps its run name; other stages carry n, other s carry n and s,
     // then a subset its N and seed, and a seed other than the default is appended
@@ -406,51 +339,16 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
     (run, model_cfg, train_cfg, dataset_cfg)
 }
 
-/// Reopens the run at `dir` with its saved configs and checkpoint (on `device`), and
-/// truncates its `metrics.csv` (and `gn_steps.csv`) to the checkpoint's epoch. The
-/// checkpoint counts this resume.
-fn reopen(
-    dir: &str,
-    device: &Device,
-) -> (
-    RunDir,
-    FNOConfig,
-    TrainingConfig,
-    PoissonConfig,
-    Checkpoint<4>,
-) {
-    let run = RunDir::open(dir).unwrap_or_else(|e| panic!("could not open the run: {e}"));
-    let model_cfg = run.model_config().unwrap_or_else(|e| panic!("{e}"));
-    let train_cfg = run.training_config().unwrap_or_else(|e| panic!("{e}"));
-    let dataset_cfg: PoissonConfig = run.data_config().unwrap_or_else(|e| panic!("{e}"));
-    let mut ck = run
-        .checkpoint::<4>(device)
-        .unwrap_or_else(|e| panic!("could not read the checkpoint: {e}"))
-        .unwrap_or_else(|| panic!("{dir} has no checkpoint to resume from"));
-    ck.state.resumes += 1;
-    run.truncate_metrics(ck.state.next_epoch)
-        .unwrap_or_else(|e| panic!("could not truncate metrics.csv: {e}"));
-    run.truncate_gn_steps(ck.state.next_epoch)
-        .unwrap_or_else(|e| panic!("could not truncate gn_steps.csv: {e}"));
-    println!(
-        "device: {device:?}, resuming {dir} at epoch {} of {} (resume {})",
-        ck.state.next_epoch, train_cfg.epochs, ck.state.resumes
-    );
-    (run, model_cfg, train_cfg, dataset_cfg, ck)
-}
-
 fn main() {
     let devices = train_devices();
     let device = devices[0].clone();
-    let (run, model_cfg, train_cfg, dataset_cfg, resume) = match std::env::args().nth(1) {
-        Some(flag) if flag == "--resume" => {
-            let dir = std::env::args()
-                .nth(2)
-                .expect("--resume needs a run directory");
-            let (run, model_cfg, train_cfg, dataset_cfg, ck) = reopen(&dir, &device);
+    let (run, model_cfg, train_cfg, dataset_cfg, resume) = match common::resume_dir() {
+        Some(dir) => {
+            let (run, model_cfg, train_cfg, dataset_cfg, ck) =
+                common::reopen::<4, PoissonConfig>(&dir, &device);
             (run, model_cfg, train_cfg, dataset_cfg, Some(ck))
         }
-        _ => {
+        None => {
             let (run, model_cfg, train_cfg, dataset_cfg) = new_run(&device);
             (run, model_cfg, train_cfg, dataset_cfg, None)
         }
@@ -533,51 +431,22 @@ fn main() {
         also,
     );
     let training_time_s = prior_time_s + train_start.elapsed().as_secs_f64();
-    // Adam: every planned step (it takes no budget), one forward and one backward each;
-    // Gauss-Newton: the steps taken, from gn_steps.csv, every session's (a budget may stop
-    // it before EPOCHS), plus a hybrid run's Adam steps, from the epochs metrics.csv holds
-    let (steps, forward_passes, backward_passes) = match train_cfg.gauss_newton() {
-        None => {
-            let steps = train_cfg.total_steps(n_train);
-            (steps, steps, steps)
-        }
-        Some(_) => {
-            let epochs = run.metrics().expect("could not read metrics.csv").len();
-            let adam_epochs = (0..epochs).filter(|&e| train_cfg.adam_epoch(e)).count();
-            let adam = adam_epochs * train_cfg.steps_per_epoch(n_train);
-            let p = run.gn_passes().expect("could not read gn_steps.csv");
-            // a hybrid run stopped by its budget within the Adam epochs has no GN steps
-            assert!(
-                p.is_some() || adam > 0,
-                "a Gauss-Newton run writes gn_steps.csv"
-            );
-            let (forward, backward) = p.as_ref().map_or((0, 0), training_passes);
-            let gn_steps = p.map_or(0, |p| p.steps);
-            (gn_steps + adam, forward + adam, backward + adam)
-        }
+    let device_name = match devices.len() {
+        1 => format!("{device:?}"),
+        _ => format!("{devices:?}"),
     };
-
+    let measured = Measured {
+        load_time_s,
+        training_time_s,
+        host_to_device_bytes: (train_bytes, test_bytes),
+        device: device_name,
+        num_params: model.num_params(),
+        resumes,
+    };
     let costs = RunCosts {
         dataset_train_wall_time_s: Some(train_sidecar.wall_time_s),
         dataset_test_wall_time_s: Some(test_sidecar.wall_time_s),
-        load_time_s,
-        training_time_s,
-        inference_time_s: None,
-        host_to_device_bytes_train: train_bytes,
-        host_to_device_bytes_test: test_bytes,
-        // no backend reports it; never estimated (design §13.9)
-        peak_gpu_memory: "unavailable".to_string(),
-        backend_features: backend_features().into_iter().map(String::from).collect(),
-        device: match devices.len() {
-            1 => format!("{device:?}"),
-            _ => format!("{devices:?}"),
-        },
-        git_commit: git_commit(),
-        num_params: model.num_params(),
-        optimisation_steps: Some(steps),
-        resumes: Some(resumes),
-        forward_passes: Some(forward_passes),
-        backward_passes: Some(backward_passes),
+        ..common::run_costs(&run, &train_cfg, n_train, measured)
     };
 
     // every epoch's metrics, the earlier sessions' included

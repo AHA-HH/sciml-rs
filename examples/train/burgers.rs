@@ -15,21 +15,37 @@
 //! The FNO's key advantage is its resolution invariance - it can make predictions
 //! at different resolutions without retraining.
 //!
-//! Environment variables (optimisers CO1.1; unset, the run is as before):
+//! Environment variables (optimisers CO1.1 and CO1.2; unset, the run is as before):
 //! - `RECIPE=petscml`: PETScML's Burgers setting (Zampini et al. 2024, §4.1.1, D10): the
 //!   first 1,000 samples for training, subsample rate 64 (s = 128), GELU, and the batch mean
-//!   of the squared relative L² as the objective.
-//! - `OPTIMIZER=adamw`: AdamW with the learning rate halved every 100 epochs, PETScML's
-//!   reference (D11); `adam` (the default) is Adam with coupled weight decay and the cosine.
-//! - `WEIGHT_DECAY` and `SUBSAMPLE` override those literals.
+//!   of the squared relative L² as the Adam path's objective.
+//! - `OPTIMIZER=adamw`: AdamW with the learning rate halved every `EPOCHS / 5` epochs (every
+//!   100 at 500), PETScML's reference (D11); `adam` (the default) is Adam with coupled weight
+//!   decay and the cosine; `gauss-newton` is O1's Gauss–Newton arm (D12: full batch, CG cap
+//!   100, the Hutchinson diagonal, μ = 1e-4), the run name gaining `_gn`.
+//! - `WEIGHT_DECAY` and `SUBSAMPLE` override those literals; `GN_WEIGHT_DECAY` (μ; 0 for
+//!   G0), `GN_BATCH_SIZE` (200 for G0-200), `GN_CG_MAX_ITERS` and `GN_PRECONDITIONER`
+//!   Gauss–Newton's (`examples/train/common.rs`).
+//! - `SEED` (default 42, `_seed<n>` in the run name), `EPOCHS` (default 500) and, with
+//!   Gauss–Newton, `TIME_BUDGET_S` (stop after the first epoch that ends at or over it).
 //!
-//! PETScML's reference A1, seed 42:
+//! PETScML's reference A1, seed 42, and O1's G0 at a budget:
 //! RECIPE=petscml OPTIMIZER=adamw cargo run --release --features metal --example train_burgers
+//! RECIPE=petscml OPTIMIZER=gauss-newton GN_WEIGHT_DECAY=0 TIME_BUDGET_S=600 \
+//!     cargo run --release --features metal --example train_burgers
 //!
-//! The run also writes `costs.json` (load and training time, steps and passes).
+//! A run checkpoints every 25 epochs and after the last; `--resume` continues it from there
+//! with its saved configs (the variables above are then ignored):
+//! cargo run --release --example train_burgers -- --resume runs/<run_dir>
+//!
+//! The run also writes `costs.json` (load and training time, steps and passes) and, with
+//! Gauss–Newton, `gn_steps.csv`.
 
 // Import the necessary modules for training a Fourier Neural Operator
+mod common;
+
 use burn::{module::Module, tensor::Device};
+use common::{GnLiterals, Literals, Measured};
 use sciml_rs::neural_operators::data::catalogue::BurgersFiles;
 use sciml_rs::neural_operators::{
     data::loaders::{
@@ -37,49 +53,27 @@ use sciml_rs::neural_operators::{
         burgers::{BurgersConfig, load_burgers_uniform},
     },
     models::fno::{Activation, FNOConfig},
-    runs::{RunCosts, RunDir},
+    optim::gauss_newton::Preconditioner,
+    runs::RunDir,
     training::{
-        config::{LrSchedule, OptimizerConfig, TrainLoss, TrainingConfig},
-        trainer::train_fno,
+        config::{TrainLoss, TrainingConfig},
+        trainer::{build_training_components, train_components},
     },
-    utils::backend::{backend_features, git_commit},
 };
-use std::fmt::Display;
 use std::path::Path;
-use std::str::FromStr;
 use std::time::Instant;
 
-/// The environment variable `name` parsed as `T`, or `None` when it is unset.
-///
-/// # Panics
-/// If it is set and does not parse.
-fn env_var<T: FromStr>(name: &str) -> Option<T>
-where
-    T::Err: Display,
-{
-    let v = std::env::var(name).ok()?;
-    Some(
-        v.parse()
-            .unwrap_or_else(|e| panic!("{name} must be a number, got {v:?}: {e}")),
-    )
-}
+/// Epochs between checkpoints; the last epoch is always checkpointed (Phase 9 P2).
+const CHECKPOINT_EVERY: usize = 25;
 
-fn main() {
-    // Set the device for the underlying compute backend
-    // .autodiff() wraps the backend to enable automatic differentiation for the tensors
-    let device = Device::default().autodiff();
-    println!("device: {device:?}");
-
+/// A new run from the literals below and the environment: creates its directory and saves
+/// its configs there before training, so `--resume` can read them.
+fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
     // PETScML's setting (RECIPE=petscml) or today's
     let petscml = match std::env::var("RECIPE").as_deref() {
         Err(_) => false,
         Ok("petscml") => true,
         Ok(other) => panic!("RECIPE must be petscml, got {other:?}"),
-    };
-    let adamw = match std::env::var("OPTIMIZER").as_deref() {
-        Err(_) | Ok("adam") => false,
-        Ok("adamw") => true,
-        Ok(other) => panic!("OPTIMIZER must be adam or adamw, got {other:?}"),
     };
 
     // Set the training test split for the dataset configuration
@@ -94,8 +88,105 @@ fn main() {
     // paired with the solution `u(x)` at the same `s` locations
     // For this example it is set to 32 -> s = 2^13 / 32 = 256 grid points
     // PETScML (after Lu et al. 2022) subsample at 64: s = 128
-    let subsample = env_var("SUBSAMPLE").unwrap_or(if petscml { 64 } else { 32 });
-    let dataset_cfg = BurgersConfig::new(data_cfg, subsample);
+    let subsample = common::env_var("SUBSAMPLE").unwrap_or(if petscml { 64 } else { 32 });
+    let dataset_cfg = BurgersConfig::new(data_cfg.clone(), subsample);
+
+    // Set the FNO model, the number of modes sets the dimension of the problem
+    // `modes` has one entry per spatial dimension, its length fixes the tensor rank
+    // at compile time, for this example: 1 entry -> 1D FNO
+    let model_cfg = FNOConfig {
+        // How many Fourier modes to keep on the spatial axis
+        modes: vec![16],
+        // Channel width flowing through each spectral layer
+        hidden_channels: 64,
+        // Input channels in the dataset itself
+        data_channels: 1,
+        // Only 1 is supported - see flatten_pair
+        out_channels: 1,
+        // Number of spectral convolution layers
+        n_layers: 4,
+        // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
+        // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
+        spectral_init: None,
+        // No domain padding: Burgers is periodic, and Li et al.'s fourier_1d.py
+        // does not pad either
+        padding: None,
+        // PETScML's network uses GELU; ReLU (None) otherwise
+        activation: petscml.then_some(Activation::Gelu),
+    };
+
+    // Set the training configuration, test_batch_size = 20 by default
+    // Adam with weight decay for regularization and the Cosine Annealing learning rate
+    // scheduler from learning rate down to minimum learning rate, unless OPTIMIZER says
+    // otherwise
+    let default_seed = TrainingConfig::new().seed;
+    let seed = common::env_var("SEED").unwrap_or(default_seed);
+    let lit = Literals {
+        epochs: common::env_var("EPOCHS").unwrap_or(500),
+        batch_size: 20,
+        learning_rate: 1e-3,
+        weight_decay: 1e-4,
+        min_lr: 1e-5,
+        // O1's Gauss-Newton arm (D12); the other GaussNewtonConfig settings keep their
+        // defaults
+        gn: GnLiterals {
+            // the full batch
+            batch_size: data_cfg.n_train,
+            cg_max_iters: 100,
+            lambda_init: 1.0,
+            // G1; G0 is GN_WEIGHT_DECAY=0
+            weight_decay: 1e-4,
+            preconditioner: Preconditioner::HutchinsonDiagonal { probes: 10 },
+            hutchinson_probes: 10,
+            adjoint_check_every: 10,
+        },
+    };
+    let mut train_cfg = common::training_config(&["adam", "adamw", "gauss-newton"], seed, &lit);
+    if petscml {
+        // PETScML's eq. 6
+        train_cfg = train_cfg.with_loss(Some(TrainLoss::SquaredRelL2));
+    }
+
+    // Writes configs, metrics, checkpoints and weights to runs/<name>_<timestamp>/.
+    // Created before training: train_components appends each epoch's row of metrics.csv
+    // to it
+    let seed_tag = if seed == default_seed {
+        String::new()
+    } else {
+        format!("_seed{seed}")
+    };
+    let gn_tag = if train_cfg.gauss_newton().is_some() {
+        "_gn"
+    } else {
+        ""
+    };
+    let run = RunDir::create(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"),
+        &format!("burgers_fno{seed_tag}{gn_tag}"),
+    )
+    .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
+    run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
+        .expect("could not save configs");
+    (run, model_cfg, train_cfg, dataset_cfg)
+}
+
+fn main() {
+    // Set the device for the underlying compute backend
+    // .autodiff() wraps the backend to enable automatic differentiation for the tensors
+    let device = Device::default().autodiff();
+    println!("device: {device:?}");
+
+    let (run, model_cfg, train_cfg, dataset_cfg, resume) = match common::resume_dir() {
+        Some(dir) => {
+            let (run, model_cfg, train_cfg, dataset_cfg, ck) =
+                common::reopen::<3, BurgersConfig>(&dir, &device);
+            (run, model_cfg, train_cfg, dataset_cfg, Some(ck))
+        }
+        None => {
+            let (run, model_cfg, train_cfg, dataset_cfg) = new_run();
+            (run, model_cfg, train_cfg, dataset_cfg, None)
+        }
+    };
 
     // Automatically finds the path for the Burgers dataset as long as the file is in
     // the datasets folder at the repository root
@@ -125,95 +216,44 @@ fn main() {
         train_data.inputs().shape()[1]
     );
 
-    // Set the FNO model, the number of modes sets the dimension of the problem
-    // `modes` has one entry per spatial dimension, its length fixes the tensor rank
-    // at compile time, for this example: 1 entry -> 1D FNO
-    let model_cfg = FNOConfig {
-        // How many Fourier modes to keep on the spatial axis
-        modes: vec![16],
-        // Channel width flowing through each spectral layer
-        hidden_channels: 64,
-        // Input channels in the dataset itself
-        data_channels: 1,
-        // Only 1 is supported - see flatten_pair
-        out_channels: 1,
-        // Number of spectral convolution layers
-        n_layers: 4,
-        // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
-        // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
-        spectral_init: None,
-        // No domain padding: Burgers is periodic, and Li et al.'s fourier_1d.py
-        // does not pad either
-        padding: None,
-        // PETScML's network uses GELU; ReLU (None) otherwise
-        activation: petscml.then_some(Activation::Gelu),
-    };
-
-    // Set the training configuration, defaults not overridden: seed = 42, test_batch_size = 20
-    // Use the Adam optimizer with weight decay for regularization
-    // Use the Cosine Annealing learning rate scheduler from learning rate down to minimum learning rate
-    let weight_decay: f32 = env_var("WEIGHT_DECAY").unwrap_or(1e-4);
-    assert!(
-        weight_decay.is_finite() && weight_decay >= 0.0,
-        "WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
-    );
-    let mut train_cfg = TrainingConfig::new()
-        .with_epochs(500)
-        .with_batch_size(20)
-        .with_learning_rate(1e-3)
-        .with_weight_decay(weight_decay)
-        .with_min_lr(1e-5);
-    if adamw {
-        train_cfg = train_cfg
-            .with_optimizer(Some(OptimizerConfig::AdamW))
-            .with_lr_schedule(Some(LrSchedule::Step { every_epochs: 100 }));
-    }
-    if petscml {
-        // PETScML's eq. 6
-        train_cfg = train_cfg.with_loss(Some(TrainLoss::SquaredRelL2));
-    }
-    // .with_seed(1);
-
-    // Writes configs, metrics and weights to runs/burgers_fno_<timestamp>/. Created
-    // before training: train_fno appends each epoch's row of metrics.csv to it
-    let run = RunDir::create(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("runs"),
-        "burgers_fno",
-    )
-    .unwrap_or_else(|e| panic!("could not create the run directory: {e}"));
-
     // No normaliser: train and evaluate in physical units
     // Use the L2 loss for training and evaluation
+    // After a resume the recorded time adds the earlier sessions' up to the checkpoint
+    let (prior_time_s, resumes) = resume
+        .as_ref()
+        .map_or((0.0, 0), |ck| (ck.state.training_time_s, ck.state.resumes));
     let train_start = Instant::now();
-    let (model, metrics) = train_fno::<3, 2, _>(
-        train_data, test_data, None, &model_cfg, &train_cfg, &device, &run,
+    let components = build_training_components::<3, 2, _>(
+        &model_cfg, &train_cfg, train_data, test_data, &device,
     );
-    let training_time_s = train_start.elapsed().as_secs_f64();
+    let (model, _) = train_components(
+        components,
+        None,
+        &train_cfg,
+        &device,
+        &run,
+        Some(CHECKPOINT_EVERY),
+        resume,
+        None,
+    );
+    let training_time_s = prior_time_s + train_start.elapsed().as_secs_f64();
 
-    // every step one forward and one backward (Adam and AdamW take no budget)
-    let steps = train_cfg.total_steps(n_train);
-    let costs = RunCosts {
-        dataset_train_wall_time_s: None,
-        dataset_test_wall_time_s: None,
-        load_time_s,
-        training_time_s,
-        inference_time_s: None,
-        host_to_device_bytes_train: upload_bytes(n_train),
-        host_to_device_bytes_test: upload_bytes(n_test),
-        // no backend reports it; never estimated (design §13.9)
-        peak_gpu_memory: "unavailable".to_string(),
-        backend_features: backend_features().into_iter().map(String::from).collect(),
-        device: format!("{device:?}"),
-        git_commit: git_commit(),
-        num_params: model.num_params(),
-        optimisation_steps: Some(steps),
-        resumes: Some(0),
-        forward_passes: Some(steps),
-        backward_passes: Some(steps),
-    };
+    let costs = common::run_costs(
+        &run,
+        &train_cfg,
+        n_train,
+        Measured {
+            load_time_s,
+            training_time_s,
+            host_to_device_bytes: (upload_bytes(n_train), upload_bytes(n_test)),
+            device: format!("{device:?}"),
+            num_params: model.num_params(),
+            resumes,
+        },
+    );
 
-    run.save_configs(&model_cfg, &train_cfg, &dataset_cfg)
-        .expect("could not save configs");
+    // every epoch's metrics, the earlier sessions' included
+    let metrics = run.metrics().expect("could not read metrics.csv");
     run.save_plot(&metrics);
     run.save_weights(&model)
         .unwrap_or_else(|e| panic!("could not save model weights: {e}"));
