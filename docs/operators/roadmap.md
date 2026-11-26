@@ -19,8 +19,9 @@ split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. CM1.6
 below the stored maximum). CM1.3b done 2026-11-25 (the FNO's block options; FNO outputs
 unchanged bit for bit). CM2.5 done 2026-11-26 (the equation losses, PINO; independent of
 D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outputs
-unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). Next
-CM0.6 and CM1.5.
+unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). CM1.5
+split 2026-11-26 into CM1.5a–d; CM1.5a done 2026-11-26 (2.0.0's whole `FNO` within D3; FNO
+outputs unchanged bit for bit). Next CM0.6, CM1.5b, CM1.5c, CM1.5d.
 
 ## How to read this file
 
@@ -178,7 +179,7 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   generated under `torch.set_default_dtype(torch.float64)`, so their seven f64 tests run
   (CM1.4's are `#[ignore]`d, f32-accurate), if CM1.5's own f64 FNO fixtures need it.
   Split 2026-11-26 (over 1,000 lines across the FNO, two new layers and the parity tests):
-  - [ ] **CM1.5a Whole-FNO parity, defaults and block sweeps.** 2.0.0's `FNO` end to end
+  - [x] **CM1.5a Whole-FNO parity, defaults and block sweeps.** 2.0.0's `FNO` end to end
     (grid, lifting, centred convolutions with their bias, blocks, projection) through one
     parameter map; `FNOConfig` gains the convolution's bias, `separable`, `max_n_modes` and
     the tanh stabiliser, each off by default; with it CM1.4's shared parity helpers (F4).
@@ -186,7 +187,12 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     sweep fixtures (norms, pre-activation, skips, ratios, activations, no grid, separable,
     `max_n_modes`, an odd mode count, 3D, the stabiliser) pass through `FNO` within D3 in
     f32; the f64 tests `#[ignore]`d with their errors recorded; the FNO's bit-identity
-    dumps equal `main`'s. *Needs:* CM1.2, CM1.3b, CM1.4.
+    dumps equal `main`'s. *Needs:* CM1.2, CM1.3b, CM1.4. Done 2026-11-26: plan
+    `docs/operators/tasks/CM1.5a.md`; `FNOConfig::{conv_bias, separable, max_modes,
+    tanh_stabilizer}`; `tests/parity_fno.rs` (eight fixtures, f32 ≤ 1.8e-6), `_f64.rs`
+    (two `#[ignore]`d, ≤ 1.2e-8: Flex's f32 twiddles, 2.0.0's f32 grid); shared map pieces
+    `tests/parity_common/fno_map.rs`. The f64 fixtures with f64 constants (CM1.4's plan
+    review) are not needed while Flex's f64 `rfft` uses f32 twiddles.
   - [ ] **CM1.5b Domain padding and resampling.** 2.0.0's `DomainPadding` (symmetric, a
     fraction of the resolution, unpadded at the scaled size) as an FNO option beside
     CONVENTIONS §3's one-sided `padding`; `resample` (linear in 1D, bicubic in 2D, Fourier
@@ -202,7 +208,12 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     not taken by CM1.5a: the `FNOConfig` literals, one coordinate-channel builder (the
     dumps and `gpu_parity` decide), `layers/spectral_convolution.rs` split, one shared
     biased test layer, converted arrays passed to `load_into` with `Fixture`'s fields
-    private. *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
+    private. From CM1.5a's code-quality review: CM0.5's test-only `Fno1dRef`
+    (`tests/parity_common/fno1d.rs`, `tests/parity_fno1d*.rs`) retired, its harness
+    self-checks ported to the library `FNO` (F4); one rule for `FNOConfig`'s boolean options
+    (`Option<bool>` with `None` false, or `#[config(default = false)]`; F7, the author's
+    choice at the M1 gate); `parity_common::fno::output`'s map hook replaced by a load step
+    the control can corrupt (F6). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
     *Needs:* CM1.5a.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of

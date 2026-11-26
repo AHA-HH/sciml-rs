@@ -78,6 +78,12 @@ files, absent from the wheel, differ).
 | `fno_lift_project2d_linear_{f32,f64}` | `n_modes=(4, 4)`, 2 → 3 channels, hidden 5, `lifting_channel_ratio=0`, `projection_channel_ratio=1.5`, tanh; input (2, 2, 6, 5) | 91 | 5 kB |
 | `fno_lift_project3d_no_grid_{f32,f64}` | `n_modes=(4, 4, 4)`, 3 → 2 channels, hidden 4, `positional_embedding=None`; input (2, 3, 5, 4, 3) | 126 | 9 kB |
 | `fno_lift_project2d_boundaries_{f32,f64}` | `fno_boundaries`: a `GridEmbeddingND` on `BOUNDARIES` = [[0, 2], [−1, 1]], 2 → 1 channels, hidden 4; input (2, 2, 6, 5) | 125 | 5 kB |
+| `fno3d_f32` | `FNO(n_modes=(4, 4, 4), in_channels=2, out_channels=1, hidden_channels=4, n_layers=2)`, defaults otherwise (CM1.5a, as every row below: the whole FNO, centred convolutions with bias; f32 only; constant inits redrawn); input (2, 2, 8, 6, 5) | 3,297 | 27 kB |
+| `fno2d_instance_pre_f32` | `n_modes=(6, 4)`, hidden 6, `norm="instance_norm"`, `preactivation=True`, tanh; input (2, 1, 16, 12) | 5,779 | 39 kB |
+| `fno1d_group_skips_f32` | `n_modes=(10,)`, 2 → 1, hidden 6, `norm="group_norm"`, `fno_skip="soft-gating"`, `channel_mlp_skip="linear"`, `channel_mlp_expansion=1.0`, `lifting_channel_ratio=0`, `projection_channel_ratio=1.5`, `positional_embedding=None`, SiLU; input (2, 2, 40) | 2,443 | 28 kB |
+| `fno2d_separable_f32` | `n_modes=(6, 6)`, `max_n_modes=(8, 8)`, `separable=True`, hidden 6; input (2, 1, 16, 16) | 3,667 | 32 kB |
+| `fno2d_odd_stabilizer_f32` | `n_modes=(7, 6)` (odd centred count), hidden 6, `fno_skip="identity"`, `channel_mlp_skip=None`, `stabilizer="tanh"`; input (2, 1, 16, 14) | 8,491 | 48 kB |
+| `fno1d_pre_no_mlp_f32` | `n_modes=(8,)`, hidden 6, `use_channel_mlp=False`, `preactivation=True`, `stabilizer="tanh"`, ReLU; input (2, 1, 32) | 1,819 | 14 kB |
 | `grid_embedding2d_{f32,f64}` | `GridEmbeddingND(3, dim=2, grid_boundaries=BOUNDARIES)`; input (2, 3, 6, 5) | 0 | 4 kB |
 | `sinusoidal_{transformer,nerf}_{f32,f64}` | `SinusoidalEmbedding(3, num_frequencies=4)`, `embedding_type` as named; input (2, 10, 3) | 0 | 5 kB |
 | `rotary2d_{f32,f64}` | `Rotary2d(8)`: `RotaryEmbedding2D(8)` on channels 0 and 1 as x and y, `apply_2d_rotary_pos_emb` on the other 16; input (2, 10, 18) | 0 | 6 kB |
