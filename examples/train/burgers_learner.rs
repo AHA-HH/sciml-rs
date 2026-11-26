@@ -76,6 +76,11 @@ fn main() {
         // does not pad either
         padding: None,
         activation: None,
+        // 2.0.0's block options (library CM1.3b); None keeps today's block
+        fno_skip: None,
+        channel_mlp: None,
+        norm: None,
+        preactivation: None,
     };
 
     // 100 epochs, fewer than `train_burgers`' 500, so a TUI run finishes

@@ -15,12 +15,34 @@ use burn::{
     },
     tensor::{
         DType, Device, FloatDType, Int,
-        activation::{gelu, relu},
+        activation::{
+            gelu, hard_swish, leaky_relu, mish, relu, selu, sigmoid, silu, softsign, tanh,
+        },
         ops::PadMode,
     },
 };
 
-use crate::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
+use crate::neural_operators::layers::{
+    channel_mlp::{ChannelMlp, ChannelMlpConfig},
+    norm::{Norm, NormKind},
+    pointwise::{conv1x1, linear_cf},
+    skip::{Skip, SkipKind},
+    spectral_convolution::{SpectralConv, SpectralInit},
+};
+
+/// The channel MLP after each Fourier layer's convolution, as 2.0.0's `FNOBlocks` builds it
+/// (library CM1.3b): 2.0.0's two-layer `ChannelMLP` with GELU, of the layer's width in and
+/// out, and a skip from the layer's input added to its output.
+#[derive(Config, Debug)]
+pub struct BlockMlpConfig {
+    /// Hidden width as a fraction of the layer's, rounded half to even as Python's `round`
+    /// (2.0.0's `channel_mlp_expansion`).
+    #[config(default = 0.5)]
+    pub expansion: f64,
+    /// The skip added to the MLP's output (2.0.0's `channel_mlp_skip`); `None` is none.
+    #[config(default = "Some(SkipKind::SoftGating)")]
+    pub skip: Option<SkipKind>,
+}
 
 /// Hyperparameters of an [`FNO`], saved with every run
 /// ([`RunDir::save_configs`](crate::neural_operators::runs::RunDir::save_configs)).
@@ -43,7 +65,8 @@ pub struct FNOConfig {
     /// Output channels of the projection `fc2`. Any width builds; the trainer's
     /// `flatten_pair` accepts only 1.
     pub out_channels: usize,
-    /// Number of Fourier layers (a spectral convolution plus a pointwise convolution each).
+    /// Number of Fourier layers (a spectral convolution and a skip each, with the block
+    /// options' parts).
     #[config(default = 4)]
     pub n_layers: usize,
     /// Initialisation of every spectral layer's weights. `None` is the Li et
@@ -58,6 +81,20 @@ pub struct FNOConfig {
     /// default, and every config before optimisers CO1.1) is [`Activation::Relu`]. An
     /// `Option` so that saved configs without this field still load.
     pub activation: Option<Activation>,
+    // The block options of 2.0.0's `FNOBlocks` (library CM1.3b; [`FNO::fourier_layers`]).
+    // Each `None` is the original block, and an `Option` so that saved configs load as `None`.
+    // The activation is `activation` above (2.0.0's `non_linearity`, default GELU).
+    /// The skip added to each layer's convolution (2.0.0's `fno_skip`, default
+    /// [`SkipKind::Linear`], without bias); `None` is the original pointwise convolution with
+    /// bias.
+    pub fno_skip: Option<SkipKind>,
+    /// A channel MLP in each layer (2.0.0's `use_channel_mlp`, default on); `None` is none.
+    pub channel_mlp: Option<BlockMlpConfig>,
+    /// A norm, two per layer (2.0.0's `norm`); `None` is none.
+    pub norm: Option<NormKind>,
+    /// Activation and norm before the convolution (2.0.0's `preactivation`); `None` is
+    /// `false`.
+    pub preactivation: Option<bool>,
 }
 
 /// The FNO's nonlinearity ([`FNOConfig::activation`], optimisers CO1.1).
@@ -68,6 +105,42 @@ pub enum Activation {
     /// GELU in its erf form (Burn's `gelu`, PyTorch's default), as in Li et al.'s
     /// `fourier_1d.py` and PETScML's Burgers model (D10).
     Gelu,
+    // Library CM1.3b: the other functions 2.0.0's `non_linearity` is commonly given, each
+    // Burn's function of the same name; parity with torch in `tests/parity_fno_blocks.rs`.
+    /// `torch.tanh`.
+    Tanh,
+    /// `torch.sigmoid`.
+    Sigmoid,
+    /// `F.silu` (swish): `x · sigmoid(x)`.
+    Silu,
+    /// `F.leaky_relu` at torch's default negative slope, 0.01.
+    LeakyRelu,
+    /// `F.selu`.
+    Selu,
+    /// `F.mish`: `x · tanh(softplus(x))`.
+    Mish,
+    /// `F.hardswish`.
+    HardSwish,
+    /// `F.softsign`: `x / (1 + |x|)`.
+    Softsign,
+}
+
+impl Activation {
+    /// The function applied elementwise to `x`, any shape.
+    pub fn apply<const D: usize>(&self, x: Tensor<D>) -> Tensor<D> {
+        match self {
+            Activation::Relu => relu(x),
+            Activation::Gelu => gelu(x),
+            Activation::Tanh => tanh(x),
+            Activation::Sigmoid => sigmoid(x),
+            Activation::Silu => silu(x),
+            Activation::LeakyRelu => leaky_relu(x, 0.01),
+            Activation::Selu => selu(x),
+            Activation::Mish => mish(x),
+            Activation::HardSwish => hard_swish(x),
+            Activation::Softsign => softsign(x),
+        }
+    }
 }
 
 /// A Fourier Neural Operator on rank-`R` channels-last tensors `[B, s_1..s_D, C]`
@@ -77,14 +150,32 @@ pub enum Activation {
 pub struct FNO<const R: usize> {
     fc0: Linear,
     conv: Vec<SpectralConv<R>>,
+    /// The original FNO skip, a pointwise convolution with bias; empty when
+    /// [`FNOConfig::fno_skip`] is set (then `fno_skips` holds the skips).
     w: Vec<Conv1d>,
     fc1: Linear,
     fc2: Linear,
     /// Zero cells appended to each spatial axis; 0 disables padding.
     /// Not a parameter, so it is not part of a saved checkpoint.
     padding: usize,
-    /// GELU instead of ReLU ([`FNOConfig::activation`]); not a parameter either.
-    gelu: bool,
+    /// The nonlinearity ([`FNOConfig::activation`]); not a parameter either.
+    #[module(skip)]
+    activation: Activation,
+    // The block options (library CM1.3b), after the fields above so that their checkpoint
+    // paths and parameter order are unchanged; empty with every option absent.
+    /// The FNO skip of each layer when [`FNOConfig::fno_skip`] is set (`w` is then empty).
+    fno_skips: Vec<Skip<R>>,
+    /// The channel MLP of each layer, when [`FNOConfig::channel_mlp`] is set.
+    channel_mlp: Vec<ChannelMlp>,
+    /// The channel MLP's skip of each layer.
+    channel_mlp_skips: Vec<Skip<R>>,
+    /// Two per layer, `2i` and `2i + 1`, when [`FNOConfig::norm`] is set.
+    norms: Vec<Norm>,
+    preactivation: bool,
+    /// Whether post-activation applies the activation a second time after the norm slot, as
+    /// 2.0.0 does: only when a 2.0.0 block option (FNO skip, channel MLP, norm) is set. The
+    /// original block, ReLU or GELU, applies it once.
+    repeat_activation: bool,
 }
 
 impl FNOConfig {
@@ -103,6 +194,14 @@ impl FNOConfig {
         );
 
         let coord_channels = self.modes.len(); // D = R - 2, need to derive and input into layer
+        let width = self.hidden_channels;
+        fn layers<T>(n: usize, build: impl Fn() -> T) -> Vec<T> {
+            (0..n).map(|_| build()).collect()
+        }
+        let skips = |kind: Option<&SkipKind>| match kind {
+            Some(kind) => layers(self.n_layers, || kind.init(width, width, device)),
+            None => Vec::new(),
+        };
 
         FNO {
             fc0: LinearConfig::new(self.data_channels + coord_channels, self.hidden_channels)
@@ -120,70 +219,41 @@ impl FNOConfig {
                 })
                 .collect(),
 
-            w: (0..self.n_layers)
-                .map(|_| {
-                    Conv1dConfig::new(self.hidden_channels, self.hidden_channels, 1).init(device)
-                })
-                .collect(),
+            w: match self.fno_skip {
+                Some(_) => Vec::new(),
+                None => layers(self.n_layers, || {
+                    Conv1dConfig::new(width, width, 1).init(device)
+                }),
+            },
 
             fc1: LinearConfig::new(self.hidden_channels, 128).init(device),
             fc2: LinearConfig::new(128, self.out_channels).init(device),
             padding: self.padding.unwrap_or(0),
-            gelu: self.activation == Some(Activation::Gelu),
+            activation: self.activation.clone().unwrap_or(Activation::Relu),
+            fno_skips: skips(self.fno_skip.as_ref()),
+            channel_mlp: match &self.channel_mlp {
+                Some(mlp) => {
+                    let hidden = (width as f64 * mlp.expansion).round_ties_even() as usize;
+                    layers(self.n_layers, || {
+                        ChannelMlpConfig::new(width, width, hidden).init(device)
+                    })
+                }
+                None => Vec::new(),
+            },
+            channel_mlp_skips: skips(self.channel_mlp.as_ref().and_then(|m| m.skip.as_ref())),
+            norms: match &self.norm {
+                Some(kind) => layers(2 * self.n_layers, || kind.init(width, device)),
+                None => Vec::new(),
+            },
+            preactivation: self.preactivation.unwrap_or(false),
+            repeat_activation: self.fno_skip.is_some()
+                || self.channel_mlp.is_some()
+                || self.norm.is_some(),
         }
     }
 }
 
 impl<const R: usize> FNO<R> {
-    /// `y[b, o, n] = Σ_i w[o, i] · x[b, i, n] + bias[o]` on channels-first `x`
-    /// (`[B, I, spatial..]` → `[B, O, spatial..]`), as one batched matmul.
-    ///
-    /// The reshape to `[B, I, N]` is free on a contiguous channels-first
-    /// tensor, which is what every caller in `forward` passes.
-    fn pointwise(w_oi: Tensor<2>, bias: Option<Tensor<1>>, x: Tensor<R>) -> Tensor<R> {
-        let mut dims = x.dims();
-        let (b, i) = (dims[0], dims[1]);
-        let n: usize = dims[2..].iter().product();
-        let [o, w_i] = w_oi.dims();
-        debug_assert_eq!(
-            w_i, i,
-            "pointwise weight expects {w_i} input channels, got {i}"
-        );
-
-        let y = w_oi.unsqueeze::<3>().matmul(x.reshape([b, i, n])); // [1,O,I] @ [B,I,N]
-        let y = match bias {
-            Some(bias) => y + bias.reshape([1, o, 1]),
-            None => y,
-        };
-        dims[1] = o;
-        y.reshape(dims)
-    }
-
-    /// A `Linear` applied along the channel axis of a channels-first tensor.
-    ///
-    /// Uses the layer's own parameters, so checkpoints are unchanged. `Linear`
-    /// stores `[d_input, d_output]` (the default row layout used by `init`),
-    /// hence the transpose to `[O, I]`.
-    fn linear_cf(layer: &Linear, x: Tensor<R>) -> Tensor<R> {
-        Self::pointwise(
-            layer.weight.val().transpose(),
-            layer.bias.as_ref().map(|b| b.val()),
-            x,
-        )
-    }
-
-    /// A kernel-size-1 `Conv1d` as a pointwise matmul (commit `52b8c5f`), using
-    /// its own parameters: the `[O, I, 1]` weight read as `[O, I]`.
-    fn conv1x1_cf(conv: &Conv1d, x: Tensor<R>) -> Tensor<R> {
-        let [o, i, k] = conv.weight.val().dims();
-        debug_assert_eq!(k, 1, "pointwise path needs kernel size 1, got {k}");
-        Self::pointwise(
-            conv.weight.val().reshape([o, i]),
-            conv.bias.as_ref().map(|b| b.val()),
-            x,
-        )
-    }
-
     /// Appends `p` zeros at the end of every spatial axis of a channels-first
     /// `[B, C, spatial..]` tensor.
     fn pad_spatial(x: Tensor<R>, p: usize) -> Tensor<R> {
@@ -245,7 +315,7 @@ impl<const R: usize> FNO<R> {
 
     /// The configured nonlinearity ([`FNOConfig::activation`]).
     fn activate(&self, x: Tensor<R>) -> Tensor<R> {
-        if self.gelu { gelu(x) } else { relu(x) }
+        self.activation.apply(x)
     }
 
     /// `[B, spatial.., data_channels]` → `[B, spatial.., out_channels]`.
@@ -264,8 +334,18 @@ impl<const R: usize> FNO<R> {
     /// # Panics
     /// If the input's last axis is not [`FNOConfig::data_channels`] wide, e.g.
     /// an input that still carries grid channels, or if [`FNOConfig::modes`] do not fit
-    /// the (padded) grid ([`SpectralConv::forward`]).
+    /// the (padded) grid ([`SpectralConv::forward`]), or if the norm is AdaIN (which needs
+    /// [`FNO::forward_with_embedding`]).
     pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
+        self.forward_with_embedding(x, None)
+    }
+
+    /// [`FNO::forward`] with an `embedding` (`[embed_dim]`) for the AdaIN norms
+    /// ([`FNOConfig::norm`]); the other norms ignore it.
+    ///
+    /// # Panics
+    /// As [`FNO::forward`], and for AdaIN without an embedding.
+    pub fn forward_with_embedding(&self, x: Tensor<R>, embedding: Option<Tensor<1>>) -> Tensor<R> {
         let dims = x.dims();
         let data_channels = self.fc0.weight.dims()[0] - (R - 2);
         assert_eq!(
@@ -279,32 +359,112 @@ impl<const R: usize> FNO<R> {
         let grid = Self::grid_cl(dims, x.dtype(), &x.device());
         let x = Tensor::cat(vec![x, grid], R - 1);
 
-        let mut x = Self::linear_cf(&self.fc0, to_channels_first(x));
+        let mut x = linear_cf(&self.fc0, to_channels_first(x));
 
         let unpadded = x.dims();
         if self.padding > 0 {
             x = Self::pad_spatial(x, self.padding);
         }
 
-        let n = self.conv.len();
-        for idx in 0..n {
-            let x1 = self.conv[idx].forward(x.clone());
-            let x2 = Self::conv1x1_cf(&self.w[idx], x);
-            x = if idx == n - 1 {
-                x1 + x2
-            } else {
-                self.activate(x1 + x2)
-            };
-        }
+        x = self.fourier_layers(x, embedding);
 
         if self.padding > 0 {
             x = Self::crop_spatial(x, unpadded);
         }
 
-        let x = self.activate(Self::linear_cf(&self.fc1, x));
-        let x = Self::linear_cf(&self.fc2, x);
+        let x = self.activate(linear_cf(&self.fc1, x));
+        let x = linear_cf(&self.fc2, x);
 
         to_channels_last(x)
+    }
+
+    /// The Fourier layers alone, on the lifted channels-first activation: `[B, W, s..]` →
+    /// `[B, W, s..]`, `W` = [`FNOConfig::hidden_channels`]. Each layer is 2.0.0's `FNOBlocks`
+    /// at that index (`fno_block.py`), post- or pre-activation by
+    /// [`FNOConfig::preactivation`]; with every block option absent, the original block:
+    /// `act(conv(x) + w(x))`, `act` ReLU or GELU ([`FNOConfig::activation`]), without the
+    /// activation after the last layer.
+    ///
+    /// `embedding` (`[embed_dim]`) conditions every AdaIN norm, as 2.0.0's
+    /// `set_ada_in_embeddings` with one embedding; the other norms ignore it.
+    ///
+    /// # Panics
+    /// If the norm is AdaIN and `embedding` is `None`; as [`SpectralConv::forward`] if the
+    /// modes do not fit the grid.
+    pub fn fourier_layers(&self, mut x: Tensor<R>, embedding: Option<Tensor<1>>) -> Tensor<R> {
+        let embedding = embedding.as_ref();
+        for idx in 0..self.conv.len() {
+            x = if self.preactivation {
+                self.pre_block(idx, x, embedding)
+            } else {
+                self.post_block(idx, x, embedding)
+            };
+        }
+        x
+    }
+
+    /// Layer `idx`, 2.0.0's `forward_with_postactivation`. With every option absent:
+    /// `act(conv(x) + w(x))`, the activation skipped after the last layer.
+    fn post_block(&self, idx: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
+        let last = idx + 1 == self.conv.len();
+        let mlp_skip = self.channel_mlp_skip(idx, &x);
+        let x_fno = self.norm(2 * idx, self.conv[idx].forward(x.clone()), embedding);
+        let mut x = x_fno + self.fno_skip(idx, x);
+        if !last {
+            x = self.activate(x);
+        }
+        x = self.norm(2 * idx + 1, self.channel_mlp(idx, x, mlp_skip), embedding);
+        if !last && self.repeat_activation {
+            x = self.activate(x);
+        }
+        x
+    }
+
+    /// Layer `idx`, 2.0.0's `forward_with_preactivation`.
+    fn pre_block(&self, idx: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
+        let last = idx + 1 == self.conv.len();
+        let x = self.norm(2 * idx, self.activate(x), embedding);
+        let mlp_skip = self.channel_mlp_skip(idx, &x);
+        let mut x = self.conv[idx].forward(x.clone()) + self.fno_skip(idx, x);
+        if !last {
+            x = self.activate(x);
+        }
+        let x = self.norm(2 * idx + 1, x, embedding);
+        self.channel_mlp(idx, x, mlp_skip)
+    }
+
+    /// Layer `idx`'s FNO skip: the configured one, or the original `w`.
+    fn fno_skip(&self, idx: usize, x: Tensor<R>) -> Tensor<R> {
+        match self.fno_skips.get(idx) {
+            Some(skip) => skip.forward(x),
+            None => conv1x1(&self.w[idx], x),
+        }
+    }
+
+    /// Layer `idx`'s channel-MLP skip of `x`, if it has one.
+    fn channel_mlp_skip(&self, idx: usize, x: &Tensor<R>) -> Option<Tensor<R>> {
+        self.channel_mlp_skips
+            .get(idx)
+            .map(|skip| skip.forward(x.clone()))
+    }
+
+    /// Layer `idx`'s channel MLP plus its skip, or `x` unchanged without an MLP.
+    fn channel_mlp(&self, idx: usize, x: Tensor<R>, skip: Option<Tensor<R>>) -> Tensor<R> {
+        let Some(mlp) = self.channel_mlp.get(idx) else {
+            return x;
+        };
+        match skip {
+            Some(skip) => mlp.forward(x) + skip,
+            None => mlp.forward(x),
+        }
+    }
+
+    /// Norm `k` (two per layer), or `x` unchanged without a norm.
+    fn norm(&self, k: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
+        match self.norms.get(k) {
+            Some(norm) => norm.forward(x, embedding),
+            None => x,
+        }
     }
 }
 

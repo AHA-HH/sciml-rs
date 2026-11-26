@@ -292,3 +292,36 @@ template:
 - 2D: unchanged bit for bit: no 2D file, function body, constant or name edited (additions
   in `catalogue.rs` only); the whole 2D suite passes.
 - Follow-ups: CL3.4 (roadmap); `datagen` on the VM (FFTW), outside this objective.
+
+## 2026-11-26: CL3.3 3D loader
+- Done: `data/loaders/poisson/uniform3d.rs`: `load_poisson3d_uniform` and
+  `load_poisson3d_uniform_test` (the 3D splits, 'ijk', node fields `x`, `y`, `z`, T_cu along
+  every axis at load time, the same `PoissonConfig`, rows, validation and normalisation as
+  2D); `load_poisson3d_cheb_field` in `cheb.rs`. The 2D and 3D loaders share one body
+  (`load_uniform`, `load_uniform_test`, `read_uniform_split`, `read_cheb_field`, taking the
+  node fields). First commit, no behaviour change (L1 gate C4, L2 gate Q2):
+  `chebyshev/tensor.rs` (`apply_nd`, `as_matrix`, `kron`, `rank2`, `check_per_axis`),
+  `transfer.rs`'s tests in `transfer/tests.rs` (973 → 336 lines), "3D D1, D2" citations,
+  the `_nd` sentences, the `IMAG_TOL` and `pde/poisson` module docs. Plan
+  `docs/laplace3d/tasks/CL3.3.md`, report `docs/laplace3d/results/cl3-3.md`.
+- Tests: 5 new (`shapes_and_closed_form_at_any_s`, `transfer_and_normalization_bit_for_bit`,
+  `subset_takes_the_selected_rows`, `invalid_files_are_rejected`,
+  `cheb_loader_3d_reads_raw_u`) and the ignored `error2_n65_against_2d`: error 2 at n = 65,
+  3D 2.08e-5 mean (max 4.66e-5) at s = 64 and 1.99e-4 (4.56e-4) at s = 32, against 2D
+  2.03e-5 (7.81e-5) and 2.33e-4 (8.93e-4); the sidecars' s = 64 figures recomputed to
+  1e-12; error 3 exactly 0 on the loader's targets.
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, `cargo test` (468
+  passed), `cargo test --features datagen` (553 passed), `cargo doc`, the ignored
+  measurement (release, Mac); not run: metal and gpu_parity (host ndarray only).
+- Decisions: none. The L2 gate's "115-column line" (`collocation.rs:146`) is 115 bytes, 87
+  characters: not edited, recorded in the plan.
+- Review: plan review PASS (should-fix: record the 115-byte line; advisories: the sidecar
+  check made unskippable, the plan's wording on a missing `z`, the module docs; all
+  taken). Code quality BLOCKED (B; F1, the 3D readers copied the 2D ones) → APPROVE (A−,
+  r2); F1, F3, F6, F7, F9 fixed; F2 (the measurement in the loader's tests, as
+  `stage2_dataset_loads` is), F4, F5, F8 in the PR.
+- 2D: unchanged bit for bit: the 2D suite unedited and passing (`normalization_matches_darcy`
+  bit for bit against `Transfers::to_uniform_all`, every error message), the chebyshev D2
+  tests and the datagen suite after the move; the 2D split reader now calls
+  `to_uniform_all_nd`, `to_uniform_all` itself on 2D samples.
+- Follow-ups: none new; CL3.4 and CL4.1 (which can use the 3D loader) stay as in the roadmap.

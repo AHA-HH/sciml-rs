@@ -100,6 +100,10 @@ fn autodiff_trained_weights_give_identical_inference_on_plain_device() {
         spectral_init: None,
         padding: None,
         activation: None,
+        fno_skip: None,
+        channel_mlp: None,
+        norm: None,
+        preactivation: None,
     };
 
     let trained: FNO<3> = config.init::<3>(&ad);

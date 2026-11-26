@@ -15,7 +15,8 @@
 //!   and the relative boundary RMS √(∮ û² ds / 8) / √(∫∫ u² dA / 4).
 //!
 //! [`poisson_errors_nd`] computes the same errors for 2D or 3D fields, 2D through
-//! [`poisson_errors`] itself; in 3D error 5 runs over the six faces, √(∯ û² dS / 24) /
+//! [`poisson_errors`] itself (`_nd` here means 2D or 3D, checked at run time, unlike
+//! `chebyshev`'s any rank); in 3D error 5 runs over the six faces, √(∯ û² dS / 24) /
 //! √(∭ u² dV / 8) (CONVENTIONS §12).
 //!
 //! [`check_error3`] cross-checks the mean error 3 against the run's last test_l2. Each
@@ -157,7 +158,7 @@ pub fn poisson_errors(
 /// - `u`: the raw solutions on the CGL grid, `[N, n, …, n]`, of the same rank.
 /// - `transfers`: the run's R and P, applied along every axis.
 ///
-/// Rank 3 arrays (2D fields) are [`poisson_errors`] itself, bit for bit (design D1, D2).
+/// Rank 3 arrays (2D fields) are [`poisson_errors`] itself, bit for bit (3D D1, D2).
 /// Otherwise the errors are those of the module docs with tensor Clenshaw–Curtis weights
 /// over every axis, and error 5 sums the 2r faces of ∂Ω, each with the tensor weights of
 /// its r − 1 coordinates, so a node on an edge or corner is counted once per face that

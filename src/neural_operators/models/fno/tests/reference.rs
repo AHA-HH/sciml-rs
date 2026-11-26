@@ -20,6 +20,10 @@ fn fno_forward_shape_check<const R: usize>(
         spectral_init: None,
         padding: None,
         activation: None,
+        fno_skip: None,
+        channel_mlp: None,
+        norm: None,
+        preactivation: None,
     };
     let model: FNO<R> = config.init::<R>(&device);
 
@@ -72,6 +76,10 @@ fn init_rejects_rank_mismatch() {
         spectral_init: None,
         padding: None,
         activation: None,
+        fno_skip: None,
+        channel_mlp: None,
+        norm: None,
+        preactivation: None,
     };
     let _: FNO<4> = config.init::<4>(&device); // asking for rank 4
 }

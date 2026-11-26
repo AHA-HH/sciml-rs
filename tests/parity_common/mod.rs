@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use burn::{
     prelude::*,
-    store::{ModuleSnapshot, bridge},
+    store::{ModuleSnapshot, PathFilter, bridge},
     tensor::TensorData,
 };
 use ndarray::{ArrayD, Axis};
@@ -211,7 +211,26 @@ pub fn take(a: ArrayD<f64>, take: Take) -> ArrayD<f64> {
 /// map (a complex one by its `Re` and `Im` both, any other once, `Whole` or `Transposed`), every map entry names a
 /// fixture parameter and is applied without error (shapes included), and no module
 /// parameter is left out.
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; some load only part of a module"
+)]
 pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: &[MapEntry]) {
+    load_into_part(module, fixture, map, None);
+}
+
+/// As [`load_into`], but only the module parameters `filter` selects must be loaded (all of
+/// them when `None`): for a fixture of part of a module (library CM1.3b, the FNO's Fourier
+/// layers without its lifting and projection).
+///
+/// # Panics
+/// As [`load_into`], for the selected parameters.
+pub fn load_into_part<M: ModuleSnapshot>(
+    module: &mut M,
+    fixture: &mut Fixture,
+    map: &[MapEntry],
+    filter: Option<PathFilter>,
+) {
     let name = fixture.name.clone();
     let mut parts: BTreeMap<&str, Vec<Take>> = BTreeMap::new();
     for &(from, _, part) in map {
@@ -246,7 +265,7 @@ pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: 
             bridge::from_data(fixture.data(&a), to.to_owned(), None)
         })
         .collect();
-    let result = module.apply(tensors, None, None, false);
+    let result = module.apply(tensors, filter, None, false);
     assert!(
         result.errors.is_empty()
             && result.missing.is_empty()

@@ -390,6 +390,44 @@ template:
 - Matrix: the centred `SpectralConv` row set to partial.
 - Follow-ups: in CM1.2's roadmap line (for CM1.5 and CM1.8).
 
+## 2026-11-25: CM1.3b The FNO's block options
+- Done: `FNOConfig` gains `activation`, `fno_skip`, `channel_mlp` (`BlockMlpConfig`:
+  expansion 0.5, rounded half to even as Python's `round`; skip, default soft gating),
+  `norm` (`layers::norm::NormKind`: instance, group, AdaIN) and `preactivation`, each `None`
+  the original block. `FNO::fourier_layers` runs 2.0.0's `FNOBlocks` per layer (`post_block`,
+  `pre_block`); `FNO::forward_with_embedding` conditions AdaIN. 2.0.0 applies the activation
+  twice without MLP or norm; for ReLU the repeat is skipped (`relu ∘ relu = relu`), so the
+  original block's ops are unchanged. The FNO's pointwise matmul is `layers::pointwise`'s
+  (`conv1x1`, `linear_cf`). Nine `FNOBlocks` fixtures (`generate.py`: the legacy layer with
+  `bias=False`; f32 only; AdaIN at one layer and 2 channels for D8); the harness gains
+  `load_into_part` (a `PathFilter` to the block's paths).
+- Tests: `tests/parity_fno_blocks.rs`, post- and pre-activation for no norm, instance, group
+  and AdaIN, plus the repeated tanh, 1D–3D: ≤ 2.3e-6 (D3 1e-5). Unit tests: absent options
+  build no new parameters, the options build 2.0.0's layers, half-to-even width, the skipped
+  ReLU repeat equals ReLU twice bit for bit, AdaIN needs and uses its embedding,
+  `linear_cf` against `Linear::forward`.
+- Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo test --features datagen`,
+  `cargo doc`, the bit-identity dumps against `main`, `--features metal` block parity, FNO
+  unit tests and `gpu_parity`, `generate.py --check`).
+- Decisions: none.
+- Review: plan review FAIL → fixed: the channel MLP's width rounded half away from zero, not
+  half to even as 2.0.0 (width 5: 3 against 2); advisories (plan text, the ReLU test) done.
+  Code quality APPROVE with findings: F1 (post/pre split), F2 (repeat decided at `init`), F3
+  (one `fno_skip` helper, `w` documented), F4 (the test map follows the config), F5 (a
+  `shortcut:` note on the redraw rule), F6 (plan), F7 (doc) fixed; F8 (struct literals) to
+  CM1.5's line.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 99edf66 and on the branch:
+  `forward`, `phase5_epoch`, `gauss_newton_epoch` byte-identical); existing tests edited
+  only to complete `FNOConfig` literals with `None` and to call the moved pointwise helpers.
+- Matrix: `FNOBlocks` partial (CM1.3b; missing `batch_norm`, `stabilizer`, precision,
+  complex data, `fno_skip=None`, the convolution's bias).
+- Merge with optimisers CO1.1: its `FNOConfig::activation` (ReLU or GELU, layers and
+  projection) is the one activation option; this task's `ActivationConfig` field is dropped,
+  2.0.0's repeated activation keys on the block options (so CO1.1's GELU FNO is unchanged),
+  and, at the author's request, CO1.1's enum widened: `Tanh`, `Sigmoid`, `Silu`, `LeakyRelu`,
+  `Selu`, `Mish`, `HardSwish`, `Softsign`, each against torch (`activations1d`, ≤ 9.4e-8).
+- Follow-ups: CM1.5's line (the convolution's bias in the block; the `FNOConfig` literals).
+
 ## 2026-11-26: CM2.5 Equation losses (PINO)
 - Done: `losses/equation_losses.rs`: `BurgersEqnLoss` (2.0.0's `fdm`, or any `GridDiff`),
   `ic_loss`, `nonlinear_poisson_lhs`, `poisson_interior_loss`, `poisson_boundary_loss`,
