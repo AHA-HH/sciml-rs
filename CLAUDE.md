@@ -137,7 +137,7 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `-D warnings` rejects an undocumented public item.
 
 ## Layout
-- `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO; tests in `tests/{reference,padding,grid,checkpoint}.rs`),
+- `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO, `Activation`: ReLU, or GELU since optimisers CO1.1; tests in `tests/{reference,padding,grid,checkpoint,activation}.rs`),
   `models/operator.rs` (library CM0.3, D4: `Operator`, the trait every model implements for
   the training stack, with associated `Config`, `Input`, `Output` and `NAME`;
   `GridOperator<R>`, rank-R tensors in and out, which `training/`, `runs` and
@@ -153,7 +153,7 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `conv1x1`; activations are Burn's `ActivationConfig`, instance and group norm Burn's;
   parity in `tests/parity_block_parts*.rs`; since CM1.3b `norm::{NormKind, Norm}`, the
   block's norm choice, and `pointwise::linear_cf`; the FNO's block options are `FNOConfig`'s
-  `activation`, `fno_skip`, `channel_mlp` (`BlockMlpConfig`), `norm`, `preactivation`, each
+  `activation` (CO1.1's ReLU or GELU), `fno_skip`, `channel_mlp` (`BlockMlpConfig`), `norm`, `preactivation`, each
   `None` the original block, run by `FNO::fourier_layers`, parity in
   `tests/parity_fno_blocks.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
@@ -167,7 +167,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   (`backend_features`, `git_commit`).
 - `training/`: `config` (`TrainingConfig`; since Phase 10 T3 `optimizer`, an
   `OptimizerConfig`, `None` meaning Adam; since T5 `adam_epochs`, the Hybrid arm's Adam
-  epochs before Gauss–Newton), `step` (`flatten_pair`, `forward_loss`,
+  epochs before Gauss–Newton; since optimisers CO1.1 `OptimizerConfig::AdamW`,
+  `lr_schedule` (`None` the cosine, `LrSchedule::Step` halving every k epochs) and `loss`
+  (`TrainLoss::SquaredRelL2`, PETScML's eq. 6, for the Adam path)), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
   `training_loop` with its `EpochObserver`, `train_fno`), `gn` (Phase 10 T3:
   `FnoResidual`, the FNO's Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
@@ -363,7 +365,10 @@ than trusting prose when checking how an API behaves.
 - Generate the Poisson datasets: `cargo run --release --features datagen --example generate_poisson`
   (writes `datasets/poisson/`)
 - Train: `cargo run --release --example train_burgers [--features metal]`
-  (also `train_darcy`)
+  (also `train_darcy`). `train_burgers` (optimisers CO1.1): `RECIPE=petscml` is PETScML's
+  Burgers setting (n_train 1,000, s = 128, GELU, the squared loss), `OPTIMIZER=adamw`
+  AdamW with the lr halved every 100 epochs, `WEIGHT_DECAY` and `SUBSAMPLE` override; it
+  writes `costs.json`
 - `train_burgers_learner` is a showcase of Burn's `Learner` and needs a real terminal for its
   TUI: `train_epoch` is the canonical loop; this is the Burgers-only (`FNO<3>`) Learner
   equivalent. It writes `runs/burgers_fno_learner_<unix_secs>/` (configs and weights, no

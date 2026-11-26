@@ -4,10 +4,10 @@
 //! its bias there (the crate's `SpectralConv` has none). The fixtures hold no lifting or
 //! projection, so only the FNO's block parameters are loaded and checked complete.
 
-use burn::{module::Param, nn::activation::ActivationConfig, prelude::*, store::PathFilter};
+use burn::{module::Param, prelude::*, store::PathFilter};
 use sciml_rs::neural_operators::{
     layers::{norm::NormKind, skip::SkipKind},
-    models::fno::{BlockMlpConfig, FNO, FNOConfig},
+    models::fno::{Activation, BlockMlpConfig, FNO, FNOConfig},
 };
 
 use crate::parity_common::{Fixture, MapEntry, Take, assert_parity, load_into_part};
@@ -35,7 +35,7 @@ pub struct Case {
 /// 2.0.0's defaults: GELU, the linear (bias-free) FNO skip, the channel MLP of expansion 0.5
 /// with a soft-gating skip.
 fn defaults(c: FNOConfig) -> FNOConfig {
-    c.with_activation(Some(ActivationConfig::Gelu))
+    c.with_activation(Some(Activation::Gelu))
         .with_fno_skip(Some(SkipKind::Linear))
         .with_channel_mlp(Some(BlockMlpConfig::new()))
 }
@@ -116,11 +116,11 @@ pub const ADA_IN_PRE_2D: Case = Case {
     options: |c| pre(ada_in(c)),
     ..ADA_IN_POST_2D
 };
-/// No channel MLP, no norm, tanh: 2.0.0 applies the activation twice per layer.
+/// No channel MLP, no norm, GELU: 2.0.0 applies the activation twice per layer.
 pub const PLAIN_1D: Case = Case {
     stem: "fno_blocks_plain1d",
     options: |c| {
-        c.with_activation(Some(ActivationConfig::Tanh))
+        c.with_activation(Some(Activation::Gelu))
             .with_fno_skip(Some(SkipKind::SoftGating))
     },
     ..POST_1D

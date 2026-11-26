@@ -112,8 +112,8 @@ CONFIGS = {
     # AdaIN's MLP is 512 wide: one layer and 2 channels keep P within D8.
     "fno_blocks_ada_in_post2d": (blocks, dict(n_modes=(6, 4), channels=2, n_layers=1, norm="ada_in", ada_in_features=2), (2, 2, 12, 10)),
     "fno_blocks_ada_in_pre2d": (blocks, dict(n_modes=(6, 4), channels=2, n_layers=1, norm="ada_in", ada_in_features=2, preactivation=True), (2, 2, 12, 10)),
-    # No channel MLP, no norm: 2.0.0 applies the activation twice per layer (tanh shows it).
-    "fno_blocks_plain1d": (blocks, dict(n_modes=(8,), use_channel_mlp=False, fno_skip="soft-gating", non_linearity=torch.tanh), (2, 4, 20)),
+    # No channel MLP, no norm: 2.0.0 applies the activation (GELU) twice per layer.
+    "fno_blocks_plain1d": (blocks, dict(n_modes=(8,), use_channel_mlp=False, fno_skip="soft-gating"), (2, 4, 20)),
 }
 # Models with parameters whose 2.0.0 init is a constant (ones, zeros): those parameters (and
 # only those) are redrawn from a seeded normal, so the fixture tests the map and not only the

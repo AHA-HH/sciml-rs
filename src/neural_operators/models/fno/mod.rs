@@ -11,10 +11,13 @@ use burn::{
     module::Module,
     nn::{
         Linear, LinearConfig,
-        activation::{Activation, ActivationConfig},
         conv::{Conv1d, Conv1dConfig},
     },
-    tensor::{DType, Device, FloatDType, Int, activation::relu, ops::PadMode},
+    tensor::{
+        DType, Device, FloatDType, Int,
+        activation::{gelu, relu},
+        ops::PadMode,
+    },
 };
 
 use crate::neural_operators::layers::{
@@ -72,13 +75,16 @@ pub struct FNOConfig {
     /// default) and `Some(0)` both mean no padding. An `Option` so that saved configs
     /// without this field still load (as `None`).
     pub padding: Option<usize>,
+    /// The nonlinearity after each Fourier layer but the last and after `fc1`. `None` (the
+    /// default, and every config before optimisers CO1.1) is [`Activation::Relu`]. An
+    /// `Option` so that saved configs without this field still load.
+    pub activation: Option<Activation>,
     // The block options of 2.0.0's `FNOBlocks` (library CM1.3b; [`FNO::fourier_layers`]).
-    // Each `None` is today's block, and an `Option` so that saved configs load as `None`.
-    /// The Fourier layers' activation (2.0.0's `non_linearity`, default GELU); `None` is
-    /// ReLU. The projection's ReLU is not changed.
-    pub activation: Option<ActivationConfig>,
+    // Each `None` is the original block, and an `Option` so that saved configs load as `None`.
+    // The activation is `activation` above (2.0.0's `non_linearity`, default GELU).
     /// The skip added to each layer's convolution (2.0.0's `fno_skip`, default
-    /// [`SkipKind::Linear`], without bias); `None` is today's pointwise convolution with bias.
+    /// [`SkipKind::Linear`], without bias); `None` is the original pointwise convolution with
+    /// bias.
     pub fno_skip: Option<SkipKind>,
     /// A channel MLP in each layer (2.0.0's `use_channel_mlp`, default on); `None` is none.
     pub channel_mlp: Option<BlockMlpConfig>,
@@ -87,6 +93,16 @@ pub struct FNOConfig {
     /// Activation and norm before the convolution (2.0.0's `preactivation`); `None` is
     /// `false`.
     pub preactivation: Option<bool>,
+}
+
+/// The FNO's nonlinearity ([`FNOConfig::activation`], optimisers CO1.1).
+#[derive(Config, Debug, PartialEq)]
+pub enum Activation {
+    /// ReLU, the default: `train_burgers`, `train_darcy` and every run before CO1.1.
+    Relu,
+    /// GELU in its erf form (Burn's `gelu`, PyTorch's default), as in Li et al.'s
+    /// `fourier_1d.py` and PETScML's Burgers model (D10).
+    Gelu,
 }
 
 /// A Fourier Neural Operator on rank-`R` channels-last tensors `[B, s_1..s_D, C]`
@@ -104,6 +120,8 @@ pub struct FNO<const R: usize> {
     /// Zero cells appended to each spatial axis; 0 disables padding.
     /// Not a parameter, so it is not part of a saved checkpoint.
     padding: usize,
+    /// GELU instead of ReLU ([`FNOConfig::activation`]); not a parameter either.
+    gelu: bool,
     // The block options (library CM1.3b), after the fields above so that their checkpoint
     // paths and parameter order are unchanged; empty with every option absent.
     /// The FNO skip of each layer when [`FNOConfig::fno_skip`] is set (`w` is then empty).
@@ -114,11 +132,10 @@ pub struct FNO<const R: usize> {
     channel_mlp_skips: Vec<Skip<R>>,
     /// Two per layer, `2i` and `2i + 1`, when [`FNOConfig::norm`] is set.
     norms: Vec<Norm>,
-    activation: Activation,
     preactivation: bool,
     /// Whether post-activation applies the activation a second time after the norm slot, as
-    /// 2.0.0 does; off only for ReLU without channel MLP or norm, where it would follow the
-    /// first directly and change nothing (`relu ∘ relu = relu`), so today's ops stay as they are.
+    /// 2.0.0 does: only when a 2.0.0 block option (FNO skip, channel MLP, norm) is set. The
+    /// original block, ReLU or GELU, applies it once.
     repeat_activation: bool,
 }
 
@@ -139,7 +156,6 @@ impl FNOConfig {
 
         let coord_channels = self.modes.len(); // D = R - 2, need to derive and input into layer
         let width = self.hidden_channels;
-        let activation = self.activation.clone().unwrap_or(ActivationConfig::Relu);
         fn layers<T>(n: usize, build: impl Fn() -> T) -> Vec<T> {
             (0..n).map(|_| build()).collect()
         }
@@ -174,6 +190,7 @@ impl FNOConfig {
             fc1: LinearConfig::new(self.hidden_channels, 128).init(device),
             fc2: LinearConfig::new(128, self.out_channels).init(device),
             padding: self.padding.unwrap_or(0),
+            gelu: self.activation == Some(Activation::Gelu),
             fno_skips: skips(self.fno_skip.as_ref()),
             channel_mlp: match &self.channel_mlp {
                 Some(mlp) => {
@@ -189,11 +206,10 @@ impl FNOConfig {
                 Some(kind) => layers(2 * self.n_layers, || kind.init(width, device)),
                 None => Vec::new(),
             },
-            activation: activation.init(device),
             preactivation: self.preactivation.unwrap_or(false),
-            repeat_activation: self.channel_mlp.is_some()
-                || self.norm.is_some()
-                || !matches!(activation, ActivationConfig::Relu),
+            repeat_activation: self.fno_skip.is_some()
+                || self.channel_mlp.is_some()
+                || self.norm.is_some(),
         }
     }
 }
@@ -258,6 +274,11 @@ impl<const R: usize> FNO<R> {
         Tensor::cat(channels, R - 1)
     }
 
+    /// The configured nonlinearity ([`FNOConfig::activation`]).
+    fn activate(&self, x: Tensor<R>) -> Tensor<R> {
+        if self.gelu { gelu(x) } else { relu(x) }
+    }
+
     /// `[B, spatial.., data_channels]` → `[B, spatial.., out_channels]`.
     ///
     /// The input carries data channels only: the model appends the `D` coordinate
@@ -312,7 +333,7 @@ impl<const R: usize> FNO<R> {
             x = Self::crop_spatial(x, unpadded);
         }
 
-        let x = relu(linear_cf(&self.fc1, x));
+        let x = self.activate(linear_cf(&self.fc1, x));
         let x = linear_cf(&self.fc2, x);
 
         to_channels_last(x)
@@ -321,8 +342,9 @@ impl<const R: usize> FNO<R> {
     /// The Fourier layers alone, on the lifted channels-first activation: `[B, W, s..]` →
     /// `[B, W, s..]`, `W` = [`FNOConfig::hidden_channels`]. Each layer is 2.0.0's `FNOBlocks`
     /// at that index (`fno_block.py`), post- or pre-activation by
-    /// [`FNOConfig::preactivation`]; with every block option absent, today's block:
-    /// `relu(conv(x) + w(x))`, without the ReLU after the last layer.
+    /// [`FNOConfig::preactivation`]; with every block option absent, the original block:
+    /// `act(conv(x) + w(x))`, `act` ReLU or GELU ([`FNOConfig::activation`]), without the
+    /// activation after the last layer.
     ///
     /// `embedding` (`[embed_dim]`) conditions every AdaIN norm, as 2.0.0's
     /// `set_ada_in_embeddings` with one embedding; the other norms ignore it.
@@ -343,18 +365,18 @@ impl<const R: usize> FNO<R> {
     }
 
     /// Layer `idx`, 2.0.0's `forward_with_postactivation`. With every option absent:
-    /// `relu(conv(x) + w(x))`, the ReLU skipped after the last layer.
+    /// `act(conv(x) + w(x))`, the activation skipped after the last layer.
     fn post_block(&self, idx: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
         let last = idx + 1 == self.conv.len();
         let mlp_skip = self.channel_mlp_skip(idx, &x);
         let x_fno = self.norm(2 * idx, self.conv[idx].forward(x.clone()), embedding);
         let mut x = x_fno + self.fno_skip(idx, x);
         if !last {
-            x = self.activation.forward(x);
+            x = self.activate(x);
         }
         x = self.norm(2 * idx + 1, self.channel_mlp(idx, x, mlp_skip), embedding);
         if !last && self.repeat_activation {
-            x = self.activation.forward(x);
+            x = self.activate(x);
         }
         x
     }
@@ -362,11 +384,11 @@ impl<const R: usize> FNO<R> {
     /// Layer `idx`, 2.0.0's `forward_with_preactivation`.
     fn pre_block(&self, idx: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
         let last = idx + 1 == self.conv.len();
-        let x = self.norm(2 * idx, self.activation.forward(x), embedding);
+        let x = self.norm(2 * idx, self.activate(x), embedding);
         let mlp_skip = self.channel_mlp_skip(idx, &x);
         let mut x = self.conv[idx].forward(x.clone()) + self.fno_skip(idx, x);
         if !last {
-            x = self.activation.forward(x);
+            x = self.activate(x);
         }
         let x = self.norm(2 * idx + 1, x, embedding);
         self.channel_mlp(idx, x, mlp_skip)

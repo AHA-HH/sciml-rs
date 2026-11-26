@@ -4,9 +4,9 @@
 
 use burn::{
     data::dataloader::DataLoader,
-    lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig,
+    lr_scheduler::{cosine::CosineAnnealingLrSchedulerConfig, step::StepLrSchedulerConfig},
     optim::{
-        AdamConfig, GradientsParams, ModuleOptimizer,
+        AdamConfig, AdamWConfig, GradientsParams, ModuleOptimizer,
         decay::WeightDecayConfig,
         lr_scheduler::module_lr_scheduler::{ModuleLearningRate, ModuleLrScheduler},
     },
@@ -35,10 +35,10 @@ use crate::neural_operators::{
     optim::gauss_newton::GaussNewton,
     runs::{CheckpointState, EpochMetrics, GnStepRecord, OperatorCheckpoint, RunDir},
     training::{
-        config::TrainingConfig,
+        config::{LrSchedule, OptimizerConfig, TrainingConfig},
         data_parallel::{Peers, Replica, train_epoch_parallel},
         gn::train_epoch_gn,
-        step::{StepLoss, evaluate, forward_loss},
+        step::{StepLoss, evaluate, forward_loss, squared_rel_l2},
     },
 };
 
@@ -73,11 +73,25 @@ pub(crate) fn accumulate(sum: Option<Tensor<1>>, x: Tensor<1>) -> Option<Tensor<
 /// If the loader yields no batches or a failed one, or if the model has more than one
 /// output channel ([`flatten_pair`](crate::neural_operators::training::step::flatten_pair)).
 pub fn train_epoch<const R: usize, const RM1: usize, M: GridOperator<R>>(
+    model: M,
+    loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
+    optim: &mut ModuleOptimizer,
+    scheduler: &mut ModuleLrScheduler,
+    decoder: Option<&FlatDecoder>,
+) -> (M, EpochMeans) {
+    train_epoch_with_loss(model, loader, optim, scheduler, decoder, false)
+}
+
+/// [`train_epoch`], back-propagating the batch mean of the squared relative L² (PETScML's
+/// eq. 6, optimisers CO1.1) instead of the summed relative L² when `squared_loss`; the
+/// means it reports are the same either way.
+fn train_epoch_with_loss<const R: usize, const RM1: usize, M: GridOperator<R>>(
     mut model: M,
     loader: &Arc<dyn DataLoader<Batch<R, RM1>>>,
     optim: &mut ModuleOptimizer,
     scheduler: &mut ModuleLrScheduler,
     decoder: Option<&FlatDecoder>,
+    squared_loss: bool,
 ) -> (M, EpochMeans) {
     let mut mse_sum_tensor = None;
     let mut l2_sum_tensor = None;
@@ -100,6 +114,12 @@ pub fn train_epoch<const R: usize, const RM1: usize, M: GridOperator<R>>(
             target,
         } = forward_loss(&model, batch, decoder);
 
+        let objective = if squared_loss {
+            squared_rel_l2(out.clone(), target.clone())
+        } else {
+            l2.clone()
+        };
+
         let mse = (out.inner() - target.inner()).powf_scalar(2.0).mean();
 
         let l2_metric = l2.clone().inner();
@@ -108,7 +128,7 @@ pub fn train_epoch<const R: usize, const RM1: usize, M: GridOperator<R>>(
         l2_sum_tensor = accumulate(l2_sum_tensor, l2_metric);
         n_batches += 1;
 
-        let grads = GradientsParams::from_grads(l2.backward(), &model);
+        let grads = GradientsParams::from_grads(objective.backward(), &model);
 
         last_lr = scheduler.step();
 
@@ -138,9 +158,10 @@ pub fn train_epoch<const R: usize, const RM1: usize, M: GridOperator<R>>(
 pub struct TrainingComponents<const R: usize, const RM1: usize, M = FNO<R>> {
     /// The freshly initialised model, on the autodiff device.
     pub model: M,
-    /// Adam with weight decay.
+    /// Adam with coupled weight decay, or AdamW when `TrainingConfig::optimizer` asks for it.
     pub optim: ModuleOptimizer,
-    /// Cosine annealing over [`TrainingConfig::schedule_steps`] steps, stepped once per batch.
+    /// Cosine annealing over [`TrainingConfig::schedule_steps`] steps, or the step schedule
+    /// of [`TrainingConfig::lr_schedule`]; stepped once per batch.
     pub scheduler: ModuleLrScheduler,
     /// Shuffled training batches on the autodiff device.
     pub train_loader: Arc<dyn DataLoader<Batch<R, RM1>>>,
@@ -182,8 +203,8 @@ pub fn build_training_components<const R: usize, const RM1: usize, T: HostFloat>
 ///
 /// # Panics
 ///
-/// If either dataset is empty, as `M::init`, or if `train_cfg.adam_epochs` is set without
-/// Gauss–Newton or outside 1..`epochs`.
+/// If either dataset is empty, as `M::init`, if `train_cfg.adam_epochs` is set without
+/// Gauss–Newton or outside 1..`epochs`, or if a step schedule's `every_epochs` is 0.
 pub fn build_components<M: GridOperator<R>, const R: usize, const RM1: usize, T: HostFloat>(
     model_cfg: &M::Config,
     train_cfg: &TrainingConfig,
@@ -216,18 +237,36 @@ pub fn build_components<M: GridOperator<R>, const R: usize, const RM1: usize, T:
 
     let model = M::init(model_cfg, device);
 
-    let optim: ModuleOptimizer = AdamConfig::new()
-        .with_epsilon(1e-8)
-        .with_weight_decay(Some(WeightDecayConfig::new(train_cfg.weight_decay)))
-        .init();
+    let optim: ModuleOptimizer = match train_cfg.optimizer {
+        // ε as Optax's and our Adam's (Burn's default is 1e-5); the decay is lr-scaled
+        Some(OptimizerConfig::AdamW) => AdamWConfig::new()
+            .with_epsilon(1e-8)
+            .with_weight_decay(train_cfg.weight_decay)
+            .init(),
+        // a Gauss-Newton run builds Adam too: its hybrid epochs, or unused
+        Some(OptimizerConfig::Adam | OptimizerConfig::GaussNewton(_)) | None => AdamConfig::new()
+            .with_epsilon(1e-8)
+            .with_weight_decay(Some(WeightDecayConfig::new(train_cfg.weight_decay)))
+            .init(),
+    };
 
-    let scheduler = CosineAnnealingLrSchedulerConfig::new(
-        train_cfg.learning_rate,
-        train_cfg.schedule_steps(n_train),
-    )
-    .with_min_lr(train_cfg.min_lr)
-    .init()
-    .expect("valid cosine scheduler config");
+    let scheduler = match train_cfg.lr_schedule {
+        // stepped once per batch: halve after every `every_epochs` epochs' steps
+        Some(LrSchedule::Step { every_epochs }) => StepLrSchedulerConfig::new(
+            train_cfg.learning_rate,
+            every_epochs * train_cfg.steps_per_epoch(n_train),
+        )
+        .with_gamma(0.5)
+        .init()
+        .expect("every_epochs must be at least 1"),
+        None => CosineAnnealingLrSchedulerConfig::new(
+            train_cfg.learning_rate,
+            train_cfg.schedule_steps(n_train),
+        )
+        .with_min_lr(train_cfg.min_lr)
+        .init()
+        .expect("valid cosine scheduler config"),
+    };
 
     // Each split is uploaded once and batched on the device (commit `40fcfd4`),
     // with the same order as a DataLoader over the host dataset. The host
@@ -353,6 +392,10 @@ fn run_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
         components.gn.is_none() || components.replicas.is_empty(),
         "Gauss-Newton trains on one device: data-parallel Gauss-Newton is out of scope"
     );
+    assert!(
+        !train_cfg.squared_loss() || components.replicas.is_empty(),
+        "the squared loss trains on one device (optimisers CO1.1)"
+    );
     // evaluation tensors live on the inner device (model.valid())
     let eval_decoder = decoder.map(FlatDecoder::inner);
     let mut model = components.model;
@@ -404,12 +447,13 @@ fn run_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
                 epoch,
                 on_gn_step,
             ),
-            (None, None) => train_epoch(
+            (None, None) => train_epoch_with_loss(
                 model,
                 &components.train_loader,
                 &mut components.optim,
                 &mut components.scheduler,
                 decoder,
+                train_cfg.squared_loss(),
             ),
             (Some(_), Some(_)) => unreachable!("Gauss-Newton with replicas is rejected above"),
             (None, Some(peers)) => train_epoch_parallel(
@@ -616,6 +660,7 @@ fn train_built<const R: usize, const RM1: usize>(
 mod tests {
     use super::*;
     use crate::neural_operators::data::host_oracle::{HostItems, OperatorBatcher};
+    use crate::neural_operators::training::config::{LrSchedule, OptimizerConfig, TrainLoss};
     use crate::neural_operators::training::fixtures::{
         tiny_dataset, tiny_dataset_2d, tiny_model_cfg,
     };
@@ -1731,6 +1776,164 @@ mod tests {
         assert_same_metrics(&run.metrics().unwrap(), &straight.metrics().unwrap());
         assert_same_weights(&resumed_model, &straight_model);
         let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- optimisers CO1.1: AdamW, the step schedule and the squared loss ---
+
+    /// `a` and `b` on 5 tiny Burgers-shaped samples (3 batches of 2 per epoch) from one
+    /// initial model: two builds draw different weights while tests share Flex's RNG.
+    fn co1_1_pair(
+        a: &TrainingConfig,
+        b: &TrainingConfig,
+        n_train: usize,
+    ) -> [(FNO<3>, Vec<EpochMetrics>); 2] {
+        let device = Device::default().autodiff();
+        let build = |cfg: &TrainingConfig| {
+            build_training_components::<3, 2, _>(
+                &tiny_model_cfg(),
+                cfg,
+                tiny_dataset(n_train),
+                tiny_dataset(3),
+                &device,
+            )
+        };
+        let ca = build(a);
+        let mut cb = build(b);
+        cb.model = ca.model.clone();
+        [
+            training_loop(ca, a, None, &mut |_, _| {}, None, None),
+            training_loop(cb, b, None, &mut |_, _| {}, None, None),
+        ]
+    }
+
+    fn co1_1_cfg(optimizer: OptimizerConfig, weight_decay: f32) -> TrainingConfig {
+        TrainingConfig::new()
+            .with_epochs(3)
+            .with_batch_size(2)
+            .with_weight_decay(weight_decay)
+            .with_optimizer(Some(optimizer))
+            .with_lr_schedule(Some(LrSchedule::Step { every_epochs: 1 }))
+    }
+
+    /// Proposal §9 (O1): AdamW at weight decay 0 is Adam at weight decay 0 under the same
+    /// schedule, to f32 round-off; at weight decay 0.1 the two differ (coupled against
+    /// decoupled), so the test sees which optimiser was built.
+    #[test]
+    fn adamw_without_weight_decay_equals_adam() {
+        let [(adamw, _), (adam, _)] = co1_1_pair(
+            &co1_1_cfg(OptimizerConfig::AdamW, 0.0),
+            &co1_1_cfg(OptimizerConfig::Adam, 0.0),
+            5,
+        );
+        for ((name, a), (_, b)) in weights(&adamw).iter().zip(&weights(&adam)) {
+            for (x, y) in a.iter().zip(b) {
+                assert!(
+                    (x - y).abs() <= 1e-6 * y.abs().max(1.0),
+                    "{name}: {x} != {y}"
+                );
+            }
+        }
+        let [(adamw, _), (adam, _)] = co1_1_pair(
+            &co1_1_cfg(OptimizerConfig::AdamW, 0.1),
+            &co1_1_cfg(OptimizerConfig::Adam, 0.1),
+            5,
+        );
+        assert!(weights(&adamw) != weights(&adam), "AdamW trained as Adam");
+    }
+
+    /// The step schedule halves the learning rate every `every_epochs` epochs, at the
+    /// step that opens the epoch: with 3 steps per epoch and `every_epochs` 2, steps 0..15
+    /// run at lr (0–5), lr/2 (6–11) and lr/4 (12–14), bit for bit.
+    #[test]
+    fn step_schedule_halves_at_the_stated_epochs() {
+        let lr = 1e-3;
+        let cfg = TrainingConfig::new()
+            .with_epochs(5)
+            .with_batch_size(2)
+            .with_learning_rate(lr)
+            .with_lr_schedule(Some(LrSchedule::Step { every_epochs: 2 }));
+        let mut c = build_training_components::<3, 2, _>(
+            &tiny_model_cfg(),
+            &cfg,
+            tiny_dataset(5),
+            tiny_dataset(3),
+            &Device::default().autodiff(),
+        );
+        let got: Vec<u64> = (0..15)
+            .map(|_| c.scheduler.step().base().to_bits())
+            .collect();
+        let want: Vec<u64> = (0..15)
+            .map(|i| (lr * 0.5_f64.powi(i / 6)).to_bits())
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    /// The squared loss changes the objective but not the metric: one batch per epoch, so
+    /// epoch 0's `train_l2` is the initial model's mean relative L² on the training set,
+    /// as with the default loss; the trained weights differ.
+    #[test]
+    fn squared_loss_trains_differently_and_reports_the_unsquared_l2() {
+        let cfg = |loss| {
+            TrainingConfig::new()
+                .with_epochs(3)
+                .with_batch_size(4)
+                .with_loss(loss)
+        };
+        let [(squared, sq_metrics), (summed, metrics)] =
+            co1_1_pair(&cfg(Some(TrainLoss::SquaredRelL2)), &cfg(None), 4);
+        assert_eq!(
+            sq_metrics[0].train_l2.to_bits(),
+            metrics[0].train_l2.to_bits()
+        );
+        assert!(
+            weights(&squared) != weights(&summed),
+            "the loss changed nothing"
+        );
+    }
+
+    /// The step the trainer takes under the squared loss is one optimiser step on
+    /// `squared_rel_l2`'s gradient, taken by hand from the same model, batch and fresh
+    /// optimiser: equal weights (bit for bit on flex).
+    #[test]
+    fn squared_loss_steps_on_the_squared_objective() {
+        let cfg = TrainingConfig::new()
+            .with_epochs(1)
+            .with_batch_size(4)
+            .with_loss(Some(TrainLoss::SquaredRelL2));
+        let device = Device::default().autodiff();
+        let build = || {
+            build_training_components::<3, 2, _>(
+                &tiny_model_cfg(),
+                &cfg,
+                tiny_dataset(4),
+                tiny_dataset(3),
+                &device,
+            )
+        };
+        let trained = build();
+        let mut by_hand = build();
+        let model = trained.model.clone();
+        let (trained, _) = training_loop(trained, &cfg, None, &mut |_, _| {}, None, None);
+
+        let batch = by_hand.train_loader.iter().next().unwrap().unwrap();
+        let StepLoss { out, target, .. } = forward_loss(&model, batch, None);
+        let grads = GradientsParams::from_grads(squared_rel_l2(out, target).backward(), &model);
+        let lr = by_hand.scheduler.step();
+        let model = by_hand.optim.step(lr, model, grads);
+        assert_same_weights(&trained, &model);
+    }
+
+    /// The squared loss is for the one-device Adam path.
+    #[test]
+    #[should_panic(expected = "the squared loss trains on one device")]
+    fn squared_loss_with_replicas_panics() {
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(1)
+            .with_batch_size(2)
+            .with_loss(Some(TrainLoss::SquaredRelL2));
+        let device = Device::default().autodiff();
+        let c = parallel_components(&train_cfg, &device, std::slice::from_ref(&device));
+        let _ = training_loop(c, &train_cfg, None, &mut |_, _| {}, None, None);
     }
 
     /// The console line: the metrics alone, the epoch time among them (since Phase 5 T4;

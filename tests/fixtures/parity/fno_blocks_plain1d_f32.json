@@ -6,8 +6,7 @@
       8
     ],
     "use_channel_mlp": false,
-    "fno_skip": "soft-gating",
-    "non_linearity": "tanh"
+    "fno_skip": "soft-gating"
   },
   "dtype": "f32",
   "weight_seed": 0,

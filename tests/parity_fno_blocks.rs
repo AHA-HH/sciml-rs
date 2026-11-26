@@ -50,7 +50,7 @@ fn fno_blocks_ada_in_pre2d_matches_2_0_0() {
     check::<4>(&ADA_IN_PRE_2D, &Device::default());
 }
 
-/// 2.0.0's repeated activation without a channel MLP or norm.
+/// 2.0.0's repeated activation (GELU) without a channel MLP or norm.
 #[test]
 fn fno_blocks_plain1d_matches_2_0_0() {
     check::<3>(&PLAIN_1D, &Device::default());

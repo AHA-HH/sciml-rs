@@ -146,6 +146,17 @@ pub fn evaluate<const R: usize, const RM1: usize>(
     l2_sum.into_scalar::<f32>() / loader.num_items() as f32
 }
 
+/// The batch mean of the squared relative L² of `out` against `target` (both
+/// `[b, n_points]`): PETScML's eq. 6, the Adam path's objective under
+/// [`TrainLoss::SquaredRelL2`](crate::neural_operators::training::config::TrainLoss::SquaredRelL2)
+/// (optimisers CO1.1). Returns `[1]`.
+pub(crate) fn squared_rel_l2(out: Tensor<2>, target: Tensor<2>) -> Tensor<1> {
+    LpLoss::new(2, Reduction::None)
+        .rel(out, target)
+        .powf_scalar(2.0)
+        .mean()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,5 +257,15 @@ mod tests {
             (mean - sum / n_test as f32).abs() <= 1e-6 * mean.abs(),
             "{mean} != {sum} / {n_test}"
         );
+    }
+
+    /// Rows with relative errors 1/√2 and 1: the mean of the squares is 0.75.
+    #[test]
+    fn squared_rel_l2_is_the_mean_of_the_squared_errors() {
+        let device = Device::default();
+        let out = Tensor::<2>::from_data([[1.0, 0.0], [0.0, 0.0]], &device);
+        let target = Tensor::<2>::from_data([[1.0, 1.0], [2.0, 0.0]], &device);
+        let got = squared_rel_l2(out, target).into_scalar::<f32>();
+        assert!((got - 0.75).abs() < 1e-6, "{got}");
     }
 }

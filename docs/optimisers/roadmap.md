@@ -17,6 +17,8 @@ and CO0.1, CO2.1 after CO1.1 (all three change `training/`, one at a time). CO3.
 (2026-11-25): `optim/soap/`, SOAP as Burn's per-parameter `Optimizer`, the §9 tests
 passing; next for O3, CO3.3 (its D7 and D13 now signed off). CO0.2
 (2026-11-25): the Gauss–Newton step profile on cuda, `docs/optimisers/results/CO0.2.md`.
+CO1.1 done 2026-11-25 (A1 seed 42 inside D10's band); next in O1 CO1.2 (D12 signed off), and
+the library's CM0.6 may take `training/` once CO1.1 is merged.
 
 ## How to read this file
 
@@ -86,7 +88,7 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
 three at the long budget (D2); the same on Darcy at equal time; the verdict on how much of PETScML's gap the
 weight decay accounts for.
 
-- [ ] **CO1.1 The reference recipe.** `OptimizerConfig::AdamW` (Burn's `AdamWConfig`, ε
+- [x] **CO1.1 The reference recipe.** `OptimizerConfig::AdamW` (Burn's `AdamWConfig`, ε
   1e-8), `TrainingConfig.lr_schedule` (`None` = today's cosine; a step variant halving every
   k epochs), an `FNOConfig` GELU option and a squared relative-L² option for the Adam path (both off by default), `OPTIMIZER=adamw`, `WEIGHT_DECAY` and the subsample rate as variables of
   `train_burgers` with n_train = 1,000 (1,024 today), and `costs.json` for Burgers runs;
@@ -96,10 +98,16 @@ weight decay accounts for.
   same schedule, the step schedule's halvings); A1 on seed 42 on flex or metal against
   0.0014; constraint 1 shown (`train_burgers` and `train_darcy` with nothing set unchanged
   bit for bit). *Needs:* D10, D11, the library objective's CM0.3 (`training/` changes are
-  serial, the author's sequencing of 2026-11-24).
+  serial, the author's sequencing of 2026-11-24). Done 2026-11-25:
+  `docs/optimisers/results/CO1.1.md` (A1 seed 42: 7.11e-4, inside D10's band at its lower
+  edge); the recipe is the preset `RECIPE=petscml` (the author, 2026-11-25), so
+  `train_burgers` with nothing set keeps n_train 1,024 and s = 256.
 - [ ] **CO1.2 Gauss–Newton on Burgers and Darcy.** `OPTIMIZER=gauss-newton` and the `GN_*`
   variables in `train_burgers` and `train_darcy`, as in `train_poisson`; `FnoResidual` tested
-  on a rank-3 batch; `gn_steps.csv` and passes written. *Done when:* a flex smoke run of G0
+  on a rank-3 batch; `gn_steps.csv` and passes written; `SEED` and `TIME_BUDGET_S` in both
+  examples, which CO1.3's cells need (CO1.1 added neither); the examples' `env_var` and
+  `RunCosts` assembly, then in three examples, shared rather than copied a third time
+  (CO1.1's code-quality review, F5). *Done when:* a flex smoke run of G0
   and G1 on Burgers and of G0 on Darcy, a resume of one; constraint 1 shown. *Needs:*
   CO1.1, D12.
 - [ ] **CO1.3 The Burgers 2 × 2.** A0, A1, G0, G1 and G0-200 (G0 at batch 200, D12) on seeds 42–46 at A1's mean time and
@@ -111,6 +119,12 @@ weight decay accounts for.
 - [ ] **CO1.4 The Darcy 2 × 2.** The same four cells on Darcy at `train_darcy`'s setting,
   seeds 42–46, equal time only. *Done when:* `docs/optimisers/results/CO1.4.md` and whether
   the Burgers verdict carries over. *Needs:* CO1.3. *Machines:* the VM.
+
+- [ ] **CO1.5 Split `trainer.rs`'s tests.** Move `training/trainer.rs`'s `mod tests`
+  (about 1,150 of its 1,950 lines after CO1.1) into a test module of its own, unchanged.
+  *Done when:* the same tests, by name and count, pass; no code outside the tests changed.
+  *Needs:* CO1.1; no other `training/` task open beside it (CO1.1's code-quality review,
+  F6).
 
 ## O2: L-BFGS
 

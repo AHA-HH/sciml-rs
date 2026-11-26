@@ -7,13 +7,39 @@ use crate::neural_operators::optim::gauss_newton::GaussNewtonConfig;
 /// Which optimiser trains the model (Phase 10 T3).
 #[derive(Config, Debug)]
 pub enum OptimizerConfig {
-    /// Adam with weight decay and the cosine schedule, from [`TrainingConfig`]'s
+    /// Adam with coupled weight decay and the run's schedule (the cosine unless
+    /// [`TrainingConfig::lr_schedule`] says otherwise), from [`TrainingConfig`]'s
     /// learning-rate and weight-decay fields: the baseline.
     Adam,
     /// Damped Gauss–Newton ([`GaussNewton`](crate::neural_operators::optim::gauss_newton::GaussNewton)),
     /// one step per batch; [`TrainingConfig`]'s learning-rate fields are unused, and the
     /// weight decay is the config's own μ.
     GaussNewton(GaussNewtonConfig),
+    /// Adam with decoupled weight decay (Burn's `AdamWConfig`, ε 1e-8, the decay scaled by
+    /// the learning rate), from [`TrainingConfig`]'s learning-rate and weight-decay fields:
+    /// PETScML's reference solver (optimisers CO1.1, D11).
+    AdamW,
+}
+
+/// A learning-rate schedule other than the default cosine (optimisers CO1.1).
+#[derive(Config, Debug)]
+pub enum LrSchedule {
+    /// [`TrainingConfig::learning_rate`] halved every `every_epochs` epochs (Burn's
+    /// `StepLrSchedulerConfig`, stepped once per batch): PETScML's reference (D11).
+    Step {
+        /// Epochs between two halvings; at least 1, or building the run's components panics.
+        every_epochs: usize,
+    },
+}
+
+/// The objective the Adam path back-propagates (optimisers CO1.1). The reported train and
+/// test L² are the unsquared relative L² either way.
+#[derive(Config, Debug, PartialEq)]
+pub enum TrainLoss {
+    /// The relative L² summed over the batch (CONVENTIONS §11; Li et al.): the default.
+    RelL2,
+    /// The mean over the batch of the squared relative L², PETScML's eq. 6 (D10).
+    SquaredRelL2,
 }
 
 /// Optimizer, schedule and batching settings, saved with every run
@@ -29,13 +55,13 @@ pub struct TrainingConfig {
     /// Evaluation batch size; it does not change the test loss, which is a per-sample mean.
     #[config(default = 20)]
     pub test_batch_size: usize,
-    /// Initial (peak) learning rate of the cosine schedule.
+    /// Initial learning rate: the cosine's peak, or the step schedule's starting rate.
     #[config(default = 1e-3)]
     pub learning_rate: f64,
     /// f32 to match `WeightDecayConfig::penalty`, unlike the f64 types above.
     #[config(default = 1e-4)]
     pub weight_decay: f32,
-    /// Final learning rate of the cosine schedule.
+    /// Final learning rate of the cosine schedule; unused under [`LrSchedule::Step`].
     #[config(default = 1e-7)]
     pub min_lr: f64,
     /// Seeds the device RNG (weight initialisation) and the training loader's shuffle.
@@ -55,6 +81,13 @@ pub struct TrainingConfig {
     /// arm (Phase 10 T5). `None` (the default, and every config before Phase 10 T5) trains
     /// every epoch with the run's optimiser.
     pub adam_epochs: Option<usize>,
+    /// The learning-rate schedule; `None` (the default, and every config before optimisers
+    /// CO1.1) is the cosine from `learning_rate` to `min_lr` over
+    /// [`schedule_steps`](Self::schedule_steps).
+    pub lr_schedule: Option<LrSchedule>,
+    /// The Adam path's training objective; `None` (the default, and every config before
+    /// optimisers CO1.1) is [`TrainLoss::RelL2`]. Gauss–Newton's Φ is unchanged by it.
+    pub loss: Option<TrainLoss>,
 }
 
 impl TrainingConfig {
@@ -93,8 +126,13 @@ impl TrainingConfig {
     pub fn gauss_newton(&self) -> Option<&GaussNewtonConfig> {
         match &self.optimizer {
             Some(OptimizerConfig::GaussNewton(gn)) => Some(gn),
-            Some(OptimizerConfig::Adam) | None => None,
+            Some(OptimizerConfig::Adam | OptimizerConfig::AdamW) | None => None,
         }
+    }
+
+    /// Whether the Adam path back-propagates [`TrainLoss::SquaredRelL2`].
+    pub fn squared_loss(&self) -> bool {
+        self.loss == Some(TrainLoss::SquaredRelL2)
     }
 }
 
@@ -133,5 +171,28 @@ mod tests {
         assert_eq!(back.gauss_newton().map(|g| g.cg_max_iters), Some(7));
         let adam = TrainingConfig::new().with_optimizer(Some(OptimizerConfig::Adam));
         assert!(adam.gauss_newton().is_none());
+    }
+
+    /// Optimisers CO1.1: an old config has the cosine, the summed loss and no AdamW; the
+    /// new fields round-trip.
+    #[test]
+    fn co1_1_fields_default_to_today_and_round_trip() {
+        let old = r#"{"epochs": 500, "batch_size": 20, "test_batch_size": 20,
+            "learning_rate": 0.001, "weight_decay": 0.0001, "min_lr": 1e-5, "seed": 42}"#;
+        let cfg = TrainingConfig::load_binary(old.as_bytes()).unwrap();
+        assert!(cfg.lr_schedule.is_none() && cfg.loss.is_none() && !cfg.squared_loss());
+
+        let cfg = TrainingConfig::new()
+            .with_optimizer(Some(OptimizerConfig::AdamW))
+            .with_lr_schedule(Some(LrSchedule::Step { every_epochs: 100 }))
+            .with_loss(Some(TrainLoss::SquaredRelL2));
+        let back: TrainingConfig =
+            TrainingConfig::load_binary(burn::config::config_to_json(&cfg).as_bytes()).unwrap();
+        assert!(matches!(back.optimizer, Some(OptimizerConfig::AdamW)));
+        assert!(matches!(
+            back.lr_schedule,
+            Some(LrSchedule::Step { every_epochs: 100 })
+        ));
+        assert!(back.squared_loss() && back.gauss_newton().is_none());
     }
 }

@@ -90,7 +90,7 @@ ReLU only (today's ops unchanged), and applied for any other activation (2.0.0's
   | `fno_blocks_group_post3d` | group norm, soft-gating FNO skip, linear MLP skip, expansion 1 | (2, 4, 8, 7, 6) |
   | `fno_blocks_group_pre3d` | group norm, identity skips | (2, 4, 8, 7, 6) |
   | `fno_blocks_ada_in_post2d`, `_pre2d` | AdaIN, embed_dim 2, one seeded embedding; one layer, 2 channels (D8) | (2, 2, 12, 10) |
-  | `fno_blocks_plain1d` | no MLP, no norm, tanh, soft-gating skip (2.0.0's repeated activation) | (2, 4, 20) |
+  | `fno_blocks_plain1d` | no MLP, no norm, GELU, soft-gating skip (2.0.0's repeated activation) | (2, 4, 20) |
 
 - Unit tests: ReLU's skipped repeat is the same output as applying it (a no-MLP, no-norm
   FNO); the MLP's hidden width rounds half to even (width 5 → 2); `forward` panics for an AdaIN FNO without an embedding; `linear_cf` against
@@ -138,6 +138,16 @@ Departures from the plan as first written:
   between-layer activation and layer 1's norms are covered by the other fixtures.
 - 2.0.0's `FNOBlocks` passes the new `SpectralConv`'s keywords to `conv_module`; the
   generator's `legacy_conv` drops them (all at their defaults).
+
+Merged with optimisers CO1.1 (2026-11-26), which added its own `FNOConfig::activation`
+(`fno::Activation`: ReLU or GELU, on the Fourier layers and the projection `fc1`) to `main`
+first. CO1.1's field is kept as the one activation option (its saved configs and tests
+unchanged; the projection following it matches 2.0.0, which passes `non_linearity` to its
+projection too); this task's `Option<ActivationConfig>` is gone. Since a GELU FNO without the
+other options is now an existing output (constraint 1), 2.0.0's repeated activation applies
+only when a 2.0.0 block option (FNO skip, channel MLP, norm) is set, not by activation;
+`plain1d` uses GELU (`gelu ∘ gelu ≠ gelu`) instead of tanh, which the enum lacks. CO1.1's
+`tests/activation.rs` calls the moved pointwise helpers, redirected as `tests/mod.rs`.
 
 ## Open questions
 

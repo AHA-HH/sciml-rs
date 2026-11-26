@@ -17,7 +17,7 @@ fn absent_options_build_today_s_block() {
     assert_eq!((fno.conv.len(), fno.w.len()), (3, 3));
     assert!(fno.fno_skips.is_empty() && fno.channel_mlp.is_empty());
     assert!(fno.channel_mlp_skips.is_empty() && fno.norms.is_empty());
-    assert!(matches!(fno.activation, Activation::Relu(_)) && !fno.preactivation);
+    assert!(!fno.gelu && !fno.preactivation && !fno.repeat_activation);
 }
 
 #[test]
@@ -78,8 +78,8 @@ fn mlp_width_rounds_half_to_even() {
     assert_eq!(fno.channel_mlp[0].num_params(), 27);
 }
 
-/// The second ReLU that post-activation skips without MLP or norm would change nothing:
-/// the block equals ReLU applied twice, bit for bit.
+/// Without a 2.0.0 block option the activation is applied once (the original block, CO1.1's
+/// GELU included); for ReLU a second application would change nothing, bit for bit.
 #[test]
 fn skipped_relu_repeat_is_relu_twice() {
     let device = Device::default();

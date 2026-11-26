@@ -1,5 +1,6 @@
 //! Shared test helpers for `FNO`: the reference forwards, input builders and the grid oracle.
 
+mod activation;
 mod blocks;
 mod checkpoint;
 mod grid;
