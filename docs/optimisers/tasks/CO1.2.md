@@ -34,13 +34,15 @@ code-quality findings F5 and F6.
 ## Changes
 - **`examples/train/common.rs`** (new; `mod common;` from the three examples, not an example
   itself): what the three share, every item used by all three (no `dead_code` allows):
-  `env_var`; `Arm` and `arm(allowed, seed, GnDefaults)`, the one parser of `OPTIMIZER`
-  (`adam`, `adamw`, `gauss-newton`, `hybrid`, each example naming the ones it takes) and of
-  `GN_PRECONDITIONER`, `GN_CG_MAX_ITERS`, `GN_WEIGHT_DECAY`; `weight_decay`,
-  `time_budget_s` (Gauss–Newton only, as today in `train_poisson`) and `batch_size`
-  (`GN_BATCH_SIZE`); `reopen::<R, C>`, a run reopened from its checkpoint with its saved
-  configs; `run_costs`, `costs.json`'s steps and passes (Adam, Gauss–Newton and hybrid, from
-  `train_poisson`) and the fields every example fills alike.
+  `env_var`; `training_config(allowed, seed, &Literals)` (with `GnLiterals`), the one
+  parser of `OPTIMIZER` (`adam`, `adamw`, `gauss-newton`, `hybrid`, each example naming the
+  ones it takes), of `GN_PRECONDITIONER`, `GN_CG_MAX_ITERS`, `GN_WEIGHT_DECAY`,
+  `GN_BATCH_SIZE`, `WEIGHT_DECAY` and `TIME_BUDGET_S` (Gauss–Newton only, as today in
+  `train_poisson`), building the whole `TrainingConfig`, a hybrid run's Adam epochs
+  included; `CHECKPOINT_EVERY` and `session::<R, C>`, a new run or one reopened from its
+  checkpoint with its saved configs (`--resume`); `run_costs` with `Measured`,
+  `costs.json`'s steps and passes (Adam, Gauss–Newton and hybrid, from `train_poisson`) and
+  the fields every example fills alike. (Amended after the code-quality review, 2026-11-26.)
 - **`train_burgers`, `train_darcy`**: `OPTIMIZER=adam|adamw|gauss-newton` (Darcy gains
   `adamw` too: CO1.4 runs the same four cells on Darcy); `WEIGHT_DECAY`; `SEED` (default 42,
   `_seed<n>` in the run name); `EPOCHS` (default 500; AdamW halves every `EPOCHS / 5`
@@ -62,8 +64,10 @@ code-quality findings F5 and F6.
   temporarily set to 2 on `main` and `EPOCHS=2` on the branch, `metrics.csv` compared
   without `epoch_time_s`: `train_burgers` (nothing set), `train_darcy` (nothing set),
   `train_poisson` (Adam, stage 2); `train_poisson OPTIMIZER=gauss-newton` on a 20-sample
-  subset, `gn_steps.csv` compared without `wall_time_s`; `costs.json` of each compared on
-  steps and passes. The existing suite unedited.
+  subset, `gn_steps.csv` compared without `wall_time_s`; the configs, `model_weights.bpk`
+  byte for byte, and `costs.json` on steps, passes and bytes. The existing suite unedited.
+  Each tree built in a target directory of its own (one shared directory served one tree's
+  binary to the other).
 - Smoke runs (flex, the Mac): Burgers `RECIPE=petscml OPTIMIZER=gauss-newton` G0
   (`GN_WEIGHT_DECAY=0`) and G1, one epoch each (`TIME_BUDGET_S=1`), full batch;
   Darcy G0 one epoch at a reduced batch and CG cap (full batch at 85 × 85 does not fit a
@@ -80,7 +84,11 @@ code-quality findings F5 and F6.
 None. CO1.3 (the Burgers 2 × 2) and CO1.4 (Darcy) are the VM tasks; their cells, e.g.:
 `RECIPE=petscml OPTIMIZER=gauss-newton GN_WEIGHT_DECAY=0 SEED=42 TIME_BUDGET_S=<A1 mean>
 cargo run --release --no-default-features --features cuda --example train_burgers`
-(G0), and `RECIPE=petscml OPTIMIZER=adamw EPOCHS=3000 SEED=42 …` (A1 at the long budget).
+(G0), and `RECIPE=petscml OPTIMIZER=adamw EPOCHS=3000 SEED=42 …` (A1 at the long budget:
+6 × the epochs, D11, not exactly 6 × A1's time). `EPOCHS` stays the cap of a Gauss–Newton
+run under `TIME_BUDGET_S`, so G0-200 (5 steps per epoch) at the long budget needs a large
+`EPOCHS` for the budget to end it. Run names do not tell the cells apart (A0 and A1, or
+G0, G1 and G0-200, share one): CO1.3 groups runs by their `train_cfg.json`.
 
 ## Constraints and risks
 - Constraint 1 (§1.4): no library code path changes; unset variables give today's configs.
