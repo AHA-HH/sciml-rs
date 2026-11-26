@@ -279,7 +279,7 @@ pub fn write_split(
         wall_time: split.wall_time,
         alpha: ALPHA,
         rng: RNG,
-        eps_k: eps_k(split.k),
+        eps_k,
     };
     write_sidecar(&json_path, name, git_commit, &facts)?;
     Ok((npz_path, json_path))
@@ -304,8 +304,8 @@ pub(super) struct SidecarFacts<'a> {
     pub alpha: f64,
     /// The GRF's RNG stream.
     pub rng: &'static str,
-    /// The GRF's ε_K at `k`.
-    pub eps_k: f64,
+    /// The GRF's ε_K, evaluated at `k` by [`write_sidecar`].
+    pub eps_k: fn(usize) -> f64,
 }
 
 /// Writes the [`SidecarRecord`] of a split to `path`, pretty JSON and a newline, the one
@@ -331,7 +331,7 @@ pub(super) fn write_sidecar(
         convention_version: CONVENTION_VERSION,
         count: facts.spec.count,
         crate_version: env!("CARGO_PKG_VERSION").to_string(),
-        eps_k: facts.eps_k,
+        eps_k: (facts.eps_k)(facts.k),
         error2: SidecarError2 {
             d: TRANSFER_DEGREE,
             max: facts.error2.max,

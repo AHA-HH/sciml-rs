@@ -9,12 +9,14 @@
 //!   of proposal §3.3, with the 2D rule: for n ≥ [`LABEL_CHECK_MIN_N`] (65) a sample above
 //!   [`LABEL_CHECK_TOL`] aborts the split; below that n it is recorded only (n = 33,
 //!   K = 16 gives about 4e-7, as in 2D; n = 65, K = 32 about 4e-10, CL3.2's report);
-//! - **error 2**: the transfer round trip T_uc(T_cu u) − u with d = [`TRANSFER_DEGREE`](crate::neural_operators::chebyshev::TRANSFER_DEGREE) and
+//! - **error 2**: the transfer round trip T_uc(T_cu u) − u with d = [`TRANSFER_DEGREE`] and
 //!   s = n − 1 along every axis, recorded only.
 //!
 //! [`write_split_3d`] writes the split as one `.npz` and one JSON sidecar named by
 //! [`Poisson3dSet`]. The sidecar is the 2D one, written by the shared
 //! `dataset::write_sidecar` with the 3D α, RNG and ε_K.
+//!
+//! [`TRANSFER_DEGREE`]: crate::neural_operators::chebyshev::TRANSFER_DEGREE
 
 use ndarray::{Array1, Array4, ArrayView3, Axis};
 use ndarray_npy::NpzWriter;
@@ -110,7 +112,9 @@ pub fn label_check_3d(
 /// n ≥ [`LABEL_CHECK_MIN_N`].
 ///
 /// # Panics
-/// If `count` is 0, `n < 3`, K is 0 or above [`K_MAX`](super::grf::K_MAX), or `base_seed + i` overflows.
+/// If `count` is 0, `n < 3`, K is 0 or above [`K_MAX`], or `base_seed + i` overflows.
+///
+/// [`K_MAX`]: super::grf::K_MAX
 pub fn generate_3d(spec: &SplitSpec) -> Result<Split3d, LabelCheckError> {
     let start = Instant::now();
     let n = spec.n;
@@ -205,7 +209,7 @@ pub fn write_split_3d(
         wall_time: split.wall_time,
         alpha: ALPHA,
         rng: RNG,
-        eps_k: eps_k(split.k),
+        eps_k,
     };
     write_sidecar(&json_path, name, git_commit, &facts)?;
     Ok((npz_path, json_path))
