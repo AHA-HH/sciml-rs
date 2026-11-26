@@ -1,10 +1,12 @@
-"""Write loss and finite-difference parity fixtures from neuraloperator 2.0.0 (library CM1.6a, b).
+"""Write loss and finite-difference parity fixtures from neuraloperator 2.0.0 (library CM1.6a, b; CM2.5).
 
 Each fixture is `tests/fixtures/parity/losses<D>d_<dtype>.npz` with a `.json` sidecar: a
 seeded pair `x`, `y` (2, 2, *grid), a seeded vector field `v` (2, D, *grid), and 2.0.0's
 `FiniteDiff`, `H1Loss`, `HdivLoss`, `PointwiseQuantileLoss`, `MSELoss` and `LpLoss.rel` on
 them. `meta_losses_<dtype>.npz` (CM1.6b): the aggregators `WeightedSumLoss`,
-`FieldwiseAggregatorLoss`, `SoftAdapt` and `Relobralo` over seeded losses. See README.md.
+`FieldwiseAggregatorLoss`, `SoftAdapt` and `Relobralo` over seeded losses.
+`equation_losses_<dtype>.npz` (CM2.5): `BurgersEqnLoss`, `ICLoss` and the Poisson losses.
+See README.md.
 
     uv run python generate_losses.py            # write the fixtures
     uv run python generate_losses.py --check    # regenerate in memory, compare bit for bit
@@ -21,6 +23,13 @@ import numpy as np
 import torch
 from neuralop.losses.data_losses import H1Loss, HdivLoss, LpLoss, MSELoss, PointwiseQuantileLoss
 from neuralop.losses.differentiation import FiniteDiff
+from neuralop.losses.equation_losses import (
+    BurgersEqnLoss,
+    ICLoss,
+    PoissonBoundaryLoss,
+    PoissonEqnLoss,
+    PoissonInteriorLoss,
+)
 from neuralop.losses.meta_losses import FieldwiseAggregatorLoss, Relobralo, SoftAdapt, WeightedSumLoss
 
 from generate import DTYPES, MAX_BYTES, OUT, same_as_committed
@@ -35,6 +44,11 @@ META_SEED = 3  # the aggregators' inputs
 RHO_SEED = 4  # torch's global RNG for Relobralo's Bernoulli draws
 STEPS = 6  # adaptive aggregators: steps of 3 losses
 LOSS_KEYS = ("a", "b", "c")
+EQN_SEED = 5  # the equation losses' inputs
+BURGERS_GRID = (10, 12)  # (n_t, n_x), non-square, so a swapped axis fails parity
+BURGERS = {"default": {}, "visc": {"visc": 0.05, "domain_length": [2.0, 3.0]}}
+POISSON_POINTS = (6, 20)  # boundary, interior
+POISSON_WEIGHTS = {"boundary_weight": 2.0, "interior_weight": 0.5}
 # name -> (class, kwargs); weights keyed as 2.0.0's dict, missing keys meaning 1.
 ADAPTIVE = {
     "softadapt": (SoftAdapt, {}),
@@ -153,6 +167,79 @@ def meta_arrays(dtype):
     return finish(out, dtype)
 
 
+def poisson_u(q):
+    """The analytic u of the Poisson fixture at query points q (1, n, 2): sin(πx) cos(2y) + x²y,
+    as (1, n, 1)."""
+    x, y = q[..., 0], q[..., 1]
+    return (torch.sin(torch.pi * x) * torch.cos(2 * y) + x * x * y).unsqueeze(-1)
+
+
+def equation_arrays(dtype):
+    """2.0.0's equation losses on seeded inputs. The Poisson ones differentiate u by autograd
+    with respect to the query points, so this runs with gradients on."""
+    g = torch.Generator().manual_seed(EQN_SEED)
+    u = torch.randn((2, 1) + BURGERS_GRID, generator=g)
+    x = torch.randn((2, 1) + BURGERS_GRID, generator=g)
+    nb, ni = POISSON_POINTS
+    q = torch.rand((1, nb + ni, 2), generator=g)
+    f = torch.randn((ni,), generator=g)
+    y = torch.randn((1, nb + ni, 1), generator=g)
+    u, x, q, f, y = (t.to(dtype) for t in (u, x, q, f, y))
+    out = {"u": u, "x": x, "poisson.q": q, "poisson.f": f, "poisson.y": y}
+    with torch.no_grad():
+        for name, kwargs in BURGERS.items():
+            out[f"burgers.{name}"] = BurgersEqnLoss(**kwargs)(u)
+        out["ic"] = ICLoss()(u, x)
+
+    q.requires_grad_(True)
+    up = poisson_u(q)
+    num_boundary = torch.tensor(nb)
+    kw = {"output_queries": q, "output_source_terms_domain": f, "num_boundary": num_boundary}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # 2.0.0 warns on its own keyword arguments
+        out["poisson.interior"] = PoissonInteriorLoss()(up, **kw)
+        out["poisson.boundary"] = PoissonBoundaryLoss()(
+            up, num_boundary=num_boundary, out_sub_level=1.0, y=y, output_queries=q
+        )
+        out["poisson.eqn"] = PoissonEqnLoss(**POISSON_WEIGHTS)(up, y, out_sub_level=1.0, **kw)
+    # u at every point, and the derivatives 2.0.0 takes inside at the interior points, for the
+    # Rust side.
+    du = torch.autograd.grad(up.sum(), q, create_graph=True)[0]
+    u_xx = torch.autograd.grad(du[..., 0].sum(), q, retain_graph=True)[0][..., 0]
+    u_yy = torch.autograd.grad(du[..., 1].sum(), q)[0][..., 1]
+    interior = slice(nb, None)
+    out["poisson.u"] = up[0, :, 0]
+    out["poisson.u_x"] = du[0, interior, 0]
+    out["poisson.u_y"] = du[0, interior, 1]
+    out["poisson.lap"] = (u_xx + u_yy)[0, interior]
+    return finish(out, dtype)
+
+
+def equation_sidecar(dtype_name):
+    return {
+        "config": "equation_losses",
+        "dtype": dtype_name,
+        "input_seed": EQN_SEED,
+        "burgers": {k: f"BurgersEqnLoss(**{kw})" for k, kw in BURGERS.items()},
+        "burgers_grid": list(BURGERS_GRID),
+        "ic": "ICLoss()(u, x)",
+        "poisson_points": {"boundary": POISSON_POINTS[0], "interior": POISSON_POINTS[1]},
+        "poisson_u": "sin(pi x) cos(2 y) + x^2 y at the query points q, uniform in [0, 1)^2",
+        "poisson_eqn": f"PoissonEqnLoss(**{POISSON_WEIGHTS}), out_sub_level 1",
+        "keys": "u, x (2, 1, n_t, n_x); burgers.{default,visc}; ic; poisson.{q,f,y}; "
+        "poisson.{interior,boundary,eqn}; poisson.u at every point; poisson.{u_x,u_y,lap} at the "
+        "interior points (autograd)",
+        "inputs": "drawn in f32, then cast",
+        "versions": {
+            "python": platform.python_version(),
+            "neuraloperator": neuralop.__version__,
+            "torch": torch.__version__,
+            "numpy": np.__version__,
+        },
+        "platform": f"{platform.system()} {platform.machine()}",
+    }
+
+
 def finish(out, dtype):
     # Scalars as shape (1,): the Rust losses return [1].
     data = {k: np.atleast_1d(t.detach().numpy()) for k, t in out.items()}
@@ -240,6 +327,9 @@ def main():
     for dtype_name, dtype in DTYPES.items():
         data = meta_arrays(dtype)
         failed |= not emit(f"meta_losses_{dtype_name}", data, meta_sidecar(dtype_name), check)
+    for dtype_name, dtype in DTYPES.items():
+        data = equation_arrays(dtype)
+        failed |= not emit(f"equation_losses_{dtype_name}", data, equation_sidecar(dtype_name), check)
     sys.exit(1 if failed else 0)
 
 
