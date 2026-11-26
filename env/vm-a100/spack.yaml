@@ -5,6 +5,7 @@ spack:
   specs:
   - nccl cuda_arch=80 fabrics=none  # one node, two GPUs over PCIe: no InfiniBand
   - gnuplot+cairo~gd~libcerf~qt~wx~readline  # pngcairo, for plots.png and the plot examples
+  - fftw~mpi precision=double,float  # datagen (RLST) on the VM; OpenBLAS comes from the system (0.3.26)
   packages:
     flex:
       externals:

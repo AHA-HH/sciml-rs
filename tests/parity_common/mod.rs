@@ -7,6 +7,10 @@
 //! (real, imaginary). Each map entry names one such array, the Burn path it goes to (as
 //! `ModuleSnapshot::collect` names it) and which part of it to take.
 //!
+//! A parameter whose layout differs from the crate's is converted when the fixture is
+//! loaded, into `Fixture::replaced` (2.0.0's centred spectral weights: CM1.2's
+//! `centred_conv.rs`, D5).
+//!
 //! The reference models beside this file (`fno1d.rs`, `legacy_conv.rs`) are included only by
 //! the test binaries that use them, with `#[path]`, so no binary compiles dead code.
 
@@ -72,10 +76,13 @@ impl Precision {
 pub struct Fixture {
     name: String,
     reader: NpzFileReader,
-    /// The 2.0.0 parameter names, `param.` stripped.
-    params: Vec<String>,
+    /// The 2.0.0 parameter names, `param.` stripped (as replaced, if any).
+    pub(crate) params: Vec<String>,
     /// The fixture's precision.
     pub precision: Precision,
+    /// Converted arrays, by full key (`param.…`), read before the file's: a layout
+    /// converted at load (D5) is put here, with `params` updated to match.
+    pub(crate) replaced: BTreeMap<String, ArrayD<f64>>,
 }
 
 impl Fixture {
@@ -118,6 +125,7 @@ impl Fixture {
             reader,
             params,
             precision,
+            replaced: BTreeMap::new(),
         }
     }
 
@@ -126,6 +134,9 @@ impl Fixture {
     /// # Panics
     /// If the fixture has no such array.
     pub fn array(&mut self, key: &str) -> ArrayD<f64> {
+        if let Some(a) = self.replaced.get(key) {
+            return a.clone();
+        }
         self.reader
             .read_field(key)
             .unwrap_or_else(|e| panic!("fixture {}: {e}", self.name))
@@ -134,8 +145,7 @@ impl Fixture {
     /// The fixture's input, `(batch, channels, *grid)`, as a tensor on `device` in the
     /// fixture's precision.
     pub fn input<const R: usize>(&mut self, device: &Device) -> Tensor<R> {
-        let a = self.array("input");
-        self.tensor(&a, device)
+        self.tensor("input", device)
     }
 
     /// The fixture's output, `(batch, channels, *grid)`, on the host.
@@ -143,11 +153,12 @@ impl Fixture {
         self.array("output")
     }
 
-    /// `a` as a rank-`R` tensor on `device`, in the fixture's precision.
+    /// The array `key` as a rank-`R` tensor on `device`, in the fixture's precision.
     ///
     /// # Panics
-    /// If `a` is not of rank `R`.
-    fn tensor<const R: usize>(&self, a: &ArrayD<f64>, device: &Device) -> Tensor<R> {
+    /// If the fixture has no such array, or it is not of rank `R`.
+    pub fn tensor<const R: usize>(&mut self, key: &str, device: &Device) -> Tensor<R> {
+        let a = self.array(key);
         assert_eq!(
             a.ndim(),
             R,
@@ -155,7 +166,7 @@ impl Fixture {
             self.name,
             a.ndim()
         );
-        Tensor::from_data(self.data(a), device)
+        Tensor::from_data(self.data(&a), device)
     }
 
     fn data(&self, a: &ArrayD<f64>) -> TensorData {

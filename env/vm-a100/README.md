@@ -26,3 +26,11 @@ matters at build time too, because cudarc reads `nvcc --version` when it compile
   uses; the system's build tools as externals, which cut the build from 84 packages to 58.
 - `sciml-gpu.sh`: activates the environment and puts the Spack NCCL and CUDA 12.6 ahead of
   the system copies in `PATH` and `LD_LIBRARY_PATH`.
+- **`datagen` on the VM** (2026-11-25): RLST needs FFTW, OpenBLAS and libclang. FFTW is in
+  `spack.yaml` (`fftw~mpi precision=double,float`); OpenBLAS is the system's (0.3.26, LP64,
+  `/usr/lib64/pkgconfig/openblas.pc`; Spack's `openblas` fails to build here, its SVE kernels
+  conflicting with `-mcpu=neoverse-n1`); libclang is the system's `libclang.so.19.1`, which
+  has no unversioned name, so once per machine:
+  `mkdir -p ~/.local/lib/libclang && ln -sf /usr/lib64/libclang.so.19.1 ~/.local/lib/libclang/libclang.so`.
+  `sciml-gpu.sh` appends FFTW's `lib` to `LD_LIBRARY_PATH` and sets `LIBCLANG_PATH`. Checked:
+  `generate_poisson3d -- 33` builds and runs on the VM from `e5bb058`.

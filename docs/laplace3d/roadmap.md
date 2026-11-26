@@ -11,7 +11,9 @@ is the plan of record (D0–D3 signed off 2026-11-11, #117). Done: CL0.1 (rank-5
 Mac and cuda, #123; D5 signed off 2026-11-24, D4 2026-11-25 on the cuda figures), CL0.2
 (rank-5 parity on metal), CL1.1–CL1.3 (CONVENTIONS version 3, N-D transfers, norms and
 errors, 2D bit for bit unchanged), CL2.1 (A3, `CollocationSolver3d`, f64 floor by n = 33),
-CL3.1 (the 3D GRF; D3 confirmed 2026-11-24). D8 signed off at the L0 gate. Next: CL3.2.
+CL3.1 (the 3D GRF; D3 confirmed 2026-11-24), CL3.2 (the 3D datasets of D5, n = 33 and 65,
+written 2026-11-25; n = 65 generated on the Mac and uploaded to the VM). D8 signed off at
+the L0 gate. Next: CL3.3.
 
 ## How to read this file
 
@@ -122,7 +124,7 @@ Q2 the 3D label check to CL3.2, the three doc fixes to CL3.3's first commit.
   ε_K for K = 8, 16, 32. *Done when:* the evaluation matches a direct sum on a small case;
   the ε_K table; D3 re-proposed. *Needs:* CL1.1. *Sign-off:* D3. Report:
   `docs/laplace3d/results/cl3-1.md`.
-- [ ] **CL3.2 3D dataset generation.** Generation, label check against the closed form,
+- [x] **CL3.2 3D dataset generation.** Generation, label check against the closed form,
   catalogue names carrying the dimension; the n = 65 set generated on the VM. Near the
   three-module limit: split into CL3.2a/b when it starts if it exceeds it.
   The 3D label check is a new function on `cc_rel_l2_error_nd`, sharing only
@@ -131,7 +133,9 @@ Q2 the 3D label check to CL3.2, the three doc fixes to CL3.3's first commit.
   needs it) is labelled only after measuring A3's floor there against `grf3d`'s closed form,
   with the label-check tolerance set from that measurement: the n = 33 → 65 trend puts it at
   about 3e-13 to 2.5e-12 (L2 gate Q1).
-  *Needs:* CL1.2, CL2.1, CL3.1, D3, D5. *Machines:* the VM (n = 65).
+  *Needs:* CL1.2, CL2.1, CL3.1, D3, D5. *Machines:* the VM (n = 65). The n = 65 set was
+  generated on the Mac and uploaded to the VM (the author's choice, 2026-11-25: the VM's
+  `datagen` build lacks FFTW). Report: `docs/laplace3d/results/cl3-2.md`.
 - [ ] **CL3.3 3D loader.** The Poisson loader for 3D splits, T_cu at load time.
   *Done when:* also error 2 of the n = 65 test split at s = 32 and 64, against the 2D floor
   at the same s (proposal §9; L1 gate C3). First commit, no behaviour change (L1 gate C4):
@@ -144,6 +148,12 @@ Q2 the 3D label check to CL3.2, the three doc fixes to CL3.3's first commit.
   "D_xx or D_yy" to "an interior D² block" (`collocation.rs:25–28`), the module doc
   (`mod.rs:1`, 2D only), and the 115-column doc line (`collocation.rs:146`).
   *Needs:* CL1.2, CL3.2, D5.
+- [ ] **CL3.4 One sidecar constructor for 2D and 3D.** CL3.2 review F1: extract the
+  `SidecarRecord` construction into `pde/poisson/dataset.rs`, used by `dataset3d.rs`. (F2,
+  a shared label-check rule, is not taken: the L2 gate's Q2 keeps the 2D `label_check`
+  body as it is.) *Done when:* `dataset3d.rs` builds no sidecar field by field; the 2D
+  exact-bytes sidecar test (`files_round_trip`) passes unedited (constraint 1). Edits a 2D
+  function body: the author's go first. *Needs:* CL3.2.
 
 ## L4: 3D Poisson training and evaluation
 

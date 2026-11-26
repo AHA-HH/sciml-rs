@@ -23,6 +23,7 @@ import torch_harmonics
 from neuralop.layers.channel_mlp import ChannelMLP
 from neuralop.layers.fno_block import FNOBlocks
 from neuralop.layers.legacy_spectral_convolution import SpectralConv as LegacySpectralConv
+from neuralop.layers.spectral_convolution import SpectralConv
 from neuralop.layers.normalization_layers import AdaIN, InstanceNorm
 from neuralop.layers.skip_connections import skip_connection
 from neuralop.models import FNO
@@ -83,6 +84,16 @@ CONFIGS = {
     "legacy_spectral_conv1d": (LegacySpectralConv, dict(in_channels=3, out_channels=4, n_modes=(12,)), (2, 3, 50)),
     "legacy_spectral_conv2d": (LegacySpectralConv, dict(in_channels=3, out_channels=4, n_modes=(8, 6)), (2, 3, 24, 21)),
     "legacy_spectral_conv3d": (LegacySpectralConv, dict(in_channels=2, out_channels=3, n_modes=(6, 4, 4)), (2, 2, 12, 10, 9)),
+    # CM1.2: the centred layer (`fft_norm="forward"`), converted to corners at load.
+    "spectral_conv2d": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(8, 6)), (2, 3, 24, 21)),
+    "spectral_conv2d_backward": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(8, 6), fft_norm="backward"), (2, 3, 24, 21)),
+    "spectral_conv2d_odd": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(7, 6)), (2, 3, 24, 21)),
+    "spectral_conv3d": (SpectralConv, dict(in_channels=2, out_channels=3, n_modes=(6, 5, 4)), (2, 2, 12, 10, 9)),
+    "spectral_conv2d_separable": (SpectralConv, dict(in_channels=4, out_channels=4, n_modes=(8, 6), separable=True), (2, 4, 24, 21)),
+    "spectral_conv2d_max_modes": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(6, 6), max_n_modes=(10, 8)), (2, 3, 24, 21)),
+    # Odd extent on a shifted axis: 2.0.0 applies `fftshift` again (not `ifftshift`) before the
+    # inverse, so its output spectrum moves by one bin there; corners cannot represent this.
+    "spectral_conv2d_odd_extent": (SpectralConv, dict(in_channels=3, out_channels=4, n_modes=(8, 6)), (2, 3, 23, 21)),
     # CM1.3a: the block parts of FNOBlocks, 1D to 3D.
     "channel_mlp1d": (ChannelMLP, dict(in_channels=4, hidden_channels=2), (2, 4, 7)),
     "channel_mlp3d": (ChannelMLP, dict(in_channels=3, out_channels=5, hidden_channels=4, n_layers=3, non_linearity=torch.tanh), (2, 3, 5, 4, 3)),

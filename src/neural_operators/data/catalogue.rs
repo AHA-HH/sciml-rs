@@ -74,6 +74,40 @@ pub const GENERATED: [PoissonSet; 6] = [
     PoissonSet { n: 257, k: 32 },
 ];
 
+/// One 3D Poisson dataset on disk, under `datasets/poisson/` beside the 2D sets: `n` CGL
+/// nodes per axis and the GRF truncation `k` (3D proposal §3.3, D5). Its splits are files
+/// named by [`Poisson3dSet::stem`], which carries the dimension, so no 3D file takes a 2D
+/// name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Poisson3dSet {
+    /// CGL nodes per axis; the grid is n × n × n.
+    pub n: usize,
+    /// The GRF truncation K.
+    pub k: usize,
+}
+
+impl Poisson3dSet {
+    /// The file stem of one split, `poisson3d_n{n}_K{K}_{split}` (D5).
+    pub fn stem(&self, split: &str) -> String {
+        format!("poisson3d_n{}_K{}_{split}", self.n, self.k)
+    }
+
+    /// The `.npz` file of one split: `{stem}.npz`.
+    pub fn npz(&self, split: &str) -> String {
+        format!("{}.npz", self.stem(split))
+    }
+
+    /// The `.json` sidecar of one split: `{stem}.json`.
+    pub fn json(&self, split: &str) -> String {
+        format!("{}.json", self.stem(split))
+    }
+}
+
+/// Every 3D set `generate_poisson3d` writes, in its order, each as the [`SPLITS`] (D5):
+/// n = 33 (tests and Mac runs) and n = 65 (training), at K(n) = (n − 1)/2 (D3).
+pub const GENERATED_3D: [Poisson3dSet; 2] =
+    [Poisson3dSet { n: 33, k: 16 }, Poisson3dSet { n: 65, k: 32 }];
+
 /// The error of [`stage`]: no stage has this n.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoStage(pub usize);
@@ -109,6 +143,25 @@ mod tests {
         assert_eq!(set.stem("test"), "poisson_n129_K32_test");
         assert_eq!(set.npz("train"), "poisson_n129_K32_train.npz");
         assert_eq!(set.json("train"), "poisson_n129_K32_train.json");
+    }
+
+    #[test]
+    fn poisson3d_names() {
+        let set = Poisson3dSet { n: 65, k: 32 };
+        assert_eq!(set.stem("test"), "poisson3d_n65_K32_test");
+        assert_eq!(set.npz("train"), "poisson3d_n65_K32_train.npz");
+        assert_eq!(set.json("train"), "poisson3d_n65_K32_train.json");
+        for set in GENERATED_3D {
+            assert_eq!(set.k, (set.n - 1) / 2, "n = {}", set.n);
+        }
+        // No 3D file takes a 2D name.
+        for set3 in GENERATED_3D {
+            for set2 in GENERATED {
+                for split in SPLITS {
+                    assert_ne!(set3.npz(split), set2.npz(split));
+                }
+            }
+        }
     }
 
     #[test]

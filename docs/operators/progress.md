@@ -326,6 +326,70 @@ template:
   `layers::pointwise::conv1x1`. One `flex_f64` in `parity_common`: CM1.6b's line (this branch
   adds a fourth copy, `tests/parity_block_parts_f64.rs`).
 
+## 2026-11-25: CM1.6b Aggregators
+- Done: `losses/meta_losses.rs`: `WeightedSumLoss`, `FieldwiseAggregatorLoss` (a field is a
+  channel range on one axis, prediction and target sliced alike; 2.0.0 reshapes only the
+  prediction, the two agree on its one-channel `(N, C)` use), `SoftAdapt`, `Relobralo` (ρ
+  from a seeded `ChaCha8Rng`, or replayed by `forward_with_rho`), over `LossFn<R>`
+  closures; adaptive weights on the host in f64, constants in the aggregate as under
+  2.0.0's `no_grad`. CM1.6a's follow-ups: `Reduction::apply` and `root_zero_safe` in
+  `data_losses.rs`, shared by `LpLoss`, `SobolevLoss` and `PointwiseQuantileLoss`; one
+  `tests/flex_f64/` for the five f64 binaries (CM1.3a's, merged from `main`, included); `Fixture::tensor(key, device)` public.
+  Fixtures `meta_losses_{f32,f64}` from `generate_losses.py`.
+- Tests: per step, the aggregate, the weights and d aggregate / d loss of SoftAdapt and
+  ReLoBRaLo (with and without weights; ReLoBRaLo also at α 0.9, β 0.5, τ 2, replaying
+  torch's draws, both branches of ρ), the weighted sum (default and given weights) and the
+  fieldwise loss: f32 ≤ 2.0e-7, f64 ≤ 2.0e-16 (D3 1e-5, 1e-12). Unit tests: the seeded
+  draw exact at β = 0 and 1 and reproducible, a hand-computed SoftAdapt step, panics.
+- Checks: on the branch merged with `main` (CM1.3a, CO0.2): ran `cargo fmt --check`,
+  clippy (default, `--examples`, `--all-targets`, `--features datagen --all-targets`),
+  `cargo test` (433 passed), `cargo test --features datagen` (514 passed), `cargo doc
+  --no-deps`, all pass; `generate_losses.py --check` (8 fixtures the same) after the
+  review fixes. Not run: `--features metal` (nothing backend-sensitive), a
+  build without `flex`.
+- Decisions: none.
+- Review: plan review PASS (advisories: the `#[allow(dead_code)]` on `mod parity_common`
+  in the loss binaries kept, as the plan says; `parity_losses_common` behind `flex` in the
+  f64 binary, done; weights checked once, done). Code quality APPROVE with findings: F1,
+  F2, F3 (weights only), F4–F8, F10 fixed; F9 (one device read per loss per step) left as
+  a note, harmless on the CPU.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 99edf66 and the merged
+  branch, each in its own build directory: `forward`, `phase5_epoch`, `gauss_newton_epoch`
+  byte-identical). CM1.6a's comparison shared one build directory between `main` and the
+  branch, so it did not show this; CM1.6a changed no FNO code.
+- Matrix: the aggregator row set to **have**.
+- Follow-ups: CM1.6c; the CONVENTIONS §11 question of CM1.6a (#154) stands.
+
+## 2026-11-25: CM1.2 Centred layout, separable, `max_n_modes`
+- Done: `SpectralConv::new_separable` (weights `[1, C, modes..]`, an element-wise complex
+  product) and `with_modes` (modes below the stored ones: low `0..m`, high the last `m` rows,
+  last axis `0..m`), both off by default; the converter `centred_to_corners` of 2.0.0's
+  centred weights to corners at fixture load, with `Fixture::replace` (D5), in
+  `tests/parity_common/centred_conv.rs`; seven centred fixtures `spectral_conv*_{f32,f64}`.
+  `fft_norm="forward"` needs no conversion (one forward and one inverse at the same N).
+  2.0.0's centred layer applies `fftshift` twice, so on an odd extent of a non-last axis its
+  output spectrum moves by one bin: not representable in corners (numpy check in the plan).
+- Tests: six f32 parity tests within D3 (2.6e-7 to 4.0e-7, Flex, M2 Pro), including an odd
+  count (7; 5 in 3D), `fft_norm="backward"`, separable and stored (10, 8) used (6, 4); the
+  odd extent fails as expected (1.771); unconverted halves fail (1.029); the converter's
+  exact values; six layer unit tests; the f64 six `#[ignore]`d (1.5e-7 to 2.7e-7).
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test`, `cargo test --features datagen`,
+  `cargo doc --no-deps`, the layer tests and `gpu_parity` under `--features metal` (pass,
+  27 and 9; the separable truncation test compares to 1e-6, since Metal rounds the strided
+  slice a few ulps apart), `generate.py` (the ten earlier fixtures unchanged); all in the
+  task's own build directory. `cargo test --features datagen` failed once on
+  `fno::tests::grid::grid_controls_1d` and passed alone (twice) and on a full rerun: it seeds
+  Flex's process-wide RNG while other tests draw from it (pre-existing).
+- Decisions: D5 signed off 2026-11-25 (#153), applied as signed off.
+- Review: plan review PASS (advisories fixed: doc wording, a separable truncation test);
+  code quality APPROVE with findings (one presumptive blocker, the file over 1,000 lines with
+  its tests, waived; L1, D2 and the doc slip fixed; M1, B1 and the split are follow-ups).
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` and the branch, `cmp`
+  same for the forward, the Phase 5-shaped epoch and the Gauss–Newton epoch).
+- Matrix: the centred `SpectralConv` row set to partial.
+- Follow-ups: in CM1.2's roadmap line (for CM1.5 and CM1.8).
+
 ## 2026-11-25: CM1.3b The FNO's block options
 - Done: `FNOConfig` gains `activation`, `fno_skip`, `channel_mlp` (`BlockMlpConfig`:
   expansion 0.5, rounded half to even as Python's `round`; skip, default soft gating),

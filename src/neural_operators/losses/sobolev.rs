@@ -8,7 +8,10 @@
 
 use burn::tensor::Tensor;
 
-use super::{data_losses::Reduction, differentiation::FiniteDiff};
+use super::{
+    data_losses::{Reduction, root_zero_safe},
+    differentiation::FiniteDiff,
+};
 
 /// Which Sobolev norm a [`SobolevLoss`] measures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,7 +74,10 @@ impl<const D: usize> SobolevLoss<D> {
     pub fn abs<const R: usize>(&self, x: Tensor<R>, y: Tensor<R>) -> Tensor<1> {
         let h = self.quadrature(&x);
         let (diff, _) = self.squared_norms(x, y, h);
-        self.reduce(sqrt_zero_safe(diff.mul_scalar(h.iter().product::<f64>())))
+        self.reduction.apply(root_zero_safe(
+            diff.mul_scalar(h.iter().product::<f64>()),
+            2,
+        ))
     }
 
     /// The relative loss. Shapes and returns as [`abs`](Self::abs).
@@ -81,7 +87,8 @@ impl<const D: usize> SobolevLoss<D> {
     pub fn rel<const R: usize>(&self, x: Tensor<R>, y: Tensor<R>) -> Tensor<1> {
         let h = self.quadrature(&x);
         let (diff, ynorm) = self.squared_norms(x, y, h);
-        self.reduce(sqrt_zero_safe(diff) / sqrt_zero_safe(ynorm).add_scalar(self.eps))
+        self.reduction
+            .apply(root_zero_safe(diff, 2) / root_zero_safe(ynorm, 2).add_scalar(self.eps))
     }
 
     /// h_a = measure_a / s_a.
@@ -124,21 +131,6 @@ impl<const D: usize> SobolevLoss<D> {
         }
         (diff, ynorm)
     }
-
-    fn reduce(&self, per_index: Tensor<1>) -> Tensor<1> {
-        match self.reduction {
-            Reduction::Mean => per_index.mean(),
-            Reduction::Sum => per_index.sum(),
-            Reduction::None => per_index,
-        }
-    }
-}
-
-/// √s with value 0 and gradient 0 where s = 0 (the subgradient `LpLoss` also uses), so an
-/// exact match gives no NaN in backward.
-fn sqrt_zero_safe(s: Tensor<1>) -> Tensor<1> {
-    let zero = s.clone().equal_elem(0.0);
-    s.mask_fill(zero.clone(), 1.0).sqrt().mask_fill(zero, 0.0)
 }
 
 #[cfg(test)]

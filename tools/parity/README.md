@@ -53,6 +53,13 @@ files, absent from the wheel, differ).
 | `legacy_spectral_conv1d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(12,))` (`layers/legacy_spectral_convolution.py`), defaults otherwise (bias on); input (2, 3, 50) | 148 | 4 kB, 8 kB |
 | `legacy_spectral_conv2d_{f32,f64}` | legacy `SpectralConv(3, 4, n_modes=(8, 6))`; input (2, 3, 24, 21) | 580 | 32 kB, 62 kB |
 | `legacy_spectral_conv3d_{f32,f64}` | legacy `SpectralConv(2, 3, n_modes=(6, 4, 4))`; input (2, 2, 12, 10, 9) | 579 | 47 kB, 93 kB |
+| `spectral_conv2d_{f32,f64}` | centred `SpectralConv(3, 4, n_modes=(8, 6))` (`layers/spectral_convolution.py`), defaults otherwise (bias, `fft_norm="forward"`); input (2, 3, 24, 21) | 772 | 32 kB, 64 kB |
+| `spectral_conv2d_backward_{f32,f64}` | as `spectral_conv2d`, `fft_norm="backward"` | 772 | 32 kB, 64 kB |
+| `spectral_conv2d_odd_{f32,f64}` | centred `SpectralConv(3, 4, n_modes=(7, 6))`; input (2, 3, 24, 21) | 676 | 32 kB, 63 kB |
+| `spectral_conv3d_{f32,f64}` | centred `SpectralConv(2, 3, n_modes=(6, 5, 4))`; input (2, 2, 12, 10, 9) | 1,083 | 49 kB, 96 kB |
+| `spectral_conv2d_separable_{f32,f64}` | centred `SpectralConv(4, 4, n_modes=(8, 6), separable=True)`; input (2, 4, 24, 21) | 260 | 34 kB, 68 kB |
+| `spectral_conv2d_max_modes_{f32,f64}` | centred `SpectralConv(3, 4, n_modes=(6, 6), max_n_modes=(10, 8))`; input (2, 3, 24, 21) | 1,924 | 37 kB, 73 kB |
+| `spectral_conv2d_odd_extent_{f32,f64}` | as `spectral_conv2d` on input (2, 3, 23, 21): an odd extent, which corners cannot represent | 772 | 31 kB, 61 kB |
 | `channel_mlp1d_{f32,f64}` | `ChannelMLP(4, hidden_channels=2)`; input (2, 4, 7) | 22 | 2 kB, 3 kB |
 | `channel_mlp3d_{f32,f64}` | `ChannelMLP(3, out_channels=5, hidden_channels=4, n_layers=3, non_linearity=torch.tanh)`; input (2, 3, 5, 4, 3) | 61 | 6 kB, 10 kB |
 | `linear_skip3d_{f32,f64}` | `skip_connection(3, 5, n_dim=3, skip_type="linear")`; input (2, 3, 5, 4, 3) | 15 | 5 kB, 9 kB |
@@ -89,6 +96,10 @@ Torch's CPU kernels can differ in the last bits between machines, so `--check` i
 reproducibility check on one machine; the committed files are the reference, and the
 sidecar names the platform that wrote them.
 
+The centred layer's `forward` also builds its spectrum as `cfloat` (library CM1.2), and on an
+axis of odd extent it applies `fftshift`, not `ifftshift`, before the inverse, moving its
+output spectrum by one bin (`spectral_conv2d_odd_extent`).
+
 ## Loss fixtures (CM1.6a)
 
 `generate_losses.py` (same `--check`) writes `tests/fixtures/parity/losses{1,2,3}d_{f32,f64}`:
@@ -100,3 +111,12 @@ a seeded pair `x`, `y` (2, 2, *grid) and a vector field `v` (2, D, *grid) on the
 `quantile.{sum,mean}`; `MSELoss` as `mse`; `LpLoss(d, p=2).rel` as `lp.rel`. `<bc>` is `per`
 (all periodic), `non` (none) or `mix` (x one-sided; D ≥ 2). Scalars are stored with shape
 (1,). The sidecar lists the settings; the Rust side is `tests/parity_losses*.rs`.
+
+`meta_losses_{f32,f64}` (CM1.6b), from the same script: `WeightedSumLoss([H1Loss(d=1),
+MSELoss()])` on a pair (2, 2, 32) with default and (0.3, 0.7) weights (`wsum.*`);
+`FieldwiseAggregatorLoss` on (16, 3), `u` channel 0 with `MSELoss`, `p` channel 2 with
+`PointwiseQuantileLoss(0.1)` (`fieldwise`); and `SoftAdapt` / `Relobralo` over 6 steps of 3
+seeded losses (`table`), with and without weights and Relobralo also at α = 0.9, β = 0.5,
+τ = 2: per step the aggregate, the weights and the gradient with respect to each loss
+(`<name>.{loss,weights,grad}`), and Relobralo's recorded Bernoulli draws (`<name>.rho`). The
+f64 fixture runs with torch's default dtype f64, so 2.0.0's buffers are f64 too.
