@@ -155,7 +155,11 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   block's norm choice, and `pointwise::linear_cf`; the FNO's block options are `FNOConfig`'s
   `activation` (CO1.1's `Activation`, ten functions since CM1.3b), `fno_skip`, `channel_mlp` (`BlockMlpConfig`), `norm`, `preactivation`, each
   `None` the original block, run by `FNO::fourier_layers`, parity in
-  `tests/parity_fno_blocks.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
+  `tests/parity_fno_blocks.rs`; since CM1.4 `layers/embedding.rs`: 2.0.0's
+  `GridEmbeddingNd`, `SinusoidalEmbedding`, `RotaryEmbedding2d` and the rotary helpers, and
+  `FNOConfig`'s `lifting_channel_ratio`, `projection_channel_ratio`, `positional_embedding`
+  (`PositionalEmbedding::{GridNd, Disabled}`), each `None` today's, parity in
+  `tests/parity_embeddings*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
   `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
   `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; parity in
