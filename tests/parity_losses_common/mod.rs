@@ -1,13 +1,17 @@
 //! Library CM1.6a: `FiniteDiff`, the Sobolev losses (H1, Hdiv), `PointwiseQuantileLoss`,
 //! `mse_loss` and `LpLoss::rel` against `neuraloperator` 2.0.0's, on the fixtures
 //! `tests/fixtures/parity/losses{1,2,3}d_{f32,f64}`; CM1.6b: the aggregators on
-//! `meta_losses_{f32,f64}` (both written by `tools/parity/generate_losses.py`).
+//! `meta_losses_{f32,f64}`; CM2.5: the equation losses on `equation_losses_{f32,f64}` (all
+//! written by `tools/parity/generate_losses.py`).
 //! Used by `tests/parity_losses.rs` (f32) and `tests/parity_losses_f64.rs`.
 
 use burn::{prelude::*, tensor::TensorData};
 use sciml_rs::neural_operators::losses::{
     data_losses::{LpLoss, Reduction},
     differentiation::FiniteDiff,
+    equation_losses::{
+        BurgersEqnLoss, PoissonEqnLoss, ic_loss, poisson_boundary_loss, poisson_interior_loss,
+    },
     meta_losses::{Field, FieldwiseAggregatorLoss, LossFn, Relobralo, SoftAdapt, WeightedSumLoss},
     pointwise::{PointwiseQuantileLoss, mse_loss},
     sobolev::SobolevLoss,
@@ -23,6 +27,9 @@ const ALPHA: f64 = 0.1;
 /// The bound on `lp.rel`: 2.0.0's eps of 1e-8 against norms ‖y‖ ≳ 1 (measured: 1.9e-9 at
 /// most, in f64).
 const LP_EPS_GAP: f64 = 1e-8;
+
+/// The Poisson point cloud's boundary points, first in the list (`generate_losses.py`).
+const POISSON_BOUNDARY: usize = 6;
 
 /// An open fixture and the worst D3 error seen on it so far.
 struct Checks {
@@ -228,4 +235,41 @@ fn adaptive(
     c.check(loss, &format!("{name}.loss"));
     c.check(host(weights), &format!("{name}.weights"));
     c.check(host(grads), &format!("{name}.grad"));
+}
+
+/// The equation-loss comparisons of `equation_losses_<precision>` (CM2.5), on `device`.
+/// 2.0.0 differentiates the Poisson u by autograd with respect to the query points; the
+/// fixture stores those derivatives, from which the crate's left-hand side is formed.
+pub fn run_equation(name: &str, device: &Device) {
+    let mut fx = Fixture::open(name);
+    let u: Tensor<4> = fx.tensor("u", device);
+    let x: Tensor<4> = fx.tensor("x", device);
+    let mut p = |key: &str| -> Tensor<1> { fx.tensor(&format!("poisson.{key}"), device) };
+    let (pu, ux, uy, lap, f) = (p("u"), p("u_x"), p("u_y"), p("lap"), p("f"));
+    let y: Tensor<3> = fx.tensor("poisson.y", device);
+    let mut c = Checks { fx, worst: 0.0 };
+
+    c.check(BurgersEqnLoss::default().loss(u.clone()), "burgers.default");
+    let visc = BurgersEqnLoss {
+        visc: 0.05,
+        domain_length: [2.0, 3.0],
+    };
+    c.check(visc.loss(u.clone()), "burgers.visc");
+    c.check(ic_loss(u, x), "ic");
+
+    let n = pu.dims()[0];
+    let y = y.reshape([n]);
+    let inner = pu.clone().narrow(0, POISSON_BOUNDARY, n - POISSON_BOUNDARY);
+    let interior = poisson_interior_loss(inner, [ux.clone(), uy.clone()], lap.clone(), f.clone());
+    c.check(interior, "poisson.interior");
+    let boundary = poisson_boundary_loss(pu.clone(), y.clone(), POISSON_BOUNDARY);
+    c.check(boundary, "poisson.boundary");
+    let eqn = PoissonEqnLoss {
+        interior_weight: 0.5,
+        boundary_weight: 2.0,
+    };
+    let out = eqn.points(pu, y, POISSON_BOUNDARY, [ux, uy], lap, f);
+    c.check(out, "poisson.eqn");
+
+    println!("{name}: worst relative max error {:.3e}", c.worst);
 }

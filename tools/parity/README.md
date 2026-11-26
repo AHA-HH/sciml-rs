@@ -121,3 +121,13 @@ seeded losses (`table`), with and without weights and Relobralo also at α = 0.9
 τ = 2: per step the aggregate, the weights and the gradient with respect to each loss
 (`<name>.{loss,weights,grad}`), and Relobralo's recorded Bernoulli draws (`<name>.rho`). The
 f64 fixture runs with torch's default dtype f64, so 2.0.0's buffers are f64 too.
+
+`equation_losses_{f32,f64}` (CM2.5), from the same script: `BurgersEqnLoss` at its defaults
+and at `visc=0.05, domain_length=[2, 3]` on a seeded `u` (2, 1, 10, 12) (`burgers.*`);
+`ICLoss()(u, x)` (`ic`); and on a point cloud `poisson.q` (1, 26, 2) of 6 boundary and 20
+interior points with u = sin(πx) cos(2y) + x²y of the query points, `PoissonInteriorLoss`,
+`PoissonBoundaryLoss` (seeded `poisson.y`) and `PoissonEqnLoss(boundary_weight=2,
+interior_weight=0.5)` (`poisson.{interior,boundary,eqn}`), with the source `poisson.f`. 2.0.0
+differentiates u by autograd; the fixture also stores u at every point and its autograd
+derivatives at the interior points (`poisson.{u,u_x,u_y,lap}`), from which the Rust side
+forms the left-hand side. Inputs drawn in f32 and cast for f64.

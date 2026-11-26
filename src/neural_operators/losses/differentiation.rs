@@ -5,9 +5,12 @@
 //! batch-like axis the stencils leave alone. Along a periodic axis the stencils wrap round;
 //! along a non-periodic one they are central inside and one-sided at the two ends, with
 //! 2.0.0's coefficients. 2.0.0's `central_diff_{1,2,3}d` are [`FiniteDiff::partial`] on each
-//! axis.
+//! axis. [`GridDiff`] is any such operator, [`MatrixDiff`] one by a matrix per axis
+//! (library CM2.5).
 
-use burn::tensor::Tensor;
+use burn::prelude::Device;
+use burn::tensor::{Tensor, TensorData};
+use ndarray::Array2;
 
 /// First and second derivatives on a uniform grid of `D` spatial axes.
 ///
@@ -195,10 +198,113 @@ impl<const D: usize> FiniteDiff<D> {
     }
 }
 
+/// Partial derivatives of order 1 or 2 along the spatial axes of a grid: the last `D` axes
+/// of a tensor, x first, as [`FiniteDiff`] (library CM2.5, for the equation losses).
+pub trait GridDiff<const D: usize> {
+    /// The derivative of order `order` (1 or 2) of `u` along spatial axis `axis` (0 = x).
+    /// `u`: `[.., s_1, .., s_D]`; the result has the same shape.
+    ///
+    /// # Panics
+    /// If `R < D`, `axis >= D`, `order` is not 1 or 2, or the axis does not fit the
+    /// operator.
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R>;
+
+    /// The Laplacian Σₐ ∂²u/∂xₐ². `u`: `[.., s_1, .., s_D]`; the result has the same shape.
+    ///
+    /// # Panics
+    /// As [`partial`](Self::partial).
+    fn laplacian<const R: usize>(&self, u: Tensor<R>) -> Tensor<R> {
+        (1..D).fold(self.partial(u.clone(), 0, 2), |acc, a| {
+            acc + self.partial(u.clone(), a, 2)
+        })
+    }
+}
+
+impl<const D: usize> GridDiff<D> for FiniteDiff<D> {
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
+        FiniteDiff::partial(self, u, axis, order)
+    }
+}
+
+/// Differentiation by a matrix per spatial axis: `(∂ᵏu)[.., i, ..] = Σⱼ Mₖ[i, j] u[.., j, ..]`
+/// along the axis, with `M₁` the first- and `M₂` the second-derivative matrix.
+#[derive(Clone, Debug)]
+pub struct MatrixDiff<const D: usize> {
+    /// Per axis, the transposes of M₁ and M₂: a contraction over the last axis is `u · Mᵀ`.
+    first_t: [Tensor<2>; D],
+    second_t: [Tensor<2>; D],
+}
+
+impl<const D: usize> MatrixDiff<D> {
+    /// From the first- and second-derivative matrices of each axis, each `[n_a, n_a]` for
+    /// that axis's `n_a` points, on `device`.
+    ///
+    /// # Panics
+    /// If a matrix is not square, or an axis's two matrices differ in size.
+    pub fn new(first: [Array2<f64>; D], second: [Array2<f64>; D], device: &Device) -> Self {
+        let transposed = |m: &Array2<f64>| {
+            let (rows, cols) = m.dim();
+            assert_eq!(rows, cols, "MatrixDiff: a {rows} × {cols} matrix");
+            let values = m.t().iter().copied().collect();
+            Tensor::from_data(TensorData::new(values, [rows, cols]), device)
+        };
+        for (a, (m1, m2)) in first.iter().zip(&second).enumerate() {
+            assert_eq!(
+                m1.dim(),
+                m2.dim(),
+                "MatrixDiff: axis {a}'s matrices differ in size"
+            );
+        }
+        Self {
+            first_t: first.each_ref().map(transposed),
+            second_t: second.each_ref().map(transposed),
+        }
+    }
+
+    /// The Chebyshev differentiation matrices ([`diff_matrix`], [`diff2_matrix`]) on the
+    /// `n[a]` ascending CGL nodes of [−1, 1] per axis (CONVENTIONS §12): spectral
+    /// derivatives of the polynomial interpolant. On another interval [a, b], scale the
+    /// first derivative by 2 / (b − a) and the second by its square.
+    ///
+    /// [`diff_matrix`]: crate::neural_operators::chebyshev::diff_matrix
+    /// [`diff2_matrix`]: crate::neural_operators::chebyshev::diff2_matrix
+    ///
+    /// # Panics
+    /// If some `n[a] < 2`.
+    #[cfg(feature = "datagen")]
+    pub fn chebyshev(n: [usize; D], device: &Device) -> Self {
+        use crate::neural_operators::chebyshev::{diff_matrix, diff2_matrix};
+        Self::new(n.map(diff_matrix), n.map(diff2_matrix), device)
+    }
+}
+
+impl<const D: usize> GridDiff<D> for MatrixDiff<D> {
+    fn partial<const R: usize>(&self, u: Tensor<R>, axis: usize, order: usize) -> Tensor<R> {
+        assert!(R >= D, "MatrixDiff: rank {R} below the {D} spatial axes");
+        assert!(axis < D, "MatrixDiff: axis {axis} of {D}");
+        let m = match order {
+            1 => &self.first_t[axis],
+            2 => &self.second_t[axis],
+            _ => panic!("MatrixDiff: order {order}; only 1 and 2"),
+        };
+        let n = m.dims()[0];
+        let dim = R - D + axis;
+        assert_eq!(
+            u.dims()[dim],
+            n,
+            "MatrixDiff: axis {axis} has {} points, its matrix {n}",
+            u.dims()[dim]
+        );
+        let moved = u.swap_dims(dim, R - 1);
+        let shape = moved.dims();
+        let rows: Tensor<2> = moved.reshape([-1, n as i32]);
+        rows.matmul(m.clone()).reshape(shape).swap_dims(dim, R - 1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::prelude::*;
     use std::f64::consts::PI;
 
     fn row(values: Vec<f64>) -> Tensor<2> {
@@ -329,5 +435,97 @@ mod tests {
             periodic: [true],
         }
         .curl_2d(v);
+    }
+
+    /// The periodic central-difference matrices of `n` points with step `h`.
+    fn periodic_matrices(n: usize, h: f64) -> (Array2<f64>, Array2<f64>) {
+        let at = |i: usize, j: usize, c: [f64; 3]| {
+            if j == (i + n - 1) % n {
+                c[0]
+            } else if j == i {
+                c[1]
+            } else if j == (i + 1) % n {
+                c[2]
+            } else {
+                0.0
+            }
+        };
+        let d1 = Array2::from_shape_fn((n, n), |(i, j)| at(i, j, [-0.5 / h, 0.0, 0.5 / h]));
+        let d2 = Array2::from_shape_fn((n, n), |(i, j)| {
+            at(i, j, [1.0 / (h * h), -2.0 / (h * h), 1.0 / (h * h)])
+        });
+        (d1, d2)
+    }
+
+    /// `MatrixDiff` with the periodic central-difference matrices is `FiniteDiff` periodic,
+    /// on both axes of a non-square grid, up to f32 rounding (≤ 9.8e-8 measured); so is
+    /// the Laplacian of `GridDiff`'s default.
+    #[test]
+    fn matrix_diff_matches_finite_diff() {
+        let device = Device::default();
+        let (h, (nx, ny)) = ([0.3, 0.2], (8, 6));
+        let (ax, bx) = periodic_matrices(nx, h[0]);
+        let (ay, by) = periodic_matrices(ny, h[1]);
+        let md = MatrixDiff::new([ax, ay], [bx, by], &device);
+        let fd = FiniteDiff {
+            h,
+            periodic: [true, true],
+        };
+        let data: Vec<f64> = (0..2 * nx * ny)
+            .map(|k| ((k * 37 % 11) as f64).sin())
+            .collect();
+        let u: Tensor<3> = Tensor::from_data(TensorData::new(data, [2, nx, ny]), &device);
+        let rel = |a: Tensor<3>, b: Tensor<3>| {
+            let scale = b.clone().abs().max().into_scalar::<f64>();
+            (a - b).abs().max().into_scalar::<f64>() / scale
+        };
+        for axis in 0..2 {
+            for order in [1, 2] {
+                let a = GridDiff::partial(&md, u.clone(), axis, order);
+                let err = rel(a, fd.partial(u.clone(), axis, order));
+                assert!(err < 1e-6, "axis {axis} order {order}: {err:e}");
+            }
+        }
+        let err = rel(GridDiff::laplacian(&md, u.clone()), fd.laplacian(u));
+        assert!(err < 1e-6, "laplacian: {err:e}");
+    }
+
+    /// Gradients flow through `MatrixDiff`: d Σ (M u)² / du = 2 Mᵀ M u, finite and non-zero.
+    #[test]
+    fn matrix_diff_gradient_flows() {
+        let device = Device::default().autodiff();
+        let (a, b) = periodic_matrices(6, 0.2);
+        let md = MatrixDiff::new([a], [b], &device);
+        let values: Vec<f64> = (0..6).map(|i| (i as f64).sin()).collect();
+        let u = Tensor::<2>::from_data(TensorData::new(values, [1, 6]), &device).require_grad();
+        let loss = GridDiff::partial(&md, u.clone(), 0, 1).square().sum();
+        let g = u.grad(&loss.backward()).unwrap();
+        let g = g.abs().max().into_scalar::<f64>();
+        assert!(g.is_finite() && g > 0.0, "{g}");
+    }
+
+    /// The Chebyshev matrices differentiate x³ exactly on 6 CGL nodes, up to f32 rounding
+    /// (≤ 3.3e-6 measured, in 2D).
+    #[cfg(feature = "datagen")]
+    #[test]
+    fn chebyshev_exact_on_a_cubic() {
+        use crate::neural_operators::chebyshev::nodes;
+        let x = nodes(6).to_vec();
+        let md = MatrixDiff::chebyshev([6], &Device::default());
+        let u = row(x.iter().map(|x| x.powi(3)).collect());
+        let d1 = values(GridDiff::partial(&md, u.clone(), 0, 1));
+        let d2 = values(GridDiff::partial(&md, u, 0, 2));
+        let exact1: Vec<f64> = x.iter().map(|x| 3.0 * x * x).collect();
+        let exact2: Vec<f64> = x.iter().map(|x| 6.0 * x).collect();
+        assert!(max_abs_diff(&d1, &exact1) < 1e-4, "{d1:?}");
+        assert!(max_abs_diff(&d2, &exact2) < 1e-4, "{d2:?}");
+    }
+
+    #[test]
+    #[should_panic(expected = "has 5 points, its matrix 6")]
+    fn matrix_diff_size_mismatch_panics() {
+        let (a, b) = periodic_matrices(6, 1.0);
+        let md = MatrixDiff::new([a], [b], &Device::default());
+        GridDiff::partial(&md, row(vec![0.0; 5]), 0, 1);
     }
 }
