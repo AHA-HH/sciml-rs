@@ -198,7 +198,7 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     `losses/differentiation.rs` (`FourierDiff`; the vector operators on `GridDiff`),
     `losses/non_uniform_fd.rs`; parity `tests/parity_losses.rs` (f32 ≤ 6.3e-7),
     `tests/parity_losses_f64.rs` (`non_uniform_fd` ≤ 1.2e-15; Fourier `#[ignore]`d at 4.0e-7,
-    Flex's f32 twiddles; the ridge case within 1e-9, a question for sign-off); fixtures
+    Flex's f32 twiddles; the ridge case within 1e-9, signed off 2026-11-26); fixtures
     `derivatives_{f32,f64}` from `tools/parity/generate_losses.py`.
 - [ ] **CM1.7 Training features.** Incremental modes and resolution, AdamW as 2.0.0's,
   mixed precision, multigrid patching. *Needs:* CM0.3, CM1.5.

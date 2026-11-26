@@ -82,7 +82,7 @@ within D3.
 - The ridge case (`regularize_lstsq=True`): 2.0.0's system (AᵀA + 1e-6 I) has condition
   ≈ 5e6, and its own f32 result is 4.0e-2 from its f64 result on the same inputs, so the f32
   test checks against the f64 reference within D3 (measured 7.3e-8), and the f64 test within
-  cond · ε ≈ 1e-9 (measured 6.4e-11). Added during implementation; a question for sign-off.
+  cond · ε ≈ 1e-9 (measured 6.4e-11). Added during implementation; signed off 2026-11-26.
 - Negative control: the 2D Fourier dx with the axes swapped fails (> 0.1).
 - Unit tests (`differentiation.rs`): `FourierDiff` exact (f32 rounding) on a trigonometric
   polynomial below Nyquist, orders 1–3, odd and even n; the Nyquist mode of an even grid has
@@ -116,4 +116,4 @@ None.
 ## Open questions
 
 1. The ridge case's bounds above (f32 against 2.0.0's f64 reference; f64 within 1e-9, not
-   D3's 1e-12), as `lp.rel`'s 1e-8 in CM1.6a.
+   D3's 1e-12), as `lp.rel`'s 1e-8 in CM1.6a. Signed off 2026-11-26 by the author: accept.

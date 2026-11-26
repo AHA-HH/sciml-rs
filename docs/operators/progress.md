@@ -487,8 +487,8 @@ template:
 - Checks: see the PR (fmt, clippy ×4, `cargo test`, `cargo test --features datagen`,
   `cargo doc`, `generate_losses.py --check`, the bit-identity dumps against `main`). Not run:
   `--features metal` (nothing backend-specific beyond Burn's `rfft`/`irfft`, `select`).
-- Decisions: none taken; question for sign-off: the ridge case's bounds (f32 against 2.0.0's
-  f64 reference within D3; f64 within 1e-9, not 1e-12).
+- Decisions: the ridge case's bounds (f32 against 2.0.0's f64 reference within D3; f64
+  within 1e-9, not 1e-12) signed off 2026-11-26 by the author: accept.
 - Review: plan review PASS (advisories fixed: plan text, the gradient test, the tie note).
   Code quality APPROVE with findings: F1 (`partial_sum` on `GridDiff`), F2 (one
   vector-calculus check), F3 (the ridge reference explicit), F4, F5 (`Stencils`), F8
