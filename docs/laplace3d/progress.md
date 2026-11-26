@@ -346,3 +346,22 @@ template:
 - 2D: unchanged bit for bit: the sidecar bytes by `files_round_trip`, the `.npz` writer not
   touched, the whole datagen suite passing.
 - Follow-ups: none in the roadmap; the L3 gate is next.
+
+## 2026-11-26: L3 gate
+- Done: gate report `docs/laplace3d/gates/L3.md`: the 3D datasets of D5 written (n = 33 and
+  65, 1000/200, 0.690 GB and 5.273 GB), label-checked (n = 65 max 6.2e-10, enforced ≤ 1e-8),
+  loadable (error 2 at n = 65 within 15 % of the 2D floor's mean at s = 32 and 64); met. The
+  roadmap's L3 gate closed 2026-11-26.
+- Tests: none new or re-run; the eight files in the main checkout's `datasets/poisson/`
+  re-checked for size and sidecar figures, the n = 65 SHA-256 equal to `results/cl3-2.md`;
+  `main`'s CI green after #164 (run 45834459796).
+- Checks: none beyond that (docs only: proposal §7 and Appendix A, roadmap, this log).
+- Decisions: signed off by the author 2026-11-26: the gate with C1 (§7's measured storage
+  and generation time, n = 65 generated on the Mac); Q1 "two tasks after L4" (CL3.5,
+  CL3.6); Q2 "split as proposed" (CL4.2's first commit, CL3.6, the sidecar key later).
+- Review: thermo-nuclear review of the four L3 PRs BLOCKED, B−, on 2D/3D duplication in
+  `dataset3d.rs`, `SidecarFacts` and `Poisson3dSet`; no correctness or constraint 1 problem
+  (report git-ignored, `docs/code-quality/thermo-nuclear-review-2026-11-26-laplace3d-L3-gate.md`).
+  The blocker goes to CL3.5 and CL3.6 (Q1), not fixed here.
+- 2D: not touched (no code).
+- Follow-ups: CL4.1 (in progress), CL4.2 (its first commit per Q2), then CL3.5 and CL3.6.

@@ -226,7 +226,7 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
 | Quantity | 2D (measured or stated) | 3D, n = 33 (s = 32) | 3D, n = 65 (s = 64) | 3D, n = 129 |
 | --- | --- | --- | --- | --- |
 | Points per sample | 65² = 4225 | 35 937 | 274 625 | 2.15 M |
-| Storage, f + u, f64, 1200 samples | about 80 MB (n = 65) | about 0.69 GB | about 5.3 GB | about 41 GB |
+| Storage, f + u, f64, 1200 samples | about 80 MB (n = 65) | about 0.69 GB; measured 0.690 GB | about 5.3 GB; measured 5.273 GB | about 41 GB |
 | Spectral parameters, width 32, 4 layers, modes 12 per axis | 2 359 296 (2 corners) | about 56.6 M (4 corners) | about 56.6 M | – |
 | Same, modes 8 per axis | – | about 16.8 M | about 16.8 M | – |
 | Parameters in total (fc0, w, fc1, fc2 added), modes 12 / 8 | 2 368 001 (Phase 5) | 56 631 841 / 16 785 953 (measured, exact) | same | – |
@@ -235,12 +235,14 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
 | Time per epoch, 1000 + 200, batch 20, modes 12³ (measured) | 1.7 s (s = 64, cuda) | 11.4 s cuda, 60–66 s metal | 64.0 s cuda, 388–419 s metal (batch ≤ 4) | – |
 | Train split on the device, f32 | – | about 0.3 GB | about 2.1 GB | – |
 | Solver A3 per sample | – | 12 (n − 2)⁴ ≈ 1.1e7 flops; measured 0.38–0.49 ms (M2 Pro) | ≈ 1.9e8; measured 5.5–17.6 ms | ≈ 3.1e9 |
+| Generation, 1200 samples (GRF, A3, label check, error 2; the write not timed; measured, M2 Pro, release) | – | 4.6 s | 31.2 s | – |
 
 - The unmarked figures are estimates from the formulas; the activation estimates scale
   the 2D measurement by the 64× point count. "Measured" figures are 3D CL0.1's
   (`docs/laplace3d/results/cl0-1.md`: Apple M2 Pro for flex and metal, one A100 80 GB for
-  cuda), which decided D4 and D8. The measured activations are 10–43 % under the estimates,
-  which are kept as bounds.
+  cuda), which decided D4 and D8, except the solver's (3D CL2.1) and the storage and
+  generation figures (3D CL3.2, `docs/laplace3d/results/cl3-2.md`). The measured
+  activations are 10–43 % under the estimates, which are kept as bounds.
 - The VM's GPUs are A100 80 GB (checked 2026-11-11) and it has about 500 GB of host memory,
   so s = 64 at batch 20 fits one GPU on these estimates; D4 fixes the batch with the
   model size. Loading n = 65 needs over 10 GB of host memory (f64 raw and transferred
@@ -250,8 +252,9 @@ Only §12 needs additions; §1 and §2 are already rank-generic (Section 3.2).
   overhead-bound (batch 10 → 20 halves it), and the modes cost at most 11 %. 500 epochs at
   batch 20 take about 1.6 h (s = 32) and 8.9 h (s = 64) on an A100, about 8 h and 55 h on
   metal.
-- The n = 65 set (about 5.3 GB, train held in memory while written) is generated on the VM
-  (`datagen` needs FFTW and OpenBLAS there). Files above 4 GiB need zip64 in the npz
+- The n = 65 set (5.27 GB, train held in memory while written) was generated on the Mac
+  and uploaded to the VM, SHA-256 identical on both (3D CL3.2, the author's choice of
+  2026-11-25: the VM's `datagen` build then lacked FFTW; fixed afterwards, #159). Files above 4 GiB need zip64 in the npz
   writer and reader. Measured (CL0.1): a 4.09 GiB `.npz` written as `write_split` writes
   it round-trips bit for bit on the Mac and the VM, so one file per split. The limit is
   per member: zip 6 refuses one field above 4 GiB unless `large_file` is set, which at
@@ -379,3 +382,6 @@ The 2D design and its references; `docs/CONVENTIONS.md`.
 - **Draft 0.2, amended at the 3D L2 gate (2026-11-25, `docs/laplace3d/gates/L2.md`).** No
   change to the plan: Section 7's solver row gives 3D CL2.1's measured time per solve beside
   the flop counts (C1).
+- **Draft 0.2, amended at the 3D L3 gate (2026-11-26, `docs/laplace3d/gates/L3.md`).** No
+  change to the plan: Section 7 gives 3D CL3.2's measured storage and generation time, and
+  records that the n = 65 set was generated on the Mac and uploaded to the VM (C1).
