@@ -41,7 +41,7 @@ use crate::neural_operators::chebyshev::{
 use crate::neural_operators::data::loaders::poisson::SidecarRecord;
 use crate::neural_operators::runs::EpochMetrics;
 use burn::config::Config;
-use ndarray::{Array1, ArrayView, ArrayView3, ArrayViewD, Axis, Dimension, Ix3, RemoveAxis};
+use ndarray::{Array1, ArrayView, ArrayView3, ArrayViewD, Axis, Dimension, RemoveAxis};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -77,7 +77,8 @@ pub struct PoissonErrors {
 /// as a tensor product, and along each of the four edges of ∂Ω, so each corner node
 /// carries the end weights of both its edges; the boundary maximum visits it twice, which
 /// does not change the maximum. A sample with u ≡ 0 gives NaN or infinity, as
-/// [`cc_rel_l2_error_weighted`] does.
+/// [`cc_rel_l2_error_weighted`](crate::neural_operators::chebyshev::cc_rel_l2_error_weighted)
+/// does.
 ///
 /// # Panics
 /// If `pred` and `u` hold different numbers of samples, either is not square in its
@@ -121,8 +122,8 @@ pub fn poisson_errors(
 /// - `u`: the raw solutions on the CGL grid, `[N, n, …, n]`, of the same rank.
 /// - `transfers`: the run's R and P, applied along every axis.
 ///
-/// Rank 3 arrays (2D fields) are [`poisson_errors`] itself, bit for bit (3D D1, D2).
-/// Otherwise the errors are those of the module docs with tensor Clenshaw–Curtis weights
+/// Rank 3 arrays (2D fields) give [`poisson_errors`]' bits: both run one per-sample loop
+/// (3D D1, D2; CL4.1). The errors are those of the module docs with tensor Clenshaw–Curtis weights
 /// over every axis, and error 5 sums the 2r faces of ∂Ω, each with the tensor weights of
 /// its r − 1 coordinates, so a node on an edge or corner is counted once per face that
 /// holds it. The relative boundary RMS normalises by the total face area r · 2^r against
@@ -148,13 +149,6 @@ pub fn poisson_errors_nd<D: RemoveAxis>(
         pred.ndim(),
         u.ndim()
     );
-    if u.ndim() == 3 {
-        return poisson_errors(
-            pred.into_dimensionality::<Ix3>().expect("rank 3"),
-            u.into_dimensionality::<Ix3>().expect("rank 3"),
-            transfers,
-        );
-    }
     let (np, nu) = (pred.len_of(Axis(0)), u.len_of(Axis(0)));
     assert_eq!(
         np, nu,
@@ -373,11 +367,9 @@ pub struct PoissonEvaluation {
     pub error2: Error2Check,
     /// The error 3 cross-check against the run's last test_l2.
     pub error3: Error3Check,
-    /// The run directory, for the report's `poisson_plot` command.
-    pub run_dir: PathBuf,
-    /// The fields' spatial dimension: 2 from [`evaluate`], 3 from [`evaluate_3d`]. The
-    /// report names `poisson_plot`, a 2D example, only in 2D.
-    pub spatial_dims: usize,
+    /// The run directory for the report's `poisson_plot` command (2D, from [`evaluate`]);
+    /// `None` from [`evaluate_3d`], as no example plots a 3D sample.
+    pub plot_run_dir: Option<PathBuf>,
 }
 
 /// Evaluates the per-sample `errors` of a run's test split, as `predict_poisson` reports
@@ -408,6 +400,56 @@ pub fn evaluate(
     device: String,
     backend_features: Vec<String>,
     run_dir: &Path,
+) -> PoissonEvaluation {
+    PoissonEvaluation {
+        plot_run_dir: Some(run_dir.to_path_buf()),
+        ..evaluate_core(
+            errors,
+            transfers,
+            sidecar,
+            last,
+            device,
+            backend_features,
+            ERROR1_QUOTE,
+        )
+    }
+}
+
+/// [`evaluate`] for a 3D run, whose `errors` come from [`poisson_errors_nd`] on 3D fields
+/// (3D CL4.1): the same record, the 2D type (no 3D field is new), with error 1 quoted as
+/// [`ERROR1_QUOTE_3D`], and a report without the `poisson_plot` command.
+///
+/// # Panics
+/// As [`evaluate`].
+pub fn evaluate_3d(
+    errors: &PoissonErrors,
+    transfers: &Transfers,
+    sidecar: &SidecarRecord,
+    last: &EpochMetrics,
+    device: String,
+    backend_features: Vec<String>,
+) -> PoissonEvaluation {
+    evaluate_core(
+        errors,
+        transfers,
+        sidecar,
+        last,
+        device,
+        backend_features,
+        ERROR1_QUOTE_3D,
+    )
+}
+
+/// [`evaluate`] and [`evaluate_3d`] but for the plot's run directory (`None` here): the
+/// record with error 1 quoted as `error1`, and both cross-checks.
+fn evaluate_core(
+    errors: &PoissonErrors,
+    transfers: &Transfers,
+    sidecar: &SidecarRecord,
+    last: &EpochMetrics,
+    device: String,
+    backend_features: Vec<String>,
+    error1: &str,
 ) -> PoissonEvaluation {
     let (n, s) = (transfers.n(), transfers.s());
     let n_test = errors.total.len();
@@ -461,7 +503,7 @@ pub fn evaluate(
         s,
         device,
         backend_features,
-        error1: ERROR1_QUOTE.to_string(),
+        error1: error1.to_string(),
         error2: e2,
         error2_sidecar: e2_sidecar,
         error2_compared: e2_rel_diff.is_some(),
@@ -482,38 +524,8 @@ pub fn evaluate(
         record,
         error2: e2_check,
         error3: e3_check,
-        run_dir: run_dir.to_path_buf(),
-        spatial_dims: 2,
+        plot_run_dir: None,
     }
-}
-
-/// [`evaluate`] for a 3D run, whose `errors` come from [`poisson_errors_nd`] on 3D fields
-/// (3D CL4.1): the same record, the 2D type (no 3D field is new), with error 1 quoted as
-/// [`ERROR1_QUOTE_3D`], and a report without the `poisson_plot` command.
-///
-/// # Panics
-/// As [`evaluate`].
-pub fn evaluate_3d(
-    errors: &PoissonErrors,
-    transfers: &Transfers,
-    sidecar: &SidecarRecord,
-    last: &EpochMetrics,
-    device: String,
-    backend_features: Vec<String>,
-    run_dir: &Path,
-) -> PoissonEvaluation {
-    let mut eval = evaluate(
-        errors,
-        transfers,
-        sidecar,
-        last,
-        device,
-        backend_features,
-        run_dir,
-    );
-    eval.record.error1 = ERROR1_QUOTE_3D.to_string();
-    eval.spatial_dims = 3;
-    eval
 }
 
 fn rel_diff(a: f64, b: f64) -> f64 {
@@ -556,11 +568,11 @@ impl fmt::Display for PoissonEvaluation {
             writeln!(f, "{name:<34} {:>12.4e} {:>12.4e}", st.mean, st.max)?;
         }
         let worst = r.error4_worst_sample;
-        if self.spatial_dims == 2 {
+        if let Some(dir) = &self.plot_run_dir {
             writeln!(
                 f,
                 "worst sample (max error 4): {worst}; plot it with: poisson_plot -- {} {worst}",
-                self.run_dir.display()
+                dir.display()
             )?;
         } else {
             writeln!(f, "worst sample (max error 4): {worst}")?;

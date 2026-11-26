@@ -175,6 +175,9 @@ Q2 the 3D label check to CL3.2, the three doc fixes to CL3.3's first commit.
   with errors 2–5 against the 3D floor, and 2D Phase 5 at the same s as context (the
   input families differ, proposal §3.3). Before its first cuda run, CL0.2's cases run on
   cuda: `cargo test --release --no-default-features --features cuda --test gpu_parity`.
+  First commit (CL4.1 code-quality review F3): a 3D set lookup by n in
+  `data/catalogue` (as `stage` for 2D), used by `train_poisson3d` and `predict_poisson3d`
+  in place of their two inline `GENERATED_3D` searches.
   Follow-up (L0 gate Q2), for whichever task next edits `tests/gpu_parity.rs`: one gated
   `mod gpu`, one `compare` helper, a named `Side` struct, and the qualified "zeroed entries
   cannot hide" doc comment; test-only, no behaviour change.

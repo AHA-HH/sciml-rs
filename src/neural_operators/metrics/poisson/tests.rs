@@ -262,7 +262,6 @@ fn evaluate_3d_differs_only_in_error1_and_the_plot_hint() {
         &last_epoch(),
         "Cpu".into(),
         vec![],
-        Path::new("runs/x"),
     );
     assert_eq!(three.record.error1, ERROR1_QUOTE_3D);
     let mut record = three.record.clone();
@@ -625,6 +624,8 @@ fn boundary_errors_frozen(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f6
         .flat_map(|e| e.iter())
         .fold(0.0_f64, |m, v| m.max(v.abs()));
     let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+
+    // ∮ û² ds as four edge integrals of length 2 each (the weights sum to 2 per edge)
     let line: f64 = edges
         .iter()
         .map(|e| e.iter().zip(w).map(|(v, wi)| wi * v * v).sum::<f64>())
@@ -640,12 +641,22 @@ fn poisson_errors_frozen(
     u: ArrayView3<f64>,
     transfers: &Transfers,
 ) -> PoissonErrors {
-    let w = clencurt(u.dim().1);
-    let mut errors = PoissonErrors::default();
+    let (nu, n) = (u.dim().0, u.dim().1);
+    let w = clencurt(n);
+
+    let mut errors = PoissonErrors {
+        transfer: Vec::with_capacity(nu),
+        model: Vec::with_capacity(nu),
+        total: Vec::with_capacity(nu),
+        u_norm: Vec::with_capacity(nu),
+        boundary_max_ratio: Vec::with_capacity(nu),
+        boundary_rel_rms: Vec::with_capacity(nu),
+    };
     for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
         let u_uni = transfers.to_uniform(ui);
         let round_trip = transfers.to_cheb(u_uni.view());
         let u_hat = transfers.to_cheb(p);
+
         errors.transfer.push(cc_rel_l2_error_weighted(
             round_trip.view(),
             ui,
@@ -695,8 +706,13 @@ fn nd_rank_two_is_bit_identical_to_2d() {
         + Array3::from_shape_fn((count, n, n), |(k, i, j)| 0.01 * noise(k + 5, i, j));
     for s in [n - 1, 8] {
         let transfers = Transfers::with_s(n, s);
-        for pred in d2_predictions(&u, &transfers) {
+        for (case, pred) in d2_predictions(&u, &transfers).into_iter().enumerate() {
             let old = bits(&poisson_errors_frozen(pred.view(), u.view(), &transfers));
+            // the zero-on-∂Ω cases reach error 5 with û exactly zero there (T_uc's rows at
+            // ±1 are unit rows), else they would not exercise the −0.0 question
+            if case > 0 {
+                assert_eq!(old[4], vec![0.0_f64.to_bits(); count], "case {case}");
+            }
             assert_eq!(
                 bits(&poisson_errors(pred.view(), u.view(), &transfers)),
                 old

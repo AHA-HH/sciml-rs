@@ -48,10 +48,11 @@ CGL grid, with one per-sample error loop for 2D and 3D.
    shortcut and the 2D `boundary_errors` go; `boundary_errors_nd` takes max |u| in place
    of u. `nd_boundary_at_rank_two_matches_2d` and `nd_rank_two_is_bit_identical_to_2d`
    compare against the frozen copy instead of the removed functions.
-2. **`metrics/poisson` (3D evaluate).** `evaluate`'s body becomes a private core taking
-   the error 1 quote; `evaluate` calls it with `ERROR1_QUOTE` (2D record unchanged), a new
-   `evaluate_3d` with `ERROR1_QUOTE_3D` (A3's floor, CL2.1). The report's plot hint names
-   `poisson_plot` in 2D only (no 3D plot example). The record type: see Open questions.
+2. **`metrics/poisson` (3D evaluate).** `evaluate`'s body becomes a private
+   `evaluate_core` taking the error 1 quote; `evaluate` calls it with `ERROR1_QUOTE` and
+   sets `PoissonEvaluation::plot_run_dir` (which replaces `run_dir`; 2D record and report
+   unchanged), a new `evaluate_3d` (no run directory) with `ERROR1_QUOTE_3D` (A3's floor,
+   CL2.1) and no plot hint (no 3D plot example). The record type: see Open questions.
 3. **`examples/train/poisson3d.rs`** (`train_poisson3d`, registered in `Cargo.toml`):
    `FNO<5>`, D4's width 32, 4 layers, modes min(12, s/2)³, batch 20, Adam with 2D's
    literals (lr 1e-3, weight decay 1e-4, cosine to 1e-5, 500 epochs, padding 4).
@@ -74,13 +75,13 @@ Conventions: none changed (CONVENTIONS §12's 3D norms and error 5 are CL1.1's).
 
 ## Tests that prove it
 - D2, the oracle being today's `poisson_errors` frozen in `tests.rs`:
-  `poisson_errors_is_bit_identical_to_frozen` (new; the existing cases of
-  `nd_rank_two_is_bit_identical_to_2d` plus the zero-on-∂Ω and zero predictions, both
-  entry points, standard and transposed layouts). Bit identity.
+  `nd_rank_two_is_bit_identical_to_2d` (extended: its cases plus the zero-on-∂Ω and zero
+  predictions, through both entry points, standard and transposed layouts, against the
+  frozen oracle; it asserts that the zero cases give û = 0 on ∂Ω). Bit identity.
 - The existing 2D `metrics::poisson` tests unedited (except the two whose reference was a
   removed function), and the whole 2D suite.
-- `evaluate`: the existing tests unedited (the 2D record and report unchanged); a new
-  test that `evaluate_3d` gives the same record as `evaluate` but for `error1`.
+- `evaluate`: the existing tests unedited (the 2D record and report unchanged);
+  `evaluate_3d_differs_only_in_error1_and_the_plot_hint`.
 - The examples: built by `cargo clippy --examples`; the Done when by the short run below.
 
 ## Checks
@@ -109,6 +110,19 @@ None (CL4.2).
 - Error 3's cross-check compares f64 host errors with f32 device test_l2 to 1e-5, as in 2D;
   in 3D the sums run over 32³ points, so round-off is larger. If it fails on the short
   run, that is a finding for the author, not a tolerance to widen here.
+
+## Short run (the Done when), 2026-11-26
+Mac (M2 Pro), metal, release, at 3ae7a04: `EPOCHS=2 train_poisson3d -- 4 33` wrote
+`runs/poisson3d_fno_n33_s32_p4_1795700678/` (configs, `metrics.csv`, normalizers, weights,
+checkpoint, `costs.json`; 56,631,841 parameters); test_l2 0.341 after epoch 0, 0.211 after
+epoch 1. `predict_poisson3d` on it exited 0: errors 2 / 3 / 4 mean 1.91e-4 / 0.2105 /
+0.2105, error 5 relative RMS 5.9e-5; error 2 against the sidecar rel diff 1.4e-16 (mean),
+0 (max); mean error 3 against test_l2 rel diff 1.7e-7 (tol 1e-5); `errors.json` written.
+Epochs took 2,009 s and 1,594 s against CL0.1's ~60 s on metal: the Mac was loaded
+(load average 27 on 10 cores, the optimisers lane's training runs), so these times are not
+a measurement. A first attempt was killed by the tool's 10-minute limit during epoch 0 and
+its directory removed. The final code changes after this run (review fixes F1, F2) touch
+neither the training path nor the numbers `predict_poisson3d` computes.
 
 ## Pending runs
 None.

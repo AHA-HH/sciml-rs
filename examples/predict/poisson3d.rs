@@ -100,7 +100,6 @@ fn main() {
         metrics.last().expect("metrics.csv has epochs"),
         format!("{device:?}"),
         backend_features().into_iter().map(String::from).collect(),
-        dir,
     );
     println!("\n{eval}");
 
