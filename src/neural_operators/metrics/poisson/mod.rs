@@ -23,7 +23,8 @@
 //! error is summarised over the samples with [`ErrorStats`]. [`evaluate`] applies the
 //! evaluation policy, the worst sample, both cross-checks and the boundary verdict, and
 //! returns a [`PoissonEvaluation`]: the [`PoissonErrorsRecord`] a run's `errors.json`
-//! holds, with the report `predict_poisson` prints.
+//! holds, with the report `predict_poisson` prints; [`evaluate_3d`] the same for a 3D run,
+//! the report `predict_poisson3d` prints (3D CL4.1).
 //!
 //! Error 1 (the solver) needs the `datagen` feature and is quoted, not recomputed (design
 //! §12, decision 16). Everything here is ndarray and f64, built without `datagen`
@@ -260,6 +261,9 @@ pub const BOUNDARY_THRESHOLD: f64 = 0.10;
 pub const ERROR1_QUOTE: &str =
     "solver A floor <= 1e-12 from n = 33 (manufactured); A vs C order 1.993-1.999 (Phase 1 T2, T3)";
 
+/// Error 1 of a 3D run, quoted from the 3D solver A3's results, as [`evaluate_3d`] records it.
+pub const ERROR1_QUOTE_3D: &str = "solver A3 floor <= 1e-12 from n = 33 (manufactured and sine-series closed forms, max norm and CC L2; 3D CL2.1)";
+
 /// The error 2 cross-check against the test split's sidecar, from [`evaluate`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Error2Check {
@@ -371,6 +375,9 @@ pub struct PoissonEvaluation {
     pub error3: Error3Check,
     /// The run directory, for the report's `poisson_plot` command.
     pub run_dir: PathBuf,
+    /// The fields' spatial dimension: 2 from [`evaluate`], 3 from [`evaluate_3d`]. The
+    /// report names `poisson_plot`, a 2D example, only in 2D.
+    pub spatial_dims: usize,
 }
 
 /// Evaluates the per-sample `errors` of a run's test split, as `predict_poisson` reports
@@ -476,7 +483,37 @@ pub fn evaluate(
         error2: e2_check,
         error3: e3_check,
         run_dir: run_dir.to_path_buf(),
+        spatial_dims: 2,
     }
+}
+
+/// [`evaluate`] for a 3D run, whose `errors` come from [`poisson_errors_nd`] on 3D fields
+/// (3D CL4.1): the same record, the 2D type (no 3D field is new), with error 1 quoted as
+/// [`ERROR1_QUOTE_3D`], and a report without the `poisson_plot` command.
+///
+/// # Panics
+/// As [`evaluate`].
+pub fn evaluate_3d(
+    errors: &PoissonErrors,
+    transfers: &Transfers,
+    sidecar: &SidecarRecord,
+    last: &EpochMetrics,
+    device: String,
+    backend_features: Vec<String>,
+    run_dir: &Path,
+) -> PoissonEvaluation {
+    let mut eval = evaluate(
+        errors,
+        transfers,
+        sidecar,
+        last,
+        device,
+        backend_features,
+        run_dir,
+    );
+    eval.record.error1 = ERROR1_QUOTE_3D.to_string();
+    eval.spatial_dims = 3;
+    eval
 }
 
 fn rel_diff(a: f64, b: f64) -> f64 {
@@ -519,11 +556,15 @@ impl fmt::Display for PoissonEvaluation {
             writeln!(f, "{name:<34} {:>12.4e} {:>12.4e}", st.mean, st.max)?;
         }
         let worst = r.error4_worst_sample;
-        writeln!(
-            f,
-            "worst sample (max error 4): {worst}; plot it with: poisson_plot -- {} {worst}",
-            self.run_dir.display()
-        )?;
+        if self.spatial_dims == 2 {
+            writeln!(
+                f,
+                "worst sample (max error 4): {worst}; plot it with: poisson_plot -- {} {worst}",
+                self.run_dir.display()
+            )?;
+        } else {
+            writeln!(f, "worst sample (max error 4): {worst}")?;
+        }
         writeln!(
             f,
             "correlation of ln(error 4) with ln ||u|| over the test split: {:.3}",

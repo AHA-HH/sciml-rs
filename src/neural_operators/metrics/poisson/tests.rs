@@ -248,6 +248,38 @@ fn eval_at(errors: &PoissonErrors, sidecar: &SidecarRecord, s: usize) -> Poisson
     )
 }
 
+// 3D CL4.1: a 3D run's evaluation is the 2D one but for the quoted error 1 and the
+// report's poisson_plot hint
+#[test]
+fn evaluate_3d_differs_only_in_error1_and_the_plot_hint() {
+    let e = synthetic(&[0.1, 0.3, 0.2, 0.3], 1e-5, 0.01);
+    let sidecar = sidecar(4, 1e-5);
+    let two = eval(&e, &sidecar);
+    let three = evaluate_3d(
+        &e,
+        &Transfers::with_s(65, 64),
+        &sidecar,
+        &last_epoch(),
+        "Cpu".into(),
+        vec![],
+        Path::new("runs/x"),
+    );
+    assert_eq!(three.record.error1, ERROR1_QUOTE_3D);
+    let mut record = three.record.clone();
+    record.error1 = ERROR1_QUOTE.to_string();
+    assert_eq!(format!("{record:?}"), format!("{:?}", two.record));
+    assert_eq!((three.error2, three.error3), (two.error2, two.error3));
+
+    let (report2, report3) = (two.to_string(), three.to_string());
+    assert!(report2.contains("poisson_plot"), "{report2}");
+    assert!(!report3.contains("poisson_plot"), "{report3}");
+    assert!(report3.contains(ERROR1_QUOTE_3D), "{report3}");
+    assert!(
+        report3.contains("worst sample (max error 4): 1"),
+        "{report3}"
+    );
+}
+
 #[test]
 fn evaluate_picks_the_first_worst_sample() {
     let e = synthetic(&[0.1, 0.3, 0.2, 0.3], 1e-5, 0.0);
