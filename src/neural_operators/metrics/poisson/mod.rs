@@ -35,15 +35,12 @@
 
 use super::stats::ErrorStats;
 use crate::neural_operators::chebyshev::{
-    TRANSFER_DEGREE, Transfers, cc_norm_sq, cc_norm_sq_nd, cc_rel_l2_error_weighted,
-    cc_rel_l2_error_weighted_nd, clencurt,
+    TRANSFER_DEGREE, Transfers, cc_norm_sq_nd, cc_rel_l2_error_weighted_nd, clencurt,
 };
 use crate::neural_operators::data::loaders::poisson::SidecarRecord;
 use crate::neural_operators::runs::EpochMetrics;
 use burn::config::Config;
-use ndarray::{
-    Array1, Array2, ArrayView, ArrayView2, ArrayView3, ArrayViewD, Axis, Dimension, Ix3, RemoveAxis,
-};
+use ndarray::{Array1, ArrayView, ArrayView3, ArrayViewD, Axis, Dimension, Ix3, RemoveAxis};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -113,42 +110,7 @@ pub fn poisson_errors(
         "poisson_errors: pred and u must be on the transfers' grids (s, n)"
     );
 
-    let w = clencurt(n);
-
-    let mut errors = PoissonErrors {
-        transfer: Vec::with_capacity(nu),
-        model: Vec::with_capacity(nu),
-        total: Vec::with_capacity(nu),
-        u_norm: Vec::with_capacity(nu),
-        boundary_max_ratio: Vec::with_capacity(nu),
-        boundary_rel_rms: Vec::with_capacity(nu),
-    };
-    for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
-        let u_uni = transfers.to_uniform(ui);
-        let round_trip = transfers.to_cheb(u_uni.view());
-        let u_hat = transfers.to_cheb(p);
-
-        errors.transfer.push(cc_rel_l2_error_weighted(
-            round_trip.view(),
-            ui,
-            w.view(),
-            w.view(),
-        ));
-        errors.model.push(rel_l2_equal_weights(p, u_uni.view()));
-        errors.total.push(cc_rel_l2_error_weighted(
-            u_hat.view(),
-            ui,
-            w.view(),
-            w.view(),
-        ));
-        errors
-            .u_norm
-            .push(cc_norm_sq(ui, w.view(), w.view()).sqrt());
-        let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
-        errors.boundary_max_ratio.push(ratio);
-        errors.boundary_rel_rms.push(rms);
-    }
-    errors
+    per_sample(pred, u, transfers)
 }
 
 /// [`poisson_errors`] for 2D or 3D fields (rank r = 2 or 3, the ranks CONVENTIONS §12
@@ -205,7 +167,18 @@ pub fn poisson_errors_nd<D: RemoveAxis>(
         u.shape()
     );
 
-    let w = clencurt(n);
+    per_sample(pred, u, transfers)
+}
+
+/// The errors of every sample, for [`poisson_errors`] and [`poisson_errors_nd`] after their
+/// checks: `pred: [N, s, …, s]` and `u: [N, n, …, n]`, two or three spatial axes. At rank 2
+/// it gives the bits of `poisson_errors` before 3D CL4.1 (the D2 oracle in the tests).
+fn per_sample<D: RemoveAxis>(
+    pred: ArrayView<f64, D>,
+    u: ArrayView<f64, D>,
+    transfers: &Transfers,
+) -> PoissonErrors {
+    let w = clencurt(transfers.n());
     let ws = vec![w.view(); u.ndim() - 1];
     let mut errors = PoissonErrors::default();
     for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
@@ -224,7 +197,8 @@ pub fn poisson_errors_nd<D: RemoveAxis>(
             .push(cc_rel_l2_error_weighted_nd(u_hat.view(), ui.view(), &ws));
         let u_sq = cc_norm_sq_nd(ui.view(), &ws);
         errors.u_norm.push(u_sq.sqrt());
-        let (ratio, rms) = boundary_errors_nd(u_hat.view().into_dyn(), ui.into_dyn(), &w, u_sq);
+        let max_u = ui.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let (ratio, rms) = boundary_errors_nd(u_hat.view().into_dyn(), &w, u_sq, max_u);
         errors.boundary_max_ratio.push(ratio);
         errors.boundary_rel_rms.push(rms);
     }
@@ -584,41 +558,17 @@ fn rel_l2_equal_weights<D: Dimension>(a: ArrayView<f64, D>, b: ArrayView<f64, D>
     (num / den).sqrt()
 }
 
-/// Error 5 for one sample: `(max ratio, relative boundary RMS)` of `u_hat: [n, n]` against
-/// `u: [n, n]`, both on the CGL grid, with Clenshaw–Curtis weights `w: [n]`.
-fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> (f64, f64) {
-    let last = u_hat.nrows() - 1;
-    let edges = [
-        u_hat.row(0),
-        u_hat.row(last),
-        u_hat.column(0),
-        u_hat.column(last),
-    ];
-    let max_edge = edges
-        .iter()
-        .flat_map(|e| e.iter())
-        .fold(0.0_f64, |m, v| m.max(v.abs()));
-    let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-
-    // ∮ û² ds as four edge integrals of length 2 each (the weights sum to 2 per edge)
-    let line: f64 = edges
-        .iter()
-        .map(|e| e.iter().zip(w).map(|(v, wi)| wi * v * v).sum::<f64>())
-        .sum();
-    let area = cc_norm_sq(u, w.view(), w.view());
-    (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
-}
-
 /// Error 5 for one sample of rank r: `(max ratio, relative boundary RMS)` of
-/// `u_hat: [n, …, n]` against `u: [n, …, n]`, both on the CGL grid, with Clenshaw–Curtis
-/// weights `w: [n]` on every axis and `u_sq`, ‖u‖² in that norm (see [`poisson_errors_nd`]).
+/// `u_hat: [n, …, n]` on the CGL grid, with Clenshaw–Curtis weights `w: [n]` on every
+/// axis, against u through `u_sq`, ‖u‖² in that norm, and `max_u`, max over Ω of |u| (see
+/// [`poisson_errors_nd`]).
 fn boundary_errors_nd(
     u_hat: ArrayViewD<f64>,
-    u: ArrayViewD<f64>,
     w: &Array1<f64>,
     u_sq: f64,
+    max_u: f64,
 ) -> (f64, f64) {
-    let r = u.ndim();
+    let r = u_hat.ndim();
     let last = u_hat.len_of(Axis(0)) - 1;
     let face_ws = vec![w.view(); r - 1];
     let (mut surface, mut max_face) = (0.0, 0.0_f64);
@@ -629,8 +579,6 @@ fn boundary_errors_nd(
             surface += cc_norm_sq_nd(face, &face_ws);
         }
     }
-    let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-
     // 2r faces of area 2^(r − 1) each, against the volume 2^r: 8 and 4 in 2D, 24 and 8 in 3D
     let cube = 2.0_f64.powi(r as i32);
     let faces = r as f64 * cube;

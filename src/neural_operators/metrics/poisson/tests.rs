@@ -1,9 +1,9 @@
 use super::*;
-use crate::neural_operators::chebyshev::nodes;
+use crate::neural_operators::chebyshev::{cc_norm_sq, cc_rel_l2_error_weighted, nodes};
 use crate::neural_operators::chebyshev::{cheb_to_uniform, uniform_to_cheb};
 use crate::neural_operators::losses::data_losses::{LpLoss, Reduction};
 use burn::prelude::*;
-use ndarray::{Array3, Array4};
+use ndarray::{Array2, Array3, Array4, ArrayView2};
 
 /// `count` smooth fields on the n × n CGL grid that vanish on ∂Ω; sample k is scaled
 /// and shifted so the samples differ.
@@ -541,9 +541,8 @@ fn nd_u_norm_is_the_cc_norm() {
     assert_rel(e.u_norm[0], (16.0_f64 / 15.0).powf(1.5), 1e-14, "||u||");
 }
 
-// poisson_errors_nd never calls boundary_errors_nd at rank 2 (it routes 2D to
-// poisson_errors); this checks the general face formula against the trusted 2D one (four
-// edges, 8 against 4), to round-off since the sums run in another order
+// the general face formula at rank 2 against the frozen 2D one (four edges, 8 against 4),
+// to round-off; nd_rank_two_is_bit_identical_to_2d checks the whole errors bit for bit
 #[test]
 fn nd_boundary_at_rank_two_matches_2d() {
     let n = 17;
@@ -552,12 +551,12 @@ fn nd_boundary_at_rank_two_matches_2d() {
     for k in 0..2 {
         let ui = u.index_axis(Axis(0), k);
         let u_hat = Array2::from_shape_fn((n, n), |(i, j)| ui[[i, j]] + 0.02 * noise(k, i, j));
-        let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
+        let (ratio, rms) = boundary_errors_frozen(&u_hat, ui, &w);
         let (ratio_nd, rms_nd) = boundary_errors_nd(
             u_hat.view().into_dyn(),
-            ui.into_dyn(),
             &w,
             cc_norm_sq(ui, w.view(), w.view()),
+            ui.iter().fold(0.0_f64, |m, v| m.max(v.abs())),
         );
         assert_rel(ratio_nd, ratio, 1e-14, "ratio");
         assert_rel(rms_nd, rms, 1e-14, "rms");
@@ -579,34 +578,36 @@ fn bits(e: &PoissonErrors) -> Vec<Vec<u64>> {
     .collect()
 }
 
-/// The D2 oracle (3D CL4.1): `poisson_errors` and its `boundary_errors` as they were
-/// before the 2D and 3D errors shared one per-sample loop, frozen here. Do not edit.
+/// Error 5 of one 2D sample as `poisson_errors` computed it before 3D CL4.1 (the D2
+/// oracle's): four edges, 8 against 4. Do not edit.
+fn boundary_errors_frozen(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> (f64, f64) {
+    let last = u_hat.nrows() - 1;
+    let edges = [
+        u_hat.row(0),
+        u_hat.row(last),
+        u_hat.column(0),
+        u_hat.column(last),
+    ];
+    let max_edge = edges
+        .iter()
+        .flat_map(|e| e.iter())
+        .fold(0.0_f64, |m, v| m.max(v.abs()));
+    let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let line: f64 = edges
+        .iter()
+        .map(|e| e.iter().zip(w).map(|(v, wi)| wi * v * v).sum::<f64>())
+        .sum();
+    let area = cc_norm_sq(u, w.view(), w.view());
+    (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
+}
+
+/// The D2 oracle (3D CL4.1): `poisson_errors` as it was before the 2D and 3D errors shared
+/// one per-sample loop, frozen here with [`boundary_errors_frozen`]. Do not edit.
 fn poisson_errors_frozen(
     pred: ArrayView3<f64>,
     u: ArrayView3<f64>,
     transfers: &Transfers,
 ) -> PoissonErrors {
-    fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> (f64, f64) {
-        let last = u_hat.nrows() - 1;
-        let edges = [
-            u_hat.row(0),
-            u_hat.row(last),
-            u_hat.column(0),
-            u_hat.column(last),
-        ];
-        let max_edge = edges
-            .iter()
-            .flat_map(|e| e.iter())
-            .fold(0.0_f64, |m, v| m.max(v.abs()));
-        let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-        let line: f64 = edges
-            .iter()
-            .map(|e| e.iter().zip(w).map(|(v, wi)| wi * v * v).sum::<f64>())
-            .sum();
-        let area = cc_norm_sq(u, w.view(), w.view());
-        (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
-    }
-
     let w = clencurt(u.dim().1);
     let mut errors = PoissonErrors::default();
     for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
@@ -629,7 +630,7 @@ fn poisson_errors_frozen(
         errors
             .u_norm
             .push(cc_norm_sq(ui, w.view(), w.view()).sqrt());
-        let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
+        let (ratio, rms) = boundary_errors_frozen(&u_hat, ui, &w);
         errors.boundary_max_ratio.push(ratio);
         errors.boundary_rel_rms.push(rms);
     }
