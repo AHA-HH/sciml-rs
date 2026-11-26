@@ -61,8 +61,10 @@ Adam's schedules span the epochs (`TIME_BUDGET_S` is Gauss–Newton only).
   a `WEIGHT_DECAY` and a `GN_CG_MAX_ITERS` set in the caller's environment do not, an
   unknown cell and a reused run directory are each marked FAILED.
 - The results: every run's `train_cfg.json` checked against its cell (optimizer, weight
-  decay, μ, batch size, epochs, seed) before it enters a table, since run names do not tell
-  the cells apart; every run directory named by exactly one done line.
+  decay, μ, batch size, epochs, seed, the squared loss) before it enters a table, since run
+  names do not tell the cells apart, and its `data_cfg.json` (n_train 1,000, subsample 64)
+  and `model_cfg.json` (GELU) against `RECIPE=petscml`, which no config records by name;
+  every run directory named by exactly one done line.
 
 ## Checks
 `/verify` (a docs and script change: the CI path filter skips the jobs; fmt and clippy have
@@ -90,8 +92,10 @@ itself. The tmux wrappers `tee` to `~/sciml-rs/logs/co1-3-<stage>-g<gpu>.log`.
 **Run-directory collisions.** Directories are `burgers_fno[_seed<n>][_gn]_<unix_secs>`
 (seed 42 has no tag), and a directory that exists is reused. The queues below never run the
 same name on both GPUs at once: within a stage, the two GPUs take different seeds, and
-where a seed is on both (44) one GPU takes it first and the other last, never overlapping;
-GPU 1 also starts 60 s after GPU 0. The script marks any reused directory FAILED.
+where a seed is on both (44) one GPU takes it first and the other last, never overlapping.
+GPU 1 starts 60 s after GPU 0, but both wait on cargo's build lock, so they may still start
+together; the two first specs always differ in name, so that is safe. The script marks any
+reused directory FAILED.
 
 T ≈ 2,500 s is a guess for the cost estimates below (25,000 steps of batch 20, host-bound
 like CO0.1's Poisson Adam at about 2,950 s on Burn 0.23; A1 seed 42 took 498 s on the Mac's
@@ -125,8 +129,9 @@ tmux new -d -s co13-s3g1 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml
 ```
 
 In all: 56 runs, about 161T ≈ 112 GPU-h, about 84T ≈ 58 h of wall time on the two A100s
-(at T = 2,500 s; it scales with T). The long budget is 78 % of it. Stages 2 and 3 can be
-queued on a GPU as soon as T is known; each run is checkpointed every 25 epochs, and a
+(at T = 2,500 s; it scales with T). The long budget is 78 % of it. A stage's session on a
+GPU starts only after that GPU's previous session has ended (never two runs on one GPU:
+that would spoil the times and the peak memory); each run is checkpointed every 25 epochs, and a
 rerun of the same command skips the specs already done (a run cut off mid-way starts again
 from scratch through the script; `--resume runs/<dir>` by hand continues it).
 
@@ -148,8 +153,13 @@ passes, peak memory), `gn_steps.csv` and `train_cfg.json`:
   backward pass, so oracle calls = 2 × backward passes × B / N (B the batch, N = 1,000).
   Our central-difference J v spends two forwards where their forward mode spends one, so our
   passes overstate a GN step's cost against theirs; the Hutchinson probes (one VJP each) are
-  counted as oracle calls too;
-- D10: A1's mean final test L² over seeds 42–46 against [7e-4, 2.8e-3];
+  counted as oracle calls too; the adjoint check's backward (every 10th step, the rows of
+  `gn_steps.csv` with `adjoint_error` set) is a diagnostic and subtracted; objective
+  evaluations (the forwards for ρ and the backtracking) are not oracle calls;
+- D10: A1's mean final test L² over seeds 42–46 against [7e-4, 2.8e-3]; a mean below the
+  band is not a reproduction either (D10 is a factor 2 either side) but reported as a gap on
+  the good side, with the known differences (f32, erf GELU, their unpublished script), as
+  CO1.1 anticipated;
 - the verdict: A1 → A0 (weight decay) and A0 → G0 (the optimiser), at both budgets, with
   G1 against G0 (Phase 10's trap), G0-200 against G0, and C0/C1 against A0/A1 (coupled
   against decoupled weight decay, D13's hypothesis);

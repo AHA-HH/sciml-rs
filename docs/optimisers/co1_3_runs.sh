@@ -81,10 +81,11 @@ for spec in "$@"; do
   nvidia-smi -i "$GPU" --query-gpu=memory.used --format=csv,noheader,nounits -l 1 > "$mem" &
   smi=$!
   start=$(date +%s)
+  # PCI order, so CUDA's device $GPU is the one nvidia-smi -i $GPU samples
   env -u OPTIMIZER -u EPOCHS -u TIME_BUDGET_S -u WEIGHT_DECAY -u SUBSAMPLE -u SEED \
     -u GN_BATCH_SIZE -u GN_PRECONDITIONER -u GN_WEIGHT_DECAY -u GN_CG_MAX_ITERS \
-    -u MLFLOW_EXPERIMENT_NAME RECIPE=petscml SEED="$seed" "${vars[@]}" \
-    CUDA_VISIBLE_DEVICES="$GPU" "$BIN" > "$log" 2>&1
+    -u MLFLOW_EXPERIMENT_NAME -u BURN_DEVICE RECIPE=petscml SEED="$seed" "${vars[@]}" \
+    CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES="$GPU" "$BIN" > "$log" 2>&1
   status=$?
   kill "$smi" 2>/dev/null
   wait "$smi" 2>/dev/null
