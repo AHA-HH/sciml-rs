@@ -579,8 +579,82 @@ fn bits(e: &PoissonErrors) -> Vec<Vec<u64>> {
     .collect()
 }
 
-// D2: 2D fields through poisson_errors_nd are poisson_errors bit for bit, at s = n − 1
-// and a coarser s, in standard layout, transposed, and through IxDyn
+/// The D2 oracle (3D CL4.1): `poisson_errors` and its `boundary_errors` as they were
+/// before the 2D and 3D errors shared one per-sample loop, frozen here. Do not edit.
+fn poisson_errors_frozen(
+    pred: ArrayView3<f64>,
+    u: ArrayView3<f64>,
+    transfers: &Transfers,
+) -> PoissonErrors {
+    fn boundary_errors(u_hat: &Array2<f64>, u: ArrayView2<f64>, w: &Array1<f64>) -> (f64, f64) {
+        let last = u_hat.nrows() - 1;
+        let edges = [
+            u_hat.row(0),
+            u_hat.row(last),
+            u_hat.column(0),
+            u_hat.column(last),
+        ];
+        let max_edge = edges
+            .iter()
+            .flat_map(|e| e.iter())
+            .fold(0.0_f64, |m, v| m.max(v.abs()));
+        let max_u = u.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let line: f64 = edges
+            .iter()
+            .map(|e| e.iter().zip(w).map(|(v, wi)| wi * v * v).sum::<f64>())
+            .sum();
+        let area = cc_norm_sq(u, w.view(), w.view());
+        (max_edge / max_u, (line / 8.0).sqrt() / (area / 4.0).sqrt())
+    }
+
+    let w = clencurt(u.dim().1);
+    let mut errors = PoissonErrors::default();
+    for (p, ui) in pred.axis_iter(Axis(0)).zip(u.axis_iter(Axis(0))) {
+        let u_uni = transfers.to_uniform(ui);
+        let round_trip = transfers.to_cheb(u_uni.view());
+        let u_hat = transfers.to_cheb(p);
+        errors.transfer.push(cc_rel_l2_error_weighted(
+            round_trip.view(),
+            ui,
+            w.view(),
+            w.view(),
+        ));
+        errors.model.push(rel_l2_equal_weights(p, u_uni.view()));
+        errors.total.push(cc_rel_l2_error_weighted(
+            u_hat.view(),
+            ui,
+            w.view(),
+            w.view(),
+        ));
+        errors
+            .u_norm
+            .push(cc_norm_sq(ui, w.view(), w.view()).sqrt());
+        let (ratio, rms) = boundary_errors(&u_hat, ui, &w);
+        errors.boundary_max_ratio.push(ratio);
+        errors.boundary_rel_rms.push(rms);
+    }
+    errors
+}
+
+/// Predictions `[count, s, s]` for the D2 cases: R u plus noise, the same exactly zero on
+/// the boundary of the learning grid, and zero everywhere (so û is zero on ∂Ω, where a
+/// −0.0 sum could change error 5's bits).
+fn d2_predictions(u: &Array3<f64>, transfers: &Transfers) -> [Array3<f64>; 3] {
+    let (count, s) = (u.dim().0, transfers.s());
+    let noisy = transfers.to_uniform_all(u.view())
+        + Array3::from_shape_fn((count, s, s), |(k, i, j)| 0.05 * noise(k, i, j));
+    let mut zero_edges = noisy.clone();
+    for axis in [1, 2] {
+        for index in [0, s - 1] {
+            zero_edges.index_axis_mut(Axis(axis), index).fill(0.0);
+        }
+    }
+    [noisy, zero_edges, Array3::zeros((count, s, s))]
+}
+
+// D2: 2D fields through poisson_errors and poisson_errors_nd are the frozen oracle bit for
+// bit, at s = n − 1 and a coarser s, for each D2 prediction, in standard layout,
+// transposed, and through IxDyn
 #[test]
 fn nd_rank_two_is_bit_identical_to_2d() {
     let (count, n) = (3, 17);
@@ -588,29 +662,32 @@ fn nd_rank_two_is_bit_identical_to_2d() {
         + Array3::from_shape_fn((count, n, n), |(k, i, j)| 0.01 * noise(k + 5, i, j));
     for s in [n - 1, 8] {
         let transfers = Transfers::with_s(n, s);
-        let pred = transfers.to_uniform_all(u.view())
-            + Array3::from_shape_fn((count, s, s), |(k, i, j)| 0.05 * noise(k, i, j));
-        let old = bits(&poisson_errors(pred.view(), u.view(), &transfers));
-        assert_eq!(
-            bits(&poisson_errors_nd(pred.view(), u.view(), &transfers)),
-            old
-        );
-        assert_eq!(
-            bits(&poisson_errors_nd(
-                pred.view().into_dyn(),
-                u.view().into_dyn(),
-                &transfers
-            )),
-            old
-        );
-        let (pt, ut) = (
-            pred.view().permuted_axes([0, 2, 1]),
-            u.view().permuted_axes([0, 2, 1]),
-        );
-        assert_eq!(
-            bits(&poisson_errors_nd(pt, ut, &transfers)),
-            bits(&poisson_errors(pt, ut, &transfers))
-        );
+        for pred in d2_predictions(&u, &transfers) {
+            let old = bits(&poisson_errors_frozen(pred.view(), u.view(), &transfers));
+            assert_eq!(
+                bits(&poisson_errors(pred.view(), u.view(), &transfers)),
+                old
+            );
+            assert_eq!(
+                bits(&poisson_errors_nd(pred.view(), u.view(), &transfers)),
+                old
+            );
+            assert_eq!(
+                bits(&poisson_errors_nd(
+                    pred.view().into_dyn(),
+                    u.view().into_dyn(),
+                    &transfers
+                )),
+                old
+            );
+            let (pt, ut) = (
+                pred.view().permuted_axes([0, 2, 1]),
+                u.view().permuted_axes([0, 2, 1]),
+            );
+            let old_t = bits(&poisson_errors_frozen(pt, ut, &transfers));
+            assert_eq!(bits(&poisson_errors(pt, ut, &transfers)), old_t);
+            assert_eq!(bits(&poisson_errors_nd(pt, ut, &transfers)), old_t);
+        }
     }
 }
 
