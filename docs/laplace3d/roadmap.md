@@ -13,8 +13,8 @@ Mac and cuda, #123; D5 signed off 2026-11-24, D4 2026-11-25 on the cuda figures)
 errors, 2D bit for bit unchanged), CL2.1 (A3, `CollocationSolver3d`, f64 floor by n = 33),
 CL3.1 (the 3D GRF; D3 confirmed 2026-11-24), CL3.2 (the 3D datasets of D5, n = 33 and 65,
 written 2026-11-25; n = 65 generated on the Mac and uploaded to the VM), CL3.3 (the 3D
-loader, 2026-11-26; the N-D helpers in `chebyshev/tensor.rs`). D8 signed off at the L0
-gate. Next: the L3 gate; CL3.4 (the author's go first) and CL4.1.
+loader, 2026-11-26; the N-D helpers in `chebyshev/tensor.rs`), CL3.4 (one sidecar writer
+for 2D and 3D, 2026-11-26). D8 signed off at the L0 gate. Next: the L3 gate; CL4.1.
 
 ## How to read this file
 
@@ -151,12 +151,13 @@ Q2 the 3D label check to CL3.2, the three doc fixes to CL3.3's first commit.
   *Needs:* CL1.2, CL3.2, D5. Report: `docs/laplace3d/results/cl3-3.md` (error 2 at n = 65:
   3D 2.08e-5 mean at s = 64, 1.99e-4 at s = 32, against 2D 2.03e-5 and 2.33e-4). The
   "115-column" line is 115 bytes, 87 characters: not edited (plan note).
-- [ ] **CL3.4 One sidecar constructor for 2D and 3D.** CL3.2 review F1: extract the
+- [x] **CL3.4 One sidecar constructor for 2D and 3D.** CL3.2 review F1: extract the
   `SidecarRecord` construction into `pde/poisson/dataset.rs`, used by `dataset3d.rs`. (F2,
   a shared label-check rule, is not taken: the L2 gate's Q2 keeps the 2D `label_check`
   body as it is.) *Done when:* `dataset3d.rs` builds no sidecar field by field; the 2D
   exact-bytes sidecar test (`files_round_trip`) passes unedited (constraint 1). Edits a 2D
-  function body: the author's go first. *Needs:* CL3.2.
+  function body: the author's go first. *Needs:* CL3.2 The author's go given 2026-11-26.
+  Plan `docs/laplace3d/tasks/CL3.4.md` (one `write_sidecar` in `dataset.rs`; no report).
 
 ## L4: 3D Poisson training and evaluation
 
