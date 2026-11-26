@@ -105,7 +105,7 @@ Each run: 45,750 updates, forward and backward passes. With 1.8× the time Adam 
 11–14 % in error 4, and the train error falls more than the test error (the gap stays
 6.4–7.2e-3). Both median epochs are within 3 % of seed 42's alone in stage 1 (−2.5 %,
 −2.3 %), so the pair kept a lone run's pace; the training times, 1.80–1.81 × B, fall
-1.4 % short of 5,400 s since E came from B's wall-clock seconds and these epochs were
+1.2–1.4 % short of 5,400 s since E came from B's wall-clock seconds and these epochs were
 faster.
 
 ## Provenance
