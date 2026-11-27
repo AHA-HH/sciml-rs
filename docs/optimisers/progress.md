@@ -353,3 +353,19 @@ template:
   aside).
 - Follow-ups: CO2.2's line (`max_eval` per cell; whether updates are needed); CO3.3's line
   (the code-quality review's F1, F3, F4, F8).
+
+## 2026-11-27: CO1.5 Split `trainer.rs`'s tests
+- Done: `training/trainer.rs`'s inline `mod tests` moved to `training/trainer/tests.rs`
+  (`#[cfg(test)] mod tests;` left behind); `trainer.rs` 2,181 → 756 lines. The body is
+  unchanged but for the dedent and rustfmt's rejoined lines; the raw JSON string's bytes kept.
+- Tests: the 26 `training::trainer::tests` names, with and without `datagen`, equal before
+  and after (list in `docs/optimisers/tasks/CO1.5.md`); all 26 pass.
+- Checks: fmt, clippy (lib, examples, all targets, datagen all targets), `cargo test` (556
+  passed), `cargo test --features datagen` (643 passed), `cargo doc` pass; metal not run (no
+  backend-sensitive code).
+- Decisions: none.
+- Review: plan review PASS, no findings; code quality APPROVE, no blockers (F1–F3,
+  test-content changes outside "unchanged", in CO1.6).
+- Adam and Gauss–Newton: not touched (no code outside `#[cfg(test)]` changed).
+- Follow-ups: CO1.6 (optional: the tests' submodules, `train_built` into the tests,
+  shared fixtures).
