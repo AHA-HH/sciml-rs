@@ -9,14 +9,15 @@ use burn::{
     tensor::module::{CoordinateTransformMode, InterpolateMode, InterpolateOptions, interpolate},
 };
 
-use super::spectral_convolution::SpectralConv;
+use crate::neural_operators::utils::fft::{fft_ctensor, ifft_ctensor_to};
 
 /// `[B, C, s..]` → `[B, C, out..]` by 2.0.0's method for the rank: linear interpolation in
 /// 1D and bicubic (`a = −0.75`, edges clamped) in 2D, both with `align_corners=True` (torch's
 /// `F.interpolate`, here Burn's `interpolate`); for three or more axes a Fourier resize, the
 /// lowest `min(s, out)` modes of each axis kept (on a non-last axis `m / 2` non-negative and
 /// `⌈m / 2⌉` negative frequencies) at 2.0.0's `norm="forward"` amplitude (as
-/// [`SpectralConv::forward_to`]; CONVENTIONS §4 for the transforms). `x` itself when
+/// [`SpectralConv::forward_to`](super::spectral_convolution::SpectralConv::forward_to);
+/// CONVENTIONS §4 for the transforms). `x` itself when
 /// `out` is its own spatial extent (2.0.0 compares a list with a tuple there and always
 /// resamples, an exact identity in 1D and 2D).
 ///
@@ -67,7 +68,7 @@ pub fn resample<const R: usize>(x: Tensor<R>, out: &[usize]) -> Tensor<R> {
 fn fourier<const R: usize>(x: Tensor<R>, shape: [usize; R]) -> Tensor<R> {
     let dims = x.dims();
     let device = x.device();
-    let (re, im) = SpectralConv::<R>::fft_ctensor(x);
+    let (re, im) = fft_ctensor(x);
     let old = re.dims();
     let spec: [usize; R] = core::array::from_fn(|i| {
         if i == R - 1 {
@@ -100,9 +101,7 @@ fn fourier<const R: usize>(x: Tensor<R>, shape: [usize; R]) -> Tensor<R> {
         out_re = out_re.slice_assign(dst.clone(), re.clone().slice(src.clone()));
         out_im = out_im.slice_assign(dst, im.clone().slice(src));
     }
-    let n_in: usize = dims[2..].iter().product();
-    let n_out: usize = shape[2..].iter().product();
-    SpectralConv::<R>::ifft_ctensor(out_re, out_im, &shape).mul_scalar(n_out as f64 / n_in as f64)
+    ifft_ctensor_to(out_re, out_im, &dims, &shape)
 }
 
 #[cfg(test)]
