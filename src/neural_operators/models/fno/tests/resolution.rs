@@ -113,3 +113,15 @@ fn output_shape_with_padding_panics() {
     let fno: FNO<4> = config().with_padding(Some(2)).init(&device);
     fno.forward_with_output_shape(random_input::<4>(&[8, 6], 1, &device), &[8, 6]);
 }
+
+/// All-zero fractions are no domain padding, as 2.0.0 builds none: an output shape is allowed.
+#[test]
+fn zero_domain_padding_is_none() {
+    let device = Device::default();
+    let fno: FNO<4> = config()
+        .with_domain_padding(Some(vec![0.0; 2]))
+        .init(&device);
+    assert!(fno.domain_padding.is_empty());
+    let y = fno.forward_with_output_shape(random_input::<4>(&[8, 6], 1, &device), &[11, 7]);
+    assert_eq!(y.dims(), [2, 11, 7, 1]);
+}

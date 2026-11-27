@@ -489,7 +489,8 @@ impl<const R: usize> SpectralConv<R> {
     /// `resolution_scaling_factor` or an `output_shape` (library CM1.5b). The spectrum is
     /// built at the input's size, then trimmed or zero-padded at the end of each axis (torch's
     /// `irfftn(s=out)`), and scaled by `N_out / N_in` (products of the spatial extents), so the
-    /// amplitude is 2.0.0's `fft_norm="forward"`'s. At the input's own extents it is
+    /// amplitude is 2.0.0's `fft_norm="forward"`'s (an extension of CONVENTIONS §4's backward
+    /// norm, which it equals when the extents agree). At the input's own extents it is
     /// [`Self::forward`], the same operations.
     ///
     /// # Panics

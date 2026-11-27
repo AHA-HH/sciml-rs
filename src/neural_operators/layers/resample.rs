@@ -15,7 +15,8 @@ use super::spectral_convolution::SpectralConv;
 /// 1D and bicubic (`a = −0.75`, edges clamped) in 2D, both with `align_corners=True` (torch's
 /// `F.interpolate`, here Burn's `interpolate`); for three or more axes a Fourier resize, the
 /// lowest `min(s, out)` modes of each axis kept (on a non-last axis `m / 2` non-negative and
-/// `⌈m / 2⌉` negative frequencies) at 2.0.0's `norm="forward"` amplitude. `x` itself when
+/// `⌈m / 2⌉` negative frequencies) at 2.0.0's `norm="forward"` amplitude (as
+/// [`SpectralConv::forward_to`]; CONVENTIONS §4 for the transforms). `x` itself when
 /// `out` is its own spatial extent (2.0.0 compares a list with a tuple there and always
 /// resamples, an exact identity in 1D and 2D).
 ///

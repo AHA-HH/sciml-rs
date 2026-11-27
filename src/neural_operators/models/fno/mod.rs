@@ -134,9 +134,10 @@ pub struct FNOConfig {
     /// 2.0.0's `resolution_scaling_factor`, one factor per spatial axis for each layer
     /// (`n_layers` × `D`): layer `l` maps extent `s` to `round(s · r)` (half to even), its
     /// convolution by [`SpectralConv::forward_to`], its skips by
-    /// [`resample`]. With [`FNOConfig::domain_padding`], at most one layer may scale (as in
-    /// 2.0.0), and `round(p · r)` cells are cropped per side of an axis padded by `p`; not with
-    /// [`FNOConfig::padding`]. `None` is every factor 1.
+    /// [`resample`]. With [`FNOConfig::domain_padding`], at most one layer may scale (2.0.0
+    /// runs padding with scaling in a one-layer FNO only; one scaled layer of several is an
+    /// extension), and `round(p · r)` cells are cropped per side of an axis padded by `p`; not
+    /// with [`FNOConfig::padding`]. `None` is every factor 1.
     pub resolution_scaling_factor: Option<Vec<Vec<f64>>>,
 }
 
@@ -241,7 +242,7 @@ pub struct FNO<const R: usize> {
     conv_biases: Vec<Param<Tensor<1>>>,
     /// [`FNOConfig::tanh_stabilizer`].
     tanh_stabilizer: bool,
-    /// [`FNOConfig::domain_padding`], empty when unset; not a parameter.
+    /// [`FNOConfig::domain_padding`], empty when unset or all zero; not a parameter.
     #[module(skip)]
     domain_padding: Vec<f64>,
     /// [`FNOConfig::resolution_scaling_factor`], empty when unset; not a parameter.
@@ -291,6 +292,12 @@ impl FNOConfig {
                 "domain_padding and padding are exclusive"
             );
         }
+        // As 2.0.0, which builds no `DomainPadding` unless the fractions sum above 0.
+        let domain_padding = self
+            .domain_padding
+            .clone()
+            .filter(|f| f.iter().sum::<f64>() > 0.0)
+            .unwrap_or_default();
         if let Some(factors) = &self.resolution_scaling_factor {
             assert!(
                 factors.len() == self.n_layers
@@ -312,7 +319,7 @@ impl FNOConfig {
                 .filter(|f| f.iter().any(|&r| r != 1.0))
                 .count();
             assert!(
-                self.domain_padding.is_none() || scaled <= 1,
+                domain_padding.is_empty() || scaled <= 1,
                 "domain_padding with resolution_scaling_factor needs at most one scaled layer"
             );
         }
@@ -400,7 +407,7 @@ impl FNOConfig {
                 _ => Vec::new(),
             },
             tanh_stabilizer: self.tanh_stabilizer == Some(true),
-            domain_padding: self.domain_padding.clone().unwrap_or_default(),
+            domain_padding,
             scaling: self.resolution_scaling_factor.clone().unwrap_or_default(),
         }
     }
