@@ -10,7 +10,8 @@
 //!   `lbfgs` (L-BFGS on the full batch, optimisers CO2.1), or `soap` (SOAP on Adam's path,
 //!   the cosine, optimisers CO3.3); each example names those it takes.
 //! - `WEIGHT_DECAY`: Adam's, AdamW's and SOAP's (decoupled) weight decay.
-//! - `LEARNING_RATE`: the initial learning rate of Adam, AdamW and SOAP.
+//! - `LEARNING_RATE`: the initial learning rate of Adam, AdamW and SOAP (and of a hybrid
+//!   run's Adam epochs; Gauss–Newton and L-BFGS ignore it).
 //! - `SOAP_FREQUENCY` (steps between basis refreshes) and `SOAP_LOG_FIRST_REFRESH=1` (print
 //!   the factors' eigenvalue ratios at the first refresh): SOAP's settings.
 //! - `TIME_BUDGET_S`: with Gauss–Newton, L-BFGS or SOAP, stop after the first epoch that ends at
@@ -116,6 +117,11 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
         allowed.join(", ")
     );
     assert!(lit.epochs > 0, "EPOCHS must be positive");
+    let weight_decay = env_var("WEIGHT_DECAY").unwrap_or(lit.weight_decay);
+    assert!(
+        weight_decay.is_finite() && weight_decay >= 0.0,
+        "WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
+    );
     let (optimizer, lr_schedule, adam_epochs) = match name.as_str() {
         "adam" => (None, None, None),
         "adamw" => {
@@ -146,7 +152,11 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
             ),
         ),
         "lbfgs" => (Some(OptimizerConfig::Lbfgs(lbfgs(lit))), None, None),
-        "soap" => (Some(OptimizerConfig::Soap(soap(lit))), None, None),
+        "soap" => (
+            Some(OptimizerConfig::Soap(soap(lit, weight_decay))),
+            None,
+            None,
+        ),
         other => unreachable!("{other:?} is in `allowed` but names no optimiser"),
     };
     let gn = matches!(optimizer, Some(OptimizerConfig::GaussNewton(_)));
@@ -180,22 +190,11 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
         "OPTIMIZER=hybrid trains at the batch size {}, got GN_BATCH_SIZE = {batch_size}",
         lit.batch_size
     );
-    let weight_decay = env_var("WEIGHT_DECAY").unwrap_or(lit.weight_decay);
-    assert!(
-        weight_decay.is_finite() && weight_decay >= 0.0,
-        "WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
-    );
     let learning_rate = env_var("LEARNING_RATE").unwrap_or(lit.learning_rate);
     assert!(
         learning_rate.is_finite() && learning_rate > 0.0,
         "LEARNING_RATE must be a positive number, got {learning_rate}"
     );
-    let optimizer = match optimizer {
-        Some(OptimizerConfig::Soap(soap)) => {
-            Some(OptimizerConfig::Soap(soap.with_weight_decay(weight_decay)))
-        }
-        other => other,
-    };
     TrainingConfig::new()
         .with_epochs(lit.epochs)
         .with_time_budget_s(time_budget_s)
@@ -239,8 +238,9 @@ fn lbfgs(lit: &Literals) -> LbfgsArm {
     }
 }
 
-/// The SOAP arm of `lit` with the `SOAP_*` variables (its weight decay set by the caller).
-fn soap(lit: &Literals) -> SoapConfig {
+/// The SOAP arm of `lit` with the `SOAP_*` variables and decoupled weight decay
+/// `weight_decay` (`WEIGHT_DECAY`, D13).
+fn soap(lit: &Literals, weight_decay: f32) -> SoapConfig {
     let soap = lit
         .soap
         .clone()
@@ -250,6 +250,7 @@ fn soap(lit: &Literals) -> SoapConfig {
     let log = env_var::<u8>("SOAP_LOG_FIRST_REFRESH").map_or(soap.log_first_refresh, |v| v == 1);
     soap.with_precondition_frequency(frequency)
         .with_log_first_refresh(log)
+        .with_weight_decay(weight_decay)
 }
 
 /// Gauss–Newton from `lit` and the `GN_*` variables, its probes seeded with `seed`.
@@ -402,9 +403,9 @@ pub struct Measured {
 /// and one backward each (D7).
 ///
 /// # Panics
-/// If a Gauss–Newton or SOAP run's `metrics.csv` or `gn_steps.csv` cannot be read, or it has no
-/// `gn_steps.csv` and no Adam epochs; if an L-BFGS run's `lbfgs_steps.csv` is missing or
-/// cannot be read.
+/// If a Gauss–Newton run's `metrics.csv` or `gn_steps.csv` cannot be read, or it has no
+/// `gn_steps.csv` and no Adam epochs; if a SOAP run's `metrics.csv` cannot be read; if an
+/// L-BFGS run's `lbfgs_steps.csv` is missing or cannot be read.
 pub fn run_costs(
     run: &RunDir,
     train_cfg: &TrainingConfig,

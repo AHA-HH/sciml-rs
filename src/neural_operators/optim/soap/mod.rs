@@ -60,9 +60,10 @@ pub struct SoapConfig {
     /// SOAP Adam.
     #[config(default = 10000)]
     pub max_precond_dim: usize,
-    /// At each parameter's first refresh, print every factor's extreme eigenvalues and
-    /// their ratio to stdout (optimisers CO3.3: the pilot's check of D9's f32 factors);
-    /// changes no arithmetic.
+    /// At each parameter's first refresh (step `precondition_frequency`; a run resumed past
+    /// it prints nothing), print every factor's extreme eigenvalues and their ratio to
+    /// stdout (optimisers CO3.3: the pilot's check of D9's f32 factors); changes no
+    /// arithmetic. A pilot diagnostic, to be removed once D6 and D9 are settled.
     #[config(default = false)]
     pub log_first_refresh: bool,
 }

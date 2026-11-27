@@ -37,7 +37,7 @@ built; nothing else in the Adam path changes. `OPTIMIZER=soap` and the `_soap` r
   untouched.
 - `optim/soap/mod.rs`: `SoapConfig::log_first_refresh` (default false): at a parameter's
   first refresh, print each factor's dimension, size, and extreme eigenvalues and their
-  ratio (f64 Jacobi on the host copy of Lₖ the refresh already reads). The author's pilot
+  ratio (f64 Jacobi on a host copy of Lₖ), and how many lie above f32's floor. The author's pilot
   log; it changes no arithmetic.
 - `examples/train/common.rs`: `OPTIMIZER=soap` (where the example allows it); `SOAP_FREQUENCY`
   (f, literal 10), `SOAP_LOG_FIRST_REFRESH=1`, `LEARNING_RATE` (any Adam-path arm; the pilot's
