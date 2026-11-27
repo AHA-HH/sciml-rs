@@ -212,6 +212,17 @@ weight decay accounts for.
   updates can be estimated from closure evaluations if ever needed).
   *Done when:* the pilot table and D5 proposed.
   *Needs:* CO2.1, CO0.1. *Machines:* the VM. *Sign-off:* D5.
+- [ ] **CO2.3 A deterministic L-BFGS resume test.**
+  `training::trainer::tests::lbfgs_smoke_run_resumes_exactly` (CO2.1) failed once in a full
+  `cargo test` (CM1.5c's agent, 2026-11-27) and passed alone 3 of 3 and in two later full
+  runs: likely Flex's process-wide RNG shared with tests running in parallel, which can
+  fail CI at random. Find the cause first (reproduce under `cargo test` with many threads,
+  or `--test-threads=1` against the default); then make the test deterministic, e.g. a seeded
+  model built without the shared RNG, or a test binary of its own as
+  `tests/spectral_init.rs` has. The author asked for it 2026-11-27. *Done when:* the cause
+  is stated, and the test passes in 50 consecutive full `cargo test` runs (or the
+  reproduction no longer fails). *Needs:* CO2.1; `training/` free (serial with CO3.3).
+  *Machines:* the Mac.
 
 ## O3: SOAP
 
