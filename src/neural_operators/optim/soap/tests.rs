@@ -580,3 +580,12 @@ fn symmetric_eigenvalues_of_a_known_spectrum() {
         assert!(max_abs_diff(&got, &want) < 1e-12, "n = {n}: {got:?}");
     }
 }
+
+/// The first refresh's summary: a rank-2 factor of size 4 with round-off below the floor
+/// has 2 eigenvalues resolved, and the resolved ratio is λ₁/λ₂.
+#[test]
+fn spectrum_summary_counts_the_resolved_eigenvalues() {
+    let (max, min, resolved, min_resolved) =
+        super::host::spectrum_summary(vec![1e-9, 2.0, -1e-9, 0.5]);
+    assert_eq!((max, min, resolved, min_resolved), (2.0, -1e-9, 2, 0.5));
+}

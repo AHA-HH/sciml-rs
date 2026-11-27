@@ -284,20 +284,22 @@ fn refresh<const D: usize>(state: &mut SoapState<D>) {
 }
 
 /// Prints, for each factor of `state`, its dimension, size and the extreme eigenvalues
-/// of Lₖ (f64, from the f32 factor) with their ratio; `inf` when the smallest is not
-/// positive.
+/// of Lₖ (f64, from the f32 factor) with their ratio (`inf` when the smallest is not
+/// positive), and how many eigenvalues lie above f32's floor n·ε·λ_max with the ratio of
+/// λ_max to the smallest of those: an early factor is a sum of few outer products, so its
+/// rank, not f32, bounds it.
 fn log_spectra<const D: usize>(state: &SoapState<D>) {
     let shape = state.moment_2.dims();
     for (k, f) in state.factors.iter().enumerate() {
         let Some(f) = f else { continue };
-        let eig = host::symmetric_eigenvalues(host::read(&f.gram));
-        let (max, min) = eig
-            .iter()
-            .fold((f64::MIN, f64::MAX), |(a, b), &e| (a.max(e), b.min(e)));
-        let ratio = if min > 0.0 { max / min } else { f64::INFINITY };
+        let (max, min, resolved, min_resolved) =
+            host::spectrum_summary(host::symmetric_eigenvalues(host::read(&f.gram)));
+        let ratio = |lo: f64| if lo > 0.0 { max / lo } else { f64::INFINITY };
+        let n = f.gram.dims()[0];
         println!(
-            "soap first refresh: shape {shape:?} dim {k} (size {}): eigenvalues {max:.3e} .. {min:.3e}, ratio {ratio:.3e}",
-            eig.len()
+            "soap first refresh: shape {shape:?} dim {k} (size {n}): eigenvalues {max:.3e} .. {min:.3e}, ratio {:.3e}; above f32 floor {resolved}/{n}, ratio {:.3e}",
+            ratio(min),
+            ratio(min_resolved)
         );
     }
 }
@@ -369,6 +371,17 @@ mod host {
             }
         }
         (0..n).map(|i| a[[i, i]]).collect()
+    }
+
+    /// Of the eigenvalues `eig` of an n × n f32 factor: the largest, the smallest, how many
+    /// exceed n · ε_f32 · max(largest, 0), and the smallest of those.
+    pub(super) fn spectrum_summary(eig: Vec<f64>) -> (f64, f64, usize, f64) {
+        let max = eig.iter().copied().fold(f64::MIN, f64::max);
+        let min = eig.iter().copied().fold(f64::MAX, f64::min);
+        let floor = eig.len() as f64 * f64::from(f32::EPSILON) * max.max(0.0);
+        let resolved: Vec<f64> = eig.into_iter().filter(|&e| e > floor).collect();
+        let min_resolved = resolved.iter().copied().fold(max, f64::min);
+        (max, min, resolved.len(), min_resolved)
     }
 
     /// Q of the Householder QR of a square matrix: orthogonal even when the matrix is
