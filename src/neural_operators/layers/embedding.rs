@@ -88,7 +88,7 @@ impl GridEmbeddingNd {
 /// Coordinate channels for a tensor of shape `shape` with its channels on `channel_axis`:
 /// each `(axis, line)` (`line` of length `shape[axis]`) broadcast over the other axes, the
 /// channels concatenated in the order given. Shared by [`GridEmbeddingNd::grid`] and the
-/// FNO's CONVENTIONS §2 grid (library CM1.5d).
+/// FNO's CONVENTIONS §2 grid.
 pub(crate) fn coordinate_channels<const R: usize>(
     shape: [usize; R],
     channel_axis: usize,

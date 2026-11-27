@@ -131,7 +131,7 @@ fn symmetric_padding_with_centre_crop_matches_end_padding() {
 }
 
 /// `pad_spatial` with CONVENTIONS §3's `(0, p)` puts the data at `[0..n]` and exact zeros
-/// after it on every spatial axis, and `crop_spatial` at scale 1 undoes it bit for bit.
+/// after it on every spatial axis, and `crop_ranges` without scaling undoes it bit for bit.
 #[test]
 fn pad_crop_helpers_exact() {
     use burn::tensor::TensorData;
@@ -140,7 +140,7 @@ fn pad_crop_helpers_exact() {
     let vals: Vec<f32> = (0..b * c * n0 * n1).map(|i| i as f32 + 1.0).collect();
     let x = Tensor::<4>::from_data(TensorData::new(vals.clone(), [b, c, n0, n1]), &device);
 
-    let padded = FNO::<4>::pad_spatial(x.clone(), &[(0, p); 2]);
+    let padded = FNO::<4>::pad_spatial(x.clone(), [(0, 0), (0, 0), (0, p), (0, p)]);
     assert_eq!(padded.dims(), [b, c, n0 + p, n1 + p]);
     let got = padded.clone().into_data().try_to_vec::<f32>().unwrap();
     let (m0, m1) = (n0 + p, n1 + p);
@@ -160,7 +160,12 @@ fn pad_crop_helpers_exact() {
         }
     }
 
-    let cropped = FNO::<4>::crop_spatial(padded, &[(0, p); 2], &[1.0; 2]);
+    let model: FNO<4> = test_config(vec![2, 2], 1, c)
+        .with_padding(Some(p))
+        .init(&device);
+    let pads = model.pads([b, c, n0, n1]);
+    assert_eq!(pads, [(0, 0), (0, 0), (0, p), (0, p)]);
+    let cropped = padded.slice(model.crop_ranges([b, c, n0, n1], pads));
     assert_eq!(bits(cropped), bits(x));
 }
 

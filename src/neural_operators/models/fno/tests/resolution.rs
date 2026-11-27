@@ -93,6 +93,27 @@ fn padding_with_scaling_crops_the_scaled_padding() {
     assert_eq!(y.dims(), [2, 16, 12, 1]);
 }
 
+/// Where rounding bites, padding still changes no extent: the padded model's output has the
+/// unpadded model's extents (5 → 8 at 1.5, where `round(6 · 1.5) − round(1 · 1.5)` would
+/// give 7; 7 → 10 → 15 over two layers, where it would give 16).
+#[test]
+fn padding_with_scaling_keeps_the_unpadded_extents() {
+    let device = Device::default();
+    for (s, factors) in [(5, vec![vec![1.5; 1]]), (7, vec![vec![1.5; 1]; 2])] {
+        let config = test_config(vec![2], 1, 4)
+            .with_n_layers(factors.len())
+            .with_resolution_scaling_factor(Some(factors));
+        let x = random_input::<3>(&[s], 1, &device);
+        let unpadded: FNO<3> = config.clone().init(&device);
+        let padded: FNO<3> = config.with_padding(Some(1)).init(&device);
+        assert_eq!(
+            padded.forward(x.clone()).dims(),
+            unpadded.forward(x).dims(),
+            "s = {s}"
+        );
+    }
+}
+
 #[test]
 #[should_panic(expected = "needs a one-layer FNO")]
 fn domain_padding_with_two_scaled_layers_panics() {

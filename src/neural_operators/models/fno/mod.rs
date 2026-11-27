@@ -142,9 +142,10 @@ pub struct FNOConfig {
     /// 2.0.0's `resolution_scaling_factor`, one factor per spatial axis for each layer
     /// (`n_layers` × `D`): layer `l` maps extent `s` to `round(s · r)` (half to even), its
     /// convolution by [`SpectralConv::forward_to`], its skips by
-    /// [`resample`]. Padded cells are cropped as `round(p · r)` per side of an axis padded by
-    /// `p`, `r` the product of the axis's factors over the layers (library CM1.5d); with
-    /// [`FNOConfig::domain_padding`] only in a one-layer FNO (as 2.0.0, whose crop fails
+    /// [`resample`]. Domain padding `d` is cropped as `round(d · r)` per side, `r` the product
+    /// of the axis's factors over the layers, as 2.0.0; CONVENTIONS §3's [`FNOConfig::padding`]
+    /// changes no extent (library CM1.5d). Scaling with
+    /// [`FNOConfig::domain_padding`] works only in a one-layer FNO (as 2.0.0, whose crop fails
     /// otherwise; [`FNOConfig::init`] panics). `None` is every factor 1.
     pub resolution_scaling_factor: Option<Vec<Vec<f64>>>,
 }
@@ -412,38 +413,51 @@ impl FNOConfig {
 }
 
 impl<const R: usize> FNO<R> {
-    /// The zeros `(lo, hi)` before and after each spatial axis of extent `spatial[a]`:
-    /// CONVENTIONS §3's `(0, p)` plus 2.0.0's domain padding, `round(f · s)` on both ends.
-    fn pads(&self, spatial: &[usize]) -> Vec<(usize, usize)> {
-        (0..R - 2)
-            .map(|a| {
-                let f = self.domain_padding.get(a).copied().unwrap_or(0.0);
-                let d = (f * spatial[a] as f64).round_ties_even() as usize;
-                (d, d + self.padding)
-            })
-            .collect()
+    /// The zeros `(lo, hi)` before and after each axis of a `[B, C, spatial..]` tensor
+    /// (none on the first two): CONVENTIONS §3's `(0, p)` plus 2.0.0's domain padding,
+    /// `round(f · s)` on both ends.
+    fn pads(&self, dims: [usize; R]) -> [(usize, usize); R] {
+        core::array::from_fn(|i| {
+            if i < 2 {
+                return (0, 0);
+            }
+            let f = self.domain_padding.get(i - 2).copied().unwrap_or(0.0);
+            let d = (f * dims[i] as f64).round_ties_even() as usize;
+            (d, d + self.padding)
+        })
     }
 
-    /// `x` (`[B, C, spatial..]`) with `pads[a]` zeros before and after spatial axis `a`.
-    fn pad_spatial(x: Tensor<R>, pads: &[(usize, usize)]) -> Tensor<R> {
-        let pairs: [(usize, usize); R] =
-            core::array::from_fn(|i| if i < 2 { (0, 0) } else { pads[i - 2] });
-        x.pad(pairs, PadMode::Constant(0.0))
+    /// `x` with `pads[i]` zeros before and after axis `i`.
+    fn pad_spatial(x: Tensor<R>, pads: [(usize, usize); R]) -> Tensor<R> {
+        x.pad(pads, PadMode::Constant(0.0))
     }
 
-    /// The inverse of [`Self::pad_spatial`] after the layers scaled axis `a` by `scale[a]`:
-    /// `round(lo · r)` and `round(hi · r)` cells cropped (half to even, as 2.0.0's unpad).
-    fn crop_spatial(x: Tensor<R>, pads: &[(usize, usize)], scale: &[f64]) -> Tensor<R> {
-        let dims = x.dims();
-        let ranges: [core::ops::Range<usize>; R] = core::array::from_fn(|i| {
+    /// What survives of each axis of the layers' output once the padding `pads` of an input
+    /// of extents `dims` is cropped. 2.0.0's domain padding `d` loses `round(d · r)` per side,
+    /// `r` the product of the axis's scaling factors (half to even, as 2.0.0's unpad); the
+    /// rest keeps the extent the layers give the domain-padded input, so CONVENTIONS §3's
+    /// `p` changes no extent, with or without scaling. Without scaling: `d..d + s`.
+    fn crop_ranges(
+        &self,
+        dims: [usize; R],
+        pads: [(usize, usize); R],
+    ) -> [core::ops::Range<usize>; R] {
+        core::array::from_fn(|i| {
             if i < 2 {
                 return 0..dims[i];
             }
-            let crop = |p: usize| (p as f64 * scale[i - 2]).round_ties_even() as usize;
-            let (lo, hi) = pads[i - 2];
-            crop(lo)..dims[i] - crop(hi)
-        });
-        x.slice(ranges)
+            let d = pads[i].0;
+            let r: f64 = self.scaling.iter().map(|f| f[i - 2]).product();
+            let lo = (d as f64 * r).round_ties_even() as usize;
+            lo..self.scaled_extent(dims[i] + 2 * d, i - 2) - lo
+        })
+    }
+
+    /// Extent `n` of spatial axis `a` after every layer's scaling, `round(n · r)` per layer.
+    fn scaled_extent(&self, n: usize, a: usize) -> usize {
+        self.scaling
+            .iter()
+            .fold(n, |n, f| (n as f64 * f[a]).round_ties_even() as usize)
     }
 
     /// The coordinate channels of CONVENTIONS §2 for a channels-last `[B, s_1..s_D, C]`
@@ -563,19 +577,17 @@ impl<const R: usize> FNO<R> {
             x = linear_cf(layer, self.activate(x));
         }
 
-        let pads = self.pads(&x.dims()[2..]);
+        let dims = x.dims();
+        let pads = self.pads(dims);
         let padded = pads.iter().any(|&(lo, hi)| lo + hi > 0);
         if padded {
-            x = Self::pad_spatial(x, &pads);
+            x = Self::pad_spatial(x, pads);
         }
 
         x = self.layers_to(x, embedding, output_shape);
 
         if padded {
-            let scale: Vec<f64> = (0..R - 2)
-                .map(|a| self.scaling.iter().map(|r| r[a]).product())
-                .collect();
-            x = Self::crop_spatial(x, &pads, &scale);
+            x = x.slice(self.crop_ranges(dims, pads));
         }
 
         let x = self.activate(linear_cf(&self.fc1, x));

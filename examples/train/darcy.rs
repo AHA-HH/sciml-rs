@@ -57,6 +57,8 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
         1,
         1,
     )
+    .with_hidden_channels(32)
+    .with_n_layers(4)
     // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
     // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
     .with_spectral_init(None)
