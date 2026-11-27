@@ -6,11 +6,14 @@
 //! Environment variables (unset, the example's literals):
 //! - `OPTIMIZER`: `adam` (the default, Adam with coupled weight decay and the cosine),
 //!   `adamw` (AdamW with the learning rate halved every `epochs / 5` epochs: every 100 at
-//!   500, D11), `gauss-newton`, or `hybrid` (Gauss–Newton after Adam epochs, Phase 10 T5);
-//!   each example names those it takes.
+//!   500, D11), `gauss-newton`, `hybrid` (Gauss–Newton after Adam epochs, Phase 10 T5), or
+//!   `lbfgs` (L-BFGS on the full batch, optimisers CO2.1); each example names those it
+//!   takes.
 //! - `WEIGHT_DECAY`: Adam's and AdamW's weight decay.
-//! - `TIME_BUDGET_S`: with Gauss–Newton, stop after the first epoch that ends at or over
-//!   that many seconds of training (`TrainingConfig::time_budget_s`).
+//! - `TIME_BUDGET_S`: with Gauss–Newton or L-BFGS, stop after the first epoch that ends at
+//!   or over that many seconds of training (`TrainingConfig::time_budget_s`).
+//! - `LBFGS_HISTORY`, `LBFGS_MAX_ITER`, `LBFGS_MAX_EVAL` (closure evaluations per step,
+//!   line search included) and `LBFGS_WEIGHT_DECAY` (μ): L-BFGS's settings.
 //! - `GN_BATCH_SIZE`, `GN_CG_MAX_ITERS`, `GN_WEIGHT_DECAY` (μ), and `GN_PRECONDITIONER`
 //!   (`none` or `hutchinson`): Gauss–Newton's settings.
 
@@ -20,7 +23,7 @@ use sciml_rs::neural_operators::{
     optim::gauss_newton::{GaussNewtonConfig, Preconditioner},
     runs::{Checkpoint, RunCosts, RunDir},
     training::{
-        config::{LrSchedule, OptimizerConfig, TrainingConfig},
+        config::{LbfgsArm, LrSchedule, OptimizerConfig, TrainingConfig},
         gn::training_passes,
     },
     utils::backend::{backend_features, git_commit},
@@ -79,6 +82,9 @@ pub struct Literals {
     /// A hybrid run's Adam epochs (`OPTIMIZER=hybrid`, Phase 10 T5); `None` for an example
     /// that takes no `hybrid`.
     pub hybrid_adam_epochs: Option<usize>,
+    /// The L-BFGS arm (`OPTIMIZER=lbfgs`, optimisers CO2.1) and its batch size, the training
+    /// set's (D4); `None` for an example that takes no `lbfgs`.
+    pub lbfgs: Option<(LbfgsArm, usize)>,
 }
 
 /// The training configuration `OPTIMIZER`, one of `allowed` (unset is `adam`), asks for,
@@ -90,8 +96,10 @@ pub struct Literals {
 /// For an `OPTIMIZER` not in `allowed`, a negative or non-finite `WEIGHT_DECAY` or
 /// `GN_WEIGHT_DECAY`, a `TIME_BUDGET_S` without Gauss–Newton or not positive and finite, a
 /// batch size or `GN_CG_MAX_ITERS` of 0, a `GN_PRECONDITIONER` but `none` and `hutchinson`,
-/// `lit.epochs` of 0, AdamW with `lit.epochs` not a multiple of 5, or `hybrid` without
-/// `lit.hybrid_adam_epochs` or with a `GN_BATCH_SIZE` other than `lit.batch_size`.
+/// `lit.epochs` of 0, AdamW with `lit.epochs` not a multiple of 5, `hybrid` without
+/// `lit.hybrid_adam_epochs` or with a `GN_BATCH_SIZE` other than `lit.batch_size`, `lbfgs`
+/// without `lit.lbfgs`, or an `LBFGS_*` of 0 or a negative or non-finite
+/// `LBFGS_WEIGHT_DECAY`.
 pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingConfig {
     let name = std::env::var("OPTIMIZER").unwrap_or_else(|_| "adam".to_string());
     assert!(
@@ -129,15 +137,17 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
                     .expect("OPTIMIZER=hybrid needs the example's hybrid_adam_epochs"),
             ),
         ),
+        "lbfgs" => (Some(OptimizerConfig::Lbfgs(lbfgs(lit))), None, None),
         other => unreachable!("{other:?} is in `allowed` but names no optimiser"),
     };
     let gn = matches!(optimizer, Some(OptimizerConfig::GaussNewton(_)));
+    let lbfgs = matches!(optimizer, Some(OptimizerConfig::Lbfgs(_)));
 
     let time_budget_s = env_var::<f64>("TIME_BUDGET_S");
     // Adam's cosine schedule spans the epochs, so a budget would cut it short
     assert!(
-        gn || time_budget_s.is_none(),
-        "TIME_BUDGET_S is for OPTIMIZER=gauss-newton runs"
+        gn || lbfgs || time_budget_s.is_none(),
+        "TIME_BUDGET_S is for OPTIMIZER=gauss-newton and lbfgs runs"
     );
     // NaN would never stop the run
     assert!(
@@ -146,6 +156,8 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
     );
     let batch_size = if gn {
         env_var("GN_BATCH_SIZE").unwrap_or(lit.gn.batch_size)
+    } else if let Some((_, full)) = lit.lbfgs.as_ref().filter(|_| lbfgs) {
+        *full
     } else {
         lit.batch_size
     };
@@ -173,6 +185,36 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
         .with_optimizer(optimizer)
         .with_lr_schedule(lr_schedule)
         .with_adam_epochs(adam_epochs)
+}
+
+/// The L-BFGS arm of `lit` with the `LBFGS_*` variables.
+fn lbfgs(lit: &Literals) -> LbfgsArm {
+    let (arm, _) = lit
+        .lbfgs
+        .clone()
+        .expect("OPTIMIZER=lbfgs needs the example's L-BFGS literals");
+    let history_size = env_var("LBFGS_HISTORY").unwrap_or(arm.lbfgs.history_size);
+    let max_iter = env_var("LBFGS_MAX_ITER").unwrap_or(arm.lbfgs.max_iter);
+    // unset and without a literal, Burn's ⌊1.25 max_iter⌋
+    let max_eval = env_var("LBFGS_MAX_EVAL").or(arm.lbfgs.max_eval);
+    assert!(
+        history_size > 0 && max_iter > 0 && max_eval != Some(0),
+        "LBFGS_HISTORY, LBFGS_MAX_ITER and LBFGS_MAX_EVAL must be positive"
+    );
+    let weight_decay = env_var("LBFGS_WEIGHT_DECAY").unwrap_or(arm.weight_decay);
+    assert!(
+        weight_decay.is_finite() && weight_decay >= 0.0,
+        "LBFGS_WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
+    );
+    LbfgsArm {
+        lbfgs: arm
+            .lbfgs
+            .with_history_size(history_size)
+            .with_max_iter(max_iter)
+            .with_max_eval(max_eval),
+        weight_decay,
+        ..arm
+    }
 }
 
 /// Gauss–Newton from `lit` and the `GN_*` variables, its probes seeded with `seed`.
@@ -274,6 +316,8 @@ fn reopen<const R: usize, C: Config>(
         .unwrap_or_else(|e| panic!("could not truncate metrics.csv: {e}"));
     run.truncate_gn_steps(ck.state.next_epoch)
         .unwrap_or_else(|e| panic!("could not truncate gn_steps.csv: {e}"));
+    run.truncate_lbfgs_steps(ck.state.next_epoch)
+        .unwrap_or_else(|e| panic!("could not truncate lbfgs_steps.csv: {e}"));
     println!(
         "device: {device:?}, resuming {dir} at epoch {} of {} (resume {})",
         ck.state.next_epoch, train_cfg.epochs, ck.state.resumes
@@ -303,22 +347,35 @@ pub struct Measured {
 /// the steps and passes. Adam: every planned step (it takes no budget), one forward and
 /// one backward each. Gauss–Newton: the steps taken, from `gn_steps.csv`, every session's
 /// (a budget may stop it before the last epoch), plus a hybrid run's Adam steps, from the
-/// epochs `metrics.csv` holds.
+/// epochs `metrics.csv` holds. L-BFGS: one step per epoch, from `lbfgs_steps.csv`, its
+/// closure evaluations as passes (D7) plus one metrics forward per step, as Gauss–Newton's.
 ///
 /// # Panics
 /// If a Gauss–Newton run's `metrics.csv` or `gn_steps.csv` cannot be read, or it has no
-/// `gn_steps.csv` and no Adam epochs.
+/// `gn_steps.csv` and no Adam epochs; if an L-BFGS run's `lbfgs_steps.csv` is missing or
+/// cannot be read.
 pub fn run_costs(
     run: &RunDir,
     train_cfg: &TrainingConfig,
     n_train: usize,
     m: Measured,
 ) -> RunCosts {
+    let lbfgs = train_cfg.lbfgs().map(|_| {
+        run.lbfgs_passes()
+            .expect("could not read lbfgs_steps.csv")
+            .expect("an L-BFGS run writes lbfgs_steps.csv")
+    });
     let (steps, forward_passes, backward_passes) = match train_cfg.gauss_newton() {
-        None => {
-            let steps = train_cfg.total_steps(n_train);
-            (steps, steps, steps)
-        }
+        None => match lbfgs {
+            Some(p) => {
+                let (forward, backward) = training_passes(&p);
+                (p.steps, forward, backward)
+            }
+            None => {
+                let steps = train_cfg.total_steps(n_train);
+                (steps, steps, steps)
+            }
+        },
         Some(_) => {
             let epochs = run.metrics().expect("could not read metrics.csv").len();
             let adam_epochs = (0..epochs).filter(|&e| train_cfg.adam_epoch(e)).count();
