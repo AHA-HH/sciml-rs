@@ -840,3 +840,34 @@ template:
   `forward`, `phase5_epoch`, `gauss_newton_epoch`, `lbfgs_epoch` `cmp` same).
 - Matrix: `FNO`, `DomainPadding` rows.
 - Follow-ups: CM1.5e, CM1.5f (roadmap lines).
+
+## 2026-11-27: CM1.5f The parity harness
+- Done: test code only. `tests/parity_common/biased_conv.rs`: `BiasedConv` (a
+  `SpectralConv` and a bias, 2.0.0's layer shape) and `run`, shared by `legacy_conv.rs` and
+  `centred_conv.rs` (CM1.2 M1), each `check` now `check_d3`. `load_into` and
+  `load_into_part` take the fixture's `Conversion`s for that load; `Fixture::replace` and its
+  map gone, `Fixture`'s fields private (CM1.2 B1); new checks: a map name the fixture lacks
+  after conversion, a conversion of a missing parameter, a part shadowing a parameter.
+  `fno::output`'s hook replaced by `fno::load` → `Load { map, converted }` and `Load::run`,
+  which a control edits (CM1.5a F6). `Fno1dRef` (`parity_common/fno1d.rs`,
+  `tests/parity_fno1d{,_f64}.rs`) deleted, its checks ported to the library `FNO` in
+  `tests/parity_fno.rs` (CM1.5a F4); the perturbed weight is now a converted bias + 1e-3.
+- Tests: every parity binary with `--include-ignored --nocapture` on `main` and the branch,
+  the printed errors diffed: identical but for the two deleted `Fno1dRef` lines, whose
+  fixtures give the same errors through `parity_fno` (3.514e-7) and `parity_fno_f64`
+  (1.211e-8). Every control still fails D3 with `main`'s error; `parity_fno` 21 → 31 tests
+  (7 ported, 3 new rejections).
+- Checks: fmt, clippy (default, `--examples`, `--all-targets`, `--features datagen
+  --all-targets`), `cargo test`, `cargo test --features datagen`, `cargo doc --no-deps`: all
+  passed (the plan review re-ran them in release on the final commit). Not run:
+  `--features metal`, `gpu_parity` (no `src/` change).
+- Decisions: none.
+- Review: plan review PASS (advisories: the plan's M1 label and its record of the review
+  fixes, fixed). Code quality APPROVE with findings: F1 (one biased pipeline), F2
+  (`Conversion` a struct), F3 (a part shadowing a parameter), F5 (doc line widths) fixed; F5's
+  path `conv_biases.0` is the library `FNO`'s, kept; F4 (the harness's own unit tests in
+  `parity_fno`) accepted as is.
+- FNO: not touched; `fno_bit_identity`'s four dumps (`forward`, `phase5_epoch`,
+  `gauss_newton_epoch`, `lbfgs_epoch`) `cmp` equal to `main`'s.
+- Matrix: no rows (test harness).
+- Follow-ups: none.

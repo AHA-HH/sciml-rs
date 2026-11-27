@@ -33,7 +33,9 @@ tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to phase 
 name is `OperatorConfig::KIND`; FNO outputs unchanged bit for bit). CM3.6c done 2026-11-27
 (the projector's periodic factor refresh, opt-in, off by default; 2.0.0's parity unchanged).
 CM1.5d split 2026-11-27 into CM1.5d–f; CM1.5d done 2026-11-27 (the FNO's config rule, one
-padding, one grid builder; FNO outputs unchanged bit for bit). Next CM1.5e.
+padding, one grid builder; FNO outputs unchanged bit for bit). CM1.5f done 2026-11-27 (the
+parity harness: one biased layer, conversions passed to `load_into`, `Fno1dRef` retired, no
+map hook; test code only). Next CM1.5e.
 
 ## How to read this file
 
@@ -273,13 +275,17 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     with one inverse that resizes and scales for `SpectralConv::forward_to` and `resample`
     (CM1.5b F2, F3). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
     *Needs:* CM1.5a.
-  - [ ] **CM1.5f The parity harness.** One shared biased test layer for `legacy_conv.rs`
+  - [x] **CM1.5f The parity harness.** One shared biased test layer for `legacy_conv.rs`
     and `centred_conv.rs`; converted arrays passed to `load_into` with `Fixture`'s fields
     private (CM1.2); CM0.5's test-only `Fno1dRef` (`tests/parity_common/fno1d.rs`,
     `tests/parity_fno1d*.rs`) retired, its harness self-checks ported to the library `FNO`
     (CM1.5a F4); `parity_common::fno::output`'s map hook replaced by a load step the control
     can corrupt (CM1.5a F6). *Done when:* every parity test passes at its recorded error,
-    and the dumps equal `main`'s. *Needs:* CM1.5a.
+    and the dumps equal `main`'s. *Needs:* CM1.5a. Done 2026-11-27: plan `docs/operators/tasks/CM1.5f.md`;
+    `tests/parity_common/biased_conv.rs` (`BiasedConv`, `run`); `load_into(.., converted)`
+    with `Conversion`, `Fixture`'s fields private; `fno::load` → `Load { map, converted }`,
+    `run`; `Fno1dRef` and `tests/parity_fno1d*.rs` deleted, their checks in
+    `tests/parity_fno.rs`; every printed error equal to `main`'s, the dumps identical.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
   `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25

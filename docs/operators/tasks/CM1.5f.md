@@ -12,20 +12,22 @@ layer, conversions passed to `load_into`, no hand-written reference FNO, no map 
 
 ## Read first
 `tests/parity_common/{mod,legacy_conv,centred_conv,fno,fno1d}.rs`, `tests/parity_fno*.rs`,
-`tests/parity_*spectral_conv*.rs`; CM1.2's code-quality review (D1: `BiasedConv`; B1:
+`tests/parity_*spectral_conv*.rs`; CM1.2's code-quality review (M1: `BiasedConv`; B1:
 `load_into` takes the converted arrays, `Fixture`'s fields private); CM1.5a's (F4, F6).
 
 ## Changes
 Test code only (`tests/`); nothing in `src/`, `tools/parity/` or the fixtures.
 - `tests/parity_common/biased_conv.rs` (new, `#[path]`-included): `BiasedConv<R>`, a
   `SpectralConv<R>` plus a bias `[1, out, 1, …]`, 2.0.0's layer shape; `legacy_conv.rs` and
-  `centred_conv.rs` keep their maps, cases and conversions. `legacy_conv`'s own fixture
-  naming goes for `Fixture::open_as`.
-- `parity_common/mod.rs`: `Conversion` (a 2.0.0 parameter and the arrays replacing it);
+  `centred_conv.rs` keep their maps, cases and conversions; `biased_conv::run` (load and
+  forward) and `check_d3` serve both, the fixture names by `Fixture::open_as` (review F1).
+- `parity_common/mod.rs`: `Conversion { from, parts }` (a 2.0.0 parameter and the arrays
+  replacing it; review F2);
   `load_into(module, fixture, map, converted)` and `load_into_part(.., converted, filter)`
   apply them for that load only; `Fixture::replace` and its `replaced` map go, `Fixture`'s
   fields become private. New check: a map entry naming a parameter the fixture (after
-  conversion) lacks panics by name instead of in the reader.
+  conversion) lacks panics by name instead of in the reader; a conversion part may not take
+  a remaining parameter's name (review F3).
 - `parity_common/fno.rs`: `output(case, precision, hook, device)` becomes
   `load(case, precision, device) -> Load<R>`, whose public `map` and `converted` a control
   edits before `Load::run` loads and runs the FNO. Parity passes no hook.
@@ -41,7 +43,8 @@ Test code only (`tests/`); nothing in `src/`, `tools/parity/` or the fixtures.
   `swapped_batch_statistics`, `padding_left_off`, the legacy 3D corner order, the centred
   halves and odd extent) and every load rejection still panics with its message.
 - New: `load_rejects_a_converted_away_parameter` (a map entry still naming a parameter a
-  conversion replaced).
+  conversion replaced), `load_rejects_a_conversion_of_a_missing_parameter`,
+  `load_rejects_a_conversion_part_shadowing_a_parameter`.
 - Constraint 1: `fno_bit_identity` dumps on `main` and the branch `cmp` equal (no `src/`
   change, so expected trivially).
 
