@@ -211,6 +211,35 @@ impl Fixture {
         Tensor::from_data(self.data(&a), device)
     }
 
+    /// The complex array `key` (a trailing (re, im) axis of 2) as its real and imaginary
+    /// parts, rank-`R` tensors on `device` in the fixture's precision.
+    ///
+    /// # Panics
+    /// As [`take`], or if the parts are not of rank `R`.
+    #[allow(
+        dead_code,
+        reason = "every parity binary includes this harness; only the GaLore ones read complex arrays"
+    )]
+    pub fn complex_tensor<const R: usize>(
+        &mut self,
+        key: &str,
+        device: &Device,
+    ) -> (Tensor<R>, Tensor<R>) {
+        let a = self.array(key);
+        let part = |t| {
+            let p = take(a.clone(), t);
+            assert_eq!(
+                p.ndim(),
+                R,
+                "fixture {}: {key} rank {} ≠ {R}",
+                self.name,
+                p.ndim()
+            );
+            Tensor::from_data(self.data(&p), device)
+        };
+        (part(Take::Re), part(Take::Im))
+    }
+
     fn data(&self, a: &ArrayD<f64>) -> TensorData {
         let shape = a.shape().to_vec();
         let values = a.iter().copied();

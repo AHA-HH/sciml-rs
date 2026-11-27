@@ -167,7 +167,7 @@ the defaults (`nu2`), with `radius=0.2` (`nu2_radius`) and with `regularize_lsts
 Inputs drawn in f32 and cast for f64. Every array is written C-contiguous (einsum's outputs
 are strided views, which `np.savez` would store in Fortran order).
 
-## GaLore fixtures (CM3.6a)
+## GaLore fixtures (CM3.6a, CM3.6b)
 
 `generate_galore.py` (same `--check`) writes `tests/fixtures/parity/galore_{f32,f64}`: 2.0.0's
 `TensorGaLoreProjector` on three structured gradients (a Tucker tensor with a decaying core
@@ -175,5 +175,11 @@ plus 0.05 noise, so the leading singular values are separated): `matrix` (12 × 
 `update_proj_gap=5`), `tensor4` (6 × 5 × 4 × 3, ranks [3, 2, 3, 2], `scale=0.25`) and
 `fraction` (8 × 6 × 5, rank 0.5, validated to [5, 3, 3]). Keys `<case>.{grad, grad2, ranks,
 factor<k>, low, back, low2}`: `low` is `project(grad, 0)`, `back` `project_back(low)`, `low2`
-`project(grad2, gap)` with the first factors (2.0.0 computes them once). Real tensors only
-(complex: CM3.6b). Inputs drawn in f32 and cast for f64. 17 kB and 26 kB.
+`project(grad2, gap)` with the first factors (2.0.0 computes them once). Inputs drawn in f32
+and cast for f64. 17 kB and 26 kB.
+
+`galore_complex_{f32,f64}` (CM3.6b): the same cases on complex gradients (drawn in `cfloat`),
+complex arrays as `torch.view_as_real` (a trailing axis of 2), `ranks` real. 2.0.0 casts a
+complex gradient to `cfloat` and then fails on a `cdouble` one (a dtype mismatch in
+`multi_mode_dot`), so the f64 fixture is tensorly's `tucker` on the `cdouble` gradient with
+2.0.0's `transform` / `inverse_transform` (`CdoubleProjector`). 26 kB and 46 kB.

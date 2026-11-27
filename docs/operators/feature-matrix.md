@@ -99,7 +99,7 @@ name lower-cased: `fno`, `tfno`, `sfno`, `localno`, `uqno`, `fnogno`, `gino`. `U
 | `IncrementalFNOTrainer` (exported; incremental modes by gradient or loss gap) | `training/incremental.py` | – | missing | CM1.7 |
 | `MultigridPatching2D`, `make_patches` | `training/patching.py` | – | missing | CM1.7 |
 | `AdamW` (exported; `correct_bias`, GaLore options) | `training/adamw.py` | Burn's Adam with weight decay | partial | CM1.7 |
-| `TensorGaLoreProjector` | `training/tensor_galore_projector.py` | `optim::galore::TensorGaLoreProjector` for real tensors (parity ≤ 5.1e-6 f32, ≤ 3.3e-15 f64); complex tensors CM3.6b; not wired into training | partial | CM3.6a, CM3.6b |
+| `TensorGaLoreProjector` | `training/tensor_galore_projector.py` | `optim::galore::TensorGaLoreProjector`, real tensors (parity ≤ 5.1e-6 f32, ≤ 3.3e-15 f64) and `ComplexTensor`s (≤ 7.1e-6 f32 against 2.0.0, ≤ 1.5e-14 f64 against tensorly; up to phase where an unfolding is tall, 2.0.0's phases being ill-conditioned there); f64 complex, which 2.0.0 rejects, works; not wired into training (the `AdamW` row) | have | CM3.6a, CM3.6b |
 | `setup` (exported; distributed and seeds from a config), `increase_l2_fetch_granularity` | `training/torch_setup.py` | multi-GPU data parallel (2D Phase 9 T2) | partial | – |
 | Mixed precision (`Trainer(mixed_precision=True)`, `fno_block_precision`) | `training/trainer.py`, `layers/fno_block.py` | – | missing | CM1.7 |
 

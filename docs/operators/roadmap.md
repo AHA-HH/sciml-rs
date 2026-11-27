@@ -27,7 +27,9 @@ outputs unchanged bit for bit). CM3.6 split 2026-11-27 into CM3.6a–b; CM3.6a d
 and L-BFGS, unchanged bit for bit); CM0.7 added (retire `Operator::NAME`, the author's
 decision of 2026-11-27). CM1.5c done 2026-11-27 (batch norm and 2.0.0's `fno_skip=None`;
 FNO outputs unchanged bit for bit). CM1.5b done 2026-11-27 (domain padding, resolution
-scaling, `resample`; FNO outputs unchanged bit for bit). Next CM0.7, CM1.5d, CM3.6b.
+scaling, `resample`; FNO outputs unchanged bit for bit). CM3.6b done 2026-11-27 (complex
+tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to phase where
+2.0.0's factors are ill-conditioned). Next CM0.7, CM1.5d, CM3.6c.
 
 ## How to read this file
 
@@ -348,8 +350,10 @@ The order of M2 and M3 is set at the M1 gate (D6).
   - [x] **CM3.6a Real tensors.** The projector, tensorly's HOOI Tucker factors and rank
     rules. *Done when:* factors, `project` and `project_back` against fixtures. *Needs:*
     CM0.3. Done 2026-11-27: `docs/operators/tasks/CM3.6a.md`.
-  - [ ] **CM3.6b Complex tensors.** 2.0.0's complex Tucker (complex SVD, phase sign rule)
-    for the spectral weights. *Done when:* against complex fixtures. *Needs:* CM3.6a.
+  - [x] **CM3.6b Complex tensors.** 2.0.0's complex Tucker (complex SVD, phase sign rule)
+    for the spectral weights. *Done when:* against complex fixtures. *Needs:* CM3.6a. Done
+    2026-11-27: `docs/operators/tasks/CM3.6b.md` (entry for entry where every unfolding is
+    wide; up to phase where one is tall, 2.0.0's phases being ill-conditioned there).
   - [ ] **CM3.6c Periodic factor refresh (opt-in).** 2.0.0 computes GaLore's Tucker
     factors once and never refreshes them, though its design intends a refresh every k
     steps; an option for that refresh, off by default, so the default stays 2.0.0's
