@@ -264,7 +264,10 @@ template:
   seed 44 at 915 epochs; the final tables in `docs/optimisers/results/CO0.1.md`. Error 4,
   mean [min–max]: at equal time Adam 1.029e-2 [9.64e-3–1.105e-2], GN 6.341e-3
   [4.48e-3–1.008e-2] (GN lower on 4 of 5 seeds, level on 45); at 5,400 s Adam 9.160e-3,
-  GN 4.044e-3 (lower on all three). No NaN in any valid run. Same-seed GN runs on cuda
+  GN 4.044e-3 (lower on all three). No NaN in any valid run; three GN runs (cap 50 on
+  seed 42 at both budgets, cap 150 on seed 43 at 5,400 s) have trial points whose φ
+  overflowed to inf (1, 33 and 24 steps), all rejected (audit of 2026-11-27, results
+  "Stability, every run"). Same-seed GN runs on cuda
   agree only to f32's last digits after the first step, and diverge from there (seed 43's
   long run ended above its equal-time run).
 - Tests: none new.

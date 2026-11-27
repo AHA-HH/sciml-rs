@@ -9,7 +9,27 @@ test L² minus final train L². Run directories: `runs/co0-1/` (git-ignored), ma
 specs by its `progress.txt`.
 
 **Status:** done 2026-11-27: stages 1–3, D1 signed off (cap 150). The two arms at a
-glance are under "Final tables".
+glance are under "Final tables". Audited against the run data 2026-11-27 (every figure
+recomputed from `errors.json`, `costs.json`, `metrics.csv` and `gn_steps.csv`).
+
+## Runs counted
+
+19 run directories in `runs/co0-1/` count; `runs/co0-1/void/` (the long GN pair of
+2026-11-26 13:12 UTC that shared one directory, plan "Pending runs") does not.
+
+| stage | arm | seeds | runs | in the final tables |
+| --- | --- | --- | --- | --- |
+| 1 | Adam, 500 epochs (equal time) | 42–46 | 5 | yes |
+| 1 | Adam, 500 epochs, data-parallel on both GPUs | 46 | 1 | no (a separate measurement) |
+| 2 | Adam, 915 epochs (5,400 s) | 42, 43 | 2 | yes |
+| 2 | GN cap 50, at B and at 5,400 s | 42 | 2 | no (D1 pilot) |
+| 2 | GN cap 150, at B and at 5,400 s | 42 | 2 | yes (seed 42's GN cells) |
+| 3 | GN cap 150 at B | 43–46 | 4 | yes |
+| 3 | GN cap 150 at 5,400 s | 43, 44 | 2 | yes |
+| 3 | Adam, 915 epochs (5,400 s) | 44 | 1 | yes |
+
+By stage: 6, 6 and 7 runs; 16 of the 19 are in the final tables (Adam and GN cap 150,
+five seeds at B and three at 5,400 s).
 
 ## Final tables
 
@@ -25,6 +45,10 @@ settings):
 | 46 | 9.846e-3 | 6.427e-3 | −34.7 % | – | – | – |
 | **mean** [min–max] | **1.029e-2** [9.637e-3–1.105e-2] | **6.341e-3** [4.483e-3–1.008e-2] | −38 % | **9.160e-3** [8.585e-3–9.486e-3] | **4.044e-3** [2.469e-3–6.070e-3] | −56 % |
 | training time, mean (s) | 2,949.1 | 3,045.5 | | 5,397.9 | 5,494.5 | |
+
+Means and ranges are over five seeds at equal time and three at 5,400 s. Seed 42's GN
+cells are stage 2's cap-150 runs; every other cell is one run of its own. Each row is one
+seed, one run: no single-seed figure here is a mean.
 
 - **At equal time, GN at μ = 0 is ahead on average** (6.34e-3 against 1.03e-2) and on 4
   of 5 seeds. On seed 45 it is level with Adam: 1.008e-2 against 9.94e-3, +1.5 %. GN's
@@ -49,7 +73,7 @@ Phase 5 settings: batch 20, lr 1e-3 cosine to 1e-5, weight decay 1e-4.
 | 44 | 1 | alone | 3,035.7 | 6.039 | 3.218e-3 | 1.105e-2 | 7.83e-3 | 1.105e-2 | 1.105e-2 / 5.472e-2 | 983 MiB |
 | 45 | 1 | paired with 43 | 2,919.2 | 5.799 | 3.372e-3 | 9.933e-3 | 6.56e-3 | 9.933e-3 | 9.936e-3 / 3.641e-2 | 983 MiB |
 | 46 | 0 | alone | 2,813.5 | 5.477 | 3.155e-3 | 9.841e-3 | 6.69e-3 | 9.841e-3 | 9.846e-3 / 3.159e-2 | 1,128 MiB |
-| **mean** [min–max] | | | **2,949.1** [2,813.5–3,064.9] | | 3.246e-3 | 1.028e-2 | 7.04e-3 | 1.028e-2 | **1.029e-2** [9.637e-3–1.105e-2] | |
+| **mean** [min–max] | | | **2,949.1** [2,813.5–3,064.9] | | 3.246e-3 | 1.028e-2 | 7.03e-3 | 1.028e-2 | **1.029e-2** [9.637e-3–1.105e-2] | |
 
 Each run: 25,000 updates, 25,000 forward and 25,000 backward passes. Peak memory is the
 whole device's, sampled each second; seed 42's 3,048 MiB is not explained by its own run
@@ -61,8 +85,8 @@ process's memory on GPU 0 at its start (CO0.2's profile exited ten seconds befor
 | | runs | error 4 mean [min–max] | final train L² | gap | training time (s) |
 | --- | --- | --- | --- | --- | --- |
 | Phase 10, Adam | 42–44 | 1.061e-2 [1.041e-2–1.095e-2] | 3.185e-3 | 7.42e-3 | 859.4 [845.9–869.7] |
-| Burn 0.23, seeds 42–44 | 42–44 | 1.055e-2 [9.637e-3–1.105e-2] | 3.235e-3 | 7.31e-3 | 3,004.3 [2,912.2–3,064.9] |
-| Burn 0.23, seeds 42–46 | 42–46 | 1.029e-2 [9.637e-3–1.105e-2] | 3.246e-3 | 7.04e-3 | 2,949.1 [2,813.5–3,064.9] |
+| Burn 0.23, seeds 42–44 | 42–44 | 1.055e-2 [9.637e-3–1.105e-2] | 3.234e-3 | 7.31e-3 | 3,004.3 [2,912.2–3,064.9] |
+| Burn 0.23, seeds 42–46 | 42–46 | 1.029e-2 [9.637e-3–1.105e-2] | 3.246e-3 | 7.03e-3 | 2,949.1 [2,813.5–3,064.9] |
 
 - **Accuracy is reproduced.** Over the same seeds the mean error 4 is within 1 % of the
   fork's (1.055e-2 against 1.061e-2), with a wider range; seed by seed the runs differ
@@ -133,9 +157,10 @@ Each run: 45,750 updates, forward and backward passes. With 1.8× the time Adam 
 1.2–1.4 % short of 5,400 s since E came from B's wall-clock seconds and these epochs were
 faster.
 
-## Stage 2: Gauss–Newton, seed 42
+## Stage 2: Gauss–Newton, seed 42 (single-seed pilot)
 
-GN200-D: batch 200, μ = 0, the Hutchinson diagonal, warm-started CG with Martens' stop,
+Every figure in this section and its subsections is from seed 42 alone; the multi-seed
+means are under "Final tables". GN200-D: batch 200, μ = 0, the Hutchinson diagonal, warm-started CG with Martens' stop,
 seed 42, commit `911a64e`. The equal-time runs ran alone on GPU 0, one after the other.
 The long runs were paired (cap 50 on GPU 0, cap 150 on GPU 1, started 60 s apart). They
 are the rerun of 2026-11-26 16:52 UTC: the first pair had shared a run directory and is
@@ -165,7 +190,8 @@ cap 150 an epoch takes about 135 s, so the equal-time cap-150 run trained 5.8 % 
 - **GN now beats Adam at equal time on seed 42**, by 36 % (cap 50) and 39 % (cap 150). On
   the fork it lost (1.200e-2 against Adam's 1.095e-2). Adam's step slowed 3.4× on
   Burn 0.23 and GN's only about 24 % (CO0.2), so the same budget buys GN far more work.
-  At the long budget, cap 150 is 3.5× below Adam.
+  At the long budget, cap 150 is 3.5× below Adam on seed 42 (over three seeds: 4.04e-3
+  against 9.16e-3, "Final tables").
 - **The long runs match or beat Phase 10's on fewer steps:** 405 against 475 at cap 50 and
   170 against 230 at cap 150, so GN's step is slower here too. Two Burns are not
   bit-comparable and this is one seed, so the difference is no finding.
@@ -179,9 +205,10 @@ Passes per second over the first 2,952 s of each long run, against its cap's run
 14.30 (+3.9 %). As with Adam's pairs, the paired runs were faster, not slower, and outside
 the 3 % band on the fast side.
 
-### Wild steps (open question 6)
+### Wild steps (open question 6; seed 42)
 
-A step is wild here when |ρ| > 1e3:
+A step is wild when |ρ| > 1e3 or ρ is not finite (`gn_steps.csv`'s `rho`). This one cut
+is used throughout, stage 3 and "Stability, every run" included:
 
 | run | wild steps | first at step (φ there) | accepted |
 | --- | --- | --- | --- |
@@ -190,19 +217,23 @@ A step is wild here when |ρ| > 1e3:
 | cap 50, 5,400 s | 108 of 405 | 53 (6.6e-5) | none |
 | cap 150, 5,400 s | 0 of 170 | – | – |
 
-- **No NaN in any of the four runs.** Every wild step was rejected; φ is unchanged on
-  every rejected step, and λ was raised.
+- **No NaN in any of the four runs, but not all finite.** Both cap-50 runs have trial
+  points whose φ overflowed to inf (`actual_reduction` and ρ inf): 1 step at B (step 167)
+  and 33 at 5,400 s (from step 167); the cap-150 runs have none. Every wild step, these
+  included, was rejected; φ is unchanged on every rejected step, and λ was raised.
 - **The quadratic model breaks down rather than being noisy.** The median predicted
-  reduction of a wild step is 48 to 2.8e4, while φ itself is below 1.5e-4 by then. A step
-  that the model says lowers φ by 10⁵–10⁸ times φ can only be a step along directions
+  reduction of a wild step is 48 to 2.8e4, while φ itself is at most 1.5e-4 by then. A step
+  that the model says lowers φ by 10⁶–10⁹ times φ (the median ratio by run: 2.7e6,
+  5.1e6, 2.4e9) can only be a step along directions
   where G + λI is almost singular. At μ = 0 nothing holds those directions, and λ at
   the wild steps was small (median 4e-7–3e-5 by run, down to 1e-8). Example: the equal-time cap-150 run's last step had norm 6.8e3,
   predicted reduction 136.8 and ρ −4.4e14.
 - **The cost is wasted steps, not wrong ones.** Wild steps are 20–27 % of cap
   50's steps and up to 17 % of cap 150's. At the longer cap, CG's stop on progress ends
-  most solves early (73 of 170 steps at 5,400 s).
+  73 of 170 solves early at 5,400 s (43 %; 93 reach the cap, 4 converge).
 - **The void directory's 88 NaN rows** (from step 58 on) cannot be tied to a run. Its
-  rerun at the same settings has none, but GPU runs are not bit-reproducible, so these
+  rerun at the same settings has none (it also has 24 inf rows, steps 57 onward, besides
+  the NaN), but GPU runs are not bit-reproducible, so these
   settings could still produce NaN on some run. Stage 3 reports any NaN row.
 
 ### D1, proposed: CG cap 150
@@ -212,8 +243,9 @@ budget. Cap 150 wins both:
 - 5.846e-3 against 6.129e-3 at equal time (4.6 % lower, within one seed's noise);
 - 2.469e-3 against 4.579e-3 at 5,400 s (46 % lower).
 
-It also has fewer wild steps (19 and 0, against 43 and 108) and the lower peak memory
-(4.3–4.4 GiB against 4.7–5.0). Phase 10 found the same at μ = 0 (3.03e-3 against
+It also has fewer wild steps (19 and 0, against 43 and 108), no inf trial φ (cap 50: 1 and
+33 steps) and the lower peak memory (4,261–4,406 MiB, 4.2–4.3 GiB, against 4,650–5,016 MiB,
+4.5–4.9 GiB). All of this is seed 42 alone. Phase 10 found the same at μ = 0 (3.03e-3 against
 5.58e-3 at 5,400 s). The caveat: at equal time the margin is small, and cap 150 trained
 5.8 % over B against cap 50's 1.6 %. The long budget is the clear separation. **Signed
 off 2026-11-26: cap 150**, given with stage 3's go through the coordinating session.
@@ -234,11 +266,13 @@ pairing accepted as for stages 1 and 2:
 | 43 | 5,400 s | 5,507.1 | 295 (183) | 15.17 | 5.776e-3 | 6.058e-3 | 6.070e-3 / 2.004e-2 | 35 | 4,406 MiB |
 | 44 | 5,400 s | 5,523.2 | 205 (137) | 15.16 | 3.230e-3 | 3.585e-3 | 3.593e-3 / 1.150e-2 | 22 | 4,261 MiB |
 
-Adam seed 44, 915 epochs: 5,536.5 s, median epoch 6.040 s (+1.1 % against seed 42 alone in
+Adam seed 44, 915 epochs: 5,536.5 s, median epoch 6.041 s (+1.1 % against seed 42 alone in
 stage 1), final train L² 2.335e-3, test L² 9.483e-3, error 4 9.486e-3 / 3.871e-2 (−14.2 %
 against 500 epochs), 983 MiB.
 
-- **No NaN in any run, and no wild step was accepted.** All six GN runs ran 14.9–15.2
+- **No NaN in any run, and no wild step was accepted.** Seed 43's long run has 24 steps
+  (from step 168) whose trial φ overflowed to inf, all rejected; the other five have no
+  non-finite value ("Stability, every run"). All six GN runs ran 14.9–15.2
   passes per second, faster than stage 2's cap-150 run alone (14.27), so pairing slowed
   nothing.
 - **Seed 45 at equal time** is GN's worst run (1.008e-2), level with Adam's seed 45. It
@@ -248,7 +282,8 @@ against 500 epochs), 983 MiB.
   a higher train L² too (5.78e-3 against 4.46e-3). Training longer did not cause this: the
   two runs are different trajectories from the start. Runs with the same seed and settings
   agree only to f32's last digits after the first step on cuda (φ 0.49425319 against
-  0.49425325 at step 1; seeds 42 and 44 the same). Gauss–Newton amplifies that, so by
+  0.49425325 at step 1; seed 44 the same; seed 42's runs differ already at step 0,
+  0.50974578 against 0.50974584). Gauss–Newton amplifies that, so by
   epoch 4 the long run's train L² was 6.75e-2 against 9.60e-2, and at 2,952 s its test
   L² was about 9.3e-3 against 4.85e-3. Its damping swung widely from step 100 on (4e-5 to
   7.6, sampled every 15 steps), with 112 of its 295 steps rejected (35 of them wild).
@@ -256,6 +291,33 @@ against 500 epochs), 983 MiB.
   seed are independent draws, not one run read at two times. The spread by seed includes
   this run-to-run spread; Adam's own run-to-run spread was not measured. Five seeds per arm, as D2 has
   them, are what absorb it.
+
+## Stability, every run
+
+From `gn_steps.csv` (one row per step) and `metrics.csv`. Wild: |ρ| > 1e3 or ρ not
+finite, the cut above. Rejected: `accepted` false, after the backtracking over CG's
+iterates. Inf: a trial point whose φ overflowed (`actual_reduction` and ρ ±inf). NaN: any
+NaN in the run's files.
+
+| run (directory suffix) | seed | cap | budget | steps | rejected | ρ < 0 | wild | inf trial φ (first step) | NaN | wild or inf accepted |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `gn_1795692596` | 42 | 50 | B | 220 | 91 | 63 | 43 | 1 (167) | 0 | 0 |
+| `gn_1795695598` | 42 | 150 | B | 115 | 35 | 30 | 19 | 0 | 0 | 0 |
+| `gn_1795711972` | 42 | 50 | 5,400 s | 405 | 139 | 68 | 108 | 33 (167) | 0 | 0 |
+| `gn_1795712032` | 42 | 150 | 5,400 s | 170 | 27 | 26 | 0 | 0 | 0 | 0 |
+| `seed43_gn_1795734177` | 43 | 150 | B | 135 | 32 | 31 | 3 | 0 | 0 | 0 |
+| `seed44_gn_1795734197` | 44 | 150 | B | 125 | 34 | 33 | 0 | 0 | 0 | 0 |
+| `seed45_gn_1795737314` | 45 | 150 | B | 125 | 40 | 32 | 0 | 0 | 0 | 0 |
+| `seed46_gn_1795737186` | 46 | 150 | B | 125 | 35 | 26 | 0 | 0 | 0 | 0 |
+| `seed43_gn_1795740318` | 43 | 150 | 5,400 s | 295 | 112 | 99 | 35 | 24 (168) | 0 | 0 |
+| `seed44_gn_1795740165` | 44 | 150 | 5,400 s | 205 | 68 | 63 | 22 | 0 | 0 | 0 |
+| `void/…gn_1795698725` (not counted) | 42 | 150 | 5,400 s | 605 rows | 242 | 100 | 163 (88 of them NaN) | 24 (57) | 88 rows (58) | 0 |
+
+- Every rejected step left φ unchanged and raised λ, in every run.
+- No accepted step has ρ < 0. "Rejected" is the wider count: it also holds steps with
+  0 ≤ ρ below the acceptance threshold; "wild" is the blow-ups within it.
+- The nine Adam runs (stages 1–3 and the data-parallel run) have no NaN or inf in
+  `metrics.csv` or `errors.json`.
 
 ## Provenance
 
