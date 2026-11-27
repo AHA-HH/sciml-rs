@@ -6,7 +6,7 @@ use burn::{
     data::dataloader::DataLoader,
     lr_scheduler::{cosine::CosineAnnealingLrSchedulerConfig, step::StepLrSchedulerConfig},
     optim::{
-        AdamConfig, AdamWConfig, GradientsParams, ModuleOptimizer,
+        AdamConfig, AdamWConfig, GradientsParams, LBFGS, ModuleOptimizer,
         decay::WeightDecayConfig,
         lr_scheduler::module_lr_scheduler::{ModuleLearningRate, ModuleLrScheduler},
     },
@@ -33,11 +33,14 @@ use crate::neural_operators::{
         operator::GridOperator,
     },
     optim::gauss_newton::GaussNewton,
-    runs::{CheckpointState, EpochMetrics, GnStepRecord, OperatorCheckpoint, RunDir},
+    runs::{
+        CheckpointState, EpochMetrics, GnStepRecord, LbfgsStepRecord, OperatorCheckpoint, RunDir,
+    },
     training::{
         config::{LrSchedule, OptimizerConfig, TrainingConfig},
         data_parallel::{Peers, Replica, train_epoch_parallel},
         gn::train_epoch_gn,
+        lbfgs::train_epoch_lbfgs,
         step::{StepLoss, evaluate, forward_loss, squared_rel_l2},
     },
 };
@@ -175,6 +178,9 @@ pub struct TrainingComponents<const R: usize, const RM1: usize, M = FNO<R>> {
     /// T3); `None` trains with `optim` and `scheduler`, which a Gauss–Newton run leaves
     /// unused.
     pub gn: Option<GaussNewton>,
+    /// Burn's L-BFGS when `TrainingConfig::optimizer` asks for it (optimisers CO2.1); like
+    /// `gn`, it leaves `optim` and `scheduler` unused.
+    pub lbfgs: Option<LBFGS>,
 }
 
 /// [`build_components`] for the FNO.
@@ -243,8 +249,11 @@ pub fn build_components<M: GridOperator<R>, const R: usize, const RM1: usize, T:
             .with_epsilon(1e-8)
             .with_weight_decay(train_cfg.weight_decay)
             .init(),
-        // a Gauss-Newton run builds Adam too: its hybrid epochs, or unused
-        Some(OptimizerConfig::Adam | OptimizerConfig::GaussNewton(_)) | None => AdamConfig::new()
+        // a Gauss-Newton or L-BFGS run builds Adam too: a hybrid run's epochs, or unused
+        Some(
+            OptimizerConfig::Adam | OptimizerConfig::GaussNewton(_) | OptimizerConfig::Lbfgs(_),
+        )
+        | None => AdamConfig::new()
             .with_epsilon(1e-8)
             .with_weight_decay(Some(WeightDecayConfig::new(train_cfg.weight_decay)))
             .init(),
@@ -291,6 +300,7 @@ pub fn build_components<M: GridOperator<R>, const R: usize, const RM1: usize, T:
         gn: train_cfg
             .gauss_newton()
             .map(|cfg| GaussNewton::new(cfg.clone())),
+        lbfgs: train_cfg.lbfgs().map(|arm| arm.lbfgs.init()),
     }
 }
 
@@ -380,7 +390,7 @@ pub fn training_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
 /// [`training_loop`] with `on_gn_step`, called after each Gauss–Newton step with its row
 /// (never for Adam).
 fn run_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
-    mut components: TrainingComponents<R, RM1, M>,
+    components: TrainingComponents<R, RM1, M>,
     train_cfg: &TrainingConfig,
     decoder: Option<&FlatDecoder>,
     on_epoch: &mut EpochObserver<'_, R, M>,
@@ -388,9 +398,51 @@ fn run_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
     checkpoints: Option<(&RunDir, usize)>,
     resume: Option<OperatorCheckpoint<M>>,
 ) -> (M, Vec<EpochMetrics>) {
+    let sinks = StepSinks {
+        gn: on_gn_step,
+        lbfgs: &mut |_| {},
+    };
+    run_loop_with(
+        components,
+        train_cfg,
+        decoder,
+        on_epoch,
+        sinks,
+        checkpoints,
+        resume,
+    )
+}
+
+/// Where a run's per-step rows go: Gauss–Newton's (`gn_steps.csv`) and L-BFGS's
+/// (`lbfgs_steps.csv`, optimisers CO2.1).
+struct StepSinks<'a> {
+    gn: &'a mut dyn FnMut(&GnStepRecord),
+    lbfgs: &'a mut dyn FnMut(&LbfgsStepRecord),
+}
+
+/// [`run_loop`] with both step sinks: with `components.lbfgs` each epoch is
+/// [`train_epoch_lbfgs`] (one device, no hybrid), its checkpoints carrying the L-BFGS
+/// record, which `resume` must then hold.
+fn run_loop_with<const R: usize, const RM1: usize, M: GridOperator<R>>(
+    mut components: TrainingComponents<R, RM1, M>,
+    train_cfg: &TrainingConfig,
+    decoder: Option<&FlatDecoder>,
+    on_epoch: &mut EpochObserver<'_, R, M>,
+    sinks: StepSinks<'_>,
+    checkpoints: Option<(&RunDir, usize)>,
+    resume: Option<OperatorCheckpoint<M>>,
+) -> (M, Vec<EpochMetrics>) {
+    let StepSinks {
+        gn: on_gn_step,
+        lbfgs: on_lbfgs_step,
+    } = sinks;
     assert!(
         components.gn.is_none() || components.replicas.is_empty(),
         "Gauss-Newton trains on one device: data-parallel Gauss-Newton is out of scope"
+    );
+    assert!(
+        components.lbfgs.is_none() || components.replicas.is_empty(),
+        "L-BFGS trains on one device: data-parallel L-BFGS is out of scope"
     );
     assert!(
         !train_cfg.squared_loss() || components.replicas.is_empty(),
@@ -410,6 +462,12 @@ fn run_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
             (Some(gn), Some(state)) => Some(GaussNewton::from_state(gn.config().clone(), state)),
             (Some(_), None) => panic!("a Gauss-Newton run's checkpoint has no Gauss-Newton state"),
             (None, Some(_)) => panic!("an Adam run's checkpoint has a Gauss-Newton state"),
+        };
+        components.lbfgs = match (components.lbfgs, ck.lbfgs) {
+            (None, None) => None,
+            (Some(lbfgs), Some(record)) => Some(lbfgs.load_record(record)),
+            (Some(_), None) => panic!("an L-BFGS run's checkpoint has no L-BFGS state"),
+            (None, Some(_)) => panic!("the checkpoint has an L-BFGS state the run does not"),
         };
         let loaders = std::iter::once(&components.train_loader)
             .chain(components.replicas.iter().map(|r| &r.train_loader));
@@ -438,32 +496,48 @@ fn run_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
             .gn
             .as_mut()
             .filter(|_| !train_cfg.adam_epoch(epoch));
-        let (m, means) = match (gn, peers.as_mut()) {
-            (Some(gn), None) => train_epoch_gn(
+        let (m, means) = if let Some(lbfgs) = components.lbfgs.as_mut() {
+            // an L-BFGS run has neither Gauss-Newton nor replicas
+            let arm = train_cfg
+                .lbfgs()
+                .expect("L-BFGS components come from an L-BFGS config");
+            train_epoch_lbfgs(
                 model,
                 &components.train_loader,
-                gn,
+                lbfgs,
+                arm,
                 decoder,
                 epoch,
-                on_gn_step,
-            ),
-            (None, None) => train_epoch_with_loss(
-                model,
-                &components.train_loader,
-                &mut components.optim,
-                &mut components.scheduler,
-                decoder,
-                train_cfg.squared_loss(),
-            ),
-            (Some(_), Some(_)) => unreachable!("Gauss-Newton with replicas is rejected above"),
-            (None, Some(peers)) => train_epoch_parallel(
-                model,
-                &components.train_loader,
-                &mut components.optim,
-                &mut components.scheduler,
-                decoder,
-                peers,
-            ),
+                on_lbfgs_step,
+            )
+        } else {
+            match (gn, peers.as_mut()) {
+                (Some(gn), None) => train_epoch_gn(
+                    model,
+                    &components.train_loader,
+                    gn,
+                    decoder,
+                    epoch,
+                    on_gn_step,
+                ),
+                (None, None) => train_epoch_with_loss(
+                    model,
+                    &components.train_loader,
+                    &mut components.optim,
+                    &mut components.scheduler,
+                    decoder,
+                    train_cfg.squared_loss(),
+                ),
+                (Some(_), Some(_)) => unreachable!("Gauss-Newton with replicas is rejected above"),
+                (None, Some(peers)) => train_epoch_parallel(
+                    model,
+                    &components.train_loader,
+                    &mut components.optim,
+                    &mut components.scheduler,
+                    decoder,
+                    peers,
+                ),
+            }
         };
         model = m;
 
@@ -496,13 +570,23 @@ fn run_loop<const R: usize, const RM1: usize, M: GridOperator<R>>(
         {
             state.next_epoch = next_epoch;
             state.training_time_s = trained_s;
-            if let Err(e) = run.save_checkpoint_gn(
-                &state,
-                &model,
-                &components.optim,
-                &components.scheduler,
-                components.gn.as_ref().map(GaussNewton::state),
-            ) {
+            let saved = match &components.lbfgs {
+                Some(lbfgs) => run.save_checkpoint_lbfgs(
+                    &state,
+                    &model,
+                    &components.optim,
+                    &components.scheduler,
+                    lbfgs,
+                ),
+                None => run.save_checkpoint_gn(
+                    &state,
+                    &model,
+                    &components.optim,
+                    &components.scheduler,
+                    components.gn.as_ref().map(GaussNewton::state),
+                ),
+            };
+            if let Err(e) = saved {
                 panic!("could not save the checkpoint after epoch {epoch}: {e}");
             }
         }
@@ -621,13 +705,25 @@ pub fn train_components<const R: usize, const RM1: usize, M: GridOperator<R>>(
             );
         }
     };
+    let mut on_lbfgs_step = |r: &LbfgsStepRecord| {
+        if let Err(e) = run.append_lbfgs_step(r) {
+            eprintln!(
+                "warning: could not append epoch {} to lbfgs_steps.csv ({e})",
+                r.epoch
+            );
+        }
+    };
     let decoder = y_norm.map(|y| FlatDecoder::new(y, device));
-    let trained = run_loop(
+    let sinks = StepSinks {
+        gn: &mut on_gn_step,
+        lbfgs: &mut on_lbfgs_step,
+    };
+    let trained = run_loop_with(
         components,
         train_cfg,
         decoder.as_ref(),
         &mut on_epoch,
-        &mut on_gn_step,
+        sinks,
         checkpoint_every.map(|k| (run, k)),
         resume,
     );
@@ -1302,6 +1398,134 @@ mod tests {
             .with_epochs(1)
             .with_batch_size(2)
             .with_optimizer(Some(OptimizerConfig::GaussNewton(GaussNewtonConfig::new())));
+        let device = Device::default().autodiff();
+        let c = parallel_components(&train_cfg, &device, std::slice::from_ref(&device));
+        let _ = training_loop(c, &train_cfg, None, &mut |_, _| {}, None, None);
+    }
+
+    /// Optimisers CO2.1: an L-BFGS run of `train_poisson_smoke`'s fixture, full batch,
+    /// writes `metrics.csv` and one `lbfgs_steps.csv` row per epoch, and checkpoints its
+    /// state (and no Gauss-Newton state); killed in epoch 1 and resumed from epoch 0's
+    /// checkpoint, it ends as the uninterrupted run does, bit for bit on flex.
+    #[test]
+    fn lbfgs_smoke_run_resumes_exactly() {
+        use crate::neural_operators::training::config::{LbfgsArm, OptimizerConfig};
+        use burn::optim::{LBFGSConfig, LineSearchFn};
+        let dir = std::env::temp_dir().join(format!("sciml_rs_lbfgs_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let (train_path, test_path, cfg, model_cfg) = gn_smoke_fixture(&dir);
+        let arm = LbfgsArm::new(
+            LBFGSConfig::new()
+                .with_max_iter(3)
+                .with_history_size(5)
+                .with_line_search_fn(LineSearchFn::StrongWolfe),
+        );
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(3)
+            .with_batch_size(POISSON_N_TRAIN)
+            .with_test_batch_size(2)
+            .with_optimizer(Some(OptimizerConfig::Lbfgs(arm)));
+        let device = Device::default().autodiff();
+        let (_, _, normalizers) =
+            load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
+        let build = || {
+            let (train, test, _) =
+                load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
+            build_training_components::<4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
+        };
+        let whole = build();
+        let mut first = build();
+        first.model = whole.model.clone();
+
+        let straight = RunDir::create(&dir, "lbfgs_straight").unwrap();
+        straight.save_configs(&model_cfg, &train_cfg, &cfg).unwrap();
+        let (straight_model, metrics) = train_components(
+            whole,
+            Some(&normalizers.y),
+            &train_cfg,
+            &device,
+            &straight,
+            Some(1),
+            None,
+            None,
+        );
+        assert_eq!(metrics.len(), 3);
+        assert!(metrics.iter().all(|m| m.current_lr == 1.0), "{metrics:?}");
+        assert!(metrics[2].train_l2 < metrics[0].train_l2, "{metrics:?}");
+        let passes = straight.lbfgs_passes().unwrap().unwrap();
+        assert_eq!(passes.steps, 3);
+        assert_eq!(passes.forward, passes.backward);
+        assert!(passes.forward >= 2 * 3, "{passes:?}");
+        assert!(straight.gn_passes().unwrap().is_none());
+        let ck = straight.checkpoint::<4>(&device).unwrap().unwrap();
+        assert!(ck.gn.is_none() && ck.lbfgs.is_some());
+
+        let run = RunDir::create(&dir, "lbfgs_resumed").unwrap();
+        run.save_configs(&model_cfg, &train_cfg, &cfg).unwrap();
+        let decoder = FlatDecoder::new(&normalizers.y, &device);
+        // killed in epoch 1 after its metrics row and its step's row, before its checkpoint
+        let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_loop_with(
+                first,
+                &train_cfg,
+                Some(&decoder),
+                &mut |m, _| {
+                    run.append_metrics(m).unwrap();
+                    if m.epoch == 1 {
+                        panic!("simulated interruption in epoch 1");
+                    }
+                },
+                StepSinks {
+                    gn: &mut |_| panic!("no Gauss-Newton step in an L-BFGS run"),
+                    lbfgs: &mut |r| run.append_lbfgs_step(r).unwrap(),
+                },
+                Some((&run, 1)),
+                None,
+            )
+        }));
+        assert!(killed.is_err(), "the run was not interrupted");
+        let ck = run.checkpoint::<4>(&device).unwrap().unwrap();
+        assert_eq!(ck.state.next_epoch, 1);
+        run.truncate_metrics(ck.state.next_epoch).unwrap();
+        run.truncate_lbfgs_steps(ck.state.next_epoch).unwrap();
+        let (resumed_model, _) = train_components(
+            build(),
+            Some(&normalizers.y),
+            &train_cfg,
+            &device,
+            &run,
+            Some(1),
+            Some(ck),
+            None,
+        );
+        assert_same_metrics(&run.metrics().unwrap(), &straight.metrics().unwrap());
+        assert_same_weights(&resumed_model, &straight_model);
+        // lbfgs_steps.csv as the uninterrupted run's, but for the wall times
+        let rows = |r: &RunDir| -> Vec<String> {
+            fs::read_to_string(r.path().join("lbfgs_steps.csv"))
+                .unwrap()
+                .lines()
+                .map(|l| l.rsplit_once(',').unwrap().0.to_string())
+                .collect()
+        };
+        assert_eq!(rows(&run).len(), 4, "a header and three steps");
+        if exact_backend() {
+            assert_eq!(rows(&run), rows(&straight));
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Data-parallel L-BFGS is out of scope: replicas with L-BFGS panic.
+    #[test]
+    #[should_panic(expected = "data-parallel L-BFGS is out of scope")]
+    fn lbfgs_with_replicas_panics() {
+        use crate::neural_operators::training::config::{LbfgsArm, OptimizerConfig};
+        let arm = LbfgsArm::new(burn::optim::LBFGSConfig::new());
+        let train_cfg = TrainingConfig::new()
+            .with_epochs(1)
+            .with_batch_size(2)
+            .with_optimizer(Some(OptimizerConfig::Lbfgs(arm)));
         let device = Device::default().autodiff();
         let c = parallel_components(&train_cfg, &device, std::slice::from_ref(&device));
         let _ = training_loop(c, &train_cfg, None, &mut |_, _| {}, None, None);

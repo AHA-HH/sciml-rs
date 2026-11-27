@@ -327,3 +327,29 @@ template:
   `epoch_time_s`, `costs.json` equal but the times and the commit, `model_weights.bpk`
   equal but Burn's random `param_id`s in its header (bytes 97–1710).
 - Follow-ups: CO0.5 (`start_ms` on a collided name; `train_poisson3d`'s commit).
+
+## 2026-11-27: CO2.1 The L-BFGS arm
+- Done: `OptimizerConfig::Lbfgs(LbfgsArm)` (Burn's `LBFGSConfig`, lr 1, μ);
+  `training/lbfgs.rs`, `train_epoch_lbfgs`: one `LBFGS::step` per epoch on the full batch
+  (D4, more than one batch panics), its closure `FnoResidual`'s Φ plus ½μ‖θ‖² when μ > 0
+  (D3, D13); `lbfgs_steps.csv` (Φ before and after, passes = closure evaluations, D7);
+  the checkpoint's fifth section (Adam and Gauss–Newton files unchanged); `OPTIMIZER=lbfgs`
+  in `train_poisson` (strong Wolfe, history 100, `max_iter` 20, μ 0; `LBFGS_HISTORY`,
+  `LBFGS_MAX_ITER`, `LBFGS_MAX_EVAL`, `LBFGS_WEIGHT_DECAY`, `TIME_BUDGET_S`; run name
+  `_lbfgs`); `costs.json` steps and passes. Results in `docs/optimisers/tasks/CO2.1.md`.
+- Tests: eight new (convergence, pass counts, the μ term, mini-batch and replica refusals,
+  config round trip, step-file sums, a bit-exact resume through the training loop).
+- Checks: fmt, the three clippy runs, `cargo test`, `cargo doc`, datagen clippy and tests
+  pass; the new tests and `gpu_parity` with `--features metal` pass. Flex smoke run (Φ 0.54 →
+  0.019 in 3 epochs) and a `kill -9` resume of a 27-epoch run, bit for bit.
+- Decisions: none taken; questions for D5/CO2.2: `max_eval` (Burn's default stalls strong
+  Wolfe at `max_iter` ≤ 2) and the uncounted inner iterations.
+- Review: plan review PASS (advisories fixed: a doc line, the plan's record of the runs, the
+  constraint-1 comparison re-run on the final code); code quality APPROVE with findings
+  (F2, F5's shadowing, F6, F7, F9 fixed; F1, F3, F4, F8 deferred; F10 kept, as a named
+  struct would be dead code in two examples).
+- Adam and Gauss–Newton: unchanged bit for bit: `train_poisson` Adam and Gauss–Newton runs on
+  flex at `655fabc` and `bc1b290`, every run file compared (checkpoints decoded, `ParamId`s
+  aside).
+- Follow-ups: CO2.2's line (`max_eval` per cell; whether updates are needed); CO3.3's line
+  (the code-quality review's F1, F3, F4, F8).

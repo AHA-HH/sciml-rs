@@ -5,7 +5,10 @@
 //! weights, the optimiser record and the scheduler record. A Gauss–Newton run (Phase 10
 //! T3) appends a fourth length-prefixed blob, its optimiser state
 //! ([`GaussNewtonState::to_bytes`]); an Adam checkpoint has none, so files written before
-//! T3 decode unchanged. A short or overlong file is an error, never a panic.
+//! T3 decode unchanged. An L-BFGS run (optimisers CO2.1) writes that fourth blob empty and a
+//! fifth, its optimiser record (`LBFGS::to_record`'s Burnpack bytes); a Gauss–Newton state
+//! is never empty, so the two stay apart. A short or overlong file is an error, never a
+//! panic.
 
 use std::error::Error;
 use std::io;
@@ -13,7 +16,7 @@ use std::io;
 use burn::{
     lr_scheduler::LrSchedulerRecord,
     module::Module,
-    optim::OptimizerRecord,
+    optim::{LBFGS, OptimizerRecord},
     store::{BurnpackStore, ModuleSnapshot},
     tensor::{Bytes, Device},
 };
@@ -55,6 +58,8 @@ pub struct OperatorCheckpoint<M> {
     pub scheduler: LrSchedulerRecord,
     /// The Gauss–Newton state of a Gauss–Newton run, `None` for an Adam run.
     pub gn: Option<GaussNewtonState>,
+    /// The L-BFGS record of an L-BFGS run (`LBFGS::load_record` takes it), else `None`.
+    pub lbfgs: Option<OptimizerRecord>,
 }
 
 /// Encodes a checkpoint as the bytes of `checkpoint.bin`.
@@ -64,6 +69,7 @@ pub(super) fn encode(
     optim: OptimizerRecord,
     scheduler: LrSchedulerRecord,
     gn: Option<&GaussNewtonState>,
+    lbfgs: Option<&LBFGS>,
 ) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut store = BurnpackStore::from_bytes(None);
     model.save_into(&mut store)?;
@@ -78,7 +84,19 @@ pub(super) fn encode(
     out.extend_from_slice(&(state.resumes as u64).to_le_bytes());
     out.extend_from_slice(&state.training_time_s.to_le_bytes());
     let gn = gn.map(GaussNewtonState::to_bytes);
-    let blobs = blobs.iter().map(|b| &b[..]).chain(gn.as_deref());
+    // decode tells an L-BFGS checkpoint by its empty fourth blob
+    assert!(
+        gn.as_ref().is_none_or(|b| !b.is_empty()),
+        "a Gauss-Newton state is never empty (it starts with its magic)"
+    );
+    let lbfgs = lbfgs.map(LBFGS::into_bytes).transpose()?;
+    // an L-BFGS run's fourth (Gauss-Newton) blob is empty
+    let gn = gn.or_else(|| lbfgs.as_ref().map(|_| Vec::new()));
+    let blobs = blobs
+        .iter()
+        .map(|b| &b[..])
+        .chain(gn.as_deref())
+        .chain(lbfgs.as_deref());
     for blob in blobs {
         out.extend_from_slice(&(blob.len() as u64).to_le_bytes());
         out.extend_from_slice(blob);
@@ -106,21 +124,24 @@ pub(super) fn decode<M: Operator>(
         resumes: read_u64(&mut rest)? as usize,
         training_time_s: f64::from_bits(read_u64(&mut rest)?),
     };
-    let mut blob = || -> io::Result<Bytes> {
-        let len = read_u64(&mut rest)? as usize;
-        Ok(Bytes::from_bytes_vec(take(&mut rest, len)?.to_vec()))
+    let blob = |rest: &mut &[u8]| -> io::Result<Bytes> {
+        let len = read_u64(rest)? as usize;
+        Ok(Bytes::from_bytes_vec(take(rest, len)?.to_vec()))
     };
-    let (weights, optim, scheduler) = (blob()?, blob()?, blob()?);
-    let gn = if rest.is_empty() {
-        None
-    } else {
+    let (weights, optim, scheduler) = (blob(&mut rest)?, blob(&mut rest)?, blob(&mut rest)?);
+    let (mut gn, mut lbfgs) = (None, None);
+    if !rest.is_empty() {
         let len = read_u64(&mut rest)? as usize;
-        let state = GaussNewtonState::from_bytes(take(&mut rest, len)?, device)?;
+        let state = take(&mut rest, len)?;
+        if len == 0 {
+            lbfgs = Some(OptimizerRecord::from_bytes(blob(&mut rest)?)?);
+        } else {
+            gn = Some(GaussNewtonState::from_bytes(state, device)?);
+        }
         if !rest.is_empty() {
             return Err(invalid("trailing bytes after the checkpoint").into());
         }
-        Some(state)
-    };
+    }
 
     let mut model = M::init(model_cfg, device);
     model.load_from(&mut BurnpackStore::from_bytes(Some(weights)))?;
@@ -130,6 +151,7 @@ pub(super) fn decode<M: Operator>(
         optim: OptimizerRecord::from_bytes(optim)?,
         scheduler: LrSchedulerRecord::from_bytes(scheduler)?,
         gn,
+        lbfgs,
     })
 }
 

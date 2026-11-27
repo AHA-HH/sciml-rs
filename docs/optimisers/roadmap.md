@@ -23,9 +23,11 @@ O1 cell runs from `train_burgers` and `train_darcy` (`EPOCHS` added, the author'
 2026-11-26); next CO1.3 on the VM, and `training/` free for CO2.1, CO1.5, CM0.6, CO3.3.
 CO0.1 done 2026-11-27 (B = 2,952 s, E = 915; D1 cap 150): at equal time GN200-D at μ = 0
 is ahead of Adam on average (6.34e-3 against 1.03e-2, 4 of 5 seeds), at 5,400 s on all
-three; next in O0 CO0.3 (the Adam step profile), and CO0.4. CO0.4 done 2026-11-27: the
+three; next in O0 CO0.3 (the Adam step profile). CO0.4 done 2026-11-27: the
 training examples read the commit at the start, and `RunDir::create` never reuses a
-directory; its leftovers are CO0.5.
+directory; its leftovers are CO0.5. CO2.1 done 2026-11-27: the L-BFGS arm
+(`OPTIMIZER=lbfgs` in `train_poisson`), resumed bit for bit on flex; next in O2 CO2.2
+(the pilot, on the VM; its grid now names `max_eval`), and `training/` free again.
 
 ## How to read this file
 
@@ -111,8 +113,8 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
 - [ ] **CO0.5 Provenance leftovers of CO0.4.** (1) `tracking::builder::start_ms` reads a run
   directory's last `_` segment as its start second, so a collided `<name>_<secs>_<k>`
   exports to MLflow with a start time k s after 1970; `_<k>` cannot be told from a
-  stamp by its text, so the fix is the suffix's form (`<name>_<k>_<secs>`, or `-<k>`) or
-  the start time read from elsewhere: the author's choice (CO0.4's PR, question 1).
+  stamp by its text. The author chose `<name>_<k>_<secs>` (2026-11-27, CO0.4's PR,
+  question 1; the code-quality review's suggestion), so `start_ms` needs no change.
   (2) `train_poisson3d` (laplace3d) still reads the commit when it writes `costs.json`:
   read it at the start, as CO0.4's examples do, once CL4.2 has merged (it runs that
   example). *Done when:* a test exports a collided directory with its true start time;
@@ -177,13 +179,19 @@ weight decay accounts for.
 
 **Gate:** an L-BFGS arm trains, resumes exactly and counts its passes; its settings piloted.
 
-- [ ] **CO2.1 The L-BFGS arm.** `OptimizerConfig::Lbfgs`, `train_epoch_lbfgs` with the
+- [x] **CO2.1 The L-BFGS arm.** `OptimizerConfig::Lbfgs`, `train_epoch_lbfgs` with the
   closure over Φ on the full batch, passes into `costs.json`, the checkpoint section,
   `OPTIMIZER=lbfgs` in `train_poisson`. *Done when:* tests of proposal §9 pass; a flex smoke
   run and its resume; constraint 1 shown. *Needs:* D3, D4, D7, D13, the library
-  objective's CM0.3, and CO1.1 merged (both change `training/`; never at once).
+  objective's CM0.3, and CO1.1 merged (both change `training/`; never at once). Plan and
+  results: `docs/optimisers/tasks/CO2.1.md`.
 - [ ] **CO2.2 L-BFGS pilot.** Seed 42 at the equal-time budget: history ∈ {10, 100},
-  `max_iter` ∈ {1, 20}, strong Wolfe. *Done when:* the pilot table and D5 proposed.
+  `max_iter` ∈ {1, 20}, strong Wolfe. `max_eval` is set with each cell (`LBFGS_MAX_EVAL`):
+  Burn's default ⌊1.25 `max_iter`⌋ leaves the line search 0 evaluations at `max_iter` 1
+  and 1 at 2, and a run with too few stalls for good (CO2.1's smoke run). Burn's `LBFGS`
+  does not expose its inner iterations, so "updates" are not counted (CO2.1): the pilot
+  says whether `optimisation_steps` (steps = epochs) and the passes suffice or the count
+  is needed. *Done when:* the pilot table and D5 proposed.
   *Needs:* CO2.1, CO0.1. *Machines:* the VM. *Sign-off:* D5.
 
 ## O3: SOAP
@@ -209,7 +217,14 @@ piloted.
   reloads diverge in some processes, CO3.2's plan, Outcome); the pilot logs each factor's
   eigenvalue ratio at the first refresh for one seed, and ratios near 1e7–1e8 bring an f64
   host eigenbasis back to the author as an amendment of D9. No reference fixtures (proposal
-  §9): skipped, unless the pilot shows SOAP misbehaving.
+  §9): skipped, unless the pilot shows SOAP misbehaving. From CO2.1's code-quality review,
+  for the next change to `trainer.rs` (SOAP rides `ModuleOptimizer`, so none of these blocks
+  it; each changes existing code, so each with constraint 1 shown): the Gauss–Newton and
+  L-BFGS states as one enum in `TrainingComponents` and `OperatorCheckpoint` (F1); one
+  step-row sink, removing `run_loop`'s wrapper over `run_loop_with` (F3, with the one
+  existing test that calls `run_loop`); the metrics forward shared by `train_epoch_gn` and
+  `train_epoch_lbfgs` (F4); `GnPasses` renamed for both step files; the trainer's tests in
+  their own file (F8, `trainer.rs` 2,180 lines).
 
 ## O4: The 2D comparison
 

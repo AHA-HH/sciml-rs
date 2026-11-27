@@ -184,7 +184,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
   `training_loop` with its `EpochObserver`, `train_fno`), `gn` (Phase 10 T3:
   `FnoResidual`, the FNO's Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
-  runs when the config asks for Gauss–Newton), `learner` (Burn `Learner` impls).
+  runs when the config asks for Gauss–Newton), `lbfgs` (optimisers CO2.1:
+  `train_epoch_lbfgs`, one Burn `LBFGS::step` per epoch on the full batch, its closure Φ +
+  ½μ‖θ‖², for `OptimizerConfig::Lbfgs(LbfgsArm)`), `learner` (Burn `Learner` impls).
 - `optim/gauss_newton/` (Phase 10 T1, generic over any Burn `Module`; imports nothing from
   `models/` or `training/`): `ParamVec` (a model's float parameters as one vector, on
   the model's device without autodiff), `params` / `with_params`, `LeastSquares`
@@ -211,9 +213,11 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   Poisson runs since Phase 5 T4, `optimisation_steps` since Phase 7 T1, `resumes` since
   Phase 9 T1; `forward_passes` / `backward_passes` since Phase 10 T3), `save_checkpoint` /
   `checkpoint::<R>(device)` (`checkpoint.bin`, Phase 9 T1; `save_checkpoint_gn` adds the
-  Gauss–Newton state, Phase 10 T3), `truncate_metrics`, and since Phase 10 T3
+  Gauss–Newton state, Phase 10 T3; `save_checkpoint_lbfgs` the L-BFGS record, optimisers
+  CO2.1), `truncate_metrics`, and since Phase 10 T3
   `append_gn_step` (`gn_steps.csv`, `GnStepRecord`, the only writer), `truncate_gn_steps`
-  and `gn_passes`; `open(dir)`, `load_fno`, `model_config`,
+  and `gn_passes`; since CO2.1 `append_lbfgs_step` (`lbfgs_steps.csv`, `LbfgsStepRecord`),
+  `truncate_lbfgs_steps` and `lbfgs_passes`; `open(dir)`, `load_fno`, `model_config`,
   `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`, `artifacts()` (the files the MLflow export uploads). Run-file names appear
   nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `tracking/` (behind `mlflow`, Phase 8 T1): `export_requests` (pure: a Poisson
@@ -413,7 +417,10 @@ than trusting prose when checking how an API behaves.
   Phase 10 T3). `OPTIMIZER=hybrid` trains `HYBRID_ADAM_EPOCHS` with Adam, then
   Gauss–Newton (run name `_hybrid`); `GN_PRECONDITIONER=none|hutchinson` picks the
   preconditioner (Phase 10 T5); `GN_WEIGHT_DECAY`, `GN_CG_MAX_ITERS` and Adam's `WEIGHT_DECAY` override
-  those literals (Phase 10 follow-ups)
+  those literals (Phase 10 follow-ups). `OPTIMIZER=lbfgs` (optimisers CO2.1) trains with
+  Burn's L-BFGS on Φ, one step per epoch on the full batch of N (the `LBFGS_*` literals,
+  overridden by `LBFGS_HISTORY`, `LBFGS_MAX_ITER`, `LBFGS_MAX_EVAL`, `LBFGS_WEIGHT_DECAY`;
+  `TIME_BUDGET_S`; one device; run name `_lbfgs`; writes `lbfgs_steps.csv`)
 - Export run directories to a local MLflow server (Phase 8 T1; server: `mlflow server
   --host 127.0.0.1 --port 5001 --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db
   --artifacts-destination $HOME/mlflow/artifacts`, see `README.md`):
