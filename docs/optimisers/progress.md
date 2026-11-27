@@ -264,7 +264,10 @@ template:
   seed 44 at 915 epochs; the final tables in `docs/optimisers/results/CO0.1.md`. Error 4,
   mean [min–max]: at equal time Adam 1.029e-2 [9.64e-3–1.105e-2], GN 6.341e-3
   [4.48e-3–1.008e-2] (GN lower on 4 of 5 seeds, level on 45); at 5,400 s Adam 9.160e-3,
-  GN 4.044e-3 (lower on all three). No NaN in any valid run. Same-seed GN runs on cuda
+  GN 4.044e-3 (lower on all three). No NaN in any valid run; three GN runs (cap 50 on
+  seed 42 at both budgets, cap 150 on seed 43 at 5,400 s) have trial points whose φ
+  overflowed to inf (1, 33 and 24 steps), all rejected (audit of 2026-11-27, results
+  "Stability, every run"). Same-seed GN runs on cuda
   agree only to f32's last digits after the first step, and diverge from there (seed 43's
   long run ended above its equal-time run).
 - Tests: none new.
@@ -353,3 +356,19 @@ template:
   aside).
 - Follow-ups: CO2.2's line (`max_eval` per cell; whether updates are needed); CO3.3's line
   (the code-quality review's F1, F3, F4, F8).
+
+## 2026-11-27: CO1.5 Split `trainer.rs`'s tests
+- Done: `training/trainer.rs`'s inline `mod tests` moved to `training/trainer/tests.rs`
+  (`#[cfg(test)] mod tests;` left behind); `trainer.rs` 2,181 → 756 lines. The body is
+  unchanged but for the dedent and rustfmt's rejoined lines; the raw JSON string's bytes kept.
+- Tests: the 26 `training::trainer::tests` names, with and without `datagen`, equal before
+  and after (list in `docs/optimisers/tasks/CO1.5.md`); all 26 pass.
+- Checks: fmt, clippy (lib, examples, all targets, datagen all targets), `cargo test` (556
+  passed), `cargo test --features datagen` (643 passed), `cargo doc` pass; metal not run (no
+  backend-sensitive code).
+- Decisions: none.
+- Review: plan review PASS, no findings; code quality APPROVE, no blockers (F1–F3,
+  test-content changes outside "unchanged", in CO1.6).
+- Adam and Gauss–Newton: not touched (no code outside `#[cfg(test)]` changed).
+- Follow-ups: CO1.6 (optional: the tests' submodules, `train_built` into the tests,
+  shared fixtures).

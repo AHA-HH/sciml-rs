@@ -185,7 +185,8 @@ whether Burn 0.23 reproduces Phase 10's arms.
   done and evaluated; the run directories are on the Mac in `~/Code/sciml-rs/runs/co0-1/`.
 
 ## Open questions
-6. **Answered by the reruns (results, "Wild steps"): no NaN in any valid run; the blow-ups
+6. **Answered by the reruns (results, "Wild steps"): no NaN in any valid run (inf trial φ on 1, 33 and 24 steps of three runs, all rejected:
+   results, "Stability, every run"); the blow-ups
    are rejected steps of a breaking quadratic model, 20–27 % of cap 50's steps and up to
    17 % of cap 150's; stage 3 reports any NaN row.** The question as first put: The collided long-GN directory has
    88 NaN rows of `gn_steps.csv` from step 58 on (which run made them cannot be told), and
