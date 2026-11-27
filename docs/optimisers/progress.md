@@ -259,6 +259,23 @@ template:
 - Adam and Gauss–Newton: not touched (the merge keeps main's code with `EPOCHS` unset).
 - Follow-ups: CO0.4 (the commit read at run start; one directory per run).
 
+## 2026-11-27: CO0.1 stage 3; CO0.1 done
+- Done: GN200-D at μ = 0, cap 150 (D1) on seeds 43–46 at B and 43–44 at 5,400 s; Adam
+  seed 44 at 915 epochs; the final tables in `docs/optimisers/results/CO0.1.md`. Error 4,
+  mean [min–max]: at equal time Adam 1.029e-2 [9.64e-3–1.105e-2], GN 6.341e-3
+  [4.48e-3–1.008e-2] (GN lower on 4 of 5 seeds, level on 45); at 5,400 s Adam 9.160e-3,
+  GN 4.044e-3 (lower on all three). No NaN in any valid run. Same-seed GN runs on cuda
+  agree only to f32's last digits after the first step, and diverge from there (seed 43's
+  long run ended above its equal-time run).
+- Tests: none new.
+- Checks: none since the merge (docs only).
+- Decisions: D1 signed off 2026-11-26, cap 150 (given with stage 3's go through the
+  coordinating session; the PR asks the author to confirm); GN pairing accepted with it.
+- Review: –
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO0.3, CO0.4 (roadmap lines); for CO4.1, GN's run-to-run spread on cuda
+  (results, stage 3).
+
 ## 2026-11-26: CO1.2 Gauss–Newton on Burgers and Darcy
 - Done: `train_burgers` and `train_darcy` take `OPTIMIZER=adam|adamw|gauss-newton`, the
   `GN_*` variables with D12's literals (full batch, CG cap 100, the Hutchinson diagonal, 10

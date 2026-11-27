@@ -180,11 +180,9 @@ whether Burn 0.23 reproduces Phase 10's arms.
 - **Long GN reruns done** (the author's go, 2026-11-26; started 16:52:52 and 16:53:52 UTC,
   `_gn_1795711972` cap 50, `_gn_1795712032` cap 150, separate directories): results file.
   Stage 2 is complete; D1 proposed (cap 150).
-- **Stage 3 running** since 2026-11-26 23:02 UTC (the author's go, with D1 = cap 150 and
-  pairing accepted as for stages 1 and 2, given through the coordinating session), binary
-  `bin-911a64e`: tmux `co01-s3g0`, GPU 0: `gn:43:150:2952 gn:45:150:2952 gn:43:150:5400`
-  (about 3.1 h); `co01-s3g1`, GPU 1, 20 s later: `gn:44:150:2952 gn:46:150:2952
-  gn:44:150:5400 adam:44:915` (about 4.6 h). Ends about 03:40 UTC on 2026-11-27.
+- **Stage 3 done 2026-11-27** (started 2026-11-26 23:02 UTC, the author's go with D1 =
+  cap 150, given through the coordinating session): results file. Every planned run is
+  done and evaluated; the run directories are on the Mac in `~/Code/sciml-rs/runs/co0-1/`.
 
 ## Open questions
 6. **Answered by the reruns (results, "Wild steps"): no NaN in any valid run; the blow-ups

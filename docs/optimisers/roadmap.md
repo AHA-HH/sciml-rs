@@ -21,8 +21,9 @@ CO1.1 done 2026-11-25 (A1 seed 42 inside D10's band); next in O1 CO1.2 (D12 sign
 the library's CM0.6 may take `training/` once CO1.1 is merged. CO1.2 done 2026-11-26: every
 O1 cell runs from `train_burgers` and `train_darcy` (`EPOCHS` added, the author's choice of
 2026-11-26); next CO1.3 on the VM, and `training/` free for CO2.1, CO1.5, CM0.6, CO3.3.
-CO0.1: stages 1 and 2 done 2026-11-26 (B = 2,952 s, E = 915;
-`docs/optimisers/results/CO0.1.md`); D1 signed off (cap 150); stage 3 on the VM.
+CO0.1 done 2026-11-27 (B = 2,952 s, E = 915; D1 cap 150): at equal time GN200-D at μ = 0
+is ahead of Adam on average (6.34e-3 against 1.03e-2, 4 of 5 seeds), at 5,400 s on all
+three; next in O0 CO0.3 (the Adam step profile), and CO0.4.
 
 ## How to read this file
 
@@ -73,7 +74,7 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 **Gate:** the reference arms measured on Burn 0.23 with five seeds; the equal-time budget
 set; D1 put to the author; where a Gauss–Newton step's time goes.
 
-- [ ] **CO0.1 Reference arms on Burn 0.23.** Adam (Phase 5 settings) on seeds 42–46, 500
+- [x] **CO0.1 Reference arms on Burn 0.23.** (`docs/optimisers/results/CO0.1.md`) Adam (Phase 5 settings) on seeds 42–46, 500
   epochs, giving the equal-time budget; Adam at 5,400 s on seeds 42–44; GN200-D at μ = 0
   with CG cap 50 and 150 on seed 42 at both budgets, then the chosen cap on seeds 43–46 at
   equal time and 43–44 at 5,400 s (D2). Timed runs side by side on the two GPUs only after a

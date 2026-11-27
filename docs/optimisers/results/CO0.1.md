@@ -8,8 +8,35 @@ error on the learning grid, error 4 the fine-grid error on the CGL grid; the gap
 test L² minus final train L². Run directories: `runs/co0-1/` (git-ignored), mapped to run
 specs by its `progress.txt`.
 
-**Status:** stages 1 and 2 done 2026-11-26; D1 signed off (cap 150, below); stage 3
-running since 2026-11-26 23:02 UTC.
+**Status:** done 2026-11-27: stages 1–3, D1 signed off (cap 150). The two arms at a
+glance are under "Final tables".
+
+## Final tables
+
+Error 4 (mean over the test set), GN200-D at μ = 0 with CG cap 150 against Adam (Phase 5
+settings):
+
+| seed | Adam, equal time | GN, equal time | GN against Adam | Adam, 5,400 s | GN, 5,400 s | GN against Adam |
+| --- | --- | --- | --- | --- | --- | --- |
+| 42 | 9.637e-3 | 5.846e-3 | −39.3 % | 8.585e-3 | 2.469e-3 | −71.2 % |
+| 43 | 1.096e-2 | 4.863e-3 | −55.6 % | 9.410e-3 | 6.070e-3 | −35.5 % |
+| 44 | 1.105e-2 | 4.483e-3 | −59.4 % | 9.486e-3 | 3.593e-3 | −62.1 % |
+| 45 | 9.936e-3 | 1.008e-2 | +1.5 % | – | – | – |
+| 46 | 9.846e-3 | 6.427e-3 | −34.7 % | – | – | – |
+| **mean** [min–max] | **1.029e-2** [9.637e-3–1.105e-2] | **6.341e-3** [4.483e-3–1.008e-2] | −38 % | **9.160e-3** [8.585e-3–9.486e-3] | **4.044e-3** [2.469e-3–6.070e-3] | −56 % |
+| training time, mean (s) | 2,949.1 | 3,045.5 | | 5,397.9 | 5,494.5 | |
+
+- **At equal time, GN at μ = 0 is ahead on average** (6.34e-3 against 1.03e-2) and on 4
+  of 5 seeds. On seed 45 it is level with Adam: 1.008e-2 against 9.94e-3, +1.5 %. GN's
+  spread across seeds (4.5e-3–1.0e-2) is wider than Adam's (9.6e-3–1.1e-2). On the fork
+  (Phase 10, 859 s), GN at μ = 0 was ahead on average on three seeds but not on all of
+  them. Here the budget is 3.4× longer, because Adam slowed.
+- **At 5,400 s GN is ahead on all three seeds**, at 44 % of Adam's mean.
+- **GN gets slightly more time.** A GN run stops at the end of the epoch that crosses the
+  budget, which put it 3.3 % over Adam's mean at equal time and 1.8 % at 5,400 s.
+- **The long budget is 1.83 × B**, not Phase 10's 6.3×: D2 kept 5,400 s.
+
+
 
 ## Stage 1: Adam, 500 epochs, seeds 42–46
 
@@ -190,6 +217,45 @@ It also has fewer wild steps (19 and 0, against 43 and 108) and the lower peak m
 5.58e-3 at 5,400 s). The caveat: at equal time the margin is small, and cap 150 trained
 5.8 % over B against cap 50's 1.6 %. The long budget is the clear separation. **Signed
 off 2026-11-26: cap 150**, given with stage 3's go through the coordinating session.
+
+## Stage 3: GN cap 150 on seeds 43–46; Adam seed 44 at the long budget
+
+Commit `911a64e` (binary `bin-911a64e`). The runs were paired across the GPUs, with
+pairing accepted as for stages 1 and 2:
+- GPU 0: 43 and 45 at B, then 43 at 5,400 s.
+- GPU 1, started 20 s later: 44 and 46 at B, then 44 at 5,400 s and Adam 44 at 915 epochs.
+
+| seed | budget | training time (s) | steps (accepted) | passes per s | final train L² | final test L² | error 4 mean / max | wild steps (\|ρ\| > 1e3) | peak memory |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 43 | 2,952 s | 3,136.4 | 135 (103) | 14.92 | 4.462e-3 | 4.850e-3 | 4.863e-3 / 1.855e-2 | 3 | 4,406 MiB |
+| 44 | 2,952 s | 2,988.5 | 125 (91) | 15.00 | 4.463e-3 | 4.473e-3 | 4.483e-3 / 1.721e-2 | 0 | 4,261 MiB |
+| 45 | 2,952 s | 3,002.1 | 125 (85) | 15.09 | 9.383e-3 | 1.008e-2 | 1.008e-2 / 3.711e-2 | 0 | 4,406 MiB |
+| 46 | 2,952 s | 2,976.6 | 125 (90) | 15.16 | 5.706e-3 | 6.421e-3 | 6.427e-3 / 1.945e-2 | 0 | 4,261 MiB |
+| 43 | 5,400 s | 5,507.1 | 295 (183) | 15.17 | 5.776e-3 | 6.058e-3 | 6.070e-3 / 2.004e-2 | 35 | 4,406 MiB |
+| 44 | 5,400 s | 5,523.2 | 205 (137) | 15.16 | 3.230e-3 | 3.585e-3 | 3.593e-3 / 1.150e-2 | 22 | 4,261 MiB |
+
+Adam seed 44, 915 epochs: 5,536.5 s, median epoch 6.040 s (+1.1 % against seed 42 alone in
+stage 1), final train L² 2.335e-3, test L² 9.483e-3, error 4 9.486e-3 / 3.871e-2 (−14.2 %
+against 500 epochs), 983 MiB.
+
+- **No NaN in any run, and no wild step was accepted.** All six GN runs ran 14.9–15.2
+  passes per second, faster than stage 2's cap-150 run alone (14.27), so pairing slowed
+  nothing.
+- **Seed 45 at equal time** is GN's worst run (1.008e-2), level with Adam's seed 45. It
+  had no wild steps. Its train L² (9.38e-3) is twice the other seeds', so it optimised
+  slowly rather than overfitting.
+- **Seed 43's long run ended worse than its equal-time run** (6.07e-3 against 4.86e-3), with
+  a higher train L² too (5.78e-3 against 4.46e-3). Training longer did not cause this: the
+  two runs are different trajectories from the start. Runs with the same seed and settings
+  agree only to f32's last digits after the first step on cuda (φ 0.49425319 against
+  0.49425325 at step 1; seeds 42 and 44 the same). Gauss–Newton amplifies that, so by
+  epoch 4 the long run's train L² was 6.75e-2 against 9.60e-2, and at 2,952 s its test
+  L² was about 1.1e-2 against 4.85e-3. Its damping swung widely from step 100 on (4e-5 to
+  7.6, sampled every 15 steps), with 112 of its 295 steps rejected (35 of them wild).
+- **What follows for CO4.1:** with GN at μ = 0, an equal-time run and a long run on one
+  seed are independent draws, not one run read at two times. The spread by seed includes
+  this run-to-run spread; Adam's own run-to-run spread was not measured. Five seeds per arm, as D2 has
+  them, are what absorb it.
 
 ## Provenance
 
