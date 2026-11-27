@@ -840,3 +840,29 @@ template:
   `forward`, `phase5_epoch`, `gauss_newton_epoch`, `lbfgs_epoch` `cmp` same).
 - Matrix: `FNO`, `DomainPadding` rows.
 - Follow-ups: CM1.5e, CM1.5f (roadmap lines).
+
+## 2026-11-27: CM1.5e The spectral layer and the FFTs
+- Done: `layers/spectral_convolution.rs` (1,157 lines) split as `optim/soap/` is:
+  `spectral_convolution/mod.rs` (536) and `tests.rs` (CM1.5b F6). `fft_ctensor` and
+  `ifft_ctensor` free `pub(crate)` functions in `utils/fft.rs`, bodies unchanged; `resample`
+  no longer calls into `SpectralConv` (F2). `ifft_ctensor_to(re, im, in_dims, out_dims)`: the
+  inverse to `out_dims` scaled by `N_out / N_in`, called by `SpectralConv::forward_to` and
+  `resample`'s Fourier resize, each keeping its own spectrum resize and same-size early
+  return (F3). No public API change.
+- Tests: the spectral layer's tests moved unchanged in body; the FFT round trips and the host
+  DFT at Bluestein sizes moved to `utils/fft.rs` (one helper renamed
+  `fftn_round_trip_check`); new `ifft_ctensor_to_keeps_a_constant_and_is_the_inverse_at_the_same_size`.
+- Checks: fmt, clippy (default, `--examples`, `--all-targets`, `--features datagen
+  --all-targets`), `cargo test`, `cargo test --features datagen`, `cargo doc --no-deps`, the
+  bit-identity dumps; `--features metal` for `gpu_parity`, `parity_fno`,
+  `parity_spectral_conv`, `parity_legacy_spectral_conv` and the spectral layer, FFT and
+  `resample` unit tests: all passed.
+- Decisions: none.
+- Review: plan review PASS (advisories: CLAUDE.md and the review fixes uncommitted at the
+  time, committed). Code quality APPROVE with findings: T2 (`ifft_ctensor_to`'s doc names
+  its callers), T3 (two round-trip helpers one underscore apart), T4 (an article) fixed; T1
+  (CONVENTIONS §4 names `SpectralConv::fft_ctensor`) a question in the PR.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` a9f0cde and the branch:
+  `forward`, `phase5_epoch`, `gauss_newton_epoch`, `lbfgs_epoch` `cmp` same).
+- Matrix: no row changes (no behaviour added).
+- Follow-ups: CM1.5e's line (CONVENTIONS §4's reference, T1).
