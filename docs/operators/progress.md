@@ -757,6 +757,26 @@ template:
 - Follow-ups: CM3.6c (the refresh, #178); the wiring (an AdamW arm) may warn on tall
   unfoldings.
 
+## 2026-11-27: CM0.7 Retire `Operator::NAME`
+- Done: `Operator` has no `NAME`; the operator's registry name is its config's
+  `OperatorConfig::KIND` only. `NAME` had no reader outside two test asserts: the trait test
+  reads `<<FNO<3> as Operator>::Config as OperatorConfig>::KIND`; the registry's assert,
+  always true once `type Config = FNOConfig` compiles, is dropped (review F1). Root
+  `CLAUDE.md` and the `BaseModel` row of `feature-matrix.md` updated.
+- Tests: `fno_through_the_trait_is_the_fno` (the kind through the trait is `"fno"`),
+  `kinds_lists_every_variant`; `grep -rnw NAME src examples tests spikes`: no reader.
+- Checks: fmt, clippy ×4 (default, `--examples`, `--all-targets`, `--features datagen
+  --all-targets`), `cargo doc --no-deps`, `cargo test` (624 passed), `cargo test --features
+  datagen` (712 passed): all passed. Not run: `--features metal` (no backend-sensitive code).
+- Decisions: none (the author's decision of 2026-11-27 on #180 carried out).
+- Review: plan review PASS, no findings. Code quality APPROVE with findings: F1 (a
+  tautological assert) fixed.
+- FNO: unchanged bit for bit (`fno_bit_identity --ignored`, release, on `main` 9b0337d and
+  the branch: `forward`, `phase5_epoch`, `gauss_newton_epoch`, `lbfgs_epoch` `cmp` same);
+  `model_cfg.json` writing and reading untouched (by `KIND`, as before).
+- Matrix: `BaseModel` row (CM0.7 added).
+- Follow-ups: none.
+
 ## 2026-11-27: CM3.6c Periodic factor refresh (opt-in)
 - Done: `TensorGaLoreProjector::with_refresh(bool)`: on, `project` recomputes the Tucker
   factors from its gradient (a fresh `tucker_factors`) at every `iter` that is a multiple of

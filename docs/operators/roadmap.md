@@ -29,8 +29,10 @@ decision of 2026-11-27). CM1.5c done 2026-11-27 (batch norm and 2.0.0's `fno_ski
 FNO outputs unchanged bit for bit). CM1.5b done 2026-11-27 (domain padding, resolution
 scaling, `resample`; FNO outputs unchanged bit for bit). CM3.6b done 2026-11-27 (complex
 tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to phase where
-2.0.0's factors are ill-conditioned). CM3.6c done 2026-11-27 (the projector's periodic
-factor refresh, opt-in, off by default; 2.0.0's parity unchanged). Next CM0.7, CM1.5d.
+2.0.0's factors are ill-conditioned). CM0.7 done 2026-11-27 (`Operator::NAME` retired, the
+name is `OperatorConfig::KIND`; FNO outputs unchanged bit for bit). CM3.6c done 2026-11-27
+(the projector's periodic factor refresh, opt-in, off by default; 2.0.0's parity unchanged).
+Next CM1.5d.
 
 ## How to read this file
 
@@ -128,12 +130,14 @@ the feature matrix is verified.
   author 2026-11-27: `Operator::NAME` (CM0.4's F3) is retired, in CM0.7;
   `TrainingComponents`' `M = FNO<R>` default (CM0.6's review F1) is dropped with CO1.6's
   move of `train_built` (`docs/optimisers/roadmap.md`).
-- [ ] **CM0.7 Retire `Operator::NAME`.** CM0.4's code-quality F3: `NAME` is always its
+- [x] **CM0.7 Retire `Operator::NAME`.** CM0.4's code-quality F3: `NAME` is always its
   config's `OperatorConfig::KIND`, a second name for one concept. The author's decision of
   2026-11-27 (CM0.6, #180): retire it in favour of `OperatorConfig::KIND`, as a follow-up.
   *Done when:* `Operator` has no `NAME`; its readers use `<M::Config as
   OperatorConfig>::KIND`; root `CLAUDE.md` and `feature-matrix.md` say so; the CM0.3
-  bit-identity check passes against `main`. *Needs:* CM0.6.
+  bit-identity check passes against `main`. *Needs:* CM0.6. Done 2026-11-27: plan
+  `docs/operators/tasks/CM0.7.md`; review
+  `docs/code-quality/thermo-nuclear-review-2026-11-27-operators-cm0-7.md` (local).
 
 ## M1: The FNO family
 
