@@ -78,6 +78,20 @@ files, absent from the wheel, differ).
 | `fno_lift_project2d_linear_{f32,f64}` | `n_modes=(4, 4)`, 2 → 3 channels, hidden 5, `lifting_channel_ratio=0`, `projection_channel_ratio=1.5`, tanh; input (2, 2, 6, 5) | 91 | 5 kB |
 | `fno_lift_project3d_no_grid_{f32,f64}` | `n_modes=(4, 4, 4)`, 3 → 2 channels, hidden 4, `positional_embedding=None`; input (2, 3, 5, 4, 3) | 126 | 9 kB |
 | `fno_lift_project2d_boundaries_{f32,f64}` | `fno_boundaries`: a `GridEmbeddingND` on `BOUNDARIES` = [[0, 2], [−1, 1]], 2 → 1 channels, hidden 4; input (2, 2, 6, 5) | 125 | 5 kB |
+| `fno3d_f32` | `FNO(n_modes=(4, 4, 4), in_channels=2, out_channels=1, hidden_channels=4, n_layers=2)`, defaults otherwise (CM1.5a, as every row below: the whole FNO, centred convolutions with bias; f32 only; constant inits redrawn); input (2, 2, 8, 6, 5) | 3,297 | 27 kB |
+| `fno2d_instance_pre_f32` | `n_modes=(6, 4)`, hidden 6, `norm="instance_norm"`, `preactivation=True`, tanh; input (2, 1, 16, 12) | 5,779 | 39 kB |
+| `fno1d_group_skips_f32` | `n_modes=(10,)`, 2 → 1, hidden 6, `norm="group_norm"`, `fno_skip="soft-gating"`, `channel_mlp_skip="linear"`, `channel_mlp_expansion=1.0`, `lifting_channel_ratio=0`, `projection_channel_ratio=1.5`, `positional_embedding=None`, SiLU; input (2, 2, 40) | 2,443 | 28 kB |
+| `fno2d_separable_f32` | `n_modes=(6, 6)`, `max_n_modes=(8, 8)`, `separable=True`, hidden 6; input (2, 1, 16, 16) | 3,667 | 32 kB |
+| `fno2d_odd_stabilizer_f32` | `n_modes=(7, 6)` (odd centred count), hidden 6, `fno_skip="identity"`, `channel_mlp_skip=None`, `stabilizer="tanh"`; input (2, 1, 16, 14) | 8,491 | 48 kB |
+| `fno1d_pre_no_mlp_f32` | `n_modes=(8,)`, hidden 6, `use_channel_mlp=False`, `preactivation=True`, `stabilizer="tanh"`, ReLU; input (2, 1, 32) | 1,819 | 14 kB |
+| `fno1d_padding_f32` | `n_modes=(8,)`, hidden 6, `domain_padding=0.25`; input (2, 1, 40) | 2,023 | 21 kB |
+| `fno2d_padding_f32` | `n_modes=(6, 4)`, hidden 6, `domain_padding=[0.2, 0.1]`; input (2, 1, 20, 18) | 5,779 | 42 kB |
+| `fno3d_padding_f32` | `n_modes=(4, 4, 4)`, 2 → 1, hidden 4, `n_layers=2`, `domain_padding=0.25`; input (2, 2, 8, 6, 5) | 3,297 | 27 kB |
+| `fno1d_scaling_f32` | `n_modes=(8,)`, hidden 6, `resolution_scaling_factor=[1.5, 1, 0.5, 1]`; input (2, 1, 32) | 2,023 | 21 kB |
+| `fno2d_scaling_f32` | `n_modes=(6, 4)`, hidden 6, `n_layers=2`, `resolution_scaling_factor=[[2, 1.5], [0.5, 1]]`; input (2, 1, 12, 10) | 3,001 | 22 kB |
+| `fno3d_scaling_f32` | `n_modes=(4, 4, 4)`, 2 → 1, hidden 4, `n_layers=2`, `resolution_scaling_factor=[[2, 1, 1.5], [1, 0.5, 1]]`; input (2, 2, 8, 6, 5) | 3,297 | 28 kB |
+| `fno2d_padding_scaling_f32` | `n_modes=(6, 4)`, hidden 6, `n_layers=1`, `domain_padding=0.25`, `resolution_scaling_factor=2`; input (2, 1, 12, 10) | 1,612 | 17 kB |
+| `fno2d_output_shape_f32` | `n_modes=(6, 4)`, hidden 6, `n_layers=2`, `forward(x, output_shape=(20, 15))` (`FNOOutputShape`); input (2, 1, 12, 10) | 3,001 | 23 kB |
 | `grid_embedding2d_{f32,f64}` | `GridEmbeddingND(3, dim=2, grid_boundaries=BOUNDARIES)`; input (2, 3, 6, 5) | 0 | 4 kB |
 | `sinusoidal_{transformer,nerf}_{f32,f64}` | `SinusoidalEmbedding(3, num_frequencies=4)`, `embedding_type` as named; input (2, 10, 3) | 0 | 5 kB |
 | `rotary2d_{f32,f64}` | `Rotary2d(8)`: `RotaryEmbedding2D(8)` on channels 0 and 1 as x and y, `apply_2d_rotary_pos_emb` on the other 16; input (2, 10, 18) | 0 | 6 kB |
@@ -152,3 +166,20 @@ the defaults (`nu2`), with `radius=0.2` (`nu2_radius`) and with `regularize_lsts
 (`nu2_reg`); 3D, N = 30, x and z, `num_neighbors=7` (`nu3`); keys `<case>.{points,values,d}`.
 Inputs drawn in f32 and cast for f64. Every array is written C-contiguous (einsum's outputs
 are strided views, which `np.savez` would store in Fortran order).
+
+## GaLore fixtures (CM3.6a, CM3.6b)
+
+`generate_galore.py` (same `--check`) writes `tests/fixtures/parity/galore_{f32,f64}`: 2.0.0's
+`TensorGaLoreProjector` on three structured gradients (a Tucker tensor with a decaying core
+plus 0.05 noise, so the leading singular values are separated): `matrix` (12 × 7, rank 3,
+`update_proj_gap=5`), `tensor4` (6 × 5 × 4 × 3, ranks [3, 2, 3, 2], `scale=0.25`) and
+`fraction` (8 × 6 × 5, rank 0.5, validated to [5, 3, 3]). Keys `<case>.{grad, grad2, ranks,
+factor<k>, low, back, low2}`: `low` is `project(grad, 0)`, `back` `project_back(low)`, `low2`
+`project(grad2, gap)` with the first factors (2.0.0 computes them once). Inputs drawn in f32
+and cast for f64. 17 kB and 26 kB.
+
+`galore_complex_{f32,f64}` (CM3.6b): the same cases on complex gradients (drawn in `cfloat`),
+complex arrays as `torch.view_as_real` (a trailing axis of 2), `ranks` real. 2.0.0 casts a
+complex gradient to `cfloat` and then fails on a `cdouble` one (a dtype mismatch in
+`multi_mode_dot`), so the f64 fixture is tensorly's `tucker` on the `cdouble` gradient with
+2.0.0's `transform` / `inverse_transform` (`CdoubleProjector`). 26 kB and 46 kB.

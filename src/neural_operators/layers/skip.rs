@@ -1,6 +1,6 @@
 //! The skip connections of `neuraloperator` 2.0.0 (`layers/skip_connections.py`,
 //! `skip_connection`): identity, linear and soft-gating, on channels-first tensors of any rank
-//! (library CM1.3a).
+//! (library CM1.3a), and none (CM1.5c).
 
 use burn::{
     Tensor,
@@ -25,6 +25,8 @@ pub enum SkipKind {
     /// `"soft-gating"`: each channel scaled by a learnt weight, initially 1, without bias
     /// (2.0.0's `SoftGating`; no 2.0.0 caller sets its bias).
     SoftGating,
+    /// `None`: no skip at all, nothing added (library CM1.5c).
+    Disabled,
 }
 
 /// A skip connection on channels-first `[B, C, s_1..s_D]` tensors of rank `R`, built by
@@ -41,7 +43,8 @@ pub enum Skip<const R: usize> {
 
 impl SkipKind {
     /// Builds the skip from `in_channels` to `out_channels` on `device`; the linear skip has
-    /// Burn's default `Conv1d` initialisation, soft gating weights of 1.
+    /// Burn's default `Conv1d` initialisation, soft gating weights of 1. `None` for
+    /// [`SkipKind::Disabled`].
     ///
     /// # Panics
     /// If `in_channels != out_channels` for the identity or soft gating, which keep the
@@ -51,14 +54,14 @@ impl SkipKind {
         in_channels: usize,
         out_channels: usize,
         device: &Device,
-    ) -> Skip<R> {
+    ) -> Option<Skip<R>> {
         let same_width = || {
             assert_eq!(
                 in_channels, out_channels,
                 "a {self:?} skip keeps the width: in_channels must equal out_channels"
             )
         };
-        match self {
+        Some(match self {
             SkipKind::Identity => {
                 same_width();
                 Skip::Identity(Identity::new())
@@ -74,7 +77,8 @@ impl SkipKind {
                 shape[1] = in_channels;
                 Skip::SoftGating(Param::from_tensor(Tensor::ones(shape, device)))
             }
-        }
+            SkipKind::Disabled => return None,
+        })
     }
 }
 
@@ -104,6 +108,7 @@ mod tests {
         let x = Tensor::<4>::random([2, 3, 4, 5], burn::tensor::Distribution::Default, &device);
         let y = SkipKind::Identity
             .init::<4>(3, 3, &device)
+            .unwrap()
             .forward(x.clone());
         assert_eq!(y.into_data(), x.into_data());
     }
@@ -112,7 +117,7 @@ mod tests {
     #[test]
     fn soft_gating_scales_each_channel() {
         let device = Device::default();
-        let mut skip = SkipKind::SoftGating.init::<3>(2, 2, &device);
+        let mut skip = SkipKind::SoftGating.init::<3>(2, 2, &device).unwrap();
         if let Skip::SoftGating(w) = &mut skip {
             *w = Param::from_tensor(Tensor::from_data([[[2.0], [-0.5]]], &device));
         }
@@ -126,13 +131,22 @@ mod tests {
     #[test]
     fn linear_changes_the_width() {
         let device = Device::default();
-        let skip = SkipKind::Linear.init::<5>(3, 5, &device);
+        let skip = SkipKind::Linear.init::<5>(3, 5, &device).unwrap();
         let Skip::Linear(conv) = &skip else {
             panic!("not linear")
         };
         assert!(conv.bias.is_none());
         let y = skip.forward(Tensor::<5>::zeros([2, 3, 4, 3, 2], &device));
         assert_eq!(y.dims(), [2, 5, 4, 3, 2]);
+    }
+
+    #[test]
+    fn disabled_builds_no_skip() {
+        assert!(
+            SkipKind::Disabled
+                .init::<4>(3, 4, &Device::default())
+                .is_none()
+        );
     }
 
     #[test]

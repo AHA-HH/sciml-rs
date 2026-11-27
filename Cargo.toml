@@ -167,6 +167,8 @@ burn = { version = "=0.23.0-pre.2", features = ["autodiff", "linalg", "signal", 
 burn.workspace = true
 ndarray = "0.17"
 ndarray-npy = "0.10"
+# The GaLore projector's host complex SVD (library CM3.6b); the version already in the lock.
+num-complex = "=0.4.6"
 matfile = "0.5"
 gnuplot = "0.0.46"
 rlst = { version = "0.9", optional = true, default-features = false }

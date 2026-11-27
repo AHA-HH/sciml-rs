@@ -3,6 +3,8 @@
 
 #[path = "parity_common/embeddings.rs"]
 mod embeddings;
+#[path = "parity_common/fno_map.rs"]
+mod fno_map;
 mod parity_common;
 
 use burn::prelude::*;

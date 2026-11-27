@@ -264,7 +264,10 @@ template:
   seed 44 at 915 epochs; the final tables in `docs/optimisers/results/CO0.1.md`. Error 4,
   mean [min–max]: at equal time Adam 1.029e-2 [9.64e-3–1.105e-2], GN 6.341e-3
   [4.48e-3–1.008e-2] (GN lower on 4 of 5 seeds, level on 45); at 5,400 s Adam 9.160e-3,
-  GN 4.044e-3 (lower on all three). No NaN in any valid run. Same-seed GN runs on cuda
+  GN 4.044e-3 (lower on all three). No NaN in any valid run; three GN runs (cap 50 on
+  seed 42 at both budgets, cap 150 on seed 43 at 5,400 s) have trial points whose φ
+  overflowed to inf (1, 33 and 24 steps), all rejected (audit of 2026-11-27, results
+  "Stability, every run"). Same-seed GN runs on cuda
   agree only to f32's last digits after the first step, and diverge from there (seed 43's
   long run ended above its equal-time run).
 - Tests: none new.
@@ -306,6 +309,69 @@ template:
   counts equal; `model_weights.bpk` equal but for Burn's random `param_id`s in its header.
 - Follow-ups: CO1.3 (long-budget `EPOCHS`, G0-200's `EPOCHS` cap, grouping by config) and
   CO1.4 (full-batch Darcy on one A100), in their roadmap lines.
+
+## 2026-11-27: CO0.4 Run provenance: the commit at the start, one directory per run
+- Done: `train_burgers`, `train_darcy` and `train_poisson` read the commit first thing in
+  `main` (before the session, new or `--resume`) and carry it in `common::Measured` to
+  `costs.json`; a resumed run records the resuming session's commit, as before.
+  `RunDir::create` makes `<name>_<unix_secs>` with `create_dir` and on `AlreadyExists`
+  takes `<name>_<unix_secs>_<k>`, k = 1, 2, …; names are unchanged unless two collide.
+- Tests: `runs::tests::create_twice_in_one_second_gives_two_directories` (three creates
+  at one second: `run_100`, `run_100_1`, `run_100_2`).
+- Checks: fmt, clippy (lib, examples, all targets, datagen all targets), `cargo test` (533
+  passed), `cargo test --features datagen` (620 passed), `cargo doc` pass.
+- Decisions: none; question for sign-off: the collided name's form (CO0.5 (1)).
+- Review: plan review PASS with advisories (resume records the resuming commit, in the
+  PR; `start_ms` follow-up, CO0.5); code quality APPROVE with findings (F1 `start_ms`,
+  CO0.5 and the PR's question; F2 the full path to `git_commit` kept to leave
+  `poisson.rs`'s imports to CO2.1; F3 as the plan review's advisory; F4 CO0.5 (2)).
+- Adam and Gauss–Newton: unchanged bit for bit: `EPOCHS=2 train_burgers` on flex at
+  `655fabc` and `fd05eb9`: configs and `plots.png` equal, `metrics.csv` equal but
+  `epoch_time_s`, `costs.json` equal but the times and the commit, `model_weights.bpk`
+  equal but Burn's random `param_id`s in its header (bytes 97–1710).
+- Follow-ups: CO0.5 (`start_ms` on a collided name; `train_poisson3d`'s commit).
+
+## 2026-11-27: CO2.1 The L-BFGS arm
+- Done: `OptimizerConfig::Lbfgs(LbfgsArm)` (Burn's `LBFGSConfig`, lr 1, μ);
+  `training/lbfgs.rs`, `train_epoch_lbfgs`: one `LBFGS::step` per epoch on the full batch
+  (D4, more than one batch panics), its closure `FnoResidual`'s Φ plus ½μ‖θ‖² when μ > 0
+  (D3, D13); `lbfgs_steps.csv` (Φ before and after, passes = closure evaluations, D7);
+  the checkpoint's fifth section (Adam and Gauss–Newton files unchanged); `OPTIMIZER=lbfgs`
+  in `train_poisson` (strong Wolfe, history 100, `max_iter` 20, μ 0; `LBFGS_HISTORY`,
+  `LBFGS_MAX_ITER`, `LBFGS_MAX_EVAL`, `LBFGS_WEIGHT_DECAY`, `TIME_BUDGET_S`; run name
+  `_lbfgs`); `costs.json` steps and passes. Results in `docs/optimisers/tasks/CO2.1.md`.
+- Tests: eight new (convergence, pass counts, the μ term, mini-batch and replica refusals,
+  config round trip, step-file sums, a bit-exact resume through the training loop).
+- Checks: fmt, the three clippy runs, `cargo test`, `cargo doc`, datagen clippy and tests
+  pass; the new tests and `gpu_parity` with `--features metal` pass. Flex smoke run (Φ 0.54 →
+  0.019 in 3 epochs) and a `kill -9` resume of a 27-epoch run, bit for bit.
+- Decisions: none taken; questions for D5/CO2.2: `max_eval` (Burn's default stalls strong
+  Wolfe at `max_iter` ≤ 2) and the uncounted inner iterations.
+- Review: plan review PASS (advisories fixed: a doc line, the plan's record of the runs, the
+  constraint-1 comparison re-run on the final code); code quality APPROVE with findings
+  (F2, F5's shadowing, F6, F7, F9 fixed; F1, F3, F4, F8 deferred; F10 kept, as a named
+  struct would be dead code in two examples).
+- Adam and Gauss–Newton: unchanged bit for bit: `train_poisson` Adam and Gauss–Newton runs on
+  flex at `655fabc` and `bc1b290`, every run file compared (checkpoints decoded, `ParamId`s
+  aside).
+- Follow-ups: CO2.2's line (`max_eval` per cell; whether updates are needed); CO3.3's line
+  (the code-quality review's F1, F3, F4, F8).
+
+## 2026-11-27: CO1.5 Split `trainer.rs`'s tests
+- Done: `training/trainer.rs`'s inline `mod tests` moved to `training/trainer/tests.rs`
+  (`#[cfg(test)] mod tests;` left behind); `trainer.rs` 2,181 → 756 lines. The body is
+  unchanged but for the dedent and rustfmt's rejoined lines; the raw JSON string's bytes kept.
+- Tests: the 26 `training::trainer::tests` names, with and without `datagen`, equal before
+  and after (list in `docs/optimisers/tasks/CO1.5.md`); all 26 pass.
+- Checks: fmt, clippy (lib, examples, all targets, datagen all targets), `cargo test` (556
+  passed), `cargo test --features datagen` (643 passed), `cargo doc` pass; metal not run (no
+  backend-sensitive code).
+- Decisions: none.
+- Review: plan review PASS, no findings; code quality APPROVE, no blockers (F1–F3,
+  test-content changes outside "unchanged", in CO1.6).
+- Adam and Gauss–Newton: not touched (no code outside `#[cfg(test)]` changed).
+- Follow-ups: CO1.6 (optional: the tests' submodules, `train_built` into the tests,
+  shared fixtures).
 
 ## 2026-11-27: CO0.3 Cost profile of an Adam step; CO0.3 done
 - Done: `examples/profile/adam_profile.rs`: CO0.1's Adam setting (stage 3, s = 64, p = 0,

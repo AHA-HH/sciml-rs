@@ -19,8 +19,18 @@ split; CM1.3a done 2026-11-25 (the block parts). D5 signed off 2026-11-25. CM1.6
 below the stored maximum). CM1.3b done 2026-11-25 (the FNO's block options; FNO outputs
 unchanged bit for bit). CM2.5 done 2026-11-26 (the equation losses, PINO; independent of
 D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outputs
-unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). Next
-CM0.6 and CM1.5.
+unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). CM1.5
+split 2026-11-26 into CM1.5a–d; CM1.5a done 2026-11-26 (2.0.0's whole `FNO` within D3; FNO
+outputs unchanged bit for bit). CM3.6 split 2026-11-27 into CM3.6a–b; CM3.6a done 2026-11-27
+(the Tensor GaLore projector for real tensors, not wired into training). CM0.6 done
+2026-11-27 (one name per concept: the FNO wrappers retired; FNO outputs, Adam, Gauss–Newton
+and L-BFGS, unchanged bit for bit); CM0.7 added (retire `Operator::NAME`, the author's
+decision of 2026-11-27). CM1.5c done 2026-11-27 (batch norm and 2.0.0's `fno_skip=None`;
+FNO outputs unchanged bit for bit). CM1.5b done 2026-11-27 (domain padding, resolution
+scaling, `resample`; FNO outputs unchanged bit for bit). CM3.6b done 2026-11-27 (complex
+tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to phase where
+2.0.0's factors are ill-conditioned). CM0.7 done 2026-11-27 (`Operator::NAME` retired, the
+name is `OperatorConfig::KIND`; FNO outputs unchanged bit for bit). Next CM1.5d, CM3.6c.
 
 ## How to read this file
 
@@ -56,7 +66,7 @@ The proposal's Section 12. Recorded when the author takes them:
 | D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | signed off 2026-11-24: option A as recommended (a generic trait with associated config and input types, static dispatch, no trait objects; `docs/operators/tasks/CM0.3.md`) |
 | D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | signed off 2026-11-25: A, as recommended (corners internally, CONVENTIONS §5 unchanged; 2.0.0's centred weights converted at fixture load, FFT norm and mode counts included). A centred layout may come later only as an opt-in option, off by default, in its own task, if a need (PyTorch checkpoint interchange) or a measured gain appears |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |
-| D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | open |
+| D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | signed off 2026-11-27: as recommended, one A100 on the VM |
 | D8 | Fixture size | tiny models, under about 1 MB per fixture | CM0.2 | CM0.2 | signed off 2026-11-24: as recommended (tiny models, P ≲ 10⁴, under about 1 MB per fixture) |
 
 ## M0: Foundations
@@ -98,7 +108,7 @@ the feature matrix is verified.
   build the grid as 2.0.0 does (f32, then cast) before a non-power-of-two f64 fixture
   (CM1.1); a shared `flex_f64` helper with `tests/gauss_newton_f64.rs` and a generated map
   per block (CM1.5).
-- [ ] **CM0.6 Tidy after the generic stack.** The CM0.3 code-quality review's findings
+- [x] **CM0.6 Tidy after the generic stack.** The CM0.3 code-quality review's findings
   (`docs/operators/progress.md`, CM0.3): one name per concept for the FNO wrappers
   (`train_fno`, `build_training_components`, `load_fno`, `checkpoint`, `Checkpoint`) and
   their generic twins (keep, deprecate or retire); `FnoResidual` renamed for any operator;
@@ -107,7 +117,25 @@ the feature matrix is verified.
   the same bit-identity check as CM0.3 passes against `main`. *Needs:* CM0.3, and the
   author's answer on whether moving a test module's imports edits a test (CM0.3 PR):
   answered 2026-11-25, it does not; moving the `#[cfg(test)]` imports into their test
-  modules is allowed.
+  modules is allowed. Done 2026-11-27: plan `docs/operators/tasks/CM0.6.md`; the FNO
+  wrappers retired for the generic names (`train`, `build_components`,
+  `RunDir::load_model`, `RunDir::checkpoint_of`, `OperatorCheckpoint<M>`),
+  `EpochObserver<'a, M>`, `GridResidual`, the four test imports in their modules,
+  `NpzFileReader::names()` (CM0.5's follow-up); `tests/fno_bit_identity.rs` gains an
+  L-BFGS epoch, its four dumps identical to `main`. The test module split was done by
+  optimisers CO1.5 (#176, `training/trainer/tests.rs`); CO1.5's review findings on that
+  file are the optional task CO1.6, not CM0.6's. The PR's two questions, answered by the
+  author 2026-11-27: `Operator::NAME` (CM0.4's F3) is retired, in CM0.7;
+  `TrainingComponents`' `M = FNO<R>` default (CM0.6's review F1) is dropped with CO1.6's
+  move of `train_built` (`docs/optimisers/roadmap.md`).
+- [x] **CM0.7 Retire `Operator::NAME`.** CM0.4's code-quality F3: `NAME` is always its
+  config's `OperatorConfig::KIND`, a second name for one concept. The author's decision of
+  2026-11-27 (CM0.6, #180): retire it in favour of `OperatorConfig::KIND`, as a follow-up.
+  *Done when:* `Operator` has no `NAME`; its readers use `<M::Config as
+  OperatorConfig>::KIND`; root `CLAUDE.md` and `feature-matrix.md` say so; the CM0.3
+  bit-identity check passes against `main`. *Needs:* CM0.6. Done 2026-11-27: plan
+  `docs/operators/tasks/CM0.7.md`; review
+  `docs/code-quality/thermo-nuclear-review-2026-11-27-operators-cm0-7.md` (local).
 
 ## M1: The FNO family
 
@@ -164,7 +192,7 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   positional_embedding}`; `tests/parity_embeddings.rs` (eight fixtures, `FNO` with
   `n_layers=0` for the lifting and projection, f32 ≤ 7.8e-7), `_f64.rs` (seven `#[ignore]`d:
   2.0.0's grid and frequencies are f32); the CM0.3 dumps identical to `main`.
-- [ ] **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
+- **CM1.5 Full FNO parity.** 2.0.0's `FNO` at its defaults and option sweeps, on
   Darcy- and Burgers-shaped inputs; resampling (`resolution_scaling_factor`) and domain
   padding. *Needs:* CM1.2, CM1.3b, CM1.4. Also from CM1.3b: the spectral convolution's bias
   inside the block (2.0.0 adds it before the norm; CM1.3b's fixtures turn it off), and the
@@ -177,6 +205,63 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
   embeddings}.rs`; from its plan review: the f64 fixtures of 2.0.0's grid and frequencies
   generated under `torch.set_default_dtype(torch.float64)`, so their seven f64 tests run
   (CM1.4's are `#[ignore]`d, f32-accurate), if CM1.5's own f64 FNO fixtures need it.
+  Split 2026-11-26 (over 1,000 lines across the FNO, two new layers and the parity tests):
+  - [x] **CM1.5a Whole-FNO parity, defaults and block sweeps.** 2.0.0's `FNO` end to end
+    (grid, lifting, centred convolutions with their bias, blocks, projection) through one
+    parameter map; `FNOConfig` gains the convolution's bias, `separable`, `max_n_modes` and
+    the tanh stabiliser, each off by default; with it CM1.4's shared parity helpers (F4).
+    *Done when:* `fno1d` and `fno2d` (2.0.0's defaults, Burgers- and Darcy-shaped) and the
+    sweep fixtures (norms, pre-activation, skips, ratios, activations, no grid, separable,
+    `max_n_modes`, an odd mode count, 3D, the stabiliser) pass through `FNO` within D3 in
+    f32; the f64 tests `#[ignore]`d with their errors recorded; the FNO's bit-identity
+    dumps equal `main`'s. *Needs:* CM1.2, CM1.3b, CM1.4. Done 2026-11-26: plan
+    `docs/operators/tasks/CM1.5a.md`; `FNOConfig::{conv_bias, separable, max_modes,
+    tanh_stabilizer}`; `tests/parity_fno.rs` (eight fixtures, f32 ≤ 1.8e-6), `_f64.rs`
+    (two `#[ignore]`d, ≤ 1.2e-8: Flex's f32 twiddles, 2.0.0's f32 grid); shared map pieces
+    `tests/parity_common/fno_map.rs`. The f64 fixtures with f64 constants (CM1.4's plan
+    review) are not needed while Flex's f64 `rfft` uses f32 twiddles.
+  - [x] **CM1.5b Domain padding and resampling.** 2.0.0's `DomainPadding` (symmetric, a
+    fraction of the resolution, unpadded at the scaled size) as an FNO option beside
+    CONVENTIONS §3's one-sided `padding`; `resample` (linear in 1D, bicubic in 2D, Fourier
+    for three or more axes) and the convolution's output size (`resolution_scaling_factor`
+    per layer, `forward`'s `output_shape`). *Done when:* fixtures with padding and with
+    scaling factors, 1D–3D, pass through `FNO` within D3 in f32; the dumps equal `main`'s.
+    *Needs:* CM1.5a. Done 2026-11-27: plan `docs/operators/tasks/CM1.5b.md`;
+    `FNOConfig::{domain_padding, resolution_scaling_factor}`, `FNO::forward_with_output_shape`,
+    `SpectralConv::forward_to`, `layers::resample`; `tests/parity_fno.rs` (eight fixtures,
+    f32 ≤ 1.1e-6); CONVENTIONS §3's `padding` rejected with scaling or an output shape.
+  - [x] **CM1.5c Batch norm.** `NormKind::Batch` as 2.0.0's `batch_norm` (eval mode: the
+    running statistics), and 2.0.0's `fno_skip=None`: the author decided 2026-11-27 (CM1.5a
+    PR question 1) yes, a block with no FNO skip at all, taken in this task, with
+    `FNOConfig::fno_skip: None` still today's 1×1 convolution with bias so that old configs
+    load unchanged. *Done when:* an `FNO` fixture with `norm="batch_norm"` passes within D3
+    in f32; the dumps equal `main`'s. *Needs:* CM1.5a. Done 2026-11-27: plan
+    `docs/operators/tasks/CM1.5c.md`; `NormKind::Batch` (Burn's `BatchNorm`), `SkipKind::Disabled`
+    (`SkipKind::init` now returns an `Option`); `tests/parity_fno.rs` `fno2d_batch_norm` 1.5e-6
+    and `fno1d_pre_no_skip` 3.0e-7 (f32, eval, the running statistics redrawn). Training with
+    batch norm is not checked: Burn's running variance is biased (torch's unbiased), and
+    Gauss–Newton (JVP without autodiff, VJP with), L-BFGS's repeated evaluations and the
+    data-parallel trainer do not account for running statistics (rustdoc of `Norm::Batch`);
+    a task of its own if a batch-norm model is ever trained.
+  - [ ] **CM1.5d Tidy after full parity.** The CM1.3b, CM1.4 and CM1.2 follow-ups above
+    not taken by CM1.5a: the `FNOConfig` literals, one coordinate-channel builder (the
+    dumps and `gpu_parity` decide), `layers/spectral_convolution.rs` split, one shared
+    biased test layer, converted arrays passed to `load_into` with `Fixture`'s fields
+    private. From CM1.5a's code-quality review: CM0.5's test-only `Fno1dRef`
+    (`tests/parity_common/fno1d.rs`, `tests/parity_fno1d*.rs`) retired, its harness
+    self-checks ported to the library `FNO` (F4); one rule for `FNOConfig`'s boolean options
+    (F7): the author's M1-gate rule, decided 2026-11-27 (CM1.5a PR question 2), is
+    `Option<bool>` with `None` meaning `false`, never `#[config(default = false)]`, because
+    Burn's `Config` derive gives fields no serde default and a plain `bool` would fail to
+    load older `model_cfg.json` files; every new option follows it, and this task may add a
+    test loading an old `model_cfg.json`; `parity_common::fno::output`'s map hook replaced by a load step
+    the control can corrupt (F6). From CM1.5b's code-quality review: `fft_ctensor` and
+    `ifft_ctensor` moved to `utils/fft.rs`, with one inverse that resizes and scales for
+    `SpectralConv::forward_to` and `resample` (F2, F3); `spectral_convolution.rs`'s tests in a
+    file of their own (F6); one per-axis `(lo, hi)` padding in `FNO` for CONVENTIONS §3's
+    `padding` and `domain_padding`, one pad and one crop that knows the scale, so `padding`
+    works with scaling and the exclusivity asserts go (R2-1). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
+    *Needs:* CM1.5a.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
   `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
@@ -264,7 +349,20 @@ The order of M2 and M3 is set at the M1 gate (D6).
   against 2.0.0's autograd values, so that parity test needs a tolerance signed off by the
   author.
 - [ ] **CM3.5 CODANO.** Attention kernel integral, CODA layer. *Needs:* M1.
-- [ ] **CM3.6 GaLore.** `tensor_galore_projector`. *Needs:* CM0.3.
+- **CM3.6 GaLore.** `tensor_galore_projector`. *Needs:* CM0.3. Split 2026-11-27:
+  - [x] **CM3.6a Real tensors.** The projector, tensorly's HOOI Tucker factors and rank
+    rules. *Done when:* factors, `project` and `project_back` against fixtures. *Needs:*
+    CM0.3. Done 2026-11-27: `docs/operators/tasks/CM3.6a.md`.
+  - [x] **CM3.6b Complex tensors.** 2.0.0's complex Tucker (complex SVD, phase sign rule)
+    for the spectral weights. *Done when:* against complex fixtures. *Needs:* CM3.6a. Done
+    2026-11-27: `docs/operators/tasks/CM3.6b.md` (entry for entry where every unfolding is
+    wide; up to phase where one is tall, 2.0.0's phases being ill-conditioned there).
+  - [ ] **CM3.6c Periodic factor refresh (opt-in).** 2.0.0 computes GaLore's Tucker
+    factors once and never refreshes them, though its design intends a refresh every k
+    steps; an option for that refresh, off by default, so the default stays 2.0.0's
+    behaviour and its parity (the author, 2026-11-27, CM3.6a PR question). *Done when:*
+    a test that the factors change every k steps when on and never when off, and the
+    CM3.6a parity tests unchanged. *Needs:* CM3.6a.
 
 ## M4: Beyond 2.0.0
 

@@ -24,7 +24,8 @@ old Burn fork (O0). Add L-BFGS as a full-batch arm minimising Gauss–Newton's o
 every closure evaluation counted as passes (O2). Write SOAP as a per-parameter Burn
 `Optimizer`, so it reuses Adam's training path unchanged, with one Kronecker factor per
 tensor dimension, the reference implementation's default (O3). Compare all four at equal wall-clock and at
-a 6.3× longer budget (O4), then carry the arms that hold up into 3D (O5).
+a long budget of 5,400 s (O4; about 1.83× the equal-time budget on Burn 0.23, 2,952 s;
+6.3× was Phase 10's 859.4 s on the fork), then carry the arms that hold up into 3D (O5).
 
 Draft 0.2 adds a replication (O1). Zampini et al. (2024, arXiv 2403.12188, §4.1.1) trained
 the FNO paper's 1D Burgers model with trust-region Gauss–Newton and found it "almost two
@@ -130,7 +131,8 @@ decision below changes it. O1's Burgers and Darcy protocol is Section 3.1.
 - **Budgets (D2):** *equal time*, the mean training time of O0's Adam reruns (Phase 10's
   was 859.4 s); and *long*, 5,400 s, where Phase 10's best Gauss–Newton run was measured.
   Every arm runs at both, so the long budget also answers whether Adam improves with
-  6.3× the time; three seeds there, since Adam's spread is small (1.04–1.10e-2 in Phase
+  about 1.83× the time (5,400 s against O0's 2,952 s on Burn 0.23; 6.3× against Phase 10's
+  859.4 s on the fork, amended 2026-11-27); three seeds there, since Adam's spread is small (1.04–1.10e-2 in Phase
   10) and the long budget asks how far each arm goes, not the close equal-time question.
 - **Arms (D1, D3, D6):** Adam (Phase 5 settings, μ = 1e-4, batch 20); Gauss–Newton (GN200-D
   at μ = 0, the CG cap from O0); L-BFGS (full batch, Φ at μ = 0); SOAP (batch 20).

@@ -18,7 +18,7 @@ use sciml_rs::neural_operators::layers::{
     skip::{Skip, SkipKind},
 };
 
-use crate::parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into};
+use crate::parity_common::{Fixture, MapEntry, Precision, Take, check_d3, load_into};
 
 /// 2.0.0's `AdaIN` with its embedding as a test-only parameter, so the fixture's
 /// `embedding` loads through the map like a weight.
@@ -56,14 +56,14 @@ pub fn channel_mlp3d(p: Precision, device: &Device) -> f64 {
 /// `skip_connection(3, 5, n_dim=3, skip_type="linear")`. Burn names an enum module's
 /// parameters after the variant.
 pub fn linear_skip3d(p: Precision, device: &Device) -> f64 {
-    let skip = SkipKind::Linear.init::<5>(3, 5, device);
+    let skip = SkipKind::Linear.init::<5>(3, 5, device).unwrap();
     let map = &[("conv.weight", "Linear.weight", Take::Whole)];
     run::<_, 5>("linear_skip3d", p, skip, map, device, Skip::forward)
 }
 
 /// `skip_connection(4, 4, n_dim=2, skip_type="soft-gating")`, weight redrawn.
 pub fn soft_gating2d(p: Precision, device: &Device) -> f64 {
-    let skip = SkipKind::SoftGating.init::<4>(4, 4, device);
+    let skip = SkipKind::SoftGating.init::<4>(4, 4, device).unwrap();
     let map = &[("weight", "SoftGating", Take::Whole)];
     run::<_, 4>("soft_gating2d", p, skip, map, device, Skip::forward)
 }
@@ -113,17 +113,10 @@ fn run<M: ModuleSnapshot, const R: usize>(
     device: &Device,
     forward: impl Fn(&M, Tensor<R>) -> Tensor<R>,
 ) -> f64 {
-    let suffix = match precision {
-        Precision::F32 => "f32",
-        Precision::F64 => "f64",
-    };
-    let name = format!("{case}_{suffix}");
-    let mut fixture = Fixture::open(&name);
+    let mut fixture = Fixture::open_as(case, precision);
     load_into(&mut module, &mut fixture, map);
     let out = forward(&module, fixture.input::<R>(device));
-    let err = assert_parity(out, &fixture.output(), precision.d3(), &name);
-    println!("{name}: relative max error {err:.3e}");
-    err
+    check_d3(out, &mut fixture)
 }
 
 /// A `ChannelMLP`'s layers: 2.0.0's `fcs.k` are the crate's `fcs.k`. Two layers take the

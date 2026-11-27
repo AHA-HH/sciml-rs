@@ -23,9 +23,15 @@ O1 cell runs from `train_burgers` and `train_darcy` (`EPOCHS` added, the author'
 2026-11-26); next CO1.3 on the VM, and `training/` free for CO2.1, CO1.5, CM0.6, CO3.3.
 CO0.1 done 2026-11-27 (B = 2,952 s, E = 915; D1 cap 150): at equal time GN200-D at μ = 0
 is ahead of Adam on average (6.34e-3 against 1.03e-2, 4 of 5 seeds), at 5,400 s on all
-three; next in O0 CO0.3 (the Adam step profile), and CO0.4. CO0.3 done 2026-11-27: Adam's
+three; next in O0 CO0.3 (the Adam step profile). CO0.4 done 2026-11-27: the
+training examples read the commit at the start, and `RunDir::create` never reuses a
+directory; its leftovers are CO0.5. CO2.1 done 2026-11-27: the L-BFGS arm
+(`OPTIMIZER=lbfgs` in `train_poisson`), resumed bit for bit on flex; next in O2 CO2.2
+(the pilot, on the VM; its grid now names `max_eval`), and `training/` free again. CO1.5
+done 2026-11-27: `trainer.rs`'s tests in `training/trainer/tests.rs`, the same 26 by name;
+`training/` free for CM0.6 and CO3.3 (and the optional CO1.6). CO0.3 done 2026-11-27: Adam's
 3.6× is host time issuing tensor work in Burn 0.23 (forward, backward and the update alike;
-TF32 not the cause); a fix would be a later task; next in O0 CO0.4.
+TF32 not the cause); a fix would be a later task.
 
 ## How to read this file
 
@@ -96,7 +102,7 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   *Needs:* –. *Machines:* the VM. Done 2026-11-27: `docs/optimisers/results/CO0.3.md`
   (host-bound on both Burns; every tensor phase 3.3–4.1× slower on Burn 0.23; TF32 not
   the cause; candidate fixes listed there, none taken).
-- [ ] **CO0.4 Run provenance: the commit at the start, one directory per run.** Two
+- [x] **CO0.4 Run provenance: the commit at the start, one directory per run.** Two
   faults CO0.1 hit. (1) `train_poisson` and `train_burgers` call `git_commit()` (`git
   rev-parse HEAD` in the source checkout) when they write `costs.json` at the end of a run,
   so a checkout moved during a run records the wrong commit (CO0.1's seeds 42 and 44
@@ -108,7 +114,18 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   `<name>_<unix_secs>_<k>`. Names are unchanged unless two collide; no model output moves.
   Follow-ups of CO0.1 (the author, 2026-11-26), outside O0's gate. *Done when:* both
   examples read the commit before training; a test creates two run directories of one name
-  in the same second and gets two directories. *Needs:* –. *Machines:* the Mac.
+  in the same second and gets two directories. *Needs:* –. *Machines:* the Mac. Done
+  2026-11-27: plan `docs/optimisers/tasks/CO0.4.md`; `train_darcy` fixed with them.
+- [ ] **CO0.5 Provenance leftovers of CO0.4.** (1) `tracking::builder::start_ms` reads a run
+  directory's last `_` segment as its start second, so a collided `<name>_<secs>_<k>`
+  exports to MLflow with a start time k s after 1970; `_<k>` cannot be told from a
+  stamp by its text. The author chose `<name>_<k>_<secs>` (2026-11-27, CO0.4's PR,
+  question 1; the code-quality review's suggestion), so `start_ms` needs no change.
+  (2) `train_poisson3d` (laplace3d) still reads the commit when it writes `costs.json`:
+  read it at the start, as CO0.4's examples do, once CL4.2 has merged (it runs that
+  example). *Done when:* a test exports a collided directory with its true start time;
+  `train_poisson3d` reads the commit before training. *Needs:* CO0.4, CL4.2.
+  *Machines:* the Mac.
 
 ## O1: The Burgers replication and the Darcy extension
 
@@ -158,24 +175,58 @@ weight decay accounts for.
   graph for each VJP; check it fits one A100 before the cells, and if not, the batch is a
   question for the author (a departure from D12).
 
-- [ ] **CO1.5 Split `trainer.rs`'s tests.** Move `training/trainer.rs`'s `mod tests`
+- [x] **CO1.5 Split `trainer.rs`'s tests.** Move `training/trainer.rs`'s `mod tests`
   (about 1,150 of its 1,950 lines after CO1.1) into a test module of its own, unchanged.
   *Done when:* the same tests, by name and count, pass; no code outside the tests changed.
   *Needs:* CO1.1; no other `training/` task open beside it (CO1.1's code-quality review,
   F6).
+  Done 2026-11-27: `docs/optimisers/tasks/CO1.5.md`.
+- [ ] **CO1.6 Tidy `trainer/tests.rs`.** CO1.5's code-quality review: (F1) its 11 sections,
+  named by the phase that added them, become submodules named by what they test, with the
+  shared helpers in `trainer/tests/mod.rs`; (F2) `train_built` moves from `trainer.rs`
+  into the tests (the test-only `use burn::module::Module` moved there in library CM0.6);
+  (F3) the repeated `load_poisson_uniform` closures and temporary-directory setup become
+  fixtures. Also from library CM0.6: the training config passed as the data config to
+  `save_configs` (CM0.3's F6, four sites), and `train_fno_none_matches_identity_path` named
+  for `train`; and, the author's decision of 2026-11-27 (library CM0.6, #180), the
+  `M = FNO<R>` default dropped from `TrainingComponents` once `train_built` is in the tests
+  (every remaining use then names `FNO<R>`).
+  *Done when:* the same tests, by name but for their new module path, and count, pass; no
+  code outside `#[cfg(test)]` changed. *Needs:* CO1.5; no other `training/` task open
+  beside it. Optional: nothing waits for it.
 
 ## O2: L-BFGS
 
 **Gate:** an L-BFGS arm trains, resumes exactly and counts its passes; its settings piloted.
 
-- [ ] **CO2.1 The L-BFGS arm.** `OptimizerConfig::Lbfgs`, `train_epoch_lbfgs` with the
+- [x] **CO2.1 The L-BFGS arm.** `OptimizerConfig::Lbfgs`, `train_epoch_lbfgs` with the
   closure over Φ on the full batch, passes into `costs.json`, the checkpoint section,
   `OPTIMIZER=lbfgs` in `train_poisson`. *Done when:* tests of proposal §9 pass; a flex smoke
   run and its resume; constraint 1 shown. *Needs:* D3, D4, D7, D13, the library
-  objective's CM0.3, and CO1.1 merged (both change `training/`; never at once).
+  objective's CM0.3, and CO1.1 merged (both change `training/`; never at once). Plan and
+  results: `docs/optimisers/tasks/CO2.1.md`.
 - [ ] **CO2.2 L-BFGS pilot.** Seed 42 at the equal-time budget: history ∈ {10, 100},
-  `max_iter` ∈ {1, 20}, strong Wolfe. *Done when:* the pilot table and D5 proposed.
+  `max_iter` ∈ {1, 20}, strong Wolfe. `max_eval` is set with each cell (`LBFGS_MAX_EVAL`):
+  Burn's default ⌊1.25 `max_iter`⌋ leaves the line search 0 evaluations at `max_iter` 1
+  and 1 at 2, and a run with too few stalls for good (CO2.1's smoke run). Burn's `LBFGS`
+  does not expose its inner iterations, so "updates" are not counted (CO2.1): the pilot
+  says whether `optimisation_steps` (steps = epochs) and the passes suffice or the count
+  is needed. The author (2026-11-27, CO2.1's questions): `max_eval` set explicitly with
+  every cell, and the uncounted inner iterations accepted (steps and passes are reported;
+  updates can be estimated from closure evaluations if ever needed).
+  *Done when:* the pilot table and D5 proposed.
   *Needs:* CO2.1, CO0.1. *Machines:* the VM. *Sign-off:* D5.
+- [ ] **CO2.3 A deterministic L-BFGS resume test.**
+  `training::trainer::tests::lbfgs_smoke_run_resumes_exactly` (CO2.1) failed once in a full
+  `cargo test` (CM1.5c's agent, 2026-11-27) and passed alone 3 of 3 and in two later full
+  runs: likely Flex's process-wide RNG shared with tests running in parallel, which can
+  fail CI at random. Find the cause first (reproduce under `cargo test` with many threads,
+  or `--test-threads=1` against the default); then make the test deterministic, e.g. a seeded
+  model built without the shared RNG, or a test binary of its own as
+  `tests/spectral_init.rs` has. The author asked for it 2026-11-27. *Done when:* the cause
+  is stated, and the test passes in 50 consecutive full `cargo test` runs (or the
+  reproduction no longer fails). *Needs:* CO2.1; `training/` free (serial with CO3.3).
+  *Machines:* the Mac.
 
 ## O3: SOAP
 
@@ -200,7 +251,14 @@ piloted.
   reloads diverge in some processes, CO3.2's plan, Outcome); the pilot logs each factor's
   eigenvalue ratio at the first refresh for one seed, and ratios near 1e7–1e8 bring an f64
   host eigenbasis back to the author as an amendment of D9. No reference fixtures (proposal
-  §9): skipped, unless the pilot shows SOAP misbehaving.
+  §9): skipped, unless the pilot shows SOAP misbehaving. From CO2.1's code-quality review,
+  for the next change to `trainer.rs` (SOAP rides `ModuleOptimizer`, so none of these blocks
+  it; each changes existing code, so each with constraint 1 shown): the Gauss–Newton and
+  L-BFGS states as one enum in `TrainingComponents` and `OperatorCheckpoint` (F1); one
+  step-row sink, removing `run_loop`'s wrapper over `run_loop_with` (F3, with the one
+  existing test that calls `run_loop`); the metrics forward shared by `train_epoch_gn` and
+  `train_epoch_lbfgs` (F4); `GnPasses` renamed for both step files; the trainer's tests in
+  their own file (F8, `trainer.rs` 2,180 lines).
 
 ## O4: The 2D comparison
 
@@ -214,7 +272,10 @@ results written.
   Burgers at equal time if D14 is. *Done when:* `docs/optimisers/results/CO4.1.md` with
   error 4 against time and passes per arm, and the equal-time verdict with its spread; with
   D13, whether weight decay's effect splits by whether the arm reaches the penalised
-  minimiser (full-batch GN and L-BFGS) or is stochastic first-order (Adam, SOAP). *Needs:* CO0.1, CO2.2, CO3.3, D1, D5, D6, D13, D14
+  minimiser (full-batch GN and L-BFGS) or is stochastic first-order (Adam, SOAP); per run a
+  stability table as CO0.1's: NaN and inf (non-finite trial losses) reported separately,
+  and a step counted wild at |ρ| > 1e3, non-finite ρ included (the author, 2026-11-27,
+  CO0.1 audit #179). *Needs:* CO0.1, CO2.2, CO3.3, D1, D5, D6, D13, D14
   (CO1.3 if D14 is taken). *Machines:* the VM.
 
 ## O5: The 3D arms

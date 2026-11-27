@@ -39,6 +39,11 @@ impl NpzFileReader {
         })
     }
 
+    /// The archive's array names, in archive order, `.npy` suffix stripped.
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
     /// Reads the array `name` as `f64`, of whatever shape it was stored with.
     ///
     /// `f64` arrays are read as is; `f32` arrays are cast up.

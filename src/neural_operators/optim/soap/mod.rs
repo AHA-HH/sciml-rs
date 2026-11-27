@@ -30,11 +30,10 @@ use burn::{
     tensor::{Int, TensorData},
 };
 
+use super::SVD_SWEEPS;
+
 #[cfg(test)]
 mod tests;
-
-/// The QR sweeps allowed to Burn's host `svd` per singular value (as in CO3.1's spike).
-const SVD_SWEEPS: usize = 30;
 
 /// SOAP's hyperparameters; the defaults are the reference implementation's. The learning
 /// rate is not here: Burn passes it to every step (the trainer's schedule).

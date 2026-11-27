@@ -7,6 +7,8 @@ mod embedding;
 mod grid;
 mod padding;
 mod reference;
+mod resolution;
+mod spectral;
 
 use super::*;
 use crate::neural_operators::data::host_float::HostFloat;

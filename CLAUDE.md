@@ -139,9 +139,11 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
 ## Layout
 - `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO, `Activation`: ReLU, or GELU since optimisers CO1.1; tests in `tests/{reference,padding,grid,checkpoint,activation}.rs`),
   `models/operator.rs` (library CM0.3, D4: `Operator`, the trait every model implements for
-  the training stack, with associated `Config`, `Input`, `Output` and `NAME`;
+  the training stack, with associated `Config`, `Input` and `Output` (its name is the config's
+  `OperatorConfig::KIND`; `NAME` retired in CM0.7);
   `GridOperator<R>`, rank-R tensors in and out, which `training/`, `runs` and
-  `predict_host` are generic over; the FNO-named functions stay as wrappers),
+  `predict_host` are generic over; since CM0.6 the generic names only: `train::<FNO<R>, …>`,
+  `build_components`, `RunDir::load_model`, `checkpoint_of`, `OperatorCheckpoint<M>`),
   `models/registry.rs` (library CM0.4: `OperatorConfig::KIND`, the `kind` written first in
   `model_cfg.json`, absent meaning `"fno"`; `ModelConfig` and `Model<R>`, one enum variant
   per kind, built by name; `RunDir::any_model_config`),
@@ -159,7 +161,10 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `GridEmbeddingNd`, `SinusoidalEmbedding`, `RotaryEmbedding2d` and the rotary helpers, and
   `FNOConfig`'s `lifting_channel_ratio`, `projection_channel_ratio`, `positional_embedding`
   (`PositionalEmbedding::{GridNd, Disabled}`), each `None` today's, parity in
-  `tests/parity_embeddings*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
+  `tests/parity_embeddings*.rs`; since CM1.5a `conv_bias`, `separable`, `max_modes`,
+  `tanh_stabilizer`, and 2.0.0's whole `FNO` in `tests/parity_fno*.rs`; since CM1.5b
+  `domain_padding`, `resolution_scaling_factor`, `FNO::forward_with_output_shape`,
+  `SpectralConv::forward_to` and `layers/resample.rs`, 2.0.0's `resample`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
   `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
   `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; since CM2.5
@@ -181,9 +186,11 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `lr_schedule` (`None` the cosine, `LrSchedule::Step` halving every k epochs) and `loss`
   (`TrainLoss::SquaredRelL2`, PETScML's eq. 6, for the Adam path)), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
-  `training_loop` with its `EpochObserver`, `train_fno`), `gn` (Phase 10 T3:
-  `FnoResidual`, the FNO's Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
-  runs when the config asks for Gauss–Newton), `learner` (Burn `Learner` impls).
+  `training_loop` with its `EpochObserver<'_, M>`, `train`), `gn` (Phase 10 T3:
+  `GridResidual`, any `GridOperator`'s Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
+  runs when the config asks for Gauss–Newton), `lbfgs` (optimisers CO2.1:
+  `train_epoch_lbfgs`, one Burn `LBFGS::step` per epoch on the full batch, its closure Φ +
+  ½μ‖θ‖², for `OptimizerConfig::Lbfgs(LbfgsArm)`), `learner` (Burn `Learner` impls).
 - `optim/gauss_newton/` (Phase 10 T1, generic over any Burn `Module`; imports nothing from
   `models/` or `training/`): `ParamVec` (a model's float parameters as one vector, on
   the model's device without autodiff), `params` / `with_params`, `LeastSquares`
@@ -203,16 +210,26 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   refreshes by a host f64 Householder QR, D9; M kept in the original space, V in the bases),
   `SoapState` (`RecordState` by hand: Burn's derive works only inside `burn-optim`) and
   `Factor`; tests in `soap/tests.rs`. Nothing calls it before CO3.3.
+- `optim/galore.rs` (library CM3.6a, real tensors of any rank; CM3.6b complex ones; imports
+  nothing from `models/` or `training/`): 2.0.0's `TensorGaLoreProjector<D, T>` (`T` a
+  `Tensor<D>` or a `ComplexTensor<D>`, through the sealed `GaLoreTensor`; `TensorGaLoreConfig`,
+  `GaLoreRank`; factors computed once, on the first `project`, as 2.0.0), `tucker_factors`
+  (tensorly's HOOI, Burn's host `svd`, `svd_flip` signs; `SVD_SWEEPS` in `optim/mod.rs`;
+  complex: a host f64 Jacobi SVD on `num-complex`, gesdd's phase, then tensorly's sgn rule); tests in
+  `galore/tests.rs`, parity in `tests/parity_galore*.rs`. Nothing calls it yet (the wiring
+  into an AdamW: `docs/operators/tasks/CM3.6a.md`).
 - `runs` (`RunDir`, `EpochMetrics`, `RunCosts`) owns the run directory:
   `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
   read), `save_plot`, `save_normalizers`, `save_weights`, `save_costs` (`costs.json`,
   Poisson runs since Phase 5 T4, `optimisation_steps` since Phase 7 T1, `resumes` since
   Phase 9 T1; `forward_passes` / `backward_passes` since Phase 10 T3), `save_checkpoint` /
-  `checkpoint::<R>(device)` (`checkpoint.bin`, Phase 9 T1; `save_checkpoint_gn` adds the
-  Gauss–Newton state, Phase 10 T3), `truncate_metrics`, and since Phase 10 T3
+  `checkpoint_of::<M>(device)` (`checkpoint.bin`, Phase 9 T1; `save_checkpoint_gn` adds the
+  Gauss–Newton state, Phase 10 T3; `save_checkpoint_lbfgs` the L-BFGS record, optimisers
+  CO2.1), `truncate_metrics`, and since Phase 10 T3
   `append_gn_step` (`gn_steps.csv`, `GnStepRecord`, the only writer), `truncate_gn_steps`
-  and `gn_passes`; `open(dir)`, `load_fno`, `model_config`,
+  and `gn_passes`; since CO2.1 `append_lbfgs_step` (`lbfgs_steps.csv`, `LbfgsStepRecord`),
+  `truncate_lbfgs_steps` and `lbfgs_passes`; `open(dir)`, `load_model::<M>`, `model_config`,
   `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`, `artifacts()` (the files the MLflow export uploads). Run-file names appear
   nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `tracking/` (behind `mlflow`, Phase 8 T1): `export_requests` (pure: a Poisson
@@ -276,7 +293,7 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   oracle), and `evaluate_3d` (the 2D record, error 1 quoted from 3D CL2.1) is driven by
   `examples/predict/poisson3d.rs` (`predict_poisson3d`) on runs of
   `examples/train/poisson3d.rs` (`train_poisson3d`, `FNO<5>`, D4).
-- `training/trainer` (`train_fno`, one trainer for every PDE: `Some(y)` decodes with the
+- `training/trainer` (`train`, one trainer for every PDE: `Some(y)` decodes with the
   target normaliser, `None` trains in physical units), driven on those datasets by
   `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
 - `spikes/`: standalone packages, never built by CI: Phase 0 measurements, and
@@ -412,7 +429,10 @@ than trusting prose when checking how an API behaves.
   Phase 10 T3). `OPTIMIZER=hybrid` trains `HYBRID_ADAM_EPOCHS` with Adam, then
   Gauss–Newton (run name `_hybrid`); `GN_PRECONDITIONER=none|hutchinson` picks the
   preconditioner (Phase 10 T5); `GN_WEIGHT_DECAY`, `GN_CG_MAX_ITERS` and Adam's `WEIGHT_DECAY` override
-  those literals (Phase 10 follow-ups)
+  those literals (Phase 10 follow-ups). `OPTIMIZER=lbfgs` (optimisers CO2.1) trains with
+  Burn's L-BFGS on Φ, one step per epoch on the full batch of N (the `LBFGS_*` literals,
+  overridden by `LBFGS_HISTORY`, `LBFGS_MAX_ITER`, `LBFGS_MAX_EVAL`, `LBFGS_WEIGHT_DECAY`;
+  `TIME_BUDGET_S`; one device; run name `_lbfgs`; writes `lbfgs_steps.csv`)
 - Export run directories to a local MLflow server (Phase 8 T1; server: `mlflow server
   --host 127.0.0.1 --port 5001 --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db
   --artifacts-destination $HOME/mlflow/artifacts`, see `README.md`):

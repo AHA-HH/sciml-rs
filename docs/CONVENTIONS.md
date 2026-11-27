@@ -125,7 +125,10 @@ x[n] = \frac{1}{N} \sum_{k=0}^{N-1} X[k]\, e^{2\pi i k n / N}
 
 ### Verification
 `fft_round_trip_{1d,2d,3d}`, `round_trips_an_asymmetric_signal`,
-`round_trips_a_short_asymmetric_signal`.
+`round_trips_a_short_asymmetric_signal`; for the DC and Nyquist bins' imaginary parts,
+`fno3d_scaling_matches_2_0_0` (`tests/parity_fno.rs`, library CM1.5b): a resize that breaks
+Hermitian symmetry matches torch's C2R `irfftn` (which drops them) within D3, on Flex and
+Metal.
 
 ## 5. Spectral convolution layout
 

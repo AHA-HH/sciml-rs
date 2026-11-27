@@ -1,5 +1,5 @@
 //! 3D CL0.1 (`docs/laplace3d/tasks/CL0.1.md`): time per epoch of `FNO<5>` (width 32,
-//! 4 layers) on synthetic data, through the real training path (`build_training_components`,
+//! 4 layers) on synthetic data, through the real training path (`build_components`,
 //! `train_epoch`, `evaluate`). Peak memory is read outside the process (`run.sh`;
 //! method and results in `docs/laplace3d/results/cl0-1.md`).
 //!
@@ -12,10 +12,10 @@ use burn::module::Module;
 use burn::prelude::*;
 use ndarray::{ArrayD, IxDyn};
 use sciml_rs::neural_operators::data::dataset::OperatorDataset;
-use sciml_rs::neural_operators::models::fno::FNOConfig;
+use sciml_rs::neural_operators::models::fno::{FNO, FNOConfig};
 use sciml_rs::neural_operators::training::config::TrainingConfig;
 use sciml_rs::neural_operators::training::step::evaluate;
-use sciml_rs::neural_operators::training::trainer::{build_training_components, train_epoch};
+use sciml_rs::neural_operators::training::trainer::{build_components, train_epoch};
 
 /// The 3D model of proposal §7: width 32, 4 layers, `modes` per axis, one data channel.
 fn model_config(modes: usize) -> FNOConfig {
@@ -51,7 +51,7 @@ fn main() {
     let train_cfg = TrainingConfig::new()
         .with_batch_size(batch)
         .with_test_batch_size(batch);
-    let c = build_training_components::<5, 4, f32>(
+    let c = build_components::<FNO<5>, 5, 4, f32>(
         &model_config(modes),
         &train_cfg,
         synthetic(n_train, s, 1),

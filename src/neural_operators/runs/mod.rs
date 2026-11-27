@@ -7,10 +7,12 @@
 //! - `x_normalizer.json`, `y_normalizer.json`: Darcy and Poisson runs only;
 //! - `model_weights.bpk`: the model;
 //! - `costs.json` ([`RunCosts`]): Poisson runs since Phase 5 T4;
-//! - `checkpoint.bin` ([`Checkpoint`]): the latest checkpoint, Poisson runs since Phase 9
+//! - `checkpoint.bin` ([`OperatorCheckpoint`]): the latest checkpoint, Poisson runs since Phase 9
 //!   T1, replaced every k epochs and after the last;
 //! - `gn_steps.csv` ([`GnStepRecord`]): one row per Gauss–Newton step, Gauss–Newton runs
-//!   only (Phase 10 T3).
+//!   only (Phase 10 T3);
+//! - `lbfgs_steps.csv` ([`LbfgsStepRecord`]): one row per L-BFGS step (epoch), L-BFGS runs
+//!   only (optimisers CO2.1).
 //!
 //! [`RunDir`] writes these and reads them back. File names live only here. Runs written
 //! since Phase 3 open, including Learner runs from before Phase 4s T2, which lack
@@ -26,11 +28,13 @@ mod checkpoint;
 mod costs;
 mod csv;
 mod gn_steps;
+mod lbfgs_steps;
 mod plots;
 
-pub use checkpoint::{Checkpoint, CheckpointState, OperatorCheckpoint};
+pub use checkpoint::{CheckpointState, OperatorCheckpoint};
 pub use costs::RunCosts;
 pub use gn_steps::{GnPasses, GnStepRecord};
+pub use lbfgs_steps::LbfgsStepRecord;
 
 use std::error::Error;
 use std::io;
@@ -40,7 +44,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use burn::{
     config::Config,
     module::Module,
-    optim::{ModuleOptimizer, lr_scheduler::module_lr_scheduler::ModuleLrScheduler},
+    optim::{LBFGS, ModuleOptimizer, lr_scheduler::module_lr_scheduler::ModuleLrScheduler},
     store::{BurnpackStore, ModuleSnapshot},
     tensor::Device,
 };
@@ -52,7 +56,7 @@ use crate::neural_operators::{
     },
     metrics::poisson::ERRORS_JSON,
     models::{
-        fno::{FNO, FNOConfig},
+        fno::FNOConfig,
         operator::Operator,
         registry::{KindField, ModelConfig, OperatorConfig, Tagged},
     },
@@ -65,6 +69,7 @@ const TRAIN_CFG: &str = "train_cfg.json";
 const DATA_CFG: &str = "data_cfg.json";
 const METRICS_CSV: &str = "metrics.csv";
 const GN_STEPS_CSV: &str = "gn_steps.csv";
+const LBFGS_STEPS_CSV: &str = "lbfgs_steps.csv";
 const PLOTS_PNG: &str = "plots.png";
 const X_NORMALIZER: &str = "x_normalizer.json";
 const Y_NORMALIZER: &str = "y_normalizer.json";
@@ -108,8 +113,9 @@ pub struct RunDir {
 }
 
 impl RunDir {
-    /// Creates `root/<name>_<unix_secs>/` (and `root` if needed). `name` is also the
-    /// title of the metrics plot.
+    /// Creates `root/<name>_<unix_secs>/` (and `root` if needed), a new directory: if
+    /// another run of `name` took that second, `root/<name>_<unix_secs>_<k>/` with the
+    /// first free k = 1, 2, …. `name` is also the title of the metrics plot.
     ///
     /// Examples pass `Path::new(env!("CARGO_MANIFEST_DIR")).join("runs")` as `root`.
     ///
@@ -120,8 +126,22 @@ impl RunDir {
             .duration_since(UNIX_EPOCH)
             .map_err(io::Error::other)?
             .as_secs();
-        let path = root.join(format!("{name}_{stamp}"));
-        std::fs::create_dir_all(&path)?;
+        Self::create_at(root, name, stamp)
+    }
+
+    /// [`create`](Self::create) at the second `stamp`.
+    fn create_at(root: &Path, name: &str, stamp: u64) -> io::Result<Self> {
+        std::fs::create_dir_all(root)?;
+        let mut path = root.join(format!("{name}_{stamp}"));
+        let mut k = 0;
+        // `create_dir` fails on an existing directory, so two runs never share one
+        while let Err(e) = std::fs::create_dir(&path) {
+            if e.kind() != io::ErrorKind::AlreadyExists {
+                return Err(e);
+            }
+            k += 1;
+            path = root.join(format!("{name}_{stamp}_{k}"));
+        }
         Ok(Self {
             path,
             name: name.to_string(),
@@ -170,7 +190,7 @@ impl RunDir {
     }
 
     /// Appends one epoch's row to `metrics.csv`, writing the header first if the file is
-    /// new: the file's only writer. Training calls this after every epoch (`train_fno`), so
+    /// new: the file's only writer. Training calls this after every epoch (`train`), so
     /// a run that stops early keeps the rows of its finished epochs.
     ///
     /// # Errors
@@ -206,12 +226,7 @@ impl RunDir {
     /// # Errors
     /// As [`truncate_metrics`](Self::truncate_metrics).
     pub fn truncate_gn_steps(&self, next_epoch: usize) -> io::Result<()> {
-        let path = self.path.join(GN_STEPS_CSV);
-        if !path.exists() {
-            return Ok(());
-        }
-        // its first column is the epoch, as in metrics.csv
-        csv::truncate_metrics_csv(path, next_epoch)
+        self.truncate_steps(GN_STEPS_CSV, next_epoch)
     }
 
     /// The forward and backward passes summed over `gn_steps.csv`, and its row count (the
@@ -221,7 +236,50 @@ impl RunDir {
     /// If the file can't be read, lacks the pass columns or has a field that doesn't
     /// parse ([`io::ErrorKind::InvalidData`]).
     pub fn gn_passes(&self) -> io::Result<Option<GnPasses>> {
-        let path = self.path.join(GN_STEPS_CSV);
+        self.step_passes(GN_STEPS_CSV)
+    }
+
+    /// Appends one L-BFGS step's row to `lbfgs_steps.csv`, writing the header first if the
+    /// file is new: the file's only writer.
+    ///
+    /// # Errors
+    /// If the file can't be opened or written.
+    pub fn append_lbfgs_step(&self, record: &LbfgsStepRecord) -> io::Result<()> {
+        lbfgs_steps::append_lbfgs_step_row(self.path.join(LBFGS_STEPS_CSV), record)
+    }
+
+    /// Drops the rows of `lbfgs_steps.csv` for epochs `next_epoch` and later, as
+    /// [`truncate_gn_steps`](Self::truncate_gn_steps); nothing to do without the file.
+    ///
+    /// # Errors
+    /// As [`truncate_metrics`](Self::truncate_metrics).
+    pub fn truncate_lbfgs_steps(&self, next_epoch: usize) -> io::Result<()> {
+        self.truncate_steps(LBFGS_STEPS_CSV, next_epoch)
+    }
+
+    /// The forward and backward passes summed over `lbfgs_steps.csv`, and its row count
+    /// (the steps); `None` for a run without the file (not an L-BFGS run).
+    ///
+    /// # Errors
+    /// As [`gn_passes`](Self::gn_passes).
+    pub fn lbfgs_passes(&self) -> io::Result<Option<GnPasses>> {
+        self.step_passes(LBFGS_STEPS_CSV)
+    }
+
+    /// Drops the rows of the step file `name` for epochs `next_epoch` and later; nothing to
+    /// do without the file.
+    fn truncate_steps(&self, name: &str, next_epoch: usize) -> io::Result<()> {
+        let path = self.path.join(name);
+        if !path.exists() {
+            return Ok(());
+        }
+        // its first column is the epoch, as in metrics.csv
+        csv::truncate_metrics_csv(path, next_epoch)
+    }
+
+    /// The passes summed over the step file `name`, `None` without the file.
+    fn step_passes(&self, name: &str) -> io::Result<Option<GnPasses>> {
+        let path = self.path.join(name);
         if !path.exists() {
             return Ok(None);
         }
@@ -270,14 +328,6 @@ impl RunDir {
         let mut model = M::init(&self.model_config_of()?, device);
         model.load_from(&mut BurnpackStore::from_file(self.path.join(WEIGHTS_STEM)))?;
         Ok(model)
-    }
-
-    /// [`load_model`](Self::load_model) for the FNO.
-    ///
-    /// # Errors
-    /// As [`load_model`](Self::load_model).
-    pub fn load_fno<const R: usize>(&self, device: &Device) -> Result<FNO<R>, Box<dyn Error>> {
-        self.load_model(device)
     }
 
     /// The model's architecture, from `model_cfg.json`.
@@ -385,7 +435,7 @@ impl RunDir {
 
     /// The run's files worth viewing beside its metrics, those present, sorted by name:
     /// the three configs, `costs.json`, `errors.json` ([`ERRORS_JSON`]), `gn_steps.csv`
-    /// (Gauss–Newton runs) and every `.png`
+    /// (Gauss–Newton runs), `lbfgs_steps.csv` (L-BFGS runs) and every `.png`
     /// (`plots.png`, `prediction_<k>.png`). Not the weights, checkpoint, normalizers or
     /// `metrics.csv`, and no symbolic link, so nothing outside the directory is picked up.
     /// The MLflow exporter (Phase 8 T1) uploads these.
@@ -400,6 +450,7 @@ impl RunDir {
             COSTS,
             ERRORS_JSON,
             GN_STEPS_CSV,
+            LBFGS_STEPS_CSV,
         ];
         let mut files = Vec::new();
         for entry in std::fs::read_dir(&self.path)? {
@@ -445,10 +496,46 @@ impl RunDir {
         scheduler: &ModuleLrScheduler,
         gn: Option<&GaussNewtonState>,
     ) -> Result<(), Box<dyn Error>> {
-        let bytes = checkpoint::encode(state, model, optim.to_record(), scheduler.to_record(), gn)?;
+        let bytes = checkpoint::encode(
+            state,
+            model,
+            optim.to_record(),
+            scheduler.to_record(),
+            gn,
+            None,
+        )?;
+        self.write_checkpoint(&bytes)
+    }
+
+    /// [`save_checkpoint`](Self::save_checkpoint) with the L-BFGS state of an L-BFGS run
+    /// (optimisers CO2.1), the checkpoint's fifth section after an empty fourth.
+    ///
+    /// # Errors
+    /// As [`save_checkpoint`](Self::save_checkpoint).
+    pub fn save_checkpoint_lbfgs(
+        &self,
+        state: &CheckpointState,
+        model: &impl Module,
+        optim: &ModuleOptimizer,
+        scheduler: &ModuleLrScheduler,
+        lbfgs: &LBFGS,
+    ) -> Result<(), Box<dyn Error>> {
+        let bytes = checkpoint::encode(
+            state,
+            model,
+            optim.to_record(),
+            scheduler.to_record(),
+            None,
+            Some(lbfgs),
+        )?;
+        self.write_checkpoint(&bytes)
+    }
+
+    /// Writes `checkpoint.bin` atomically: under a temporary name, synced, then renamed.
+    fn write_checkpoint(&self, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
         let tmp = self.path.join(CHECKPOINT_TMP);
         let mut file = std::fs::File::create(&tmp)?;
-        io::Write::write_all(&mut file, &bytes)?;
+        io::Write::write_all(&mut file, bytes)?;
         file.sync_all()?;
         std::fs::rename(&tmp, self.path.join(CHECKPOINT))?;
         Ok(())
@@ -475,17 +562,6 @@ impl RunDir {
             .map(Some)
             .map_err(|e| format!("{}: {e}", path.display()).into())
     }
-
-    /// [`checkpoint_of`](Self::checkpoint_of) for the FNO.
-    ///
-    /// # Errors
-    /// As [`checkpoint_of`](Self::checkpoint_of).
-    pub fn checkpoint<const R: usize>(
-        &self,
-        device: &Device,
-    ) -> Result<Option<Checkpoint<R>>, Box<dyn Error>> {
-        self.checkpoint_of(device)
-    }
 }
 
 #[cfg(test)]
@@ -493,7 +569,7 @@ mod tests {
     use super::*;
     use crate::neural_operators::{
         data::loaders::{base_dataset::DatasetConfig, darcy::DarcyConfig},
-        models::predict::predict_host,
+        models::{fno::FNO, predict::predict_host},
     };
     use ndarray::{Array4, ArrayD, IxDyn};
 
@@ -514,6 +590,12 @@ mod tests {
             lifting_channel_ratio: None,
             projection_channel_ratio: None,
             positional_embedding: None,
+            conv_bias: None,
+            separable: None,
+            max_modes: None,
+            tanh_stabilizer: None,
+            domain_padding: None,
+            resolution_scaling_factor: None,
         }
     }
 
@@ -557,6 +639,21 @@ mod tests {
     }
 
     #[test]
+    fn create_twice_in_one_second_gives_two_directories() {
+        let root = fresh_root("create_twice");
+        let dirs: Vec<PathBuf> = (0..3)
+            .map(|_| RunDir::create_at(&root, "run", 100).unwrap().path)
+            .collect();
+        let names: Vec<_> = dirs
+            .iter()
+            .map(|d| d.file_name().unwrap().to_str().unwrap())
+            .collect();
+        assert_eq!(names, ["run_100", "run_100_1", "run_100_2"]);
+        assert!(dirs.iter().all(|d| d.is_dir()));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn save_open_load_fno_round_trips_bit_identically() {
         let device = Device::default();
         let root = fresh_root("round_trip");
@@ -569,7 +666,7 @@ mod tests {
         assert!(run.path().join("model_weights.bpk").exists());
 
         let opened = RunDir::open(run.path()).unwrap();
-        let loaded: FNO<4> = opened.load_fno(&device).unwrap();
+        let loaded: FNO<4> = opened.load_model(&device).unwrap();
         let x = Array4::from_shape_fn((2, 8, 8, 1), |(k, i, j, _)| {
             ((k * 64 + i * 8 + j) as f32 * 0.37).sin()
         });
@@ -699,7 +796,7 @@ mod tests {
         let run = RunDir::create(&root, "test_fno").unwrap();
         run.save_configs(&model_config(), &TrainingConfig::new(), &data_config())
             .unwrap();
-        assert!(run.checkpoint::<4>(&device).unwrap().is_none());
+        assert!(run.checkpoint_of::<FNO<4>>(&device).unwrap().is_none());
 
         let model: FNO<4> = model_config().init::<4>(&device);
         let optim: ModuleOptimizer = AdamConfig::new().init();
@@ -714,7 +811,10 @@ mod tests {
         run.save_checkpoint(&state, &model, &optim, &scheduler)
             .unwrap();
         assert!(!run.path().join(CHECKPOINT_TMP).exists());
-        let read = run.checkpoint::<4>(&device).unwrap().expect("saved");
+        let read = run
+            .checkpoint_of::<FNO<4>>(&device)
+            .unwrap()
+            .expect("saved");
         assert_eq!(read.state, state);
 
         let path = run.path().join(CHECKPOINT);
@@ -728,7 +828,7 @@ mod tests {
         ] {
             std::fs::write(&path, broken).unwrap();
             let msg = run
-                .checkpoint::<4>(&device)
+                .checkpoint_of::<FNO<4>>(&device)
                 .err()
                 .expect("a broken checkpoint")
                 .to_string();
@@ -747,7 +847,7 @@ mod tests {
         assert!(run.costs().unwrap().is_none());
         assert!(run.data_config::<DarcyConfig>().is_err());
         assert_eq!(run.metrics().unwrap_err().kind(), io::ErrorKind::NotFound);
-        assert!(run.load_fno::<4>(&Device::default()).is_err());
+        assert!(run.load_model::<FNO<4>>(&Device::default()).is_err());
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -837,7 +937,7 @@ mod tests {
             err.ends_with("a model of kind `pointwise`, not `fno`"),
             "{err}"
         );
-        let err = run.load_fno::<4>(&device).unwrap_err().to_string();
+        let err = run.load_model::<FNO<4>>(&device).unwrap_err().to_string();
         assert!(
             err.ends_with("a model of kind `pointwise`, not `fno`"),
             "{err}"
@@ -849,7 +949,7 @@ mod tests {
         );
 
         std::fs::write(&path, json.replacen('{', "{\"kind\": \"fno\",", 1)).unwrap();
-        assert!(run.load_fno::<4>(&device).is_ok());
+        assert!(run.load_model::<FNO<4>>(&device).is_ok());
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

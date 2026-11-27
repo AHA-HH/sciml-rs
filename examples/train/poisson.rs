@@ -42,6 +42,12 @@
 //! OPTIMIZER=gauss-newton cargo run --release --no-default-features --features cuda \
 //!     --example train_poisson -- 0 129 64 42 100 0
 //!
+//! `OPTIMIZER=lbfgs` (optimisers CO2.1) trains with Burn's L-BFGS on Gauss–Newton's
+//! objective Φ, one step per epoch on the full batch of N, with the `LBFGS_*` literals below
+//! (`LBFGS_HISTORY`, `LBFGS_MAX_ITER`, `LBFGS_MAX_EVAL`, `LBFGS_WEIGHT_DECAY` override them), on one
+//! device; the run name gains `_lbfgs`, `TIME_BUDGET_S` stops it, `EPOCHS` caps it, and it
+//! writes `lbfgs_steps.csv`, one row per step.
+//!
 //! `OPTIMIZER=hybrid` (Phase 10 T5's Hybrid arm) is Gauss–Newton whose first
 //! `HYBRID_ADAM_EPOCHS` epochs train with Adam (`TrainingConfig::adam_epochs`), the
 //! cosine schedule spanning those epochs; the run name gains `_hybrid`. Everything below
@@ -95,7 +101,12 @@
 
 mod common;
 
-use burn::{config::Config, module::Module, tensor::Device};
+use burn::{
+    config::Config,
+    module::Module,
+    optim::{LBFGSConfig, LineSearchFn},
+    tensor::Device,
+};
 use common::{CHECKPOINT_EVERY, GnLiterals, Literals, Measured};
 use sciml_rs::neural_operators::{
     chebyshev::TRANSFER_DEGREE,
@@ -110,12 +121,12 @@ use sciml_rs::neural_operators::{
             },
         },
     },
-    models::fno::FNOConfig,
+    models::fno::{FNO, FNOConfig},
     runs::{RunCosts, RunDir},
     training::{
-        config::TrainingConfig,
+        config::{LbfgsArm, TrainingConfig},
         data_parallel::replicas,
-        trainer::{build_training_components, train_components},
+        trainer::{build_components, train_components},
     },
 };
 use std::fmt::Display;
@@ -165,6 +176,19 @@ const GN_HUTCHINSON_PROBES: usize = 10;
 const HYBRID_ADAM_EPOCHS: usize = EPOCHS / 2;
 /// The adjoint check, every this many steps (`gn_steps.csv`'s `adjoint_error`).
 const GN_ADJOINT_CHECK_EVERY: usize = 10;
+
+// L-BFGS (`OPTIMIZER=lbfgs`, optimisers CO2.1): full batch (D4), strong Wolfe, lr 1 (D5's
+// recommendation; history and max_iter until CO2.2's pilot); `LBFGS_*` override these
+/// Curvature pairs kept.
+const LBFGS_HISTORY: usize = 100;
+/// Inner iterations per step (per epoch).
+const LBFGS_MAX_ITER: usize = 20;
+/// Closure evaluations per step, the line search's included; `None` is Burn's
+/// ⌊1.25 `LBFGS_MAX_ITER`⌋, which leaves a strong Wolfe search at `max_iter` 1 or 2 too few
+/// to move (CO2.1's smoke run).
+const LBFGS_MAX_EVAL: Option<usize> = None;
+/// μ in the closure's Φ + ½μ‖θ‖² (D3, D13: 0 or 1e-4).
+const LBFGS_WEIGHT_DECAY: f64 = 0.0;
 
 /// The `i`-th command-line argument parsed as `T`, or `default` when it is absent.
 ///
@@ -288,6 +312,12 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         lifting_channel_ratio: None,
         projection_channel_ratio: None,
         positional_embedding: None,
+        conv_bias: None,
+        separable: None,
+        max_modes: None,
+        tanh_stabilizer: None,
+        domain_padding: None,
+        resolution_scaling_factor: None,
     };
 
     let lit = Literals {
@@ -306,8 +336,20 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
             adjoint_check_every: GN_ADJOINT_CHECK_EVERY,
         },
         hybrid_adam_epochs: Some(HYBRID_ADAM_EPOCHS),
+        lbfgs: Some((
+            LbfgsArm::new(
+                LBFGSConfig::new()
+                    .with_history_size(LBFGS_HISTORY)
+                    .with_max_iter(LBFGS_MAX_ITER)
+                    .with_max_eval(LBFGS_MAX_EVAL)
+                    .with_line_search_fn(LineSearchFn::StrongWolfe),
+            )
+            .with_weight_decay(LBFGS_WEIGHT_DECAY),
+            n_train,
+        )),
     };
-    let train_cfg = common::training_config(&["adam", "gauss-newton", "hybrid"], seed, &lit);
+    let allowed = ["adam", "gauss-newton", "hybrid", "lbfgs"];
+    let train_cfg = common::training_config(&allowed, seed, &lit);
     let gn = train_cfg.gauss_newton().is_some();
     // Adam's long budget is more epochs, its cosine schedule spanning them; Gauss-Newton
     // stops by TIME_BUDGET_S, and a hybrid run's Adam half is fixed at HYBRID_ADAM_EPOCHS
@@ -335,6 +377,7 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
     let gn_tag = match (gn, train_cfg.adam_epochs) {
         (_, Some(_)) => "_hybrid",
         (true, None) => "_gn",
+        (false, None) if train_cfg.lbfgs().is_some() => "_lbfgs",
         (false, None) => "",
     };
     let name = format!("poisson_fno{grid}_p{padding}{subset_tag}{seed_tag}{gn_tag}");
@@ -349,13 +392,15 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
 }
 
 fn main() {
+    // the commit at the start: the checkout may move during the run (CO0.4)
+    let git_commit = sciml_rs::neural_operators::utils::backend::git_commit();
     let devices = train_devices();
     let device = devices[0].clone();
     let (run, model_cfg, train_cfg, dataset_cfg, resume) =
         common::session::<4, PoissonConfig>(&device, || new_run(&device));
     assert!(
-        train_cfg.gauss_newton().is_none() || devices.len() == 1,
-        "Gauss-Newton trains on one device: unset TRAIN_DEVICES"
+        (train_cfg.gauss_newton().is_none() && train_cfg.lbfgs().is_none()) || devices.len() == 1,
+        "Gauss-Newton and L-BFGS train on one device: unset TRAIN_DEVICES"
     );
     let set = stage(dataset_cfg.n).unwrap_or_else(|e| panic!("{e}"));
 
@@ -410,15 +455,15 @@ fn main() {
         }
     };
     #[cfg(feature = "mlflow")]
-    let also: Option<&mut sciml_rs::neural_operators::training::trainer::EpochObserver<'_, 4>> =
-        Some(&mut live_epoch);
+    let also: Option<
+        &mut sciml_rs::neural_operators::training::trainer::EpochObserver<'_, FNO<4>>,
+    > = Some(&mut live_epoch);
     #[cfg(not(feature = "mlflow"))]
     let also = None;
     let train_start = Instant::now();
     let replicas = replicas::<4, 3, _>(&train_data, &devices[1..], &train_cfg);
-    let mut components = build_training_components::<4, 3, _>(
-        &model_cfg, &train_cfg, train_data, test_data, &device,
-    );
+    let mut components =
+        build_components::<FNO<4>, 4, 3, _>(&model_cfg, &train_cfg, train_data, test_data, &device);
     components.replicas = replicas;
     let (model, _) = train_components(
         components,
@@ -443,6 +488,7 @@ fn main() {
         device: device_name,
         num_params: model.num_params(),
         resumes,
+        git_commit,
     };
     let costs = RunCosts {
         dataset_train_wall_time_s: Some(train_sidecar.wall_time_s),

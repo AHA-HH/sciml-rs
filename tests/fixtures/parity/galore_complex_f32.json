@@ -1,0 +1,70 @@
+{
+  "config": "galore_complex",
+  "dtype": "f32",
+  "seed": 7,
+  "noise": 0.05,
+  "cases": {
+    "matrix": {
+      "shape": [
+        12,
+        7
+      ],
+      "rank": 3,
+      "update_proj_gap": 5,
+      "scale": 1.0,
+      "structure": [
+        3,
+        3
+      ]
+    },
+    "tensor4": {
+      "shape": [
+        6,
+        5,
+        4,
+        3
+      ],
+      "rank": [
+        3,
+        2,
+        3,
+        2
+      ],
+      "update_proj_gap": 200,
+      "scale": 0.25,
+      "structure": [
+        3,
+        2,
+        3,
+        2
+      ]
+    },
+    "fraction": {
+      "shape": [
+        8,
+        6,
+        5
+      ],
+      "rank": 0.5,
+      "update_proj_gap": 200,
+      "scale": 1.0,
+      "structure": [
+        5,
+        3,
+        3
+      ]
+    }
+  },
+  "keys": "<case>.{grad,grad2,ranks,factor<k>,low,back,low2}",
+  "inputs": "drawn in cfloat, then cast; TensorGaLoreProjector defaults otherwise",
+  "complex_layout": "trailing axis of 2: (real, imag), torch.view_as_real",
+  "projector": "2.0.0's, cfloat",
+  "mode": "CPU, deterministic algorithms",
+  "versions": {
+    "python": "3.12.12",
+    "neuraloperator": "2.0.0",
+    "torch": "2.9.0",
+    "numpy": "2.3.4"
+  },
+  "platform": "Darwin arm64"
+}

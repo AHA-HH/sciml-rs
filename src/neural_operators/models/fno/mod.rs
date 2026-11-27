@@ -8,9 +8,9 @@
 use burn::{
     Tensor,
     config::Config,
-    module::Module,
+    module::{Module, Param},
     nn::{
-        Linear, LinearConfig,
+        Initializer, Linear, LinearConfig,
         conv::{Conv1d, Conv1dConfig},
     },
     tensor::{
@@ -27,6 +27,7 @@ use crate::neural_operators::layers::{
     embedding::GridEmbeddingNd,
     norm::{Norm, NormKind},
     pointwise::{conv1x1, linear_cf},
+    resample::resample,
     skip::{Skip, SkipKind},
     spectral_convolution::{SpectralConv, SpectralInit},
 };
@@ -40,7 +41,8 @@ pub struct BlockMlpConfig {
     /// (2.0.0's `channel_mlp_expansion`).
     #[config(default = 0.5)]
     pub expansion: f64,
-    /// The skip added to the MLP's output (2.0.0's `channel_mlp_skip`); `None` is none.
+    /// The skip added to the MLP's output (2.0.0's `channel_mlp_skip`); `None` is none, and so
+    /// is `Some(SkipKind::Disabled)`.
     #[config(default = "Some(SkipKind::SoftGating)")]
     pub skip: Option<SkipKind>,
 }
@@ -86,7 +88,8 @@ pub struct FNOConfig {
     // Each `None` is the original block, and an `Option` so that saved configs load as `None`.
     // The activation is `activation` above (2.0.0's `non_linearity`, default GELU).
     /// The skip added to each layer's convolution (2.0.0's `fno_skip`, default
-    /// [`SkipKind::Linear`], without bias); `None` is the original pointwise convolution with
+    /// [`SkipKind::Linear`], without bias); [`SkipKind::Disabled`] is none (2.0.0's
+    /// `fno_skip=None`, library CM1.5c); `None` is the original pointwise convolution with
     /// bias.
     pub fno_skip: Option<SkipKind>,
     /// A channel MLP in each layer (2.0.0's `use_channel_mlp`, default on); `None` is none.
@@ -108,6 +111,36 @@ pub struct FNOConfig {
     /// The coordinate channels (2.0.0's `positional_embedding`); `None` is CONVENTIONS §2's
     /// grid.
     pub positional_embedding: Option<PositionalEmbedding>,
+    // The options of 2.0.0's centred `SpectralConv` and its stabiliser (library CM1.5a).
+    // Each `None` is today's model, and an `Option` so that saved configs load as `None`.
+    /// The spectral convolution's bias (2.0.0's `SpectralConv` `bias`, default on): `[W]` per
+    /// layer, added to the convolution's output, before the norm. `None` is `false`.
+    pub conv_bias: Option<bool>,
+    /// Separable spectral weights (2.0.0's `separable`): one weight per channel and mode
+    /// ([`SpectralConv::new_separable`]). `None` is `false`.
+    pub separable: Option<bool>,
+    /// The modes stored per axis (2.0.0's `max_n_modes`), counted as [`FNOConfig::modes`],
+    /// of which the leading `modes` are used ([`SpectralConv::with_modes`]). `None` is
+    /// `modes`.
+    pub max_modes: Option<Vec<usize>>,
+    /// `tanh` on each convolution's input (2.0.0's `stabilizer="tanh"`); the skips take the
+    /// input before it. `None` is `false`.
+    pub tanh_stabilizer: Option<bool>,
+    // 2.0.0's domain padding and resolution scaling (library CM1.5b). Each `None` is today's
+    // model, and an `Option` so that saved configs load as `None`.
+    /// 2.0.0's `domain_padding`, one fraction `f` per spatial axis: after the lifting,
+    /// `round(f · s)` zeros (half to even, as Python) on **both** ends of each axis, cropped
+    /// before the projection. Beside CONVENTIONS §3's one-sided [`FNOConfig::padding`], which
+    /// must then be unset. `None` is none.
+    pub domain_padding: Option<Vec<f64>>,
+    /// 2.0.0's `resolution_scaling_factor`, one factor per spatial axis for each layer
+    /// (`n_layers` × `D`): layer `l` maps extent `s` to `round(s · r)` (half to even), its
+    /// convolution by [`SpectralConv::forward_to`], its skips by
+    /// [`resample`]. With [`FNOConfig::domain_padding`] only in a one-layer FNO (as 2.0.0, whose
+    /// crop fails otherwise; [`FNOConfig::init`] panics), where `round(p · r)` cells are cropped
+    /// per side of an axis padded by `p`; not with [`FNOConfig::padding`]. `None` is every
+    /// factor 1.
+    pub resolution_scaling_factor: Option<Vec<Vec<f64>>>,
 }
 
 /// The FNO's coordinate channels other than CONVENTIONS §2's grid
@@ -175,7 +208,7 @@ pub struct FNO<const R: usize> {
     fc0: Linear,
     conv: Vec<SpectralConv<R>>,
     /// The original FNO skip, a pointwise convolution with bias; empty when
-    /// [`FNOConfig::fno_skip`] is set (then `fno_skips` holds the skips).
+    /// [`FNOConfig::fno_skip`] is set (then `fno_skips` holds the skips, none if disabled).
     w: Vec<Conv1d>,
     fc1: Linear,
     fc2: Linear,
@@ -206,6 +239,17 @@ pub struct FNO<const R: usize> {
     /// [`FNOConfig::positional_embedding`]; not a parameter.
     #[module(skip)]
     positional_embedding: Option<PositionalEmbedding>,
+    /// Each layer's convolution bias, `[W]`, when [`FNOConfig::conv_bias`] is set (library
+    /// CM1.5a); empty otherwise.
+    conv_biases: Vec<Param<Tensor<1>>>,
+    /// [`FNOConfig::tanh_stabilizer`].
+    tanh_stabilizer: bool,
+    /// [`FNOConfig::domain_padding`], empty when unset or all zero; not a parameter.
+    #[module(skip)]
+    domain_padding: Vec<f64>,
+    /// [`FNOConfig::resolution_scaling_factor`], empty when unset; not a parameter.
+    #[module(skip)]
+    scaling: Vec<Vec<f64>>,
 }
 
 impl FNOConfig {
@@ -213,8 +257,14 @@ impl FNOConfig {
     ///
     /// # Panics
     /// If `modes.len() != R - 2`, if a [`PositionalEmbedding::GridNd`] has not `R - 2`
-    /// boundaries, or if [`FNOConfig::projection_channel_ratio`] gives a width of 0. Modes
-    /// that do not fit the grid panic later, in [`FNO::forward`].
+    /// boundaries, if [`FNOConfig::projection_channel_ratio`] gives a width of 0, or if
+    /// [`FNOConfig::max_modes`] has a count below `modes`' or not `R - 2` entries
+    /// ([`SpectralConv::with_modes`]), if [`FNOConfig::domain_padding`] has not `R - 2`
+    /// entries or is set with [`FNOConfig::padding`], or if
+    /// [`FNOConfig::resolution_scaling_factor`] is not `n_layers` × `(R - 2)` positive factors,
+    /// is set with [`FNOConfig::padding`], or scales (a factor other than 1) with
+    /// [`FNOConfig::domain_padding`] in an FNO of more than one layer.
+    /// Modes that do not fit the grid panic later, in [`FNO::forward`].
     pub fn init<const R: usize>(&self, device: &Device) -> FNO<R> {
         assert_eq!(
             self.modes.len() + 2,
@@ -232,6 +282,46 @@ impl FNOConfig {
                 R - 2
             );
         }
+        if let Some(fractions) = &self.domain_padding {
+            assert_eq!(
+                fractions.len(),
+                R - 2,
+                "domain_padding needs {} axes",
+                R - 2
+            );
+            assert!(
+                self.padding.unwrap_or(0) == 0,
+                "domain_padding and padding are exclusive"
+            );
+        }
+        // As 2.0.0, which builds no `DomainPadding` unless the fractions sum above 0.
+        let domain_padding = self
+            .domain_padding
+            .clone()
+            .filter(|f| f.iter().sum::<f64>() > 0.0)
+            .unwrap_or_default();
+        if let Some(factors) = &self.resolution_scaling_factor {
+            assert!(
+                factors.len() == self.n_layers
+                    && factors
+                        .iter()
+                        .all(|f| f.len() == R - 2 && f.iter().all(|&r| r > 0.0)),
+                "resolution_scaling_factor needs {} layers of {} positive factors",
+                self.n_layers,
+                R - 2
+            );
+            // CONVENTIONS §3's crop restores the unscaled extents.
+            assert!(
+                self.padding.unwrap_or(0) == 0,
+                "padding with resolution_scaling_factor is not supported (domain_padding is)"
+            );
+            // 2.0.0 crops by one layer's factor: its unpad lookup fails with several layers.
+            let scales = factors.iter().flatten().any(|&r| r != 1.0);
+            assert!(
+                domain_padding.is_empty() || !scales || self.n_layers == 1,
+                "domain_padding with resolution_scaling_factor needs a one-layer FNO (as 2.0.0)"
+            );
+        }
         let coord_channels = coord_channels(self.positional_embedding.as_ref(), R - 2);
         let width = self.hidden_channels;
         // Python's `int(r · W)`, truncated, as 2.0.0.
@@ -245,8 +335,13 @@ impl FNOConfig {
         fn layers<T>(n: usize, build: impl Fn() -> T) -> Vec<T> {
             (0..n).map(|_| build()).collect()
         }
+        let stored = self.max_modes.as_deref().unwrap_or(&self.modes);
+        let init = self.spectral_init.clone().unwrap_or_default();
+        // Empty for no kind, and for `SkipKind::Disabled`, which builds no skip.
         let skips = |kind: Option<&SkipKind>| match kind {
-            Some(kind) => layers(self.n_layers, || kind.init(width, width, device)),
+            Some(kind) => (0..self.n_layers)
+                .filter_map(|_| kind.init(width, width, device))
+                .collect(),
             None => Vec::new(),
         };
 
@@ -259,13 +354,15 @@ impl FNOConfig {
 
             conv: (0..self.n_layers)
                 .map(|_| {
-                    SpectralConv::<R>::new_with_init(
-                        device,
-                        self.hidden_channels,
-                        self.hidden_channels,
-                        &self.modes,
-                        self.spectral_init.clone().unwrap_or_default(),
-                    )
+                    let conv = if self.separable == Some(true) {
+                        SpectralConv::<R>::new_separable(device, width, stored, init.clone())
+                    } else {
+                        SpectralConv::<R>::new_with_init(device, width, width, stored, init.clone())
+                    };
+                    match self.max_modes {
+                        Some(_) => conv.with_modes(&self.modes),
+                        None => conv,
+                    }
                 })
                 .collect(),
 
@@ -303,6 +400,17 @@ impl FNOConfig {
                 .map(|l| vec![LinearConfig::new(l, width).init(device)])
                 .unwrap_or_default(),
             positional_embedding: self.positional_embedding.clone(),
+            conv_biases: match self.conv_bias {
+                // 2.0.0's `init_std="auto"`, √(2 / (in + out)), times a standard normal.
+                Some(true) => layers(self.n_layers, || {
+                    let std = (2.0 / (2 * width) as f64).sqrt();
+                    Initializer::Normal { mean: 0.0, std }.init([width], device)
+                }),
+                _ => Vec::new(),
+            },
+            tanh_stabilizer: self.tanh_stabilizer == Some(true),
+            domain_padding,
+            scaling: self.resolution_scaling_factor.clone().unwrap_or_default(),
         }
     }
 }
@@ -384,7 +492,9 @@ impl<const R: usize> FNO<R> {
     /// hidden-width activations are never permuted or copied for layout.
     ///
     /// With [`FNOConfig::padding`] `p > 0`, the lifted activation is padded and cropped
-    /// as in CONVENTIONS §3; the output shape is unchanged.
+    /// as in CONVENTIONS §3; the output shape is unchanged. So with
+    /// [`FNOConfig::domain_padding`]; with [`FNOConfig::resolution_scaling_factor`] the
+    /// output's extents are the scaled ones.
     ///
     /// # Panics
     /// If the input's last axis is not [`FNOConfig::data_channels`] wide, e.g.
@@ -401,6 +511,32 @@ impl<const R: usize> FNO<R> {
     /// # Panics
     /// As [`FNO::forward`], and for AdaIN without an embedding.
     pub fn forward_with_embedding(&self, x: Tensor<R>, embedding: Option<Tensor<1>>) -> Tensor<R> {
+        self.forward_full(x, embedding, None)
+    }
+
+    /// [`FNO::forward`] with the last layer's output on the spatial extents `output_shape`
+    /// (2.0.0's `forward(x, output_shape=…)` with a tuple; library CM1.5b): `[B, spatial..,
+    /// data_channels]` → `[B, output_shape.., out_channels]`.
+    ///
+    /// # Panics
+    /// As [`FNO::forward`]; if `output_shape` has not `R - 2` positive entries, or with
+    /// [`FNOConfig::domain_padding`] (2.0.0 finds no crop for a shape it did not compute) or
+    /// [`FNOConfig::padding`] (its crop restores the input's extents).
+    pub fn forward_with_output_shape(&self, x: Tensor<R>, output_shape: &[usize]) -> Tensor<R> {
+        assert!(
+            self.domain_padding.is_empty() && self.padding == 0,
+            "an output shape with domain padding or padding is not supported"
+        );
+        self.forward_full(x, None, Some(output_shape))
+    }
+
+    /// The forward of [`FNO::forward_with_embedding`] and [`FNO::forward_with_output_shape`].
+    fn forward_full(
+        &self,
+        x: Tensor<R>,
+        embedding: Option<Tensor<1>>,
+        output_shape: Option<&[usize]>,
+    ) -> Tensor<R> {
         let dims = x.dims();
         let data_channels =
             self.fc0.weight.dims()[0] - coord_channels(self.positional_embedding.as_ref(), R - 2);
@@ -430,11 +566,41 @@ impl<const R: usize> FNO<R> {
         if self.padding > 0 {
             x = Self::pad_spatial(x, self.padding);
         }
+        // 2.0.0's `DomainPadding`: per axis `round(f · s)` on both ends.
+        let pads: Vec<usize> = self
+            .domain_padding
+            .iter()
+            .zip(&unpadded[2..])
+            .map(|(f, &s)| (f * s as f64).round_ties_even() as usize)
+            .collect();
+        if !pads.is_empty() {
+            let pairs: [(usize, usize); R] = core::array::from_fn(|i| {
+                if i < 2 {
+                    (0, 0)
+                } else {
+                    (pads[i - 2], pads[i - 2])
+                }
+            });
+            x = x.pad(pairs, PadMode::Constant(0.0));
+        }
 
-        x = self.fourier_layers(x, embedding);
+        x = self.layers_to(x, embedding, output_shape);
 
         if self.padding > 0 {
             x = Self::crop_spatial(x, unpadded);
+        }
+        if !pads.is_empty() {
+            let dims = x.dims();
+            let ranges: [core::ops::Range<usize>; R] = core::array::from_fn(|i| {
+                if i < 2 {
+                    return 0..dims[i];
+                }
+                // With domain padding, one layer or none scales (`init`): its factor.
+                let scale: f64 = self.scaling.iter().map(|r| r[i - 2]).product();
+                let crop = (pads[i - 2] as f64 * scale).round_ties_even() as usize;
+                crop..dims[i] - crop
+            });
+            x = x.slice(ranges);
         }
 
         let x = self.activate(linear_cf(&self.fc1, x));
@@ -456,25 +622,54 @@ impl<const R: usize> FNO<R> {
     /// # Panics
     /// If the norm is AdaIN and `embedding` is `None`; as [`SpectralConv::forward`] if the
     /// modes do not fit the grid.
-    pub fn fourier_layers(&self, mut x: Tensor<R>, embedding: Option<Tensor<1>>) -> Tensor<R> {
+    pub fn fourier_layers(&self, x: Tensor<R>, embedding: Option<Tensor<1>>) -> Tensor<R> {
+        self.layers_to(x, embedding, None)
+    }
+
+    /// [`FNO::fourier_layers`], each layer's output on its scaled extents
+    /// ([`FNOConfig::resolution_scaling_factor`]), the last one's on `output_shape` if given.
+    fn layers_to(
+        &self,
+        mut x: Tensor<R>,
+        embedding: Option<Tensor<1>>,
+        output_shape: Option<&[usize]>,
+    ) -> Tensor<R> {
         let embedding = embedding.as_ref();
-        for idx in 0..self.conv.len() {
+        let n = self.conv.len();
+        for idx in 0..n {
+            let dims = x.dims();
+            let out: Vec<usize> = match (output_shape, self.scaling.get(idx)) {
+                (Some(shape), _) if idx + 1 == n => shape.to_vec(),
+                (_, Some(factors)) => dims[2..]
+                    .iter()
+                    .zip(factors)
+                    .map(|(&s, r)| (s as f64 * r).round_ties_even() as usize)
+                    .collect(),
+                _ => dims[2..].to_vec(),
+            };
             x = if self.preactivation {
-                self.pre_block(idx, x, embedding)
+                self.pre_block(idx, x, embedding, &out)
             } else {
-                self.post_block(idx, x, embedding)
+                self.post_block(idx, x, embedding, &out)
             };
         }
         x
     }
 
-    /// Layer `idx`, 2.0.0's `forward_with_postactivation`. With every option absent:
-    /// `act(conv(x) + w(x))`, the activation skipped after the last layer.
-    fn post_block(&self, idx: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
+    /// Layer `idx`, 2.0.0's `forward_with_postactivation`, its output on the spatial extents
+    /// `out`. With every option absent: `act(conv(x) + w(x))`, the activation skipped after
+    /// the last layer.
+    fn post_block(
+        &self,
+        idx: usize,
+        x: Tensor<R>,
+        embedding: Option<&Tensor<1>>,
+        out: &[usize],
+    ) -> Tensor<R> {
         let last = idx + 1 == self.conv.len();
-        let mlp_skip = self.channel_mlp_skip(idx, &x);
-        let x_fno = self.norm(2 * idx, self.conv[idx].forward(x.clone()), embedding);
-        let mut x = x_fno + self.fno_skip(idx, x);
+        let mlp_skip = self.channel_mlp_skip(idx, &x, out);
+        let x_fno = self.norm(2 * idx, self.spectral(idx, x.clone(), out), embedding);
+        let mut x = plus(x_fno, self.fno_skip(idx, x).map(|s| resample(s, out)));
         if !last {
             x = self.activate(x);
         }
@@ -485,12 +680,19 @@ impl<const R: usize> FNO<R> {
         x
     }
 
-    /// Layer `idx`, 2.0.0's `forward_with_preactivation`.
-    fn pre_block(&self, idx: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
+    /// Layer `idx`, 2.0.0's `forward_with_preactivation`, its output on the extents `out`.
+    fn pre_block(
+        &self,
+        idx: usize,
+        x: Tensor<R>,
+        embedding: Option<&Tensor<1>>,
+        out: &[usize],
+    ) -> Tensor<R> {
         let last = idx + 1 == self.conv.len();
         let x = self.norm(2 * idx, self.activate(x), embedding);
-        let mlp_skip = self.channel_mlp_skip(idx, &x);
-        let mut x = self.conv[idx].forward(x.clone()) + self.fno_skip(idx, x);
+        let mlp_skip = self.channel_mlp_skip(idx, &x, out);
+        let x_fno = self.spectral(idx, x.clone(), out);
+        let mut x = plus(x_fno, self.fno_skip(idx, x).map(|s| resample(s, out)));
         if !last {
             x = self.activate(x);
         }
@@ -498,19 +700,40 @@ impl<const R: usize> FNO<R> {
         self.channel_mlp(idx, x, mlp_skip)
     }
 
-    /// Layer `idx`'s FNO skip: the configured one, or the original `w`.
-    fn fno_skip(&self, idx: usize, x: Tensor<R>) -> Tensor<R> {
-        match self.fno_skips.get(idx) {
-            Some(skip) => skip.forward(x),
-            None => conv1x1(&self.w[idx], x),
+    /// Layer `idx`'s spectral convolution of `x` (`[B, W, s..]`) onto the extents `out`:
+    /// `tanh` first with [`FNOConfig::tanh_stabilizer`], the bias after with
+    /// [`FNOConfig::conv_bias`], as in 2.0.0's `FNOBlocks`; the convolution alone with neither.
+    fn spectral(&self, idx: usize, x: Tensor<R>, out: &[usize]) -> Tensor<R> {
+        let x = if self.tanh_stabilizer { tanh(x) } else { x };
+        let y = self.conv[idx].forward_to(x, out);
+        match self.conv_biases.get(idx) {
+            Some(bias) => {
+                let mut shape = [1; R];
+                shape[1] = bias.dims()[0];
+                y + bias.val().reshape(shape)
+            }
+            None => y,
         }
     }
 
-    /// Layer `idx`'s channel-MLP skip of `x`, if it has one.
-    fn channel_mlp_skip(&self, idx: usize, x: &Tensor<R>) -> Option<Tensor<R>> {
+    /// Layer `idx`'s FNO skip: the configured one, the original `w`, or none when
+    /// [`SkipKind::Disabled`].
+    fn fno_skip(&self, idx: usize, x: Tensor<R>) -> Option<Tensor<R>> {
+        // `init` builds one list or neither; indexing keeps a length mismatch a panic.
+        if !self.fno_skips.is_empty() {
+            Some(self.fno_skips[idx].forward(x))
+        } else if !self.w.is_empty() {
+            Some(conv1x1(&self.w[idx], x))
+        } else {
+            None
+        }
+    }
+
+    /// Layer `idx`'s channel-MLP skip of `x`, resampled onto the extents `out`, if it has one.
+    fn channel_mlp_skip(&self, idx: usize, x: &Tensor<R>, out: &[usize]) -> Option<Tensor<R>> {
         self.channel_mlp_skips
             .get(idx)
-            .map(|skip| skip.forward(x.clone()))
+            .map(|skip| resample(skip.forward(x.clone()), out))
     }
 
     /// Layer `idx`'s channel MLP plus its skip, or `x` unchanged without an MLP.
@@ -518,10 +741,7 @@ impl<const R: usize> FNO<R> {
         let Some(mlp) = self.channel_mlp.get(idx) else {
             return x;
         };
-        match skip {
-            Some(skip) => mlp.forward(x) + skip,
-            None => mlp.forward(x),
-        }
+        plus(mlp.forward(x), skip)
     }
 
     /// Norm `k` (two per layer), or `x` unchanged without a norm.
@@ -530,6 +750,14 @@ impl<const R: usize> FNO<R> {
             Some(norm) => norm.forward(x, embedding),
             None => x,
         }
+    }
+}
+
+/// `x + skip`, or `x` without a skip.
+fn plus<const R: usize>(x: Tensor<R>, skip: Option<Tensor<R>>) -> Tensor<R> {
+    match skip {
+        Some(skip) => x + skip,
+        None => x,
     }
 }
 

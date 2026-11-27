@@ -1,0 +1,45 @@
+{
+  "config": "fno2d_output_shape",
+  "model": "FNOOutputShape",
+  "kwargs": {
+    "output_shape": [
+      20,
+      15
+    ],
+    "n_modes": [
+      6,
+      4
+    ],
+    "in_channels": 1,
+    "out_channels": 1,
+    "hidden_channels": 6,
+    "n_layers": 2
+  },
+  "dtype": "f32",
+  "weight_seed": 0,
+  "input_seed": 1,
+  "input_shape": [
+    2,
+    1,
+    12,
+    10
+  ],
+  "n_params_real": 3001,
+  "param_prefix": "param.",
+  "complex_params": [
+    "fno_blocks.convs.0.weight.tensor",
+    "fno_blocks.convs.1.weight.tensor"
+  ],
+  "complex_layout": "trailing axis of 2: (real, imag), torch.view_as_real",
+  "mode": "eval, torch.no_grad, CPU",
+  "versions": {
+    "python": "3.12.12",
+    "neuraloperator": "2.0.0",
+    "torch": "2.9.0",
+    "tensorly": "0.9.0",
+    "tensorly-torch": "0.5.0",
+    "torch-harmonics": "0.7.4",
+    "numpy": "2.3.4"
+  },
+  "platform": "Darwin arm64"
+}

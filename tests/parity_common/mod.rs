@@ -12,7 +12,9 @@
 //! `centred_conv.rs`, D5).
 //!
 //! The reference models beside this file (`fno1d.rs`, `legacy_conv.rs`) are included only by
-//! the test binaries that use them, with `#[path]`, so no binary compiles dead code.
+//! the test binaries that use them, with `#[path]`, so no binary compiles dead code; the FNO
+//! family's shared map pieces are `fno_map.rs`, included the same way (library CM1.5a).
+//! 2.0.0's centred spectral weights as corners (`centred_to_corners`) are here.
 
 use std::{collections::BTreeMap, path::Path};
 
@@ -21,8 +23,7 @@ use burn::{
     store::{ModuleSnapshot, PathFilter, bridge},
     tensor::TensorData,
 };
-use ndarray::{ArrayD, Axis};
-use ndarray_npy::NpzReader;
+use ndarray::{ArrayD, Axis, Slice, concatenate};
 use sciml_rs::neural_operators::data::io::readers::npz::NpzFileReader;
 
 /// D3's bound in f32: relative max error ≤ 1e-5 (roadmap, signed off 2026-11-25).
@@ -71,6 +72,14 @@ impl Precision {
             Precision::F64 => D3_F64,
         }
     }
+
+    /// The fixture name's suffix, `f32` or `f64`.
+    pub fn suffix(self) -> &'static str {
+        match self {
+            Precision::F32 => "f32",
+            Precision::F64 => "f64",
+        }
+    }
 }
 
 /// An open fixture.
@@ -99,6 +108,41 @@ impl Fixture {
         Self::open_path(&path)
     }
 
+    /// Opens `<stem>_f32` or `<stem>_f64`, by `precision`.
+    ///
+    /// # Panics
+    /// As [`open`](Self::open).
+    #[allow(
+        dead_code,
+        reason = "every parity binary includes this harness; some open fixtures by full name"
+    )]
+    pub fn open_as(stem: &str, precision: Precision) -> Self {
+        Self::open(&format!("{stem}_{}", precision.suffix()))
+    }
+
+    /// Replaces the parameter `name` by `parts` (each a new parameter name and its array),
+    /// for this load only, so that [`load_into`]'s checks see the converted parameters.
+    ///
+    /// # Panics
+    /// If the fixture has no parameter `name`.
+    #[allow(
+        dead_code,
+        reason = "every parity binary includes this harness; only layouts converted at load use it"
+    )]
+    pub fn replace(&mut self, name: &str, parts: Vec<(String, ArrayD<f64>)>) {
+        let i = self
+            .params
+            .iter()
+            .position(|p| p == name)
+            .unwrap_or_else(|| panic!("fixture: no parameter `{name}`"));
+        self.params.remove(i);
+        self.replaced.remove(&format!("{PARAM_PREFIX}{name}"));
+        for (part, a) in parts {
+            self.replaced.insert(format!("{PARAM_PREFIX}{part}"), a);
+            self.params.push(part);
+        }
+    }
+
     /// Opens the fixture at `path`; its precision comes from the file stem's suffix.
     ///
     /// # Panics
@@ -113,12 +157,8 @@ impl Fixture {
             panic!("fixture {name}: name must end in _f32 or _f64");
         };
         let reader = NpzFileReader::new(path).unwrap_or_else(|e| panic!("fixture {name}: {e}"));
-        // NpzFileReader keeps its names private; the index is cheap to read twice.
-        let params = std::fs::File::open(path)
-            .map_err(|e| e.to_string())
-            .and_then(|f| NpzReader::new(f).map_err(|e| e.to_string()))
-            .and_then(|mut npz| npz.names().map_err(|e| e.to_string()))
-            .unwrap_or_else(|e| panic!("fixture {name}: {e}"))
+        let params = reader
+            .names()
             .iter()
             .filter_map(|n| n.strip_prefix(PARAM_PREFIX).map(str::to_owned))
             .collect();
@@ -169,6 +209,35 @@ impl Fixture {
             a.ndim()
         );
         Tensor::from_data(self.data(&a), device)
+    }
+
+    /// The complex array `key` (a trailing (re, im) axis of 2) as its real and imaginary
+    /// parts, rank-`R` tensors on `device` in the fixture's precision.
+    ///
+    /// # Panics
+    /// As [`take`], or if the parts are not of rank `R`.
+    #[allow(
+        dead_code,
+        reason = "every parity binary includes this harness; only the GaLore ones read complex arrays"
+    )]
+    pub fn complex_tensor<const R: usize>(
+        &mut self,
+        key: &str,
+        device: &Device,
+    ) -> (Tensor<R>, Tensor<R>) {
+        let a = self.array(key);
+        let part = |t| {
+            let p = take(a.clone(), t);
+            assert_eq!(
+                p.ndim(),
+                R,
+                "fixture {}: {key} rank {} ≠ {R}",
+                self.name,
+                p.ndim()
+            );
+            Tensor::from_data(self.data(&p), device)
+        };
+        (part(Take::Re), part(Take::Im))
     }
 
     fn data(&self, a: &ArrayD<f64>) -> TensorData {
@@ -332,4 +401,74 @@ pub fn assert_parity<const R: usize>(
         "{what}: relative max error {err:.3e} > {tol:.0e}"
     );
     err
+}
+
+/// Asserts `actual` within D3 of `fixture`'s output for its precision, prints the error for
+/// the record and returns it.
+///
+/// # Panics
+/// As [`assert_parity`].
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; some compare parts of an output"
+)]
+pub fn check_d3<const R: usize>(actual: Tensor<R>, fixture: &mut Fixture) -> f64 {
+    let name = fixture.name.clone();
+    let err = assert_parity(actual, &fixture.output(), fixture.precision.d3(), &name);
+    println!("{name}: relative max error {err:.3e}");
+    err
+}
+
+/// 2.0.0's centred spectral weight `a`, `(lead.., K_0, .., K_{d−1}, 2)` with a trailing
+/// (re, im) axis, as the crate's `2^(d−1)` mode corners, in corner order (bit `j` of the
+/// index is axis `j`, CONVENTIONS §5), each `(lead.., m_0, .., m_{d−2}, K_{d−1}, 2)`
+/// (library CM1.2, D5).
+///
+/// On a non-last axis 2.0.0 keeps `K` modes around frequency 0 after `fftshift`: index `i`
+/// is frequency `i − K/2` (integer division), so `K/2` negative and `K − K/2` non-negative
+/// frequencies. Each corner gets `m = K − K/2`: the low corner indices `K/2..K` (frequencies
+/// `0..m`), the high corner indices `K/2 − m..K/2` (frequencies `−m..−1`); for odd `K` that
+/// starts one before 0, and the row is zero, a frequency 2.0.0 does not keep. The last axis
+/// (the real FFT's, frequencies `0..K`) is taken whole.
+///
+/// The corners reproduce 2.0.0 only where the grid's extent is even on every non-last
+/// axis: on an odd extent 2.0.0 applies `fftshift` (not `ifftshift`) again before the
+/// inverse, which moves its output spectrum by one bin.
+///
+/// # Panics
+/// If `a` has fewer than `d + 1` axes or no trailing axis of 2.
+#[allow(
+    dead_code,
+    reason = "every parity binary includes this harness; only the centred layer's use it"
+)]
+pub fn centred_to_corners(a: ArrayD<f64>, d: usize) -> Vec<ArrayD<f64>> {
+    assert!(
+        a.ndim() > d,
+        "centred_to_corners: {} axes for d = {d}",
+        a.ndim()
+    );
+    assert_eq!(a.shape()[a.ndim() - 1], 2, "no trailing (re, im) axis");
+    let lead = a.ndim() - 1 - d;
+    (0..1usize << (d - 1))
+        .map(|corner| {
+            let mut c = a.clone();
+            for j in 0..d - 1 {
+                let axis = Axis(lead + j);
+                let k = c.shape()[lead + j];
+                let half = k / 2;
+                c = if corner >> j & 1 == 0 {
+                    c.slice_axis(axis, Slice::from(half..k)).to_owned()
+                } else if k.is_multiple_of(2) {
+                    c.slice_axis(axis, Slice::from(0..half)).to_owned()
+                } else {
+                    let mut zero_shape = c.shape().to_vec();
+                    zero_shape[lead + j] = 1;
+                    let zero = ArrayD::zeros(zero_shape);
+                    let neg = c.slice_axis(axis, Slice::from(0..half));
+                    concatenate(axis, &[zero.view(), neg]).unwrap()
+                };
+            }
+            c
+        })
+        .collect()
 }

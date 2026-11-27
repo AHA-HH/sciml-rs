@@ -528,3 +528,251 @@ template:
 - FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` and the branch, `cmp`).
 - Matrix: `FourierDiff` partial, `non_uniform_fd` have.
 - Follow-ups: CM2.4's line (`use_fc`, `low_pass_filter_ratio`, the mixed derivative).
+
+## 2026-11-26: CM1.5a Whole-FNO parity: defaults and block sweeps
+- Done: CM1.5 split into CM1.5a–d (roadmap). `FNOConfig` gains `conv_bias` (2.0.0's
+  `SpectralConv` bias, `[W]` per layer in `FNO::conv_biases`, added before the norm, drawn
+  as 2.0.0's), `separable`, `max_modes` (2.0.0's `max_n_modes`, per corner) and
+  `tanh_stabilizer` (2.0.0's `stabilizer="tanh"`, on the convolution's input only), each
+  `None` today's model; one `FNO::spectral` helper used by both block forms. Six sweep
+  fixtures from `generate.py` (`SWEEPS`, f32; its redraw now skips complex weights, the
+  existing fixtures unchanged). Test harness: `tests/parity_common/fno.rs` (the whole-FNO
+  map, centred weights converted per layer, D5) and `fno_map.rs` (2.0.0's defaults, the
+  lifting/projection and block-part maps, the permutes) shared by the FNO-family binaries;
+  `Fixture::open_as`, `check_d3`, `centred_to_corners` and `Fixture::replace` in `mod.rs`
+  (CM1.4's F4).
+- Tests: `tests/parity_fno.rs`: 2.0.0's defaults `fno1d` (Burgers-shaped) 3.5e-7, `fno2d`
+  (Darcy-shaped) 4.1e-7; sweeps `fno3d` 4.5e-7, `fno2d_instance_pre` 6.3e-7,
+  `fno1d_group_skips` 2.6e-7, `fno2d_separable` 8.1e-7, `fno2d_odd_stabilizer` 1.8e-6,
+  `fno1d_pre_no_mlp` 3.4e-7 (D3 1e-5, f32, Flex, M2 Pro); the stabiliser left off fails at
+  1.4e-3; swapped corners fail (control). `_f64.rs` `#[ignore]`d: 1.2e-8, 3.8e-9. Unit tests
+  (`models/fno/tests/spectral.rs`): options off build today's parameters, the bias's shape,
+  separable and `max_modes` storage, the two `max_modes` panics.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (546 passed), `cargo test --features
+  datagen` (633 passed), `cargo doc --no-deps`, `generate.py --check` (every fixture the
+  same), the bit-identity dumps, `cargo test --features metal --test gpu_parity` (see the
+  PR).
+- Decisions: none. Question for sign-off: 2.0.0's `fno_skip=None` (no FNO skip) is not
+  representable, since `FNOConfig::fno_skip: None` is the original 1×1 convolution; add it?
+- Review: plan review PASS (advisories: the off value of `max_modes` and its wrong-rank panic
+  tested). Code quality APPROVE with findings: F1, F2, F3, F5, F9, F10, F12 fixed; F4, F6, F7
+  to CM1.5d's line; F8 (the struct literals) already there; F11 accepted (integration tests
+  cannot see the crate's `pub(crate)` permutes).
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 73afdd3 and the branch,
+  before and after the review fixes: `forward`, `phase5_epoch`, `gauss_newton_epoch` `cmp`
+  same); existing tests edited only to complete `FNOConfig` literals with `None`.
+- Matrix: `FNO` (CM1.5a–c), centred `SpectralConv`, `FNOBlocks` rows updated.
+- Follow-ups: CM1.5b (padding, resampling), CM1.5c (batch norm; `fno_skip=None` on the
+  author's answer), CM1.5d's line (F4, F6, F7 with the earlier tidies).
+
+## 2026-11-27: CM3.6a Tensor GaLore projector, real tensors
+- Done: CM3.6 split 2026-11-27 into CM3.6a (real tensors) and CM3.6b (complex tensors: 2.0.0
+  decomposes the centred `cfloat` spectral weight with a complex SVD; Burn has none, and the
+  crate's corners are real `weights_re`/`weights_im`). New `optim/galore.rs` (imports nothing
+  from `models/` or `training/`): `GaLoreRank` (`Fraction`, `Uniform`, `PerMode`; tensorly's
+  `validate_tucker_rank`, bisection for brentq, round half to even), `TensorGaLoreConfig`
+  (`update_proj_gap` 200, `scale` 1.0), `TensorGaLoreProjector<D>` (`project`,
+  `project_back`, `factors`), `tucker_factors` (tensorly's HOOI with SVD initialisation, 100
+  sweeps, tol 1e-4, `svd_flip` signs, Burn's host `svd`). As 2.0.0 the factors are computed
+  once, on the first `project`, and never refreshed (so `update_proj_gap` gates only the
+  first call, and `warm_restart`/`tucker_n_iter_max` never act; not offered). `SVD_SWEEPS`
+  moved to `optim/mod.rs`, shared with SOAP (value unchanged). Fixtures `galore_{f32,f64}`
+  from the new `tools/parity/generate_galore.py` (the existing fixtures unchanged by
+  `--check`). Not wired into training: what wiring needs is in the plan ("Wiring later").
+- Tests: parity (`tests/parity_galore{,_f64}.rs`) of the ranks, factors, `project`,
+  `project_back` and the second call at the gap with the first factors: f32 matrix 3.6e-7,
+  tensor4 6.9e-7, fraction 5.0e-6 (half of D3: the fraction case's fifth mode-0 vector is the
+  least separated); f64 ≤ 3.3e-15, running (no FFT). Control: another gradient's factors fail
+  (> 0.1). 13 unit tests: ranks, orthonormal factors and the sign rule, full-rank round trip,
+  an exact Tucker tensor reproduced, no refresh, the panics (gap, rank bounds incl.
+  rₖ > ∏_{j≠k} rⱼ, `project_back` first, a zero gap).
+- Checks: see the PR (fmt, clippy ×4 incl. datagen, `cargo test`, `cargo test --features
+  datagen`, `cargo doc`, `generate_galore.py --check`, `generate.py`/`generate_losses.py
+  --check`). Not run: `--features metal` (no backend-specific op; the SVDs run on the host).
+- Decisions: none. Question for sign-off: add 2.0.0's evidently intended periodic refresh
+  (new factors every `update_proj_gap` steps, `warm_restart` seeding the HOOI) as an option,
+  off by default?
+- Review: plan review PASS with advisories (rank bound rₖ ≤ ∏ rⱼ checked up front, zero gap
+  rejected, matrix figure, plan text, soap scope noted: all fixed). Code quality APPROVE with
+  findings: F1 (fixed-size ranks and factors), F2/F3 (named directions, private), F4 (zero
+  gradient documented), F5 (shared `SVD_SWEEPS`), F9 (named bisection count) fixed; F6 (one
+  test RNG for `optim/`), F7 (generator helpers into `generate.py`), F8 (parity cases from
+  the sidecar) left, in the PR.
+- FNO: not touched (new module; `optim/soap` only imports the moved constant).
+- Matrix: `TensorGaLoreProjector` partial (real tensors; CM3.6b).
+- Follow-ups: CM3.6b (roadmap line); the refresh question; the wiring (an AdamW arm, after
+  CO1.5).
+
+## 2026-11-27: CM0.6 Tidy after the generic stack
+- Done: the CM0.3 review's F1–F4. The FNO wrappers are retired and the generic names are
+  the API: `train_fno` → `train::<FNO<R>, R, RM1, _>`, `build_training_components` →
+  `build_components::<FNO<R>, …>`, `RunDir::load_fno` → `load_model::<FNO<R>>`,
+  `RunDir::checkpoint::<R>` → `checkpoint_of::<FNO<R>>`, `Checkpoint<R>` →
+  `OperatorCheckpoint<FNO<R>>` (retired, not deprecated: clippy's `-D warnings` would make
+  every deprecated call an error anyway). `EpochObserver<'a, M>` (no dead `R`);
+  `FnoResidual` → `GridResidual`; the four `#[cfg(test)]` import shims moved into their test
+  modules (the author's answer of 2026-11-25). `NpzFileReader::names()`, and the parity
+  harness reads the names from it (CM0.5's F1). Callers moved in `src/`, `examples/`,
+  `tests/`, `spikes/fno3d_cost` and `spikes/linalg`; root `CLAUDE.md`'s Layout updated. F5
+  (the trainer's test module) was done by optimisers CO1.5 (#176); its review findings on
+  that file are optional task CO1.6.
+- Tests: `tests/fno_bit_identity.rs` on the generic names (all on `main` since CO2.1) and a
+  fourth case, `lbfgs_epoch` (one L-BFGS epoch of a tiny FNO, checkpoint, reload, predict).
+  Existing tests changed only in renamed calls, moved imports and comments.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo check -p fno3d-cost-spike -p linalg-spike
+  --all-targets`, `cargo test` (556 passed), `cargo test --features datagen` (643 passed),
+  `cargo doc --no-deps` (no warnings); `fno_bit_identity` in release on an export of `main`
+  b2aa523 and on the branch: `forward` (65,536 bytes), `phase5_epoch` (28,481,592),
+  `gauss_newton_epoch` (22,476), `lbfgs_epoch` (17,112) `cmp` identical. Not run:
+  `--features metal` (names only, nothing backend-specific).
+- Decisions: none taken in the task. The PR's two questions, answered by the author
+  2026-11-27: retire `Operator::NAME` in favour of `OperatorConfig::KIND` as a follow-up
+  (CM0.7); drop `TrainingComponents`' `M = FNO<R>` default together with CO1.6's move of
+  `train_built` (CO1.6's line).
+- Review: plan review PASS (advisories: the historical `spikes/linalg/REPORT.md` and two test names keep `train_fno`/`load_fno`, left); code quality APPROVE with findings: F3 (doc wraps) and
+  F5 (one import) fixed; F1 a question; F2 (the session tuple spelt three times in
+  `examples/train`, pre-existing) and F4 (two test names keep the old names; `super::train`
+  where a local shadows it) left, in the PR.
+- FNO: unchanged bit for bit (the four dumps above against `main`).
+- Matrix: `Trainer` row names `train`.
+- Follow-ups: CM0.7 (retire `Operator::NAME`); CO1.6 (optional; its line in `docs/optimisers/roadmap.md`) also takes the
+  old F6 in `trainer/tests.rs` (the training config passed as the data config at four
+  sites), the test name `train_fno_none_matches_identity_path`, and the dropped `M = FNO<R>`
+  default.
+
+## 2026-11-27: CM1.5c Batch norm, and no FNO skip
+- Done: `NormKind::Batch` (Burn's `BatchNorm`: torch's eps, momentum and initial values;
+  the running statistics without autodiff, as torch's eval) and, on the author's answer to
+  CM1.5a's question 1, `SkipKind::Disabled` (2.0.0's `fno_skip=None`): `SkipKind::init`
+  returns an `Option`, and `FNOConfig::fno_skip: Some(Disabled)` builds neither a skip nor
+  `w` (`fno_skip: None` is still the 1×1 convolution with bias). Two f32 fixtures from
+  `generate.py` (`BATCH_NORM`, the running statistics redrawn, the variance positive;
+  integer `num_batches_tracked` left out of the fixture). The author's M1-gate rule for
+  boolean options recorded on CM1.5d's line.
+- Tests: `tests/parity_fno.rs`: `fno2d_batch_norm` 1.5e-6, `fno1d_pre_no_skip` (batch norm,
+  pre-activation) 3.0e-7 (D3 1e-5, f32, Flex, M2 Pro); the first two norms' running
+  variances swapped fail (control). Unit tests: the batch norm's initial values and its eval
+  closed form; `Disabled` builds nothing; an `FNO` with it has no `w` and runs.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (562 passed), `cargo test --features
+  datagen` (653 passed), `cargo doc --no-deps`, `cargo test --features metal --test
+  gpu_parity` (9) and `--test parity_fno` (12), `generate.py --check` (72 fixtures the same).
+  One `cargo test` run failed `training::trainer::tests::lbfgs_smoke_run_resumes_exactly`
+  (CO2.1's; train L² rose over three epochs); it passed alone three times and in the next
+  full run: flaky under parallel tests, outside this task (`training/`), reported in the PR.
+- Decisions: the author's of 2026-11-27 (CM1.5a's questions 1 and 2), recorded on CM1.5c's
+  and CM1.5d's lines.
+- Review: plan review PASS (advisories fixed: the control's wording, the initial running
+  statistics asserted, the frozen-layer wording). Code quality APPROVE with findings: F2
+  (indexing keeps a mismatch a panic), F3 (training hazards in `Norm::Batch`'s rustdoc and
+  the roadmap), F4 (one remap helper), F5 (`named_buffers`, `SWEEPS` defined once), F6
+  fixed; F1 (`SkipKind::init`'s `Option` and the `.unwrap()`s in tests) kept, with
+  `Some(Disabled)` documented on the channel MLP's skip.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` f7e769a and the branch,
+  separate target directories, `forward`, `phase5_epoch`, `gauss_newton_epoch` `cmp` same).
+- Matrix: `FNO`, `FNOBlocks`, `skip_connection`, the norms rows.
+- Follow-ups: training with batch norm (CM1.5c's line: Burn's biased running variance,
+  Gauss–Newton, L-BFGS, data parallel), a task only if a batch-norm model is trained.
+
+## 2026-11-27: CM1.5b Domain padding and resampling
+- Done: `FNOConfig::domain_padding` (2.0.0's `DomainPadding`: a fraction per axis,
+  `round(f · s)` zeros on both ends after the lifting, cropped by `round(p · r)` per side;
+  all-zero fractions are none, as 2.0.0), `FNOConfig::resolution_scaling_factor` (per layer,
+  per axis), `FNO::forward_with_output_shape` (2.0.0's tuple `output_shape`, the last layer);
+  `SpectralConv::forward_to` (the output size: the spectrum trimmed or zero-padded at the end
+  of each axis, torch's `irfftn(s=…)`, scaled by `N_out / N_in` to 2.0.0's forward-norm
+  amplitude; at the input's size the same operations as `forward`); `layers::resample`
+  (2.0.0's `resample`: linear 1D and bicubic 2D through Burn's `interpolate` with
+  `AlignCorners`, a Fourier resize for three or more axes). CONVENTIONS §3's `padding` is
+  rejected with scaling or an output shape, and domain padding with scaling in an FNO of
+  more than one layer (2.0.0 runs padding with scaling only in a one-layer FNO).
+- Tests: `tests/parity_fno.rs`, eight new f32 fixtures from `generate.py` (`SWEEPS`):
+  `fno1d_padding` 1.5e-7, `fno2d_padding` 3.6e-7, `fno3d_padding` 3.7e-7, `fno1d_scaling`
+  1.5e-7, `fno2d_scaling` 4.6e-7, `fno3d_scaling` 6.1e-7, `fno2d_padding_scaling` 1.1e-6,
+  `fno2d_output_shape` 6.0e-7 (D3 1e-5, Flex, M2 Pro; also within D3 on Metal). Controls:
+  the padding fixture without its padding fails (test); by hand, once, a symmetric spectrum
+  resize instead of torch's end trim fails `fno2d_scaling` 7.2e-3, `fno3d_scaling` 8.4e-3,
+  `fno2d_padding_scaling` 2.7e-2 (1D unaffected: the rfft axis only). Unit tests:
+  `resample` (identity, exact on a line, a band-limited 3D signal kept, the panic),
+  `forward_to` at the input size bit for bit `forward`, the FNO's shapes and every new panic
+  (`models/fno/tests/resolution.rs`).
+- Checks: fmt, clippy (default, `--examples`, `--all-targets`, `--features datagen
+  --all-targets`), `cargo test`, `cargo test --features datagen`, `cargo doc --no-deps`,
+  `--features metal` for `parity_fno`, the new unit tests and `gpu_parity`, `generate.py
+  --check` (every fixture the same), the bit-identity dumps: all passed (see the PR).
+- Decisions: answered 2026-11-27 by the author (#183): (1) yes, CONVENTIONS §4's
+  verification gains `fno3d_scaling_matches_2_0_0` for the DC and Nyquist imaginary parts
+  (no convention change, no `CONVENTION_VERSION` bump); (2) reject scaling with domain
+  padding beyond a one-layer FNO, as 2.0.0 effectively does (`init` panics; tests
+  `domain_padding_with_{two_scaled_layers,one_scaled_layer_of_two}_panics`).
+- Review: plan review PASS with advisories (the F1 fix committed; CONVENTIONS §4 cited for the
+  amplitude; "as in 2.0.0" reworded; the hand control recorded here; the §4 entry asked).
+  Code quality BLOCKED (F1: §3's `padding` with scaling or an output shape cropped to the
+  wrong size), fixed; r2 APPROVE with findings: R2-4 (all-zero padding), R2-5 (matrix text)
+  fixed; F2, F3, F6, R2-1 to CM1.5d's line; R2-3 goes with R2-1.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` f7e769a and the branch:
+  `forward`, `phase5_epoch`, `gauss_newton_epoch` `cmp` same); existing tests edited only to
+  complete `FNOConfig` literals with `None`.
+- Matrix: `FNO`, centred `SpectralConv`, `DomainPadding` (have), `resample` (partial),
+  `validate_scaling_factor` rows updated.
+- Follow-ups: CM1.5d's line (F2, F3, F6, R2-1).
+
+## 2026-11-27: CM3.6b Tensor GaLore projector, complex tensors
+- Done: `optim/galore.rs` takes complex gradients: `ComplexTensor<D>` (`re`, `im`), and the
+  projector and `tucker_factors` generic over a sealed `GaLoreTensor<D>` (real `Tensor<D>`,
+  factors `Tensor<2>`; `ComplexTensor<D>`, factors `ComplexTensor<2>`), so the HOOI exists
+  once; `TensorGaLoreConfig::init::<D, T>()`. Complex: conjugate-transpose mode products,
+  √Σ|x|² norms, a host one-sided Jacobi SVD in f64 on `num_complex::Complex64` (Burn's QR `svd` of the real embedding
+  stalls in f64 on the paired singular values), each column turned to LAPACK `gesdd`'s phase
+  (first entry of v real when m ≥ n, of u when m < n), then tensorly's `svd_flip` with
+  `torch.sgn` (which doubles the phase rather than removing it). 2.0.0 fails on `cdouble`;
+  here f64 complex works. Fixtures `galore_complex_{f32,f64}` (f64 from tensorly's `tucker`
+  with 2.0.0's transforms); the real fixtures unchanged.
+- Found: where a sweep's unfolding is tall, 2.0.0's complex factors are ill-conditioned (the
+  phase turns every sweep; a 1e-7 change of the gradient moves them by O(1), in complex128
+  too). The `matrix` case is compared up to phase (subspaces, `back`, `low2` taken back).
+- Tests: parity f32 against 2.0.0: `tensor4` 1.3e-6, `fraction` 7.0e-6, `matrix` (up to
+  phase) 4.4e-7; f64 against tensorly: 7.0e-15, 1.5e-14, 2.7e-15 (D3). Control: another
+  gradient's factors fail. 8 new unit tests: the Jacobi SVD (orthonormal, spans, repeated
+  singular values), the phase invariant phase(u_max) = 2 phase(w), orthonormal factors, round
+  trip, an exact complex Tucker tensor, a real tensor taken as complex gives the real factors.
+  CM3.6a's real parity unchanged (3.6e-7, 6.9e-7, 5.0e-6; f64 ≤ 3.3e-15).
+- Checks: see the PR (fmt, clippy ×4 incl. datagen, `cargo test`, `cargo test --features
+  datagen`, `cargo doc`, `generate_galore.py --check`, `generate.py`/`generate_losses.py
+  --check`). Not run: `--features metal` (the SVD and phases run on the host).
+- Decisions: the author, 2026-11-27: parity up to phase where 2.0.0's complex factors are
+  ill-conditioned (tall unfoldings) accepted, the factors being defined only up to phase;
+  `num-complex` added as a direct dependency, pinned to the locked 0.4.6 (the lock gains
+  only the edge).
+- Review: plan review FAIL → fixed (the harness's `complex_tensor` lacked its dead_code
+  allow, so clippy `--all-targets` failed; advisories: a zero phase reference now panics,
+  stale comments fixed, `init::<D, T>()` accepted, the thin f32 margin on `fraction` noted).
+  Code quality APPROVE with findings: F1, F2, F4, F7, F10 fixed (one generic mode-product
+  loop over a sealed `GaLoreMatrix`, the complex SVD in `galore/complex_svd.rs`, named
+  `to_low_rank` / `to_full_rank`); F3 (`num-complex` for `Cx`) done on the author's yes; F5, F6, F8, F9 left, in the PR.
+- FNO: not touched (`optim/galore*` and tests only).
+- Matrix: `TensorGaLoreProjector` have.
+- Follow-ups: CM3.6c (the refresh, #178); the wiring (an AdamW arm) may warn on tall
+  unfoldings.
+
+## 2026-11-27: CM0.7 Retire `Operator::NAME`
+- Done: `Operator` has no `NAME`; the operator's registry name is its config's
+  `OperatorConfig::KIND` only. `NAME` had no reader outside two test asserts: the trait test
+  reads `<<FNO<3> as Operator>::Config as OperatorConfig>::KIND`; the registry's assert,
+  always true once `type Config = FNOConfig` compiles, is dropped (review F1). Root
+  `CLAUDE.md` and the `BaseModel` row of `feature-matrix.md` updated.
+- Tests: `fno_through_the_trait_is_the_fno` (the kind through the trait is `"fno"`),
+  `kinds_lists_every_variant`; `grep -rnw NAME src examples tests spikes`: no reader.
+- Checks: fmt, clippy ×4 (default, `--examples`, `--all-targets`, `--features datagen
+  --all-targets`), `cargo doc --no-deps`, `cargo test` (624 passed), `cargo test --features
+  datagen` (712 passed): all passed. Not run: `--features metal` (no backend-sensitive code).
+- Decisions: none (the author's decision of 2026-11-27 on #180 carried out).
+- Review: plan review PASS, no findings. Code quality APPROVE with findings: F1 (a
+  tautological assert) fixed.
+- FNO: unchanged bit for bit (`fno_bit_identity --ignored`, release, on `main` 9b0337d and
+  the branch: `forward`, `phase5_epoch`, `gauss_newton_epoch`, `lbfgs_epoch` `cmp` same);
+  `model_cfg.json` writing and reading untouched (by `KIND`, as before).
+- Matrix: `BaseModel` row (CM0.7 added).
+- Follow-ups: none.

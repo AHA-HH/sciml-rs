@@ -107,6 +107,12 @@ fn autodiff_trained_weights_give_identical_inference_on_plain_device() {
         lifting_channel_ratio: None,
         projection_channel_ratio: None,
         positional_embedding: None,
+        conv_bias: None,
+        separable: None,
+        max_modes: None,
+        tanh_stabilizer: None,
+        domain_padding: None,
+        resolution_scaling_factor: None,
     };
 
     let trained: FNO<3> = config.init::<3>(&ad);

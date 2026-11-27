@@ -28,11 +28,11 @@ use sciml_rs::neural_operators::{
         base_dataset::DatasetConfig,
         darcy::{DarcyConfig, load_darcy_uniform},
     },
-    models::fno::FNOConfig,
+    models::fno::{FNO, FNOConfig},
     runs::RunDir,
     training::{
         config::TrainingConfig,
-        trainer::{build_training_components, train_components},
+        trainer::{build_components, train_components},
     },
 };
 use std::path::Path;
@@ -74,6 +74,12 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
         lifting_channel_ratio: None,
         projection_channel_ratio: None,
         positional_embedding: None,
+        conv_bias: None,
+        separable: None,
+        max_modes: None,
+        tanh_stabilizer: None,
+        domain_padding: None,
+        resolution_scaling_factor: None,
     };
 
     let default_seed = TrainingConfig::new().seed;
@@ -96,6 +102,7 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
             adjoint_check_every: 10,
         },
         hybrid_adam_epochs: None,
+        lbfgs: None,
     };
     let train_cfg = common::training_config(&["adam", "adamw", "gauss-newton"], seed, &lit);
 
@@ -123,6 +130,8 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
 }
 
 fn main() {
+    // the commit at the start: the checkout may move during the run (CO0.4)
+    let git_commit = sciml_rs::neural_operators::utils::backend::git_commit();
     let device = Device::default().autodiff();
     println!("device: {device:?}");
 
@@ -165,9 +174,8 @@ fn main() {
         .as_ref()
         .map_or((0.0, 0), |ck| (ck.state.training_time_s, ck.state.resumes));
     let train_start = Instant::now();
-    let components = build_training_components::<4, 3, _>(
-        &model_cfg, &train_cfg, train_data, test_data, &device,
-    );
+    let components =
+        build_components::<FNO<4>, 4, 3, _>(&model_cfg, &train_cfg, train_data, test_data, &device);
     let (model, _) = train_components(
         components,
         Some(&normalizers.y),
@@ -192,6 +200,7 @@ fn main() {
             device: format!("{device:?}"),
             num_params: model.num_params(),
             resumes,
+            git_commit,
         },
     );
 

@@ -52,11 +52,11 @@ use sciml_rs::neural_operators::{
         base_dataset::DatasetConfig,
         burgers::{BurgersConfig, load_burgers_uniform},
     },
-    models::fno::{Activation, FNOConfig},
+    models::fno::{Activation, FNO, FNOConfig},
     runs::RunDir,
     training::{
         config::{TrainLoss, TrainingConfig},
-        trainer::{build_training_components, train_components},
+        trainer::{build_components, train_components},
     },
 };
 use std::path::Path;
@@ -117,6 +117,12 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
         lifting_channel_ratio: None,
         projection_channel_ratio: None,
         positional_embedding: None,
+        conv_bias: None,
+        separable: None,
+        max_modes: None,
+        tanh_stabilizer: None,
+        domain_padding: None,
+        resolution_scaling_factor: None,
     };
 
     // Set the training configuration, test_batch_size = 20 by default
@@ -145,6 +151,7 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
             adjoint_check_every: 10,
         },
         hybrid_adam_epochs: None,
+        lbfgs: None,
     };
     let mut train_cfg = common::training_config(&["adam", "adamw", "gauss-newton"], seed, &lit);
     if petscml {
@@ -176,6 +183,8 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
 }
 
 fn main() {
+    // the commit at the start: the checkout may move during the run (CO0.4)
+    let git_commit = sciml_rs::neural_operators::utils::backend::git_commit();
     // Set the device for the underlying compute backend
     // .autodiff() wraps the backend to enable automatic differentiation for the tensors
     let device = Device::default().autodiff();
@@ -219,9 +228,8 @@ fn main() {
         .as_ref()
         .map_or((0.0, 0), |ck| (ck.state.training_time_s, ck.state.resumes));
     let train_start = Instant::now();
-    let components = build_training_components::<3, 2, _>(
-        &model_cfg, &train_cfg, train_data, test_data, &device,
-    );
+    let components =
+        build_components::<FNO<3>, 3, 2, _>(&model_cfg, &train_cfg, train_data, test_data, &device);
     let (model, _) = train_components(
         components,
         None,
@@ -246,6 +254,7 @@ fn main() {
             device: format!("{device:?}"),
             num_params: model.num_params(),
             resumes,
+            git_commit,
         },
     );
 

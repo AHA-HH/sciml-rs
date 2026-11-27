@@ -30,7 +30,7 @@ use sciml_rs::neural_operators::{
             PoissonConfig, PoissonField, load_poisson_cheb_field, load_poisson_uniform_test,
         },
     },
-    models::predict::predict_host,
+    models::{fno::FNO, predict::predict_host},
     runs::RunDir,
 };
 
@@ -84,7 +84,7 @@ fn main() {
 
     let datasets = Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson");
     let model = run
-        .load_fno::<4>(&device)
+        .load_model::<FNO<4>>(&device)
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let dataset_cfg = run
