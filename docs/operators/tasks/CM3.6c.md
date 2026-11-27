@@ -51,9 +51,10 @@ multiple of `update_proj_gap` (GaLore's intended schedule), with the default unc
 - `factors_refresh_every_gap_when_on` (real) and `complex_factors_refresh_every_gap_when_on`:
   the schedule above; "equal" is bit identity (`max_abs` of the difference 0), "change" a
   difference above 1e-3 and bit identity with `tucker_factors` of the step's gradient.
-- `factors_are_not_refreshed` (existing, off) extended to the same 0..=4 schedule at gap 2.
-- `refresh_off_is_the_default`: `init()` and `init().with_refresh(false)` give bit-identical
-  factors and projections over the schedule.
+- `factors_are_not_refreshed` (existing) and `complex_factors_are_not_refreshed`: the same
+  0..=4 schedule at gap 2 on a projector from `init()` alone, so "off" is the default.
+- Shared by the four: `check_refresh_schedule`. Shown failing for the right reason: with the
+  refresh disabled in `project`, the two "on" tests fail at the "moved" assertion.
 - The parity tests unedited: `cargo test --test parity_galore` and `--test parity_galore_f64`.
 
 ## Checks
