@@ -1,7 +1,8 @@
 //! Optimisers that Burn does not provide.
 //!
 //! - [`galore`]: Tensor GaLore's gradient projector, `neuraloperator` 2.0.0's
-//!   `TensorGaLoreProjector`, for real tensors of any rank (library CM3.6a).
+//!   `TensorGaLoreProjector`, for real and complex tensors of any rank (library CM3.6a,
+//!   CM3.6b).
 //! - [`gauss_newton`]: the generic core of a matrix-free Gauss–Newton optimiser (Phase 10):
 //!   parameter vectors, Jacobian products and conjugate gradients, for any Burn
 //!   [`Module`](burn::module::Module).

@@ -90,7 +90,7 @@ fn full_rank_round_trip_is_scale_times_identity() {
 fn exact_tucker_tensor_is_reproduced() {
     let core = draw([2, 3, 2], 3);
     let a = [draw([5, 2], 4), draw([6, 3], 5), draw([4, 2], 6)];
-    let x = core.mode_products(&a, None, false);
+    let x = core.from_low_rank(&a);
     let mut p = TensorGaLoreConfig::new(GaLoreRank::PerMode(vec![2, 3, 2])).init::<3, Tensor<3>>();
     let low = p.project(x.clone(), 0);
     assert_eq!(low.dims(), [2, 3, 2]);
@@ -155,41 +155,32 @@ fn complex_draw<const D: usize>(dims: [usize; D], seed: u64) -> ComplexTensor<D>
     ComplexTensor::new(draw(dims, seed), draw(dims, seed + 1000))
 }
 
-/// (A + iB)ᴴ (C + iD).
+/// Aᴴ C.
 fn conj_t_matmul(a: &ComplexTensor<2>, c: &ComplexTensor<2>) -> ComplexTensor<2> {
-    let (ar, ai) = (a.re.clone().transpose(), a.im.clone().transpose());
-    ComplexTensor::new(
-        ar.clone().matmul(c.re.clone()) + ai.clone().matmul(c.im.clone()),
-        ar.matmul(c.im.clone()) - ai.matmul(c.re.clone()),
-    )
+    a.clone().conj().transpose().matmul(c.clone())
 }
 
 fn complex_max_abs<const D: usize>(x: ComplexTensor<D>) -> f64 {
     max_abs(x.re.square() + x.im.square()).sqrt()
 }
 
-fn complex_sub<const D: usize>(a: ComplexTensor<D>, b: ComplexTensor<D>) -> ComplexTensor<D> {
-    ComplexTensor::new(a.re - b.re, a.im - b.im)
-}
-
-/// The embedding's SVD gives orthonormal left singular vectors spanning the range: full rank
+/// The Jacobi SVD gives orthonormal left singular vectors spanning the range: full rank
 /// r = m on a wide matrix, so U Uᴴ M = M; on a tall one Uᴴ U = I.
 #[test]
 fn complex_leading_vectors_are_orthonormal_and_span_the_range() {
     for (m, n) in [(4, 7), (7, 4), (5, 5)] {
         let a = complex_draw([m, n], 20 + m as u64);
         let r = m.min(n);
-        let u = complex_leading_vectors(a.re.clone(), a.im.clone(), r);
+        let u = complex_leading_vectors(a.clone(), r);
         assert_eq!(u.re.dims(), [m, r]);
         let gram = conj_t_matmul(&u, &u);
         let eye = ComplexTensor::new(Tensor::eye(r, &device()), Tensor::zeros([r, r], &device()));
-        assert!(complex_max_abs(complex_sub(gram, eye)) < 1e-5, "{m} × {n}");
+        assert!(complex_max_abs(gram - eye) < 1e-5, "{m} × {n}");
         if m <= n {
             // U (Uᴴ A) = A.
             let coeffs = conj_t_matmul(&u, &a);
-            let ut = ComplexTensor::new(u.re.clone().transpose(), u.im.clone().transpose().neg());
-            let back = conj_t_matmul(&ut, &coeffs);
-            assert!(complex_max_abs(complex_sub(back, a)) < 1e-5, "{m} × {n}");
+            let back = u.clone().matmul(coeffs);
+            assert!(complex_max_abs(back - a) < 1e-5, "{m} × {n}");
         }
     }
 }
@@ -202,7 +193,7 @@ fn complex_phase_is_twice_the_reference_phase() {
     for (m, n) in [(4, 7), (7, 4)] {
         let a = complex_draw([m, n], 30 + m as u64);
         let r = 3;
-        let u = complex_leading_vectors(a.re.clone(), a.im.clone(), r);
+        let u = complex_leading_vectors(a.clone(), r);
         let (w_re, w_im) = if m >= n {
             let first = ComplexTensor::new(a.re.slice([0..m, 0..1]), a.im.slice([0..m, 0..1]));
             let w = conj_t_matmul(&first, &u); // aᴴ u = (Aᴴ u)₀
@@ -233,7 +224,7 @@ fn complex_factors_are_orthonormal() {
     let factors = tucker_factors(complex_draw([6, 5, 4], 40), [3, 2, 2]);
     for (f, r) in factors.iter().zip([3, 2, 2]) {
         let eye = ComplexTensor::new(Tensor::eye(r, &device()), Tensor::zeros([r, r], &device()));
-        assert!(complex_max_abs(complex_sub(conj_t_matmul(f, f), eye)) < 1e-5);
+        assert!(complex_max_abs(conj_t_matmul(f, f) - eye) < 1e-5);
     }
 }
 
@@ -248,7 +239,7 @@ fn complex_full_rank_round_trip_is_scale_times_identity() {
     .init::<3, ComplexTensor<3>>();
     let low = p.project(grad.clone(), 7);
     let back = p.project_back(low);
-    assert!(complex_max_abs(complex_sub(back, grad.scaled(0.5))) < 1e-5);
+    assert!(complex_max_abs(back - grad.scaled(0.5)) < 1e-5);
 }
 
 /// A complex tensor of exact Tucker rank (2, 3, 2) is reproduced from its projection.
@@ -260,13 +251,13 @@ fn complex_exact_tucker_tensor_is_reproduced() {
         complex_draw([6, 3], 44),
         complex_draw([4, 2], 45),
     ];
-    let x = core.mode_products(&a, None, false);
+    let x = core.from_low_rank(&a);
     let mut p =
         TensorGaLoreConfig::new(GaLoreRank::PerMode(vec![2, 3, 2])).init::<3, ComplexTensor<3>>();
     let low = p.project(x.clone(), 0);
     assert_eq!(low.re.dims(), [2, 3, 2]);
     let scale = complex_max_abs(x.clone());
-    assert!(complex_max_abs(complex_sub(p.project_back(low), x)) < 1e-5 * scale);
+    assert!(complex_max_abs(p.project_back(low) - x) < 1e-5 * scale);
 }
 
 /// A real tensor taken as complex gets the real path's factors: LAPACK's phase makes each
@@ -302,10 +293,9 @@ fn complex_leading_vectors_handle_repeated_singular_values() {
         .matmul(rot.transpose())
         .mul_scalar(std::f32::consts::FRAC_1_SQRT_2);
     let a = ComplexTensor::new(re.clone(), re);
-    let u = complex_leading_vectors(a.re.clone(), a.im.clone(), 3);
+    let u = complex_leading_vectors(a.clone(), 3);
     let eye = ComplexTensor::new(Tensor::eye(3, &device()), Tensor::zeros([3, 3], &device()));
-    assert!(complex_max_abs(complex_sub(conj_t_matmul(&u, &u), eye)) < 1e-6);
-    let ut = ComplexTensor::new(u.re.clone().transpose(), u.im.clone().transpose().neg());
-    let back = conj_t_matmul(&ut, &conj_t_matmul(&u, &a));
-    assert!(complex_max_abs(complex_sub(back, a)) < 1e-6);
+    assert!(complex_max_abs(conj_t_matmul(&u, &u) - eye) < 1e-6);
+    let back = u.clone().matmul(conj_t_matmul(&u, &a));
+    assert!(complex_max_abs(back - a) < 1e-6);
 }

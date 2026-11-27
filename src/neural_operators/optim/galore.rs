@@ -39,14 +39,16 @@
 //! Only their subspaces, and so `project_back ∘ project`, are well defined there (the
 //! parity tests compare those; `tools/parity/README.md`).
 //!
-//! The SVDs are Burn's `linalg::svd` (host code, in the tensor's precision), as in
-//! [`soap`](super::soap). Nothing here imports from `models/` or `training/`; the wiring
+//! The real SVDs are Burn's `linalg::svd` (host code, in the tensor's precision), as in
+//! [`soap`](super::soap); the complex ones are `complex_svd`'s (host, f64). Nothing here imports from `models/` or `training/`; the wiring
 //! into an optimiser is a later task (`docs/operators/tasks/CM3.6a.md`, "Wiring later").
 
 use burn::prelude::*;
 
 use super::SVD_SWEEPS;
+use complex_svd::complex_leading_vectors;
 
+mod complex_svd;
 #[cfg(test)]
 mod tests;
 
@@ -126,28 +128,87 @@ impl<const D: usize> ComplexTensor<D> {
     }
 }
 
+impl<const D: usize> std::ops::Sub for ComplexTensor<D> {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        Self::new(self.re - other.re, self.im - other.im)
+    }
+}
+
 mod sealed {
     pub trait Sealed {}
     impl<const D: usize> Sealed for burn::prelude::Tensor<D> {}
     impl<const D: usize> Sealed for super::ComplexTensor<D> {}
 }
 
+/// A matrix in the projector's field: `Tensor<2>` or `ComplexTensor<2>` (a factor). Sealed.
+pub trait GaLoreMatrix: sealed::Sealed + Clone + std::fmt::Debug {
+    /// `self` (`[m, k]`) times `other` (`[k, n]`), `[m, n]`.
+    fn matmul(self, other: Self) -> Self;
+    /// The transpose (not conjugated), `[n, m]`.
+    fn transpose(self) -> Self;
+    /// The complex conjugate (the identity when real).
+    fn conj(self) -> Self;
+    /// The shape `[m, n]`.
+    fn shape(&self) -> [usize; 2];
+}
+
+impl GaLoreMatrix for Tensor<2> {
+    fn matmul(self, other: Self) -> Self {
+        Tensor::matmul(self, other)
+    }
+
+    fn transpose(self) -> Self {
+        Tensor::transpose(self)
+    }
+
+    fn conj(self) -> Self {
+        self
+    }
+
+    fn shape(&self) -> [usize; 2] {
+        self.dims()
+    }
+}
+
+impl GaLoreMatrix for ComplexTensor<2> {
+    fn matmul(self, other: Self) -> Self {
+        let (a, b, f, g) = (self.re, self.im, other.re, other.im);
+        Self::new(
+            a.clone().matmul(f.clone()) - b.clone().matmul(g.clone()),
+            a.matmul(g) + b.matmul(f),
+        )
+    }
+
+    fn transpose(self) -> Self {
+        Self::new(self.re.transpose(), self.im.transpose())
+    }
+
+    fn conj(self) -> Self {
+        Self::new(self.re, self.im.neg())
+    }
+
+    fn shape(&self) -> [usize; 2] {
+        self.re.dims()
+    }
+}
+
 /// A gradient the projector takes: a real `Tensor<D>`, or a [`ComplexTensor<D>`]. Sealed;
 /// its methods are the Tucker decomposition's operations in that field.
 pub trait GaLoreTensor<const D: usize>: sealed::Sealed + Clone + std::fmt::Debug {
     /// A factor's type: `Tensor<2>`, or `ComplexTensor<2>`.
-    type Factor: Clone + std::fmt::Debug;
+    type Factor: GaLoreMatrix;
 
     /// The shape `[I_0, .., I_{D−1}]`.
     fn shape(&self) -> [usize; D];
 
-    /// `self` multiplied along every mode k but `skip` by Fₖᴴ (`conj_transpose`) or Fₖ.
-    fn mode_products(
-        self,
-        factors: &[Self::Factor; D],
-        skip: Option<usize>,
-        conj_transpose: bool,
-    ) -> Self;
+    /// The mode-k unfolding, `[I_k, ∏_{j≠k} I_j]`. Its columns are in another order than
+    /// tensorly's, which leaves the left singular vectors unchanged.
+    fn unfolding(self, k: usize) -> Self::Factor;
+
+    /// `m` (`[I_0 .. I_{D−1}]` entries in row-major order) reshaped to `dims`.
+    fn fold(m: Self::Factor, dims: [usize; D]) -> Self;
 
     /// The `r` leading left singular vectors of the mode-`k` unfolding, `[I_k, r]`, as
     /// tensorly's `svd_flip` (and, complex, LAPACK's phase) leaves them.
@@ -158,6 +219,18 @@ pub trait GaLoreTensor<const D: usize>: sealed::Sealed + Clone + std::fmt::Debug
 
     /// `self` times `scale`.
     fn scaled(self, scale: f64) -> Self;
+
+    /// `self` (`[I_0, .., I_{D−1}]`) multiplied along every mode k by Fₖᴴ (Fₖᵀ when real),
+    /// giving `[r_0, .., r_{D−1}]`: tensorly's `multi_mode_dot(x, factors, transpose=True)`.
+    fn to_low_rank(self, factors: &[Self::Factor; D]) -> Self {
+        mode_products(self, factors, None, true)
+    }
+
+    /// `self` (`[r_0, .., r_{D−1}]`) multiplied along every mode k by Fₖ, giving
+    /// `[I_0, .., I_{D−1}]`: tensorly's `multi_mode_dot(y, factors)`.
+    fn from_low_rank(self, factors: &[Self::Factor; D]) -> Self {
+        mode_products(self, factors, None, false)
+    }
 }
 
 impl<const D: usize> GaLoreTensor<D> for Tensor<D> {
@@ -167,21 +240,21 @@ impl<const D: usize> GaLoreTensor<D> for Tensor<D> {
         self.dims()
     }
 
-    fn mode_products(
-        self,
-        factors: &[Tensor<2>; D],
-        skip: Option<usize>,
-        conj_transpose: bool,
-    ) -> Self {
-        mode_products(self, factors, skip, conj_transpose)
+    fn unfolding(self, k: usize) -> Tensor<2> {
+        let rows = self.dims()[k] as i32;
+        self.swap_dims(0, k).reshape([rows, -1])
+    }
+
+    fn fold(m: Tensor<2>, dims: [usize; D]) -> Self {
+        m.reshape(dims)
     }
 
     fn leading_factor(self, k: usize, r: usize) -> Tensor<2> {
-        leading_vectors(unfold(self, k), r)
+        leading_vectors(self.unfolding(k), r)
     }
 
     fn norm_sq(self) -> f64 {
-        sum_sq(self)
+        self.square().sum().into_scalar::<f64>()
     }
 
     fn scaled(self, scale: f64) -> Self {
@@ -196,21 +269,20 @@ impl<const D: usize> GaLoreTensor<D> for ComplexTensor<D> {
         self.re.dims()
     }
 
-    fn mode_products(
-        self,
-        factors: &[ComplexTensor<2>; D],
-        skip: Option<usize>,
-        conj_transpose: bool,
-    ) -> Self {
-        complex_mode_products(self, factors, skip, conj_transpose)
+    fn unfolding(self, k: usize) -> ComplexTensor<2> {
+        ComplexTensor::new(self.re.unfolding(k), self.im.unfolding(k))
+    }
+
+    fn fold(m: ComplexTensor<2>, dims: [usize; D]) -> Self {
+        Self::new(m.re.reshape(dims), m.im.reshape(dims))
     }
 
     fn leading_factor(self, k: usize, r: usize) -> ComplexTensor<2> {
-        complex_leading_vectors(unfold(self.re, k), unfold(self.im, k), r)
+        complex_leading_vectors(self.unfolding(k), r)
     }
 
     fn norm_sq(self) -> f64 {
-        sum_sq(self.re) + sum_sq(self.im)
+        self.re.norm_sq() + self.im.norm_sq()
     }
 
     fn scaled(self, scale: f64) -> Self {
@@ -280,7 +352,7 @@ impl<const D: usize, T: GaLoreTensor<D>> TensorGaLoreProjector<D, T> {
             let ranks = self.config.rank.ranks(grad.shape());
             tucker_factors(grad.clone(), ranks)
         });
-        grad.mode_products(factors, None, true)
+        grad.to_low_rank(factors)
     }
 
     /// `low` (`[r_0, .., r_{D−1}]`) back in the full space, `[I_0, .., I_{D−1}]`:
@@ -290,8 +362,7 @@ impl<const D: usize, T: GaLoreTensor<D>> TensorGaLoreProjector<D, T> {
     /// Before the first [`project`](Self::project), or if `low`'s shape is not the ranks.
     pub fn project_back(&self, low: T) -> T {
         let factors = self.factors.as_ref().expect("project_back before project");
-        low.mode_products(factors, None, false)
-            .scaled(self.config.scale)
+        low.from_low_rank(factors).scaled(self.config.scale)
     }
 
     /// The factors Fₖ, `[I_k, r_k]` each, once [`project`](Self::project) has made them.
@@ -330,10 +401,10 @@ pub fn tucker_factors<const D: usize, T: GaLoreTensor<D>>(
     let mut previous = None;
     for sweep in 0..HOOI_MAX_SWEEPS {
         for k in 0..D {
-            let partial = x.clone().mode_products(&factors, Some(k), true);
+            let partial = mode_products(x.clone(), &factors, Some(k), true);
             factors[k] = partial.leading_factor(k, ranks[k]);
         }
-        let core = x.clone().mode_products(&factors, None, true);
+        let core = x.clone().to_low_rank(&factors);
         let error = (norm_sq - core.norm_sq()).abs().sqrt() / norm_sq.sqrt();
         if sweep > 1 && previous.is_some_and(|p: f64| (p - error).abs() < HOOI_TOL) {
             break;
@@ -343,69 +414,31 @@ pub fn tucker_factors<const D: usize, T: GaLoreTensor<D>>(
     factors
 }
 
-/// `x` multiplied along every mode but `skip` by Fₖᵀ (`transpose`) or Fₖ. Each pass
-/// contracts the leading dimension and moves the result last, so D passes restore the order.
-fn mode_products<const D: usize>(
-    mut x: Tensor<D>,
-    factors: &[Tensor<2>; D],
+/// `x` multiplied along every mode but `skip` by Fₖᴴ (`conj_transpose`; Fₖᵀ when real) or
+/// Fₖ. Each pass contracts the leading dimension and moves the result last, so D passes
+/// restore the order.
+fn mode_products<const D: usize, T: GaLoreTensor<D>>(
+    mut x: T,
+    factors: &[T::Factor; D],
     skip: Option<usize>,
-    transpose: bool,
-) -> Tensor<D> {
+    conj_transpose: bool,
+) -> T {
     for (k, f) in factors.iter().enumerate() {
-        let mut dims = x.dims();
-        let mut rows: Tensor<2> = x.reshape([dims[0] as i32, -1]).transpose();
+        let mut dims = x.shape();
+        let mut rows = x.unfolding(0).transpose();
         if skip != Some(k) {
-            let f = if transpose {
-                f.clone()
+            let f = if conj_transpose {
+                f.clone().conj()
             } else {
                 f.clone().transpose()
             };
             rows = rows.matmul(f);
         }
-        dims[0] = rows.dims()[1];
+        dims[0] = rows.shape()[1];
         dims.rotate_left(1);
-        x = rows.reshape(dims);
+        x = T::fold(rows, dims);
     }
     x
-}
-
-/// [`mode_products`] for complex `x` and factors, the transpose conjugated: tensorly's
-/// `multi_mode_dot(x, factors, transpose=True)` and `multi_mode_dot(y, factors)`.
-fn complex_mode_products<const D: usize>(
-    x: ComplexTensor<D>,
-    factors: &[ComplexTensor<2>; D],
-    skip: Option<usize>,
-    conj_transpose: bool,
-) -> ComplexTensor<D> {
-    let (mut re, mut im) = (x.re, x.im);
-    for (k, f) in factors.iter().enumerate() {
-        let mut dims = re.dims();
-        let rows = |t: Tensor<D>| -> Tensor<2> { t.reshape([dims[0] as i32, -1]).transpose() };
-        let (mut a, mut b) = (rows(re), rows(im));
-        if skip != Some(k) {
-            // (A + iB)(F + iG), with F + iG = conj(Fₖ) or Fₖᵀ.
-            let (f, g) = if conj_transpose {
-                (f.re.clone(), f.im.clone().neg())
-            } else {
-                (f.re.clone().transpose(), f.im.clone().transpose())
-            };
-            (a, b) = (
-                a.clone().matmul(f.clone()) - b.clone().matmul(g.clone()),
-                a.matmul(g) + b.matmul(f),
-            );
-        }
-        dims[0] = a.dims()[1];
-        dims.rotate_left(1);
-        (re, im) = (a.reshape(dims), b.reshape(dims));
-    }
-    ComplexTensor::new(re, im)
-}
-
-/// The mode-k unfolding of `x`, `[I_k, ∏_{j≠k} I_j]`. Its columns are in another order than
-/// tensorly's, which leaves the left singular vectors unchanged.
-fn unfold<const D: usize>(x: Tensor<D>, k: usize) -> Tensor<2> {
-    let rows = x.dims()[k] as i32;
-    x.swap_dims(0, k).reshape([rows, -1])
 }
 
 /// The `r` leading left singular vectors of `m`, signs fixed as tensorly's `svd_flip`;
@@ -417,182 +450,4 @@ fn leading_vectors(m: Tensor<2>, r: usize) -> Tensor<2> {
     let largest = u.clone().abs().argmax(0);
     let signs = u.clone().gather(0, largest).sign();
     u.mul(signs)
-}
-
-/// The `r` leading left singular vectors of B + iC (`b`, `c`: `[m, n]`), `[m, r]`, with the
-/// phase of LAPACK's `gesdd` (the first entry of each right singular vector real when
-/// m ≥ n, of each left one when m < n) and then tensorly's complex `svd_flip` (each column
-/// times sgn of its entry of largest modulus; the first on a tie). Computed on the host in
-/// f64 by [`jacobi_left_vectors`]; returned in `b`'s precision. `r` ≤ min(m, n).
-///
-/// A reference entry of zero leaves the phase undefined (NaN), as it leaves LAPACK's
-/// arbitrary.
-fn complex_leading_vectors(b: Tensor<2>, c: Tensor<2>, r: usize) -> ComplexTensor<2> {
-    let [m, n] = b.dims();
-    let (dtype, device) = (b.dtype(), b.device());
-    let host = |t: Tensor<2>| {
-        t.into_data()
-            .convert::<f64>()
-            .try_into_vec::<f64>()
-            .unwrap()
-    };
-    let a: Vec<Cx> = host(b)
-        .into_iter()
-        .zip(host(c))
-        .map(|(x, y)| Cx(x, y))
-        .collect();
-    let mut u = jacobi_left_vectors(a.clone(), m, n, r);
-    for col in u.iter_mut() {
-        // gesdd's phase: σ v_j[0] = (Aᴴ u_j)₀ = Σᵢ conj(aᵢ₀) uᵢⱼ real, or u₀ⱼ real.
-        let w = if m >= n {
-            (0..m).fold(Cx(0.0, 0.0), |acc, i| acc + a[i * n].conj() * col[i])
-        } else {
-            col[0]
-        };
-        let phase = w.conj().unit();
-        col.iter_mut().for_each(|x| *x = *x * phase);
-        // svd_flip with torch.sgn: times u_max / |u_max|.
-        let largest = col.iter().enumerate().fold(0, |best, (i, x)| {
-            if x.norm_sq() > col[best].norm_sq() {
-                i
-            } else {
-                best
-            }
-        });
-        let sgn = col[largest].unit();
-        col.iter_mut().for_each(|x| *x = *x * sgn);
-    }
-    let part = |f: fn(&Cx) -> f64| {
-        let values: Vec<f64> = (0..m)
-            .flat_map(|i| u.iter().map(move |col| col[i]))
-            .map(|x| f(&x))
-            .collect();
-        Tensor::from_data(
-            TensorData::new(values, [m, r]).convert_dtype(dtype),
-            &device,
-        )
-    };
-    ComplexTensor::new(part(|x| x.0), part(|x| x.1))
-}
-
-/// Jacobi sweeps allowed before [`jacobi_left_vectors`] gives up (it converges
-/// quadratically; a handful suffice).
-const JACOBI_SWEEPS: usize = 60;
-
-/// The `r` leading left singular vectors (columns, by singular value, descending) of the
-/// complex `m × n` matrix `a` (row-major), phases arbitrary: one-sided Jacobi (Hestenes) on
-/// its rows, Wᴴ A = Z with orthogonal rows, so A = W Z and the columns of W, ordered by the
-/// rows' norms, are U. Robust to repeated singular values, which stall Burn's QR `svd` on a
-/// complex matrix's real embedding (each value twice) in f64.
-///
-/// # Panics
-/// If the rows are not orthogonal after [`JACOBI_SWEEPS`] sweeps.
-fn jacobi_left_vectors(mut a: Vec<Cx>, m: usize, n: usize, r: usize) -> Vec<Vec<Cx>> {
-    // W accumulated as Q = Wᴴ, row by row with A's rows.
-    let mut q: Vec<Cx> = (0..m * m)
-        .map(|k| Cx(if k / m == k % m { 1.0 } else { 0.0 }, 0.0))
-        .collect();
-    let tol = m as f64 * f64::EPSILON;
-    // Rows below this (squared) norm are rounding noise (the m − n surplus rows of a tall
-    // matrix end there): no relative orthogonality is reachable between them.
-    let negligible = (tol * tol) * a.iter().map(Cx::norm_sq).sum::<f64>();
-    let mut converged = false;
-    for _ in 0..JACOBI_SWEEPS {
-        converged = true;
-        for p in 0..m {
-            for t in p + 1..m {
-                let (row_p, row_t) = (&a[p * n..(p + 1) * n], &a[t * n..(t + 1) * n]);
-                let alpha: f64 = row_p.iter().map(Cx::norm_sq).sum();
-                let beta: f64 = row_t.iter().map(Cx::norm_sq).sum();
-                let gamma = row_p
-                    .iter()
-                    .zip(row_t)
-                    .fold(Cx(0.0, 0.0), |acc, (&x, &y)| acc + x * y.conj());
-                let g = gamma.norm_sq().sqrt();
-                if g <= tol * (alpha * beta).sqrt() || alpha.min(beta) <= negligible {
-                    continue;
-                }
-                converged = false;
-                // Row t times e^{iφ} (γ = |γ| e^{iφ}) makes the pair's inner product real;
-                // then the real rotation that zeroes it, the smaller root of
-                // t² + 2ζt − 1 = 0, ζ = (β − α) / 2|γ|.
-                let phase = gamma.unit();
-                let zeta = (beta - alpha) / (2.0 * g);
-                let tan = zeta.signum() / (zeta.abs() + (1.0 + zeta * zeta).sqrt());
-                let cos = 1.0 / (1.0 + tan * tan).sqrt();
-                let sin = cos * tan;
-                for (rows, len) in [(&mut a, n), (&mut q, m)] {
-                    for k in 0..len {
-                        let (x, y) = (rows[p * len + k], phase * rows[t * len + k]);
-                        rows[p * len + k] = x.scale(cos) - y.scale(sin);
-                        rows[t * len + k] = x.scale(sin) + y.scale(cos);
-                    }
-                }
-            }
-        }
-        if converged {
-            break;
-        }
-    }
-    assert!(
-        converged,
-        "complex SVD: no convergence in {JACOBI_SWEEPS} Jacobi sweeps"
-    );
-    let norm = |i: usize| -> f64 { a[i * n..(i + 1) * n].iter().map(Cx::norm_sq).sum() };
-    let mut order: Vec<usize> = (0..m).collect();
-    order.sort_by(|&i, &j| norm(j).total_cmp(&norm(i)));
-    // U = Qᴴ: column i of U is row i of Q conjugated.
-    order[..r]
-        .iter()
-        .map(|&i| q[i * m..(i + 1) * m].iter().map(|x| x.conj()).collect())
-        .collect()
-}
-
-/// A complex number on the host, f64: (re, im).
-#[derive(Clone, Copy, Debug)]
-struct Cx(f64, f64);
-
-impl Cx {
-    fn conj(self) -> Self {
-        Cx(self.0, -self.1)
-    }
-
-    fn norm_sq(&self) -> f64 {
-        self.0 * self.0 + self.1 * self.1
-    }
-
-    /// self / |self|.
-    fn unit(self) -> Self {
-        self.scale(1.0 / self.norm_sq().sqrt())
-    }
-
-    fn scale(self, s: f64) -> Self {
-        Cx(self.0 * s, self.1 * s)
-    }
-}
-
-impl std::ops::Add for Cx {
-    type Output = Cx;
-    fn add(self, o: Cx) -> Cx {
-        Cx(self.0 + o.0, self.1 + o.1)
-    }
-}
-
-impl std::ops::Sub for Cx {
-    type Output = Cx;
-    fn sub(self, o: Cx) -> Cx {
-        Cx(self.0 - o.0, self.1 - o.1)
-    }
-}
-
-impl std::ops::Mul for Cx {
-    type Output = Cx;
-    fn mul(self, o: Cx) -> Cx {
-        Cx(self.0 * o.0 - self.1 * o.1, self.0 * o.1 + self.1 * o.0)
-    }
-}
-
-/// ‖x‖², on the host in f64.
-fn sum_sq<const D: usize>(x: Tensor<D>) -> f64 {
-    x.square().sum().into_scalar::<f64>()
 }
