@@ -566,6 +566,44 @@ template:
 - Follow-ups: CM1.5b (padding, resampling), CM1.5c (batch norm; `fno_skip=None` on the
   author's answer), CM1.5d's line (F4, F6, F7 with the earlier tidies).
 
+## 2026-11-27: CM3.6a Tensor GaLore projector, real tensors
+- Done: CM3.6 split 2026-11-27 into CM3.6a (real tensors) and CM3.6b (complex tensors: 2.0.0
+  decomposes the centred `cfloat` spectral weight with a complex SVD; Burn has none, and the
+  crate's corners are real `weights_re`/`weights_im`). New `optim/galore.rs` (imports nothing
+  from `models/` or `training/`): `GaLoreRank` (`Fraction`, `Uniform`, `PerMode`; tensorly's
+  `validate_tucker_rank`, bisection for brentq, round half to even), `TensorGaLoreConfig`
+  (`update_proj_gap` 200, `scale` 1.0), `TensorGaLoreProjector<D>` (`project`,
+  `project_back`, `factors`), `tucker_factors` (tensorly's HOOI with SVD initialisation, 100
+  sweeps, tol 1e-4, `svd_flip` signs, Burn's host `svd`). As 2.0.0 the factors are computed
+  once, on the first `project`, and never refreshed (so `update_proj_gap` gates only the
+  first call, and `warm_restart`/`tucker_n_iter_max` never act; not offered). `SVD_SWEEPS`
+  moved to `optim/mod.rs`, shared with SOAP (value unchanged). Fixtures `galore_{f32,f64}`
+  from the new `tools/parity/generate_galore.py` (the existing fixtures unchanged by
+  `--check`). Not wired into training: what wiring needs is in the plan ("Wiring later").
+- Tests: parity (`tests/parity_galore{,_f64}.rs`) of the ranks, factors, `project`,
+  `project_back` and the second call at the gap with the first factors: f32 matrix 3.6e-7,
+  tensor4 6.9e-7, fraction 5.0e-6 (half of D3: the fraction case's fifth mode-0 vector is the
+  least separated); f64 ≤ 3.3e-15, running (no FFT). Control: another gradient's factors fail
+  (> 0.1). 13 unit tests: ranks, orthonormal factors and the sign rule, full-rank round trip,
+  an exact Tucker tensor reproduced, no refresh, the panics (gap, rank bounds incl.
+  rₖ > ∏_{j≠k} rⱼ, `project_back` first, a zero gap).
+- Checks: see the PR (fmt, clippy ×4 incl. datagen, `cargo test`, `cargo test --features
+  datagen`, `cargo doc`, `generate_galore.py --check`, `generate.py`/`generate_losses.py
+  --check`). Not run: `--features metal` (no backend-specific op; the SVDs run on the host).
+- Decisions: none. Question for sign-off: add 2.0.0's evidently intended periodic refresh
+  (new factors every `update_proj_gap` steps, `warm_restart` seeding the HOOI) as an option,
+  off by default?
+- Review: plan review PASS with advisories (rank bound rₖ ≤ ∏ rⱼ checked up front, zero gap
+  rejected, matrix figure, plan text, soap scope noted: all fixed). Code quality APPROVE with
+  findings: F1 (fixed-size ranks and factors), F2/F3 (named directions, private), F4 (zero
+  gradient documented), F5 (shared `SVD_SWEEPS`), F9 (named bisection count) fixed; F6 (one
+  test RNG for `optim/`), F7 (generator helpers into `generate.py`), F8 (parity cases from
+  the sidecar) left, in the PR.
+- FNO: not touched (new module; `optim/soap` only imports the moved constant).
+- Matrix: `TensorGaLoreProjector` partial (real tensors; CM3.6b).
+- Follow-ups: CM3.6b (roadmap line); the refresh question; the wiring (an AdamW arm, after
+  CO1.5).
+
 ## 2026-11-27: CM0.6 Tidy after the generic stack
 - Done: the CM0.3 review's F1–F4. The FNO wrappers are retired and the generic names are
   the API: `train_fno` → `train::<FNO<R>, R, RM1, _>`, `build_training_components` →

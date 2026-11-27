@@ -207,6 +207,12 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   refreshes by a host f64 Householder QR, D9; M kept in the original space, V in the bases),
   `SoapState` (`RecordState` by hand: Burn's derive works only inside `burn-optim`) and
   `Factor`; tests in `soap/tests.rs`. Nothing calls it before CO3.3.
+- `optim/galore.rs` (library CM3.6a, real tensors of any rank; imports nothing from
+  `models/` or `training/`): 2.0.0's `TensorGaLoreProjector` (`TensorGaLoreConfig`,
+  `GaLoreRank`; factors computed once, on the first `project`, as 2.0.0), `tucker_factors`
+  (tensorly's HOOI, Burn's host `svd`, `svd_flip` signs; `SVD_SWEEPS` in `optim/mod.rs`); tests in
+  `galore/tests.rs`, parity in `tests/parity_galore*.rs`. Nothing calls it yet (the wiring
+  into an AdamW: `docs/operators/tasks/CM3.6a.md`).
 - `runs` (`RunDir`, `EpochMetrics`, `RunCosts`) owns the run directory:
   `create(root, name)`, `save_configs`, `append_metrics` (the only `metrics.csv` writer,
   one row per epoch, with `epoch_time_s` since Phase 5 T4; old five-column files still
