@@ -306,3 +306,24 @@ template:
   counts equal; `model_weights.bpk` equal but for Burn's random `param_id`s in its header.
 - Follow-ups: CO1.3 (long-budget `EPOCHS`, G0-200's `EPOCHS` cap, grouping by config) and
   CO1.4 (full-batch Darcy on one A100), in their roadmap lines.
+
+## 2026-11-27: CO0.3 Cost profile of an Adam step (code; VM runs pending)
+- Done: `examples/profile/adam_profile.rs`: CO0.1's Adam setting (stage 3, s = 64, p = 0,
+  batch 20), the library's `train_epoch`, `evaluate` and `save_checkpoint` timed, then a
+  copy of `train_epoch`'s loop timed by phase (loader, forward and loss, metrics, backward,
+  scheduler, optimiser update, the epoch's host reads), unsynced (host) and synced
+  (device). One file builds on `main` and at `4541f02` (the fork); the fork build copies it
+  in on the VM (plan, "VM runs").
+- Tests: `rows_by_hand` (the per-phase table), `create_output_makes_missing_parents`.
+- Checks: fmt, the three clippy runs, `cargo test`, `cargo doc` pass. Smoke on the Mac
+  (metal; not results): runs to its report on both builds; inline copy −5.3 % (Burn 0.23)
+  and −0.0 % (fork) against `train_epoch`.
+- Decisions: none.
+- Review: plan review FAIL on the VM commands (environment outside tmux; run C's
+  `cubek.toml` restored before the run), fixed; code quality APPROVE with findings (the
+  faithful line made conditional, phase arrays sized by `N_PHASES`, `Library` built once,
+  a comment; named phase indices and a shared `examples/profile/common.rs` left, the
+  latter because the fork build would need two files).
+- Adam and Gauss–Newton: not touched (no library code).
+- Follow-ups: VM runs A (Burn 0.23), B (fork), C (Burn 0.23, TF32 on), then
+  `docs/optimisers/results/CO0.3.md` and the roadmap tick.
