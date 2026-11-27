@@ -310,6 +310,12 @@ The order of M2 and M3 is set at the M1 gate (D6).
     CM0.3. Done 2026-11-27: `docs/operators/tasks/CM3.6a.md`.
   - [ ] **CM3.6b Complex tensors.** 2.0.0's complex Tucker (complex SVD, phase sign rule)
     for the spectral weights. *Done when:* against complex fixtures. *Needs:* CM3.6a.
+  - [ ] **CM3.6c Periodic factor refresh (opt-in).** 2.0.0 computes GaLore's Tucker
+    factors once and never refreshes them, though its design intends a refresh every k
+    steps; an option for that refresh, off by default, so the default stays 2.0.0's
+    behaviour and its parity (the author, 2026-11-27, CM3.6a PR question). *Done when:*
+    a test that the factors change every k steps when on and never when off, and the
+    CM3.6a parity tests unchanged. *Needs:* CM3.6a.
 
 ## M4: Beyond 2.0.0
 
