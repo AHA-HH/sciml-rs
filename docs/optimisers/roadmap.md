@@ -29,7 +29,9 @@ directory; its leftovers are CO0.5. CO2.1 done 2026-11-27: the L-BFGS arm
 (`OPTIMIZER=lbfgs` in `train_poisson`), resumed bit for bit on flex; next in O2 CO2.2
 (the pilot, on the VM; its grid now names `max_eval`), and `training/` free again. CO1.5
 done 2026-11-27: `trainer.rs`'s tests in `training/trainer/tests.rs`, the same 26 by name;
-`training/` free for CM0.6 and CO3.3 (and the optional CO1.6).
+`training/` free for CM0.6 and CO3.3 (and the optional CO1.6). CO3.3's code done
+2026-11-27 (draft PR): the SOAP arm (`OPTIMIZER=soap`), resumed bit for bit on flex; its
+pilot waits for the VM, then D6.
 
 ## How to read this file
 
@@ -186,7 +188,8 @@ weight decay accounts for.
   `save_configs` (CM0.3's F6, four sites), and `train_fno_none_matches_identity_path` named
   for `train`; and, the author's decision of 2026-11-27 (library CM0.6, #180), the
   `M = FNO<R>` default dropped from `TrainingComponents` once `train_built` is in the tests
-  (every remaining use then names `FNO<R>`).
+  (every remaining use then names `FNO<R>`). Also from CO3.3's code-quality review (F8):
+  `trainer/tests.rs`, 1,502 lines, split by subject.
   *Done when:* the same tests, by name but for their new module path, and count, pass; no
   code outside `#[cfg(test)]` changed. *Needs:* CO1.5; no other `training/` task open
   beside it. Optional: nothing waits for it.
@@ -235,7 +238,9 @@ piloted.
   the drift of a resumed run from an uninterrupted one is recorded, not asserted zero (metal
   reloads diverge in some processes, CO3.2's plan, Outcome); the pilot logs each factor's
   eigenvalue ratio at the first refresh for one seed, and ratios near 1e7–1e8 bring an f64
-  host eigenbasis back to the author as an amendment of D9. No reference fixtures (proposal
+  host eigenbasis back to the author as an amendment of D9 (CO3.3 found the early factors
+rank-deficient, so the plain ratio is infinite; its question 1 proposes the ratio above
+f32's floor). No reference fixtures (proposal
   §9): skipped, unless the pilot shows SOAP misbehaving. From CO2.1's code-quality review,
   for the next change to `trainer.rs` (SOAP rides `ModuleOptimizer`, so none of these blocks
   it; each changes existing code, so each with constraint 1 shown): the Gauss–Newton and
@@ -243,7 +248,12 @@ piloted.
   step-row sink, removing `run_loop`'s wrapper over `run_loop_with` (F3, with the one
   existing test that calls `run_loop`); the metrics forward shared by `train_epoch_gn` and
   `train_epoch_lbfgs` (F4); `GnPasses` renamed for both step files; the trainer's tests in
-  their own file (F8, `trainer.rs` 2,180 lines).
+  their own file (F8, `trainer.rs` 2,180 lines). Code done 2026-11-27, plan
+  `docs/optimisers/tasks/CO3.3.md`; the pilot pending. From CO3.3's code-quality review
+  (each with constraint 1 shown, nothing waits for it): the per-optimiser lists (one device,
+  `TIME_BUDGET_S`, the run-name tag, `run_costs`' branches) as methods on
+  `OptimizerConfig` before another arm is added (F2), with SOAP's and Adam's cost branches
+  merged (F3); `log_first_refresh` removed once D6 and D9 are settled (F4).
 
 ## O4: The 2D comparison
 
