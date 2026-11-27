@@ -29,7 +29,9 @@ decision of 2026-11-27). CM1.5c done 2026-11-27 (batch norm and 2.0.0's `fno_ski
 FNO outputs unchanged bit for bit). CM1.5b done 2026-11-27 (domain padding, resolution
 scaling, `resample`; FNO outputs unchanged bit for bit). CM3.6b done 2026-11-27 (complex
 tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to phase where
-2.0.0's factors are ill-conditioned). Next CM0.7, CM1.5d, CM3.6c.
+2.0.0's factors are ill-conditioned). CM1.5d split 2026-11-27 into CM1.5d–f; CM1.5d done
+2026-11-27 (the FNO's config rule, one padding, one grid builder; FNO outputs unchanged bit
+for bit). Next CM0.7, CM1.5e, CM3.6c.
 
 ## How to read this file
 
@@ -244,7 +246,7 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     not taken by CM1.5a, and those of CM1.5a's and CM1.5b's code-quality reviews. Split
     2026-11-27 (eleven follow-ups across `models/fno`, `layers`, `utils/fft` and the parity
     harness) into the FNO, the spectral layer, and the harness:
-  - [ ] **CM1.5d The FNO's config, padding and grid.** One rule for `FNOConfig`'s boolean
+  - [x] **CM1.5d The FNO's config, padding and grid.** One rule for `FNOConfig`'s boolean
     options (F7): the author's M1-gate rule, decided 2026-11-27 (CM1.5a PR question 2), is
     `Option<bool>` with `None` meaning `false`, never `#[config(default = false)]`, because
     Burn's `Config` derive gives fields no serde default and a plain `bool` would fail to
@@ -255,7 +257,12 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     padding in `FNO` for CONVENTIONS §3's `padding` and `domain_padding`, one pad and one
     crop that knows the scale, so `padding` works with scaling and the exclusivity asserts
     go (CM1.5b R2-1, R2-3). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on
-    Metal. *Needs:* CM1.5a.
+    Metal. *Needs:* CM1.5a. Done 2026-11-27: plan `docs/operators/tasks/CM1.5d.md`;
+    the rule in `FNOConfig`'s rustdoc and `models/fno/tests/config.rs` (a Phase 5
+    `model_cfg.json`); `FNO::{pads, crop_ranges}` (`padding` with `domain_padding` and with
+    scaling, `padding` changing no extent); `layers::embedding::coordinate_channels`; the
+    literals outside `training/` (`training/fixtures.rs` keeps one, and `models/predict.rs`
+    one struct update, `modes` having no `with_`); the dumps identical to `main`.
   - [ ] **CM1.5e The spectral layer and the FFTs.** `layers/spectral_convolution.rs`
     (over 1,000 lines with its tests) split as `optim/soap/` is, its tests in a file of
     their own (CM1.2; CM1.5b F6); `fft_ctensor` and `ifft_ctensor` moved to `utils/fft.rs`,

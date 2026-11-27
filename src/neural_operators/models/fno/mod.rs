@@ -536,7 +536,7 @@ impl<const R: usize> FNO<R> {
     /// # Panics
     /// As [`FNO::forward`]; if `output_shape` has not `R - 2` positive entries, or with
     /// [`FNOConfig::domain_padding`] (2.0.0 finds no crop for a shape it did not compute) or
-    /// [`FNOConfig::padding`] (its crop restores the input's extents).
+    /// [`FNOConfig::padding`] (its crop keeps the extents the layers give the unpadded input).
     pub fn forward_with_output_shape(&self, x: Tensor<R>, output_shape: &[usize]) -> Tensor<R> {
         assert!(
             self.domain_padding.is_empty() && self.padding == 0,
