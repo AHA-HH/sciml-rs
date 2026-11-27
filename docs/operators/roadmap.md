@@ -21,8 +21,10 @@ unchanged bit for bit). CM2.5 done 2026-11-26 (the equation losses, PINO; indepe
 D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outputs
 unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). CM1.5
 split 2026-11-26 into CM1.5a–d; CM1.5a done 2026-11-26 (2.0.0's whole `FNO` within D3; FNO
-outputs unchanged bit for bit). CM1.5c done 2026-11-27 (batch norm and 2.0.0's
-`fno_skip=None`; FNO outputs unchanged bit for bit). Next CM0.6, CM1.5b, CM1.5d.
+outputs unchanged bit for bit). CM3.6 split 2026-11-27 into CM3.6a–b; CM3.6a done 2026-11-27
+(the Tensor GaLore projector for real tensors, not wired into training). CM1.5c done
+2026-11-27 (batch norm and 2.0.0's `fno_skip=None`; FNO outputs unchanged bit for bit). Next
+CM0.6, CM1.5b, CM1.5d, CM3.6b.
 
 ## How to read this file
 
@@ -58,7 +60,7 @@ The proposal's Section 12. Recorded when the author takes them:
 | D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | signed off 2026-11-24: option A as recommended (a generic trait with associated config and input types, static dispatch, no trait objects; `docs/operators/tasks/CM0.3.md`) |
 | D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | signed off 2026-11-25: A, as recommended (corners internally, CONVENTIONS §5 unchanged; 2.0.0's centred weights converted at fixture load, FFT norm and mode counts included). A centred layout may come later only as an opt-in option, off by default, in its own task, if a need (PyTorch checkpoint interchange) or a measured gain appears |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |
-| D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | open |
+| D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | signed off 2026-11-27: as recommended, one A100 on the VM |
 | D8 | Fixture size | tiny models, under about 1 MB per fixture | CM0.2 | CM0.2 | signed off 2026-11-24: as recommended (tiny models, P ≲ 10⁴, under about 1 MB per fixture) |
 
 ## M0: Foundations
@@ -315,7 +317,18 @@ The order of M2 and M3 is set at the M1 gate (D6).
   against 2.0.0's autograd values, so that parity test needs a tolerance signed off by the
   author.
 - [ ] **CM3.5 CODANO.** Attention kernel integral, CODA layer. *Needs:* M1.
-- [ ] **CM3.6 GaLore.** `tensor_galore_projector`. *Needs:* CM0.3.
+- **CM3.6 GaLore.** `tensor_galore_projector`. *Needs:* CM0.3. Split 2026-11-27:
+  - [x] **CM3.6a Real tensors.** The projector, tensorly's HOOI Tucker factors and rank
+    rules. *Done when:* factors, `project` and `project_back` against fixtures. *Needs:*
+    CM0.3. Done 2026-11-27: `docs/operators/tasks/CM3.6a.md`.
+  - [ ] **CM3.6b Complex tensors.** 2.0.0's complex Tucker (complex SVD, phase sign rule)
+    for the spectral weights. *Done when:* against complex fixtures. *Needs:* CM3.6a.
+  - [ ] **CM3.6c Periodic factor refresh (opt-in).** 2.0.0 computes GaLore's Tucker
+    factors once and never refreshes them, though its design intends a refresh every k
+    steps; an option for that refresh, off by default, so the default stays 2.0.0's
+    behaviour and its parity (the author, 2026-11-27, CM3.6a PR question). *Done when:*
+    a test that the factors change every k steps when on and never when off, and the
+    CM3.6a parity tests unchanged. *Needs:* CM3.6a.
 
 ## M4: Beyond 2.0.0
 

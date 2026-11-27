@@ -27,7 +27,9 @@ three; next in O0 CO0.3 (the Adam step profile). CO0.4 done 2026-11-27: the
 training examples read the commit at the start, and `RunDir::create` never reuses a
 directory; its leftovers are CO0.5. CO2.1 done 2026-11-27: the L-BFGS arm
 (`OPTIMIZER=lbfgs` in `train_poisson`), resumed bit for bit on flex; next in O2 CO2.2
-(the pilot, on the VM; its grid now names `max_eval`), and `training/` free again.
+(the pilot, on the VM; its grid now names `max_eval`), and `training/` free again. CO1.5
+done 2026-11-27: `trainer.rs`'s tests in `training/trainer/tests.rs`, the same 26 by name;
+`training/` free for CM0.6 and CO3.3 (and the optional CO1.6).
 
 ## How to read this file
 
@@ -169,11 +171,20 @@ weight decay accounts for.
   graph for each VJP; check it fits one A100 before the cells, and if not, the batch is a
   question for the author (a departure from D12).
 
-- [ ] **CO1.5 Split `trainer.rs`'s tests.** Move `training/trainer.rs`'s `mod tests`
+- [x] **CO1.5 Split `trainer.rs`'s tests.** Move `training/trainer.rs`'s `mod tests`
   (about 1,150 of its 1,950 lines after CO1.1) into a test module of its own, unchanged.
   *Done when:* the same tests, by name and count, pass; no code outside the tests changed.
   *Needs:* CO1.1; no other `training/` task open beside it (CO1.1's code-quality review,
   F6).
+  Done 2026-11-27: `docs/optimisers/tasks/CO1.5.md`.
+- [ ] **CO1.6 Tidy `trainer/tests.rs`.** CO1.5's code-quality review: (F1) its 11 sections,
+  named by the phase that added them, become submodules named by what they test, with the
+  shared helpers in `trainer/tests/mod.rs`; (F2) `train_built` and the test-only
+  `use burn::module::Module` move from `trainer.rs` into the tests; (F3) the repeated
+  `load_poisson_uniform` closures and temporary-directory setup become fixtures.
+  *Done when:* the same tests, by name but for their new module path, and count, pass; no
+  code outside `#[cfg(test)]` changed. *Needs:* CO1.5; no other `training/` task open
+  beside it. Optional: nothing waits for it.
 
 ## O2: L-BFGS
 
@@ -191,7 +202,10 @@ weight decay accounts for.
   and 1 at 2, and a run with too few stalls for good (CO2.1's smoke run). Burn's `LBFGS`
   does not expose its inner iterations, so "updates" are not counted (CO2.1): the pilot
   says whether `optimisation_steps` (steps = epochs) and the passes suffice or the count
-  is needed. *Done when:* the pilot table and D5 proposed.
+  is needed. The author (2026-11-27, CO2.1's questions): `max_eval` set explicitly with
+  every cell, and the uncounted inner iterations accepted (steps and passes are reported;
+  updates can be estimated from closure evaluations if ever needed).
+  *Done when:* the pilot table and D5 proposed.
   *Needs:* CO2.1, CO0.1. *Machines:* the VM. *Sign-off:* D5.
 
 ## O3: SOAP
