@@ -18,7 +18,7 @@ use sciml_rs::neural_operators::layers::{
     skip::{Skip, SkipKind},
 };
 
-use crate::parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into};
+use crate::parity_common::{Fixture, MapEntry, Precision, Take, check_d3, load_into};
 
 /// 2.0.0's `AdaIN` with its embedding as a test-only parameter, so the fixture's
 /// `embedding` loads through the map like a weight.
@@ -113,17 +113,10 @@ fn run<M: ModuleSnapshot, const R: usize>(
     device: &Device,
     forward: impl Fn(&M, Tensor<R>) -> Tensor<R>,
 ) -> f64 {
-    let suffix = match precision {
-        Precision::F32 => "f32",
-        Precision::F64 => "f64",
-    };
-    let name = format!("{case}_{suffix}");
-    let mut fixture = Fixture::open(&name);
+    let mut fixture = Fixture::open_as(case, precision);
     load_into(&mut module, &mut fixture, map);
     let out = forward(&module, fixture.input::<R>(device));
-    let err = assert_parity(out, &fixture.output(), precision.d3(), &name);
-    println!("{name}: relative max error {err:.3e}");
-    err
+    check_d3(out, &mut fixture)
 }
 
 /// A `ChannelMLP`'s layers: 2.0.0's `fcs.k` are the crate's `fcs.k`. Two layers take the

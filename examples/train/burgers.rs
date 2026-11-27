@@ -117,6 +117,10 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
         lifting_channel_ratio: None,
         projection_channel_ratio: None,
         positional_embedding: None,
+        conv_bias: None,
+        separable: None,
+        max_modes: None,
+        tanh_stabilizer: None,
     };
 
     // Set the training configuration, test_batch_size = 20 by default

@@ -528,3 +528,40 @@ template:
 - FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` and the branch, `cmp`).
 - Matrix: `FourierDiff` partial, `non_uniform_fd` have.
 - Follow-ups: CM2.4's line (`use_fc`, `low_pass_filter_ratio`, the mixed derivative).
+
+## 2026-11-26: CM1.5a Whole-FNO parity: defaults and block sweeps
+- Done: CM1.5 split into CM1.5a–d (roadmap). `FNOConfig` gains `conv_bias` (2.0.0's
+  `SpectralConv` bias, `[W]` per layer in `FNO::conv_biases`, added before the norm, drawn
+  as 2.0.0's), `separable`, `max_modes` (2.0.0's `max_n_modes`, per corner) and
+  `tanh_stabilizer` (2.0.0's `stabilizer="tanh"`, on the convolution's input only), each
+  `None` today's model; one `FNO::spectral` helper used by both block forms. Six sweep
+  fixtures from `generate.py` (`SWEEPS`, f32; its redraw now skips complex weights, the
+  existing fixtures unchanged). Test harness: `tests/parity_common/fno.rs` (the whole-FNO
+  map, centred weights converted per layer, D5) and `fno_map.rs` (2.0.0's defaults, the
+  lifting/projection and block-part maps, the permutes) shared by the FNO-family binaries;
+  `Fixture::open_as`, `check_d3`, `centred_to_corners` and `Fixture::replace` in `mod.rs`
+  (CM1.4's F4).
+- Tests: `tests/parity_fno.rs`: 2.0.0's defaults `fno1d` (Burgers-shaped) 3.5e-7, `fno2d`
+  (Darcy-shaped) 4.1e-7; sweeps `fno3d` 4.5e-7, `fno2d_instance_pre` 6.3e-7,
+  `fno1d_group_skips` 2.6e-7, `fno2d_separable` 8.1e-7, `fno2d_odd_stabilizer` 1.8e-6,
+  `fno1d_pre_no_mlp` 3.4e-7 (D3 1e-5, f32, Flex, M2 Pro); the stabiliser left off fails at
+  1.4e-3; swapped corners fail (control). `_f64.rs` `#[ignore]`d: 1.2e-8, 3.8e-9. Unit tests
+  (`models/fno/tests/spectral.rs`): options off build today's parameters, the bias's shape,
+  separable and `max_modes` storage, the two `max_modes` panics.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (546 passed), `cargo test --features
+  datagen` (633 passed), `cargo doc --no-deps`, `generate.py --check` (every fixture the
+  same), the bit-identity dumps, `cargo test --features metal --test gpu_parity` (see the
+  PR).
+- Decisions: none. Question for sign-off: 2.0.0's `fno_skip=None` (no FNO skip) is not
+  representable, since `FNOConfig::fno_skip: None` is the original 1×1 convolution; add it?
+- Review: plan review PASS (advisories: the off value of `max_modes` and its wrong-rank panic
+  tested). Code quality APPROVE with findings: F1, F2, F3, F5, F9, F10, F12 fixed; F4, F6, F7
+  to CM1.5d's line; F8 (the struct literals) already there; F11 accepted (integration tests
+  cannot see the crate's `pub(crate)` permutes).
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 73afdd3 and the branch,
+  before and after the review fixes: `forward`, `phase5_epoch`, `gauss_newton_epoch` `cmp`
+  same); existing tests edited only to complete `FNOConfig` literals with `None`.
+- Matrix: `FNO` (CM1.5a–c), centred `SpectralConv`, `FNOBlocks` rows updated.
+- Follow-ups: CM1.5b (padding, resampling), CM1.5c (batch norm; `fno_skip=None` on the
+  author's answer), CM1.5d's line (F4, F6, F7 with the earlier tidies).

@@ -1,0 +1,160 @@
+//! Library CM1.5a: 2.0.0's `FNO`, end to end, against the crate's `FNO`, in f32 (D3 as
+//! amended 2026-11-25): 2.0.0's defaults on a Burgers- and a Darcy-shaped input, and a sweep
+//! of its options (`tools/parity/generate.py`, CM1.5a's `SWEEPS`, f32 only). The f64
+//! fixtures of the defaults are `tests/parity_fno_f64.rs`.
+
+#[path = "parity_common/fno.rs"]
+mod fno;
+#[path = "parity_common/fno_map.rs"]
+mod fno_map;
+mod parity_common;
+
+use burn::prelude::*;
+use fno::*;
+use parity_common::{D3_F32, Precision::F32, rel_max_error};
+use sciml_rs::neural_operators::{
+    layers::{norm::NormKind, skip::SkipKind},
+    models::fno::{Activation, BlockMlpConfig, PositionalEmbedding},
+};
+
+/// `FNO(n_modes=(4, 4, 4), 2 → 1, hidden 4, n_layers=2)` on (2, 2, 8, 6, 5).
+const FNO3D: Case = Case {
+    stem: "fno3d",
+    data: 2,
+    out: 1,
+    hidden: 4,
+    n_layers: 2,
+    n_modes: &[4, 4, 4],
+    max_n_modes: None,
+    options: |c| c,
+};
+/// Instance norm, pre-activation, tanh; `n_modes=(6, 4)`, hidden 6, on (2, 1, 16, 12).
+const FNO2D_INSTANCE_PRE: Case = Case {
+    stem: "fno2d_instance_pre",
+    hidden: 6,
+    n_modes: &[6, 4],
+    options: |c| {
+        c.with_norm(Some(NormKind::Instance))
+            .with_preactivation(Some(true))
+            .with_activation(Some(Activation::Tanh))
+    },
+    ..FNO1D
+};
+/// Group norm, soft-gating FNO skip, linear channel-MLP skip of expansion 1, a one-layer
+/// lifting, projection ratio 1.5, no grid, SiLU; `n_modes=(10,)`, 2 → 1, on (2, 2, 40).
+const FNO1D_GROUP_SKIPS: Case = Case {
+    stem: "fno1d_group_skips",
+    data: 2,
+    hidden: 6,
+    n_modes: &[10],
+    options: |c| {
+        c.with_norm(Some(NormKind::Group))
+            .with_fno_skip(Some(SkipKind::SoftGating))
+            .with_channel_mlp(Some(
+                BlockMlpConfig::new()
+                    .with_expansion(1.0)
+                    .with_skip(Some(SkipKind::Linear)),
+            ))
+            .with_lifting_channel_ratio(Some(0.0))
+            .with_projection_channel_ratio(Some(1.5))
+            .with_positional_embedding(Some(PositionalEmbedding::Disabled))
+            .with_activation(Some(Activation::Silu))
+    },
+    ..FNO1D
+};
+/// Separable weights, `n_modes=(6, 6)` of `max_n_modes=(8, 8)`, hidden 6, on (2, 1, 16, 16).
+const FNO2D_SEPARABLE: Case = Case {
+    stem: "fno2d_separable",
+    hidden: 6,
+    n_modes: &[6, 6],
+    max_n_modes: Some(&[8, 8]),
+    options: |c| c.with_separable(Some(true)),
+    ..FNO1D
+};
+/// An odd centred count, `n_modes=(7, 6)` (the corners' zero row), identity FNO skip, no
+/// channel-MLP skip, the tanh stabiliser; hidden 6, on (2, 1, 16, 14).
+const FNO2D_ODD_STABILIZER: Case = Case {
+    stem: "fno2d_odd_stabilizer",
+    hidden: 6,
+    n_modes: &[7, 6],
+    options: |c| {
+        c.with_fno_skip(Some(SkipKind::Identity))
+            .with_channel_mlp(Some(BlockMlpConfig::new().with_skip(None)))
+            .with_tanh_stabilizer(Some(true))
+    },
+    ..FNO1D
+};
+/// No channel MLP, pre-activation, the tanh stabiliser, ReLU; `n_modes=(8,)`, hidden 6, on
+/// (2, 1, 32).
+const FNO1D_PRE_NO_MLP: Case = Case {
+    stem: "fno1d_pre_no_mlp",
+    hidden: 6,
+    options: |c| {
+        c.with_channel_mlp(None)
+            .with_preactivation(Some(true))
+            .with_tanh_stabilizer(Some(true))
+            .with_activation(Some(Activation::Relu))
+    },
+    ..FNO1D
+};
+
+#[test]
+fn fno1d_matches_2_0_0() {
+    check::<3>(&FNO1D, F32, &Device::default());
+}
+
+#[test]
+fn fno2d_matches_2_0_0() {
+    check::<4>(&FNO2D, F32, &Device::default());
+}
+
+#[test]
+fn fno3d_matches_2_0_0() {
+    check::<5>(&FNO3D, F32, &Device::default());
+}
+
+#[test]
+fn fno2d_instance_pre_matches_2_0_0() {
+    check::<4>(&FNO2D_INSTANCE_PRE, F32, &Device::default());
+}
+
+#[test]
+fn fno1d_group_skips_matches_2_0_0() {
+    check::<3>(&FNO1D_GROUP_SKIPS, F32, &Device::default());
+}
+
+#[test]
+fn fno2d_separable_matches_2_0_0() {
+    check::<4>(&FNO2D_SEPARABLE, F32, &Device::default());
+}
+
+#[test]
+fn fno2d_odd_stabilizer_matches_2_0_0() {
+    check::<4>(&FNO2D_ODD_STABILIZER, F32, &Device::default());
+}
+
+#[test]
+fn fno1d_pre_no_mlp_matches_2_0_0() {
+    check::<3>(&FNO1D_PRE_NO_MLP, F32, &Device::default());
+}
+
+/// The map is not passing vacuously: layer 0's two corners loaded into each other's places
+/// (the same shape) break the f32 bound.
+#[test]
+fn swapped_corners_fail_parity() {
+    let swap = |map: &mut Vec<_>| {
+        for entry in map.iter_mut() {
+            let (_, to, _): &mut (&str, &str, _) = entry;
+            *to = match *to {
+                "conv.0.weights_re.0" => "conv.0.weights_re.1",
+                "conv.0.weights_re.1" => "conv.0.weights_re.0",
+                "conv.0.weights_im.0" => "conv.0.weights_im.1",
+                "conv.0.weights_im.1" => "conv.0.weights_im.0",
+                other => other,
+            };
+        }
+    };
+    let (y, mut fixture) = output::<4>(&FNO2D, F32, swap, &Device::default());
+    let err = rel_max_error(y, &fixture.output());
+    assert!(err > D3_F32, "swapped corners went unnoticed: {err:.3e}");
+}

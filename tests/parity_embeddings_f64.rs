@@ -10,6 +10,9 @@
 mod embeddings;
 #[cfg(feature = "flex")]
 mod flex_f64;
+#[cfg(feature = "flex")]
+#[path = "parity_common/fno_map.rs"]
+mod fno_map;
 mod parity_common;
 
 #[cfg(feature = "flex")]
