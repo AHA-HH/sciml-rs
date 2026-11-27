@@ -56,17 +56,21 @@ or the real embedding [[B, −C], [C, B]]), parity on complex fixtures. *Needs:*
 - `project` = x ×ₖ Fₖᵀ for every mode k; `project_back` = scale · (y ×ₖ Fₖ).
 - Not reproduced: `activation_checkpoint` (a PyTorch memory option), the device move of the
   factors (they are made on the gradient's device), tensorly's full-matrix SVD when a rank
-  exceeds the product of the other dimensions (rejected by a panic instead; never the case
-  for weight gradients).
+  rₖ exceeds the columns of an unfolding, ∏_{j≠k} rⱼ in the sweeps (e.g. ranks [3, 1], or a
+  small fraction on an unbalanced shape such as [64, 4, 4]): rejected up front by a panic.
+  The wiring task decides whether to clamp such ranks.
 
 ## Changes
 
 - New `src/neural_operators/optim/galore.rs` (imports nothing from `models/` or
   `training/`): `GaLoreRank` (`Fraction(f64)`, `Uniform(usize)`, `PerMode(Vec<usize>)`,
   `ranks(shape)`), `TensorGaLoreConfig` (`rank`, `update_proj_gap` 200, `scale` 1.0;
-  `init::<D>()`), `TensorGaLoreProjector<D>` (`project`, `project_back`, `factors`),
-  `tucker_factors` (the HOOI) and `multi_mode_dot`. Unit tests in the file.
-- `optim/mod.rs`: the module and its line.
+  `init::<D>()`), `TensorGaLoreProjector<D>` (`project`, `project_back`, `factors`) and
+  `tucker_factors` (the HOOI); the mode products private (`to_low_rank`, `from_low_rank`).
+  Unit tests in `optim/galore/tests.rs`.
+- `optim/mod.rs`: the module and its line, and `SVD_SWEEPS` (30) moved there from
+  `optim/soap/mod.rs` (code-quality finding 5), shared by both; SOAP's value and behaviour
+  unchanged.
 - `tools/parity/generate_galore.py` (+ `--check`), fixtures `tests/fixtures/parity/galore_{f32,f64}.npz`
   with sidecars; `tools/parity/README.md` rows.
 - `tests/parity_galore.rs`, `tests/parity_galore_f64.rs` (Flex in f64, as the other f64

@@ -209,7 +209,7 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
 - `optim/galore.rs` (library CM3.6a, real tensors of any rank; imports nothing from
   `models/` or `training/`): 2.0.0's `TensorGaLoreProjector` (`TensorGaLoreConfig`,
   `GaLoreRank`; factors computed once, on the first `project`, as 2.0.0), `tucker_factors`
-  (tensorly's HOOI, Burn's host `svd`, `svd_flip` signs) and `multi_mode_dot`; tests in
+  (tensorly's HOOI, Burn's host `svd`, `svd_flip` signs; `SVD_SWEEPS` in `optim/mod.rs`); tests in
   `galore/tests.rs`, parity in `tests/parity_galore*.rs`. Nothing calls it yet (the wiring
   into an AdamW: `docs/operators/tasks/CM3.6a.md`).
 - `runs` (`RunDir`, `EpochMetrics`, `RunCosts`) owns the run directory:
