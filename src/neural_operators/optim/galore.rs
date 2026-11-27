@@ -354,7 +354,7 @@ impl<const D: usize, T: GaLoreTensor<D>> TensorGaLoreProjector<D, T> {
     /// On the first call, if `update_proj_gap` is 0 or `iter` is not a multiple of it
     /// (2.0.0 has no factors to apply then), or as [`tucker_factors`].
     pub fn project(&mut self, grad: T, iter: usize) -> T {
-        // The gap is positive once factors exist (the first call checks it).
+        // A zero gap is caught below: the refresh drops the factors, so the first call's check runs.
         if self.refresh && iter.is_multiple_of(self.config.update_proj_gap) {
             self.factors = None;
         }
