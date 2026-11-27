@@ -129,7 +129,22 @@ fn project_back_needs_factors() {
 }
 
 #[test]
-#[should_panic(expected = "rank 4 outside")]
+#[should_panic(expected = "rank 4 of mode 0 outside")]
 fn rank_above_its_dimension_panics() {
     tucker_factors(draw([3, 5], 11), [4, 2]);
+}
+
+/// Mode 0's sweep unfolding is [12, r_1] = [12, 1]: rank 3 cannot fit.
+#[test]
+#[should_panic(expected = "rank 3 of mode 0 outside 1..=min(12, 1)")]
+fn rank_above_the_other_ranks_product_panics() {
+    tucker_factors(draw([12, 7], 12), [3, 1]);
+}
+
+#[test]
+#[should_panic(expected = "update_proj_gap must be positive")]
+fn zero_gap_panics() {
+    let mut config = TensorGaLoreConfig::new(GaLoreRank::Uniform(1));
+    config.update_proj_gap = 0;
+    config.init::<2>().project(draw([3, 3], 13), 0);
 }

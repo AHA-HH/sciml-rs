@@ -131,10 +131,14 @@ impl<const D: usize> TensorGaLoreProjector<D> {
     /// [`tucker_factors`]; later calls reuse them, whatever `iter` (as 2.0.0).
     ///
     /// # Panics
-    /// On the first call, if `iter` is not a multiple of `update_proj_gap` (2.0.0 has no
-    /// factors to apply then), or as [`tucker_factors`].
+    /// On the first call, if `update_proj_gap` is 0 or `iter` is not a multiple of it
+    /// (2.0.0 has no factors to apply then), or as [`tucker_factors`].
     pub fn project(&mut self, grad: Tensor<D>, iter: usize) -> Tensor<D> {
         let factors = self.factors.get_or_insert_with(|| {
+            assert!(
+                self.config.update_proj_gap > 0,
+                "update_proj_gap must be positive"
+            );
             assert!(
                 iter.is_multiple_of(self.config.update_proj_gap),
                 "the first project needs iter ({iter}) a multiple of update_proj_gap ({})",
@@ -169,9 +173,20 @@ impl<const D: usize> TensorGaLoreProjector<D> {
 /// An all-zero `x` makes the error NaN, so every sweep runs (as tensorly).
 ///
 /// # Panics
-/// If a rank is 0 or above min(Iₖ, ∏_{j≠k} Iⱼ) (tensorly would fall back to a full-matrix
-/// SVD there), `x` requires gradients, or an SVD does not converge.
+/// If a rank rₖ is 0, above Iₖ, or above ∏_{j≠k} rⱼ (the columns of a sweep's unfolding;
+/// tensorly falls back to a full-matrix SVD there, e.g. ranks [3, 1]), `x` requires
+/// gradients, or an SVD does not converge.
 pub fn tucker_factors<const D: usize>(x: Tensor<D>, ranks: [usize; D]) -> [Tensor<2>; D] {
+    let dims = x.dims();
+    for k in 0..D {
+        let others: usize = (0..D).filter(|&j| j != k).map(|j| ranks[j]).product();
+        assert!(
+            ranks[k] >= 1 && ranks[k] <= dims[k] && ranks[k] <= others,
+            "rank {} of mode {k} outside 1..=min({}, {others}) (ranks {ranks:?}, shape {dims:?})",
+            ranks[k],
+            dims[k]
+        );
+    }
     let mut factors: [Tensor<2>; D] =
         std::array::from_fn(|k| leading_vectors(unfold(x.clone(), k), ranks[k]));
     let norm_sq = sum_sq(x.clone());
@@ -236,14 +251,10 @@ fn unfold<const D: usize>(x: Tensor<D>, k: usize) -> Tensor<2> {
     x.swap_dims(0, k).reshape([rows, -1])
 }
 
-/// The `r` leading left singular vectors of `m`, signs fixed as tensorly's `svd_flip`.
+/// The `r` leading left singular vectors of `m`, signs fixed as tensorly's `svd_flip`;
+/// `r` ≤ min(rows, columns), as [`tucker_factors`] checks.
 fn leading_vectors(m: Tensor<2>, r: usize) -> Tensor<2> {
-    let [rows, cols] = m.dims();
-    assert!(
-        (1..=rows.min(cols)).contains(&r),
-        "rank {r} outside 1..={} for a [{rows}, {cols}] unfolding",
-        rows.min(cols)
-    );
+    let [rows, _] = m.dims();
     let (u, _, _) = burn::linalg::svd::<2, 1>(m, SVD_SWEEPS);
     let u = u.slice([0..rows, 0..r]);
     let largest = u.clone().abs().argmax(0);
