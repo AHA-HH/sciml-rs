@@ -1,6 +1,5 @@
 //! Gauss–Newton training (Phase 10 T3; design §13.17), of the FNO and, since library
-//! CM0.3, of any [`GridOperator`]: [`FnoResidual`], the least-squares residual (named
-//! for the FNO it was written for), and [`train_epoch_gn`], one epoch of
+//! CM0.3, of any [`GridOperator`]: [`GridResidual`], the least-squares residual, and [`train_epoch_gn`], one epoch of
 //! [`GaussNewton`] steps, the counterpart of
 //! [`train_epoch`](crate::neural_operators::training::trainer::train_epoch).
 
@@ -30,12 +29,12 @@ use crate::neural_operators::{
 /// units, both flattened as the training loss flattens them; the norms are Euclidean with equal
 /// weights over the learning grid, as `LpLoss::new(2, _).rel`. `R` is the model rank and
 /// `RM1` the target rank, as for [`Batch`].
-pub struct FnoResidual<'a, const R: usize, const RM1: usize> {
+pub struct GridResidual<'a, const R: usize, const RM1: usize> {
     decoder: Option<&'a FlatDecoder>,
     batch: PhantomData<Batch<R, RM1>>,
 }
 
-impl<'a, const R: usize, const RM1: usize> FnoResidual<'a, R, RM1> {
+impl<'a, const R: usize, const RM1: usize> GridResidual<'a, R, RM1> {
     /// The residual with `decoder` decoding the model output with the target normaliser,
     /// on the batch's device; `None` for data in physical units.
     pub fn new(decoder: Option<&'a FlatDecoder>) -> Self {
@@ -54,7 +53,7 @@ impl<'a, const R: usize, const RM1: usize> FnoResidual<'a, R, RM1> {
 }
 
 impl<const R: usize, const RM1: usize, M: GridOperator<R>> LeastSquares<M>
-    for FnoResidual<'_, R, RM1>
+    for GridResidual<'_, R, RM1>
 {
     type Batch = Batch<R, RM1>;
 
@@ -83,7 +82,7 @@ pub fn training_passes(p: &GnPasses) -> (usize, usize) {
 }
 
 /// One epoch of Gauss–Newton: per batch of `loader`, one [`GaussNewton::step`] on
-/// [`FnoResidual`], its row passed to `on_step`. The batch's gradient, curvature and ρ
+/// [`GridResidual`], its row passed to `on_step`. The batch's gradient, curvature and ρ
 /// all come from that batch (G3), so a larger Gauss–Newton batch is the loader's batch
 /// size (`TrainingConfig::batch_size`), with no second batching.
 ///
@@ -104,7 +103,7 @@ pub fn train_epoch_gn<const R: usize, const RM1: usize, M: GridOperator<R>>(
     epoch: usize,
     on_step: &mut dyn FnMut(&GnStepRecord),
 ) -> (M, EpochMeans) {
-    let residual = FnoResidual::<R, RM1>::new(decoder);
+    let residual = GridResidual::<R, RM1>::new(decoder);
     let metric_decoder = decoder.map(FlatDecoder::inner);
     let (mut mse_sum, mut l2_sum, mut n_batches) = (None, None, 0_usize);
 
@@ -171,7 +170,7 @@ mod tests {
             .expect("one batch")
             .expect("dataset error");
 
-        let r = FnoResidual::<3, 2>::new(None).residual(&model, &batch);
+        let r = GridResidual::<3, 2>::new(None).residual(&model, &batch);
         assert_eq!(r.dims(), [5 * 8]);
         let half: f64 = 0.5 * r.inner().powf_scalar(2.0).sum().into_scalar::<f64>();
 
@@ -201,7 +200,7 @@ mod tests {
             .expect("one batch")
             .expect("dataset error");
 
-        let r = FnoResidual::<4, 3>::new(Some(&decoder)).residual(&model, &batch);
+        let r = GridResidual::<4, 3>::new(Some(&decoder)).residual(&model, &batch);
         assert_eq!(r.dims(), [5 * 16]);
         let half: f64 = 0.5 * r.inner().powf_scalar(2.0).sum().into_scalar::<f64>();
 

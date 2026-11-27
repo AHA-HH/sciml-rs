@@ -12,10 +12,6 @@ use crate::neural_operators::{
     models::operator::GridOperator,
 };
 
-// for the tests' `use super::*`, written when the step took the FNO
-#[cfg(test)]
-use crate::neural_operators::models::fno::FNO;
-
 /// Collapse model output (rank `IR`, trailing channel axis) and target
 /// (rank `RM1 = R - 1`) to the rank-2 pair `LpLoss` requires.
 ///
@@ -160,6 +156,7 @@ pub(crate) fn squared_rel_l2(out: Tensor<2>, target: Tensor<2>) -> Tensor<1> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::neural_operators::models::fno::FNO;
     use crate::neural_operators::{
         data::{
             dataset::OperatorDataset, device_batcher::device_loader,

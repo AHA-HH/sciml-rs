@@ -121,12 +121,12 @@ use sciml_rs::neural_operators::{
             },
         },
     },
-    models::fno::FNOConfig,
+    models::fno::{FNO, FNOConfig},
     runs::{RunCosts, RunDir},
     training::{
         config::{LbfgsArm, TrainingConfig},
         data_parallel::replicas,
-        trainer::{build_training_components, train_components},
+        trainer::{build_components, train_components},
     },
 };
 use std::fmt::Display;
@@ -453,15 +453,15 @@ fn main() {
         }
     };
     #[cfg(feature = "mlflow")]
-    let also: Option<&mut sciml_rs::neural_operators::training::trainer::EpochObserver<'_, 4>> =
-        Some(&mut live_epoch);
+    let also: Option<
+        &mut sciml_rs::neural_operators::training::trainer::EpochObserver<'_, FNO<4>>,
+    > = Some(&mut live_epoch);
     #[cfg(not(feature = "mlflow"))]
     let also = None;
     let train_start = Instant::now();
     let replicas = replicas::<4, 3, _>(&train_data, &devices[1..], &train_cfg);
-    let mut components = build_training_components::<4, 3, _>(
-        &model_cfg, &train_cfg, train_data, test_data, &device,
-    );
+    let mut components =
+        build_components::<FNO<4>, 4, 3, _>(&model_cfg, &train_cfg, train_data, test_data, &device);
     components.replicas = replicas;
     let (model, _) = train_components(
         components,

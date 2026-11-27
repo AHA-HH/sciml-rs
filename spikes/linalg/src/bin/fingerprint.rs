@@ -1,5 +1,5 @@
 //! Optimisers CO3.1, constraint 1: one hash of the bits of a seeded `FNO<4>` forward, two
-//! Adam epochs of `train_fno` and a three-epoch hybrid Gauss–Newton run, on tiny 2D
+//! Adam epochs of `train` and a three-epoch hybrid Gauss–Newton run, on tiny 2D
 //! datasets. Built with and without Burn's `linalg` feature, the hashes must be equal (see
 //! `../../REPORT.md`). Uses only API that exists on `main` before CO3.1.
 
@@ -16,7 +16,7 @@ use sciml_rs::neural_operators::{
     runs::{EpochMetrics, RunDir},
     training::{
         config::{OptimizerConfig, TrainingConfig},
-        trainer::train_fno,
+        trainer::train,
     },
 };
 
@@ -105,7 +105,7 @@ fn main() {
     ];
     for (name, cfg) in arms {
         let run = RunDir::create(&root, name).unwrap();
-        let (model, ms) = train_fno::<4, 3, _>(
+        let (model, ms) = train::<FNO<4>, 4, 3, _>(
             dataset(5),
             dataset(3),
             None,

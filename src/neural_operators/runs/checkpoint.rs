@@ -21,10 +21,7 @@ use burn::{
     tensor::{Bytes, Device},
 };
 
-use crate::neural_operators::{
-    models::{fno::FNO, operator::Operator},
-    optim::gauss_newton::GaussNewtonState,
-};
+use crate::neural_operators::{models::operator::Operator, optim::gauss_newton::GaussNewtonState};
 
 const MAGIC: &[u8; 8] = b"SCIMLCK1";
 
@@ -39,9 +36,6 @@ pub struct CheckpointState {
     /// done after a checkpoint and lost to an interruption is not counted.
     pub training_time_s: f64,
 }
-
-/// An FNO's checkpoint, read back by [`RunDir::checkpoint`](super::RunDir::checkpoint).
-pub type Checkpoint<const R: usize> = OperatorCheckpoint<FNO<R>>;
 
 /// A checkpoint of a run of the operator `M`, read back by
 /// [`RunDir::checkpoint_of`](super::RunDir::checkpoint_of): the state, the model, and the
