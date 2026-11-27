@@ -171,7 +171,8 @@ Follow-ups of the L3 gate (Q1), not part of its gate; they run after CL4.2:
 - [ ] **CL3.5 Exact 2D generator oracle.** L3 gate review finding 4: a test that pins the
   2D `generate()`'s `f` and `u` bit for bit, in process (D2), on a small fixed split, beside
   the exact-bytes `files_round_trip`. Test-only. *Done when:* the test passes on `main`'s
-  code and fails on a one-ulp change to a label. *Needs:* CL4.2.
+  code and fails on a one-ulp change to a label. *Needs:* CL4.2, waived by the author
+  2026-11-27 (CL4.2's s = 64 runs on the VM; CL3.5 touches none of its files or runs).
 - [ ] **CL3.6 One split type for 2D and 3D.** L3 gate review findings 1–3, 5, 7: one `Split`
   (generic over the dimension), one generator, label check and writer, and one catalogue set
   type, the 2D and 3D names kept as wrappers; `SidecarFacts` deleted; the 2D/`_nd` twins in
