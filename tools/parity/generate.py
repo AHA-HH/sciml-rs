@@ -166,6 +166,9 @@ CONFIGS = {
     # An odd centred count (7): the crate's corners carry a zero row for it (CM1.2).
     "fno2d_odd_stabilizer": (FNO, dict(n_modes=(7, 6), in_channels=1, out_channels=1, hidden_channels=6, fno_skip="identity", channel_mlp_skip=None, stabilizer="tanh"), (2, 1, 16, 14)),
     "fno1d_pre_no_mlp": (FNO, dict(n_modes=(8,), in_channels=1, out_channels=1, hidden_channels=6, use_channel_mlp=False, preactivation=True, stabilizer="tanh", non_linearity=F.relu), (2, 1, 32)),
+    # CM1.5c: 2.0.0's batch norm (eval: the running statistics), and no FNO skip at all.
+    "fno2d_batch_norm": (FNO, dict(n_modes=(6, 4), in_channels=1, out_channels=1, hidden_channels=6, norm="batch_norm"), (2, 1, 16, 12)),
+    "fno1d_pre_no_skip": (FNO, dict(n_modes=(8,), in_channels=1, out_channels=1, hidden_channels=6, norm="batch_norm", fno_skip=None, preactivation=True), (2, 1, 32)),
     "grid_embedding2d": (GridEmbeddingND, dict(in_channels=3, dim=2, grid_boundaries=BOUNDARIES), (2, 3, 6, 5)),
     "sinusoidal_transformer": (SinusoidalEmbedding, dict(in_channels=3, num_frequencies=4), (2, 10, 3)),
     "sinusoidal_nerf": (SinusoidalEmbedding, dict(in_channels=3, num_frequencies=4, embedding_type="nerf"), (2, 10, 3)),
@@ -176,6 +179,9 @@ CONFIGS = {
 # constant.
 # CM1.5a's sweeps: the soft-gating and group-norm weights.
 SWEEPS = {"fno3d", "fno2d_instance_pre", "fno1d_group_skips", "fno2d_separable", "fno2d_odd_stabilizer", "fno1d_pre_no_mlp"}
+# CM1.5c's: the batch norm's weights, and its running statistics (buffers, redrawn apart).
+BATCH_NORM = {"fno2d_batch_norm", "fno1d_pre_no_skip"}
+SWEEPS |= BATCH_NORM
 REDRAW = {"soft_gating2d", "group_norm3d"} | {n for n in CONFIGS if n.startswith("fno_blocks")} | SWEEPS
 DTYPES = {"f32": torch.float32, "f64": torch.float64}
 # f32 only: the legacy layer computes its spectrum in `cfloat` and returns f32 (no bias to
@@ -207,6 +213,13 @@ def build(name, dtype):
                 # (spectral) weights are drawn at random, never constant.
                 if not p.is_complex() and p.numel() > 1 and p.unique().numel() == 1:
                     p.copy_(torch.randn_like(p))
+            if name in BATCH_NORM:
+                # torch's initial statistics (mean 0, variance 1) would leave the map untested;
+                # the variance kept positive.
+                for m in model.modules():
+                    if isinstance(m, torch.nn.modules.batchnorm._BatchNorm):
+                        m.running_mean.copy_(torch.randn_like(m.running_mean))
+                        m.running_var.copy_(torch.rand_like(m.running_var) + 0.5)
     x = torch.randn(shape, generator=torch.Generator().manual_seed(INPUT_SEED))
     if dtype == torch.float64:
         for t in list(model.parameters()) + list(model.buffers()):
@@ -224,6 +237,8 @@ def arrays(model, x, dtype):
     for k, v in model.state_dict().items():
         if not torch.is_tensor(v):
             continue  # `_metadata`: 2.0.0's init kwargs, recorded in the sidecar instead
+        if not (v.is_floating_point() or v.is_complex()):
+            continue  # batch norm's integer `num_batches_tracked`: not used in eval
         if v.is_complex():
             complex_names.append(k)
             v = torch.view_as_real(v)
@@ -248,7 +263,9 @@ def reload_output(path, name, dtype, complex_names):
             key = k[len(PREFIX):]
             state[key] = torch.view_as_complex(t.contiguous()) if key in complex_names else t
         x = torch.from_numpy(f["input"])
-    model.load_state_dict(state, strict=True)  # 2.0.0's load_state_dict tolerates no `_metadata`
+    # 2.0.0's load_state_dict tolerates no `_metadata`; only `num_batches_tracked` is left out.
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    assert not unexpected and all(k.endswith("num_batches_tracked") for k in missing), (missing, unexpected)
     with torch.no_grad():
         return model(x).numpy()
 

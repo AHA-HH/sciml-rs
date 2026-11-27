@@ -1,6 +1,7 @@
 //! Library CM1.5a: 2.0.0's `FNO`, end to end, against the crate's `FNO`, in f32 (D3 as
 //! amended 2026-11-25): 2.0.0's defaults on a Burgers- and a Darcy-shaped input, and a sweep
-//! of its options (`tools/parity/generate.py`, CM1.5a's `SWEEPS`, f32 only). The f64
+//! of its options (`tools/parity/generate.py`, CM1.5a's `SWEEPS`, f32 only), and since CM1.5c
+//! batch norm and no FNO skip. The f64
 //! fixtures of the defaults are `tests/parity_fno_f64.rs`.
 
 #[path = "parity_common/fno.rs"]
@@ -98,6 +99,28 @@ const FNO1D_PRE_NO_MLP: Case = Case {
     ..FNO1D
 };
 
+/// 2.0.0's defaults with `norm="batch_norm"` (eval: the running statistics, redrawn);
+/// `n_modes=(6, 4)`, hidden 6, on (2, 1, 16, 12). Library CM1.5c.
+const FNO2D_BATCH_NORM: Case = Case {
+    stem: "fno2d_batch_norm",
+    hidden: 6,
+    n_modes: &[6, 4],
+    options: |c| c.with_norm(Some(NormKind::Batch)),
+    ..FNO1D
+};
+/// No FNO skip at all (2.0.0's `fno_skip=None`), batch norm, pre-activation; `n_modes=(8,)`,
+/// hidden 6, on (2, 1, 32). Library CM1.5c.
+const FNO1D_PRE_NO_SKIP: Case = Case {
+    stem: "fno1d_pre_no_skip",
+    hidden: 6,
+    options: |c| {
+        c.with_fno_skip(Some(SkipKind::Disabled))
+            .with_norm(Some(NormKind::Batch))
+            .with_preactivation(Some(true))
+    },
+    ..FNO1D
+};
+
 #[test]
 fn fno1d_matches_2_0_0() {
     check::<3>(&FNO1D, F32, &Device::default());
@@ -136,6 +159,35 @@ fn fno2d_odd_stabilizer_matches_2_0_0() {
 #[test]
 fn fno1d_pre_no_mlp_matches_2_0_0() {
     check::<3>(&FNO1D_PRE_NO_MLP, F32, &Device::default());
+}
+
+#[test]
+fn fno2d_batch_norm_matches_2_0_0() {
+    check::<4>(&FNO2D_BATCH_NORM, F32, &Device::default());
+}
+
+#[test]
+fn fno1d_pre_no_skip_matches_2_0_0() {
+    check::<3>(&FNO1D_PRE_NO_SKIP, F32, &Device::default());
+}
+
+/// The batch norm's running statistics are loaded and used: the first two norms' running
+/// variances loaded into each other's places break the f32 bound.
+#[test]
+fn swapped_batch_statistics_fail_parity() {
+    let swap = |map: &mut Vec<_>| {
+        for entry in map.iter_mut() {
+            let (_, to, _): &mut (&str, &str, _) = entry;
+            *to = match *to {
+                "norms.0.Batch.running_var" => "norms.1.Batch.running_var",
+                "norms.1.Batch.running_var" => "norms.0.Batch.running_var",
+                other => other,
+            };
+        }
+    };
+    let (y, mut fixture) = output::<4>(&FNO2D_BATCH_NORM, F32, swap, &Device::default());
+    let err = rel_max_error(y, &fixture.output());
+    assert!(err > D3_F32, "swapped statistics went unnoticed: {err:.3e}");
 }
 
 /// The map is not passing vacuously: layer 0's two corners loaded into each other's places

@@ -86,7 +86,8 @@ pub struct FNOConfig {
     // Each `None` is the original block, and an `Option` so that saved configs load as `None`.
     // The activation is `activation` above (2.0.0's `non_linearity`, default GELU).
     /// The skip added to each layer's convolution (2.0.0's `fno_skip`, default
-    /// [`SkipKind::Linear`], without bias); `None` is the original pointwise convolution with
+    /// [`SkipKind::Linear`], without bias); [`SkipKind::Disabled`] is none (2.0.0's
+    /// `fno_skip=None`, library CM1.5c); `None` is the original pointwise convolution with
     /// bias.
     pub fno_skip: Option<SkipKind>,
     /// A channel MLP in each layer (2.0.0's `use_channel_mlp`, default on); `None` is none.
@@ -190,7 +191,7 @@ pub struct FNO<const R: usize> {
     fc0: Linear,
     conv: Vec<SpectralConv<R>>,
     /// The original FNO skip, a pointwise convolution with bias; empty when
-    /// [`FNOConfig::fno_skip`] is set (then `fno_skips` holds the skips).
+    /// [`FNOConfig::fno_skip`] is set (then `fno_skips` holds the skips, none if disabled).
     w: Vec<Conv1d>,
     fc1: Linear,
     fc2: Linear,
@@ -269,8 +270,11 @@ impl FNOConfig {
         }
         let stored = self.max_modes.as_deref().unwrap_or(&self.modes);
         let init = self.spectral_init.clone().unwrap_or_default();
+        // Empty for no kind, and for `SkipKind::Disabled`, which builds no skip.
         let skips = |kind: Option<&SkipKind>| match kind {
-            Some(kind) => layers(self.n_layers, || kind.init(width, width, device)),
+            Some(kind) => (0..self.n_layers)
+                .filter_map(|_| kind.init(width, width, device))
+                .collect(),
             None => Vec::new(),
         };
 
@@ -509,7 +513,7 @@ impl<const R: usize> FNO<R> {
         let last = idx + 1 == self.conv.len();
         let mlp_skip = self.channel_mlp_skip(idx, &x);
         let x_fno = self.norm(2 * idx, self.spectral(idx, x.clone()), embedding);
-        let mut x = x_fno + self.fno_skip(idx, x);
+        let mut x = plus(x_fno, self.fno_skip(idx, x));
         if !last {
             x = self.activate(x);
         }
@@ -525,7 +529,8 @@ impl<const R: usize> FNO<R> {
         let last = idx + 1 == self.conv.len();
         let x = self.norm(2 * idx, self.activate(x), embedding);
         let mlp_skip = self.channel_mlp_skip(idx, &x);
-        let mut x = self.spectral(idx, x.clone()) + self.fno_skip(idx, x);
+        let x_fno = self.spectral(idx, x.clone());
+        let mut x = plus(x_fno, self.fno_skip(idx, x));
         if !last {
             x = self.activate(x);
         }
@@ -549,11 +554,13 @@ impl<const R: usize> FNO<R> {
         }
     }
 
-    /// Layer `idx`'s FNO skip: the configured one, or the original `w`.
-    fn fno_skip(&self, idx: usize, x: Tensor<R>) -> Tensor<R> {
-        match self.fno_skips.get(idx) {
-            Some(skip) => skip.forward(x),
-            None => conv1x1(&self.w[idx], x),
+    /// Layer `idx`'s FNO skip: the configured one, the original `w`, or none when
+    /// [`SkipKind::Disabled`].
+    fn fno_skip(&self, idx: usize, x: Tensor<R>) -> Option<Tensor<R>> {
+        match (self.fno_skips.get(idx), self.w.get(idx)) {
+            (Some(skip), _) => Some(skip.forward(x)),
+            (None, Some(w)) => Some(conv1x1(w, x)),
+            (None, None) => None,
         }
     }
 
@@ -569,10 +576,7 @@ impl<const R: usize> FNO<R> {
         let Some(mlp) = self.channel_mlp.get(idx) else {
             return x;
         };
-        match skip {
-            Some(skip) => mlp.forward(x) + skip,
-            None => mlp.forward(x),
-        }
+        plus(mlp.forward(x), skip)
     }
 
     /// Norm `k` (two per layer), or `x` unchanged without a norm.
@@ -581,6 +585,14 @@ impl<const R: usize> FNO<R> {
             Some(norm) => norm.forward(x, embedding),
             None => x,
         }
+    }
+}
+
+/// `x + skip`, or `x` without a skip.
+fn plus<const R: usize>(x: Tensor<R>, skip: Option<Tensor<R>>) -> Tensor<R> {
+    match skip {
+        Some(skip) => x + skip,
+        None => x,
     }
 }
 

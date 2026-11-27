@@ -94,7 +94,8 @@ pub fn lift_project(config: &FNOConfig, to: &str) -> Vec<MapEntry> {
 /// The parts of 2.0.0's `FNOBlocks` (`fno_blocks.*`) other than the spectral convolutions,
 /// for the block options of `options`, to the crate's `FNO` under the Burn path prefix `to`:
 /// the FNO skips, channel MLPs and their skips, and the norms (library CM1.3b). Burn names
-/// an enum module's parameters after the variant (`Linear`, `SoftGating`, `Group`, `AdaIn`).
+/// an enum module's parameters after the variant (`Linear`, `SoftGating`, `Group`, `AdaIn`,
+/// `Batch`).
 #[allow(dead_code, reason = "each FNO-family binary uses part of this map")]
 pub fn block_parts(options: &FNOConfig, to: &str) -> Vec<MapEntry> {
     let mut m = Vec::new();
@@ -111,7 +112,7 @@ pub fn block_parts(options: &FNOConfig, to: &str) -> Vec<MapEntry> {
                 leak(format!("{to}.SoftGating")),
                 Take::Whole,
             )),
-            Some(SkipKind::Identity) | None => {}
+            Some(SkipKind::Identity | SkipKind::Disabled) | None => {}
         }
     };
     for l in 0..options.n_layers {
@@ -166,6 +167,21 @@ pub fn block_parts(options: &FNOConfig, to: &str) -> Vec<MapEntry> {
                     m.push((
                         leak(format!("{f}.bias")),
                         leak(format!("{t}.bias")),
+                        Take::Whole,
+                    ));
+                }
+            }
+            // 2.0.0's `BatchNorm` wraps torch's as `norm`; the running statistics are buffers.
+            Some(NormKind::Batch) => {
+                for (f, t) in [
+                    ("weight", "gamma"),
+                    ("bias", "beta"),
+                    ("running_mean", "running_mean"),
+                    ("running_var", "running_var"),
+                ] {
+                    m.push((
+                        leak(format!("{from}.norm.{f}")),
+                        leak(format!("{to}.Batch.{t}")),
                         Take::Whole,
                     ));
                 }
