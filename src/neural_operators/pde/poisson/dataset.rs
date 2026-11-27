@@ -547,6 +547,159 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// The D2 oracle (3D CL3.5): [`generate`]'s body as it was at 94ef52e, verbatim but for
+    /// the wall time and [`label_check_frozen`]. Do not edit.
+    fn generate_frozen(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
+        let n = spec.n;
+        assert!(spec.count > 0, "generate: count must be > 0");
+        assert!(n >= 3, "generate: n must be >= 3, got {n}");
+        let k = spec.truncation();
+        let x = nodes(n);
+        let solver = CollocationSolver::new(n, n);
+        let transfers = Transfers::new(n);
+
+        let mut f = Array3::zeros((spec.count, n, n));
+        let mut u = Array3::zeros((spec.count, n, n));
+        let mut label = Vec::with_capacity(spec.count);
+        let mut err2 = Vec::with_capacity(spec.count);
+        for (i, (mut f_i, mut u_i)) in f
+            .axis_iter_mut(Axis(0))
+            .zip(u.axis_iter_mut(Axis(0)))
+            .enumerate()
+        {
+            let seed = spec
+                .base_seed
+                .checked_add(i as u64)
+                .expect("generate: base_seed + i overflows u64");
+            let c = forcing_coeffs(draw_xi(seed).view(), k);
+            f_i.assign(&evaluate(c.view(), x.view(), x.view()));
+            u_i.assign(&solver.solve_full(f_i.view()));
+            let u_series = evaluate(solution_coeffs(c.view()).view(), x.view(), x.view());
+            label.push(label_check_frozen(u_i.view(), u_series.view(), i, seed)?);
+            let round_trip = transfers.to_cheb(transfers.to_uniform(u_i.view()).view());
+            err2.push(cc_rel_l2_error(round_trip.view(), u_i.view()));
+        }
+
+        Ok(Split {
+            spec: spec.clone(),
+            k,
+            f,
+            u,
+            x,
+            label_check: ErrorStats::of(&label),
+            label_check_enforced: n >= LABEL_CHECK_MIN_N,
+            error2: ErrorStats::of(&err2),
+            wall_time: Duration::ZERO,
+        })
+    }
+
+    /// The D2 oracle's [`label_check`], its body as it was at 94ef52e (CL3.6 merges the
+    /// 2D and 3D checks). Do not edit.
+    fn label_check_frozen(
+        u_a: ArrayView2<f64>,
+        u_series: ArrayView2<f64>,
+        sample: usize,
+        seed: u64,
+    ) -> Result<f64, LabelCheckError> {
+        let error = cc_rel_l2_error(u_a, u_series);
+        let n = u_a.nrows();
+        assert_eq!(n, u_a.ncols(), "label_check: fields must be square");
+        if n >= LABEL_CHECK_MIN_N && (error.is_nan() || error > LABEL_CHECK_TOL) {
+            return Err(LabelCheckError {
+                sample,
+                seed,
+                n,
+                error,
+            });
+        }
+        Ok(error)
+    }
+
+    /// The first difference between two splits, every field but the wall time compared by
+    /// its bits (−0.0 ≠ +0.0), or `None`. The destructuring is exhaustive, so a field added
+    /// to [`Split`] does not compile until it is compared here.
+    fn split_bit_difference(new: &Split, old: &Split) -> Option<String> {
+        let Split {
+            spec,
+            k,
+            f,
+            u,
+            x,
+            label_check,
+            label_check_enforced,
+            error2,
+            wall_time: _,
+        } = new;
+        if (spec, k, label_check_enforced) != (&old.spec, &old.k, &old.label_check_enforced) {
+            return Some(format!(
+                "spec, K or enforcement: {:?} vs {:?}",
+                (spec, k, label_check_enforced),
+                (&old.spec, old.k, old.label_check_enforced)
+            ));
+        }
+        let stats = |s: &ErrorStats| [s.mean, s.max];
+        let (label_new, label_old) = (stats(label_check), stats(&old.label_check));
+        let (err2_new, err2_old) = (stats(error2), stats(&old.error2));
+        let fields: [(&str, &[f64], &[f64]); 5] = [
+            ("f", f.as_slice().unwrap(), old.f.as_slice().unwrap()),
+            ("u", u.as_slice().unwrap(), old.u.as_slice().unwrap()),
+            ("x", x.as_slice().unwrap(), old.x.as_slice().unwrap()),
+            ("label check [mean, max]", &label_new, &label_old),
+            ("error 2 [mean, max]", &err2_new, &err2_old),
+        ];
+        fields.into_iter().find_map(|(name, a, b)| {
+            if a.len() != b.len() {
+                return Some(format!("{name}: {} vs {} entries", a.len(), b.len()));
+            }
+            let i = a
+                .iter()
+                .zip(b)
+                .position(|(p, q)| p.to_bits() != q.to_bits())?;
+            Some(format!(
+                "{name}: flat index {i} differs: {:e} vs {:e}",
+                a[i], b[i]
+            ))
+        })
+    }
+
+    /// Constraint 1 (D2, L3 gate finding 4): `generate` returns the frozen body's arrays and
+    /// statistics bit for bit, with the label check recorded (n = 17) and enforced
+    /// (n = 65, explicit K).
+    #[test]
+    fn generate_is_bit_identical_to_frozen() {
+        let specs = [
+            SplitSpec {
+                n: 17,
+                k: None,
+                base_seed: 40,
+                count: 3,
+            },
+            SplitSpec {
+                n: 65,
+                k: Some(16),
+                base_seed: 7,
+                count: 2,
+            },
+        ];
+        for spec in &specs {
+            let (new, old) = (generate(spec).unwrap(), generate_frozen(spec).unwrap());
+            if let Some(difference) = split_bit_difference(&new, &old) {
+                panic!("n = {}: {difference}", spec.n);
+            }
+        }
+
+        // Control: the same split with one label entry one ulp off is caught.
+        let old = generate_frozen(&specs[0]).unwrap();
+        let mut moved = old.clone();
+        moved.u[[1, 8, 8]] = moved.u[[1, 8, 8]].next_up();
+        // Only the prefix: the values come from LAPACK, which differs by platform.
+        let difference = split_bit_difference(&moved, &old).expect("one ulp must be caught");
+        assert!(
+            difference.starts_with("u: flat index 433 differs"),
+            "{difference}"
+        );
+    }
+
     #[test]
     fn stages_use_the_default_truncation() {
         use crate::neural_operators::data::catalogue::STAGES;
