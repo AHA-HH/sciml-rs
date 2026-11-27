@@ -141,7 +141,8 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `models/operator.rs` (library CM0.3, D4: `Operator`, the trait every model implements for
   the training stack, with associated `Config`, `Input`, `Output` and `NAME`;
   `GridOperator<R>`, rank-R tensors in and out, which `training/`, `runs` and
-  `predict_host` are generic over; the FNO-named functions stay as wrappers),
+  `predict_host` are generic over; since CM0.6 the generic names only: `train::<FNO<R>, …>`,
+  `build_components`, `RunDir::load_model`, `checkpoint_of`, `OperatorCheckpoint<M>`),
   `models/registry.rs` (library CM0.4: `OperatorConfig::KIND`, the `kind` written first in
   `model_cfg.json`, absent meaning `"fno"`; `ModelConfig` and `Model<R>`, one enum variant
   per kind, built by name; `RunDir::any_model_config`),
@@ -182,8 +183,8 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `lr_schedule` (`None` the cosine, `LrSchedule::Step` halving every k epochs) and `loss`
   (`TrainLoss::SquaredRelL2`, PETScML's eq. 6, for the Adam path)), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
-  `training_loop` with its `EpochObserver`, `train_fno`), `gn` (Phase 10 T3:
-  `FnoResidual`, the FNO's Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
+  `training_loop` with its `EpochObserver<'_, M>`, `train`), `gn` (Phase 10 T3:
+  `GridResidual`, any `GridOperator`'s Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
   runs when the config asks for Gauss–Newton), `lbfgs` (optimisers CO2.1:
   `train_epoch_lbfgs`, one Burn `LBFGS::step` per epoch on the full batch, its closure Φ +
   ½μ‖θ‖², for `OptimizerConfig::Lbfgs(LbfgsArm)`), `learner` (Burn `Learner` impls).
@@ -218,12 +219,12 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   read), `save_plot`, `save_normalizers`, `save_weights`, `save_costs` (`costs.json`,
   Poisson runs since Phase 5 T4, `optimisation_steps` since Phase 7 T1, `resumes` since
   Phase 9 T1; `forward_passes` / `backward_passes` since Phase 10 T3), `save_checkpoint` /
-  `checkpoint::<R>(device)` (`checkpoint.bin`, Phase 9 T1; `save_checkpoint_gn` adds the
+  `checkpoint_of::<M>(device)` (`checkpoint.bin`, Phase 9 T1; `save_checkpoint_gn` adds the
   Gauss–Newton state, Phase 10 T3; `save_checkpoint_lbfgs` the L-BFGS record, optimisers
   CO2.1), `truncate_metrics`, and since Phase 10 T3
   `append_gn_step` (`gn_steps.csv`, `GnStepRecord`, the only writer), `truncate_gn_steps`
   and `gn_passes`; since CO2.1 `append_lbfgs_step` (`lbfgs_steps.csv`, `LbfgsStepRecord`),
-  `truncate_lbfgs_steps` and `lbfgs_passes`; `open(dir)`, `load_fno`, `model_config`,
+  `truncate_lbfgs_steps` and `lbfgs_passes`; `open(dir)`, `load_model::<M>`, `model_config`,
   `training_config`, `data_config::<C>`, `normalizers()`, `costs()`, `metrics()`, `artifacts()` (the files the MLflow export uploads). Run-file names appear
   nowhere else; examples pass `CARGO_MANIFEST_DIR/runs` as the root.
 - `tracking/` (behind `mlflow`, Phase 8 T1): `export_requests` (pure: a Poisson
@@ -287,7 +288,7 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   oracle), and `evaluate_3d` (the 2D record, error 1 quoted from 3D CL2.1) is driven by
   `examples/predict/poisson3d.rs` (`predict_poisson3d`) on runs of
   `examples/train/poisson3d.rs` (`train_poisson3d`, `FNO<5>`, D4).
-- `training/trainer` (`train_fno`, one trainer for every PDE: `Some(y)` decodes with the
+- `training/trainer` (`train`, one trainer for every PDE: `Some(y)` decodes with the
   target normaliser, `None` trains in physical units), driven on those datasets by
   `examples/train/poisson.rs` (`train_poisson`), which writes `runs/poisson_fno_p{p}_*/`.
 - `spikes/`: standalone packages, never built by CI: Phase 0 measurements, and

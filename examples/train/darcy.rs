@@ -28,11 +28,11 @@ use sciml_rs::neural_operators::{
         base_dataset::DatasetConfig,
         darcy::{DarcyConfig, load_darcy_uniform},
     },
-    models::fno::FNOConfig,
+    models::fno::{FNO, FNOConfig},
     runs::RunDir,
     training::{
         config::TrainingConfig,
-        trainer::{build_training_components, train_components},
+        trainer::{build_components, train_components},
     },
 };
 use std::path::Path;
@@ -172,9 +172,8 @@ fn main() {
         .as_ref()
         .map_or((0.0, 0), |ck| (ck.state.training_time_s, ck.state.resumes));
     let train_start = Instant::now();
-    let components = build_training_components::<4, 3, _>(
-        &model_cfg, &train_cfg, train_data, test_data, &device,
-    );
+    let components =
+        build_components::<FNO<4>, 4, 3, _>(&model_cfg, &train_cfg, train_data, test_data, &device);
     let (model, _) = train_components(
         components,
         Some(&normalizers.y),

@@ -10,7 +10,7 @@ use gnuplot::{AxesCommon, Caption, Figure};
 use sciml_rs::neural_operators::data::catalogue::DarcyFiles;
 use sciml_rs::neural_operators::{
     data::loaders::darcy::{DarcyConfig, load_darcy_test},
-    models::predict::predict_host,
+    models::{fno::FNO, predict::predict_host},
     runs::RunDir,
 };
 
@@ -25,7 +25,7 @@ fn main() {
     let device = Device::default();
 
     let model = run
-        .load_fno::<4>(&device)
+        .load_model::<FNO<4>>(&device)
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let dataset_cfg: DarcyConfig = run
