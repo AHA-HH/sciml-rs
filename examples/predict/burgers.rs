@@ -11,6 +11,7 @@ use sciml_rs::neural_operators::{
         device_batcher::device_loader,
         loaders::burgers::{BurgersConfig, load_burgers_uniform},
     },
+    models::fno::FNO,
     runs::RunDir,
     training::step::evaluate,
 };
@@ -24,7 +25,7 @@ fn main() {
 
     // Architecture from the saved config, weights from the saved record
     let model = run
-        .load_fno::<3>(&device)
+        .load_model::<FNO<3>>(&device)
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     // Same test split the run was evaluated on

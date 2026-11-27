@@ -604,6 +604,78 @@ template:
 - Follow-ups: CM3.6b (roadmap line); the refresh question; the wiring (an AdamW arm, after
   CO1.5).
 
+## 2026-11-27: CM0.6 Tidy after the generic stack
+- Done: the CM0.3 review's F1–F4. The FNO wrappers are retired and the generic names are
+  the API: `train_fno` → `train::<FNO<R>, R, RM1, _>`, `build_training_components` →
+  `build_components::<FNO<R>, …>`, `RunDir::load_fno` → `load_model::<FNO<R>>`,
+  `RunDir::checkpoint::<R>` → `checkpoint_of::<FNO<R>>`, `Checkpoint<R>` →
+  `OperatorCheckpoint<FNO<R>>` (retired, not deprecated: clippy's `-D warnings` would make
+  every deprecated call an error anyway). `EpochObserver<'a, M>` (no dead `R`);
+  `FnoResidual` → `GridResidual`; the four `#[cfg(test)]` import shims moved into their test
+  modules (the author's answer of 2026-11-25). `NpzFileReader::names()`, and the parity
+  harness reads the names from it (CM0.5's F1). Callers moved in `src/`, `examples/`,
+  `tests/`, `spikes/fno3d_cost` and `spikes/linalg`; root `CLAUDE.md`'s Layout updated. F5
+  (the trainer's test module) was done by optimisers CO1.5 (#176); its review findings on
+  that file are optional task CO1.6.
+- Tests: `tests/fno_bit_identity.rs` on the generic names (all on `main` since CO2.1) and a
+  fourth case, `lbfgs_epoch` (one L-BFGS epoch of a tiny FNO, checkpoint, reload, predict).
+  Existing tests changed only in renamed calls, moved imports and comments.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo check -p fno3d-cost-spike -p linalg-spike
+  --all-targets`, `cargo test` (556 passed), `cargo test --features datagen` (643 passed),
+  `cargo doc --no-deps` (no warnings); `fno_bit_identity` in release on an export of `main`
+  b2aa523 and on the branch: `forward` (65,536 bytes), `phase5_epoch` (28,481,592),
+  `gauss_newton_epoch` (22,476), `lbfgs_epoch` (17,112) `cmp` identical. Not run:
+  `--features metal` (names only, nothing backend-specific).
+- Decisions: none taken in the task. The PR's two questions, answered by the author
+  2026-11-27: retire `Operator::NAME` in favour of `OperatorConfig::KIND` as a follow-up
+  (CM0.7); drop `TrainingComponents`' `M = FNO<R>` default together with CO1.6's move of
+  `train_built` (CO1.6's line).
+- Review: plan review PASS (advisories: the historical `spikes/linalg/REPORT.md` and two test names keep `train_fno`/`load_fno`, left); code quality APPROVE with findings: F3 (doc wraps) and
+  F5 (one import) fixed; F1 a question; F2 (the session tuple spelt three times in
+  `examples/train`, pre-existing) and F4 (two test names keep the old names; `super::train`
+  where a local shadows it) left, in the PR.
+- FNO: unchanged bit for bit (the four dumps above against `main`).
+- Matrix: `Trainer` row names `train`.
+- Follow-ups: CM0.7 (retire `Operator::NAME`); CO1.6 (optional; its line in `docs/optimisers/roadmap.md`) also takes the
+  old F6 in `trainer/tests.rs` (the training config passed as the data config at four
+  sites), the test name `train_fno_none_matches_identity_path`, and the dropped `M = FNO<R>`
+  default.
+
+## 2026-11-27: CM1.5c Batch norm, and no FNO skip
+- Done: `NormKind::Batch` (Burn's `BatchNorm`: torch's eps, momentum and initial values;
+  the running statistics without autodiff, as torch's eval) and, on the author's answer to
+  CM1.5a's question 1, `SkipKind::Disabled` (2.0.0's `fno_skip=None`): `SkipKind::init`
+  returns an `Option`, and `FNOConfig::fno_skip: Some(Disabled)` builds neither a skip nor
+  `w` (`fno_skip: None` is still the 1×1 convolution with bias). Two f32 fixtures from
+  `generate.py` (`BATCH_NORM`, the running statistics redrawn, the variance positive;
+  integer `num_batches_tracked` left out of the fixture). The author's M1-gate rule for
+  boolean options recorded on CM1.5d's line.
+- Tests: `tests/parity_fno.rs`: `fno2d_batch_norm` 1.5e-6, `fno1d_pre_no_skip` (batch norm,
+  pre-activation) 3.0e-7 (D3 1e-5, f32, Flex, M2 Pro); the first two norms' running
+  variances swapped fail (control). Unit tests: the batch norm's initial values and its eval
+  closed form; `Disabled` builds nothing; an `FNO` with it has no `w` and runs.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (562 passed), `cargo test --features
+  datagen` (653 passed), `cargo doc --no-deps`, `cargo test --features metal --test
+  gpu_parity` (9) and `--test parity_fno` (12), `generate.py --check` (72 fixtures the same).
+  One `cargo test` run failed `training::trainer::tests::lbfgs_smoke_run_resumes_exactly`
+  (CO2.1's; train L² rose over three epochs); it passed alone three times and in the next
+  full run: flaky under parallel tests, outside this task (`training/`), reported in the PR.
+- Decisions: the author's of 2026-11-27 (CM1.5a's questions 1 and 2), recorded on CM1.5c's
+  and CM1.5d's lines.
+- Review: plan review PASS (advisories fixed: the control's wording, the initial running
+  statistics asserted, the frozen-layer wording). Code quality APPROVE with findings: F2
+  (indexing keeps a mismatch a panic), F3 (training hazards in `Norm::Batch`'s rustdoc and
+  the roadmap), F4 (one remap helper), F5 (`named_buffers`, `SWEEPS` defined once), F6
+  fixed; F1 (`SkipKind::init`'s `Option` and the `.unwrap()`s in tests) kept, with
+  `Some(Disabled)` documented on the channel MLP's skip.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` f7e769a and the branch,
+  separate target directories, `forward`, `phase5_epoch`, `gauss_newton_epoch` `cmp` same).
+- Matrix: `FNO`, `FNOBlocks`, `skip_connection`, the norms rows.
+- Follow-ups: training with batch norm (CM1.5c's line: Burn's biased running variance,
+  Gauss–Newton, L-BFGS, data parallel), a task only if a batch-norm model is trained.
+
 ## 2026-11-27: CM1.5b Domain padding and resampling
 - Done: `FNOConfig::domain_padding` (2.0.0's `DomainPadding`: a fraction per axis,
   `round(f · s)` zeros on both ends after the lifting, cropped by `round(p · r)` per side;

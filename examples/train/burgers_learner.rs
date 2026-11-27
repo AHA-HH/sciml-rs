@@ -28,9 +28,9 @@ use sciml_rs::neural_operators::{
         base_dataset::DatasetConfig,
         burgers::{BurgersConfig, load_burgers_uniform},
     },
-    models::fno::FNOConfig,
+    models::fno::{FNO, FNOConfig},
     runs::RunDir,
-    training::{config::TrainingConfig, trainer::build_training_components},
+    training::{config::TrainingConfig, trainer::build_components},
 };
 use std::path::Path;
 
@@ -104,9 +104,8 @@ fn main() {
 
     // Same model, Adam optimizer, cosine schedule and loaders as the
     // hand-written loop.
-    let c = build_training_components::<3, 2, _>(
-        &model_cfg, &train_cfg, train_data, test_data, &device,
-    );
+    let c =
+        build_components::<FNO<3>, 3, 2, _>(&model_cfg, &train_cfg, train_data, test_data, &device);
 
     // The configs go in before training so a run stopped early is still described.
     let run = RunDir::create(

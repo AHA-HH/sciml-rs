@@ -35,11 +35,11 @@ use sciml_rs::neural_operators::{
             },
         },
     },
-    models::fno::FNOConfig,
-    runs::{Checkpoint, RunCosts, RunDir},
+    models::fno::{FNO, FNOConfig},
+    runs::{OperatorCheckpoint, RunCosts, RunDir},
     training::{
         config::TrainingConfig,
-        trainer::{build_training_components, train_components},
+        trainer::{build_components, train_components},
     },
     utils::backend::{backend_features, git_commit},
 };
@@ -207,14 +207,14 @@ fn reopen(
     FNOConfig,
     TrainingConfig,
     PoissonConfig,
-    Checkpoint<5>,
+    OperatorCheckpoint<FNO<5>>,
 ) {
     let run = RunDir::open(dir).unwrap_or_else(|e| panic!("could not open the run: {e}"));
     let model_cfg = run.model_config().unwrap_or_else(|e| panic!("{e}"));
     let train_cfg = run.training_config().unwrap_or_else(|e| panic!("{e}"));
     let dataset_cfg: PoissonConfig = run.data_config().unwrap_or_else(|e| panic!("{e}"));
     let mut ck = run
-        .checkpoint::<5>(device)
+        .checkpoint_of::<FNO<5>>(device)
         .unwrap_or_else(|e| panic!("could not read the checkpoint: {e}"))
         .unwrap_or_else(|| panic!("{dir} has no checkpoint to resume from"));
     ck.state.resumes += 1;
@@ -281,9 +281,8 @@ fn main() {
         .as_ref()
         .map_or((0.0, 0), |ck| (ck.state.training_time_s, ck.state.resumes));
     let train_start = Instant::now();
-    let components = build_training_components::<5, 4, _>(
-        &model_cfg, &train_cfg, train_data, test_data, &device,
-    );
+    let components =
+        build_components::<FNO<5>, 5, 4, _>(&model_cfg, &train_cfg, train_data, test_data, &device);
     let (model, _) = train_components(
         components,
         Some(&normalizers.y),

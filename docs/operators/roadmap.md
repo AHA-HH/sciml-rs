@@ -22,9 +22,12 @@ D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outpu
 unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). CM1.5
 split 2026-11-26 into CM1.5a–d; CM1.5a done 2026-11-26 (2.0.0's whole `FNO` within D3; FNO
 outputs unchanged bit for bit). CM3.6 split 2026-11-27 into CM3.6a–b; CM3.6a done 2026-11-27
-(the Tensor GaLore projector for real tensors, not wired into training). CM1.5b done
-2026-11-27 (domain padding, resolution scaling, `resample`; FNO outputs unchanged bit for
-bit). Next CM0.6, CM1.5c, CM1.5d, CM3.6b.
+(the Tensor GaLore projector for real tensors, not wired into training). CM0.6 done
+2026-11-27 (one name per concept: the FNO wrappers retired; FNO outputs, Adam, Gauss–Newton
+and L-BFGS, unchanged bit for bit); CM0.7 added (retire `Operator::NAME`, the author's
+decision of 2026-11-27). CM1.5c done 2026-11-27 (batch norm and 2.0.0's `fno_skip=None`;
+FNO outputs unchanged bit for bit). CM1.5b done 2026-11-27 (domain padding, resolution
+scaling, `resample`; FNO outputs unchanged bit for bit). Next CM0.7, CM1.5d, CM3.6b.
 
 ## How to read this file
 
@@ -102,7 +105,7 @@ the feature matrix is verified.
   build the grid as 2.0.0 does (f32, then cast) before a non-power-of-two f64 fixture
   (CM1.1); a shared `flex_f64` helper with `tests/gauss_newton_f64.rs` and a generated map
   per block (CM1.5).
-- [ ] **CM0.6 Tidy after the generic stack.** The CM0.3 code-quality review's findings
+- [x] **CM0.6 Tidy after the generic stack.** The CM0.3 code-quality review's findings
   (`docs/operators/progress.md`, CM0.3): one name per concept for the FNO wrappers
   (`train_fno`, `build_training_components`, `load_fno`, `checkpoint`, `Checkpoint`) and
   their generic twins (keep, deprecate or retire); `FnoResidual` renamed for any operator;
@@ -111,7 +114,23 @@ the feature matrix is verified.
   the same bit-identity check as CM0.3 passes against `main`. *Needs:* CM0.3, and the
   author's answer on whether moving a test module's imports edits a test (CM0.3 PR):
   answered 2026-11-25, it does not; moving the `#[cfg(test)]` imports into their test
-  modules is allowed.
+  modules is allowed. Done 2026-11-27: plan `docs/operators/tasks/CM0.6.md`; the FNO
+  wrappers retired for the generic names (`train`, `build_components`,
+  `RunDir::load_model`, `RunDir::checkpoint_of`, `OperatorCheckpoint<M>`),
+  `EpochObserver<'a, M>`, `GridResidual`, the four test imports in their modules,
+  `NpzFileReader::names()` (CM0.5's follow-up); `tests/fno_bit_identity.rs` gains an
+  L-BFGS epoch, its four dumps identical to `main`. The test module split was done by
+  optimisers CO1.5 (#176, `training/trainer/tests.rs`); CO1.5's review findings on that
+  file are the optional task CO1.6, not CM0.6's. The PR's two questions, answered by the
+  author 2026-11-27: `Operator::NAME` (CM0.4's F3) is retired, in CM0.7;
+  `TrainingComponents`' `M = FNO<R>` default (CM0.6's review F1) is dropped with CO1.6's
+  move of `train_built` (`docs/optimisers/roadmap.md`).
+- [ ] **CM0.7 Retire `Operator::NAME`.** CM0.4's code-quality F3: `NAME` is always its
+  config's `OperatorConfig::KIND`, a second name for one concept. The author's decision of
+  2026-11-27 (CM0.6, #180): retire it in favour of `OperatorConfig::KIND`, as a follow-up.
+  *Done when:* `Operator` has no `NAME`; its readers use `<M::Config as
+  OperatorConfig>::KIND`; root `CLAUDE.md` and `feature-matrix.md` say so; the CM0.3
+  bit-identity check passes against `main`. *Needs:* CM0.6.
 
 ## M1: The FNO family
 
@@ -206,10 +225,19 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     `FNOConfig::{domain_padding, resolution_scaling_factor}`, `FNO::forward_with_output_shape`,
     `SpectralConv::forward_to`, `layers::resample`; `tests/parity_fno.rs` (eight fixtures,
     f32 ≤ 1.1e-6); CONVENTIONS §3's `padding` rejected with scaling or an output shape.
-  - [ ] **CM1.5c Batch norm.** `NormKind::Batch` as 2.0.0's `batch_norm` (eval mode: the
-    running statistics), and 2.0.0's `fno_skip=None` if the author wants it (CM1.5a PR).
-    *Done when:* an `FNO` fixture with `norm="batch_norm"` passes within D3 in f32; the
-    dumps equal `main`'s. *Needs:* CM1.5a.
+  - [x] **CM1.5c Batch norm.** `NormKind::Batch` as 2.0.0's `batch_norm` (eval mode: the
+    running statistics), and 2.0.0's `fno_skip=None`: the author decided 2026-11-27 (CM1.5a
+    PR question 1) yes, a block with no FNO skip at all, taken in this task, with
+    `FNOConfig::fno_skip: None` still today's 1×1 convolution with bias so that old configs
+    load unchanged. *Done when:* an `FNO` fixture with `norm="batch_norm"` passes within D3
+    in f32; the dumps equal `main`'s. *Needs:* CM1.5a. Done 2026-11-27: plan
+    `docs/operators/tasks/CM1.5c.md`; `NormKind::Batch` (Burn's `BatchNorm`), `SkipKind::Disabled`
+    (`SkipKind::init` now returns an `Option`); `tests/parity_fno.rs` `fno2d_batch_norm` 1.5e-6
+    and `fno1d_pre_no_skip` 3.0e-7 (f32, eval, the running statistics redrawn). Training with
+    batch norm is not checked: Burn's running variance is biased (torch's unbiased), and
+    Gauss–Newton (JVP without autodiff, VJP with), L-BFGS's repeated evaluations and the
+    data-parallel trainer do not account for running statistics (rustdoc of `Norm::Batch`);
+    a task of its own if a batch-norm model is ever trained.
   - [ ] **CM1.5d Tidy after full parity.** The CM1.3b, CM1.4 and CM1.2 follow-ups above
     not taken by CM1.5a: the `FNOConfig` literals, one coordinate-channel builder (the
     dumps and `gpu_parity` decide), `layers/spectral_convolution.rs` split, one shared
@@ -217,8 +245,11 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     private. From CM1.5a's code-quality review: CM0.5's test-only `Fno1dRef`
     (`tests/parity_common/fno1d.rs`, `tests/parity_fno1d*.rs`) retired, its harness
     self-checks ported to the library `FNO` (F4); one rule for `FNOConfig`'s boolean options
-    (`Option<bool>` with `None` false, or `#[config(default = false)]`; F7, the author's
-    choice at the M1 gate); `parity_common::fno::output`'s map hook replaced by a load step
+    (F7): the author's M1-gate rule, decided 2026-11-27 (CM1.5a PR question 2), is
+    `Option<bool>` with `None` meaning `false`, never `#[config(default = false)]`, because
+    Burn's `Config` derive gives fields no serde default and a plain `bool` would fail to
+    load older `model_cfg.json` files; every new option follows it, and this task may add a
+    test loading an old `model_cfg.json`; `parity_common::fno::output`'s map hook replaced by a load step
     the control can corrupt (F6). From CM1.5b's code-quality review: `fft_ctensor` and
     `ifft_ctensor` moved to `utils/fft.rs`, with one inverse that resizes and scales for
     `SpectralConv::forward_to` and `resample` (F2, F3); `spectral_convolution.rs`'s tests in a

@@ -1,6 +1,6 @@
 //! L-BFGS training (optimisers CO2.1; proposal §4): [`train_epoch_lbfgs`], one Burn
 //! `LBFGS::step` per epoch on the full batch, its closure Gauss–Newton's objective Φ
-//! ([`FnoResidual`], D3) plus ½μ‖θ‖² (D13), the counterpart of
+//! ([`GridResidual`], D3) plus ½μ‖θ‖² (D13), the counterpart of
 //! [`train_epoch_gn`](super::gn::train_epoch_gn).
 
 use std::sync::Arc;
@@ -20,7 +20,7 @@ use crate::neural_operators::{
     runs::LbfgsStepRecord,
     training::{
         config::LbfgsArm,
-        gn::FnoResidual,
+        gn::GridResidual,
         step::{StepLoss, forward_loss},
         trainer::EpochMeans,
     },
@@ -46,7 +46,7 @@ impl ModuleVisitor for HalfSquaredNorm {
 /// when `mu` > 0 (at μ = 0 exactly Φ, with no extra operations). A scalar, `[1]`.
 fn objective<const R: usize, const RM1: usize, M: GridOperator<R>>(
     model: &M,
-    residual: &FnoResidual<'_, R, RM1>,
+    residual: &GridResidual<'_, R, RM1>,
     batch: &Batch<R, RM1>,
     mu: f64,
 ) -> Tensor<1> {
@@ -111,7 +111,7 @@ pub fn train_epoch_lbfgs<const R: usize, const RM1: usize, M: GridOperator<R>>(
     let train_mse = (out - target).powf_scalar(2.0).mean().into_scalar::<f32>();
     let train_l2 = l2_sum.into_scalar::<f32>() / loader.num_items() as f32;
 
-    let residual = FnoResidual::<R, RM1>::new(decoder);
+    let residual = GridResidual::<R, RM1>::new(decoder);
     let (mut closure_evals, mut phi_before) = (0, None);
     let start = Instant::now();
     let (model, phi_after) = lbfgs.step(arm.learning_rate, model, |m: M| {
@@ -221,7 +221,7 @@ mod tests {
             .next()
             .unwrap()
             .unwrap();
-        let residual = FnoResidual::<3, 2>::new(None);
+        let residual = GridResidual::<3, 2>::new(None);
         let at = |mu| objective(&model, &residual, &batch, mu).into_scalar::<f64>();
         let phi = 0.5
             * residual

@@ -12,10 +12,6 @@ use crate::neural_operators::{
     models::operator::GridOperator,
 };
 
-// for the tests' `use super::*`, written when the step took the FNO
-#[cfg(test)]
-use crate::neural_operators::models::fno::FNO;
-
 /// Collapse model output (rank `IR`, trailing channel axis) and target
 /// (rank `RM1 = R - 1`) to the rank-2 pair `LpLoss` requires.
 ///
@@ -165,7 +161,7 @@ mod tests {
             dataset::OperatorDataset, device_batcher::device_loader,
             transforms::normalizers::UnitGaussianNormalizer,
         },
-        models::fno::FNOConfig,
+        models::fno::{FNO, FNOConfig},
         training::fixtures::{tiny_dataset, tiny_dataset_2d, tiny_model_cfg},
     };
 

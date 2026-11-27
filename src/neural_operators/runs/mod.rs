@@ -7,7 +7,7 @@
 //! - `x_normalizer.json`, `y_normalizer.json`: Darcy and Poisson runs only;
 //! - `model_weights.bpk`: the model;
 //! - `costs.json` ([`RunCosts`]): Poisson runs since Phase 5 T4;
-//! - `checkpoint.bin` ([`Checkpoint`]): the latest checkpoint, Poisson runs since Phase 9
+//! - `checkpoint.bin` ([`OperatorCheckpoint`]): the latest checkpoint, Poisson runs since Phase 9
 //!   T1, replaced every k epochs and after the last;
 //! - `gn_steps.csv` ([`GnStepRecord`]): one row per Gauss–Newton step, Gauss–Newton runs
 //!   only (Phase 10 T3);
@@ -31,7 +31,7 @@ mod gn_steps;
 mod lbfgs_steps;
 mod plots;
 
-pub use checkpoint::{Checkpoint, CheckpointState, OperatorCheckpoint};
+pub use checkpoint::{CheckpointState, OperatorCheckpoint};
 pub use costs::RunCosts;
 pub use gn_steps::{GnPasses, GnStepRecord};
 pub use lbfgs_steps::LbfgsStepRecord;
@@ -56,7 +56,7 @@ use crate::neural_operators::{
     },
     metrics::poisson::ERRORS_JSON,
     models::{
-        fno::{FNO, FNOConfig},
+        fno::FNOConfig,
         operator::Operator,
         registry::{KindField, ModelConfig, OperatorConfig, Tagged},
     },
@@ -190,7 +190,7 @@ impl RunDir {
     }
 
     /// Appends one epoch's row to `metrics.csv`, writing the header first if the file is
-    /// new: the file's only writer. Training calls this after every epoch (`train_fno`), so
+    /// new: the file's only writer. Training calls this after every epoch (`train`), so
     /// a run that stops early keeps the rows of its finished epochs.
     ///
     /// # Errors
@@ -328,14 +328,6 @@ impl RunDir {
         let mut model = M::init(&self.model_config_of()?, device);
         model.load_from(&mut BurnpackStore::from_file(self.path.join(WEIGHTS_STEM)))?;
         Ok(model)
-    }
-
-    /// [`load_model`](Self::load_model) for the FNO.
-    ///
-    /// # Errors
-    /// As [`load_model`](Self::load_model).
-    pub fn load_fno<const R: usize>(&self, device: &Device) -> Result<FNO<R>, Box<dyn Error>> {
-        self.load_model(device)
     }
 
     /// The model's architecture, from `model_cfg.json`.
@@ -570,17 +562,6 @@ impl RunDir {
             .map(Some)
             .map_err(|e| format!("{}: {e}", path.display()).into())
     }
-
-    /// [`checkpoint_of`](Self::checkpoint_of) for the FNO.
-    ///
-    /// # Errors
-    /// As [`checkpoint_of`](Self::checkpoint_of).
-    pub fn checkpoint<const R: usize>(
-        &self,
-        device: &Device,
-    ) -> Result<Option<Checkpoint<R>>, Box<dyn Error>> {
-        self.checkpoint_of(device)
-    }
 }
 
 #[cfg(test)]
@@ -588,7 +569,7 @@ mod tests {
     use super::*;
     use crate::neural_operators::{
         data::loaders::{base_dataset::DatasetConfig, darcy::DarcyConfig},
-        models::predict::predict_host,
+        models::{fno::FNO, predict::predict_host},
     };
     use ndarray::{Array4, ArrayD, IxDyn};
 
@@ -685,7 +666,7 @@ mod tests {
         assert!(run.path().join("model_weights.bpk").exists());
 
         let opened = RunDir::open(run.path()).unwrap();
-        let loaded: FNO<4> = opened.load_fno(&device).unwrap();
+        let loaded: FNO<4> = opened.load_model(&device).unwrap();
         let x = Array4::from_shape_fn((2, 8, 8, 1), |(k, i, j, _)| {
             ((k * 64 + i * 8 + j) as f32 * 0.37).sin()
         });
@@ -815,7 +796,7 @@ mod tests {
         let run = RunDir::create(&root, "test_fno").unwrap();
         run.save_configs(&model_config(), &TrainingConfig::new(), &data_config())
             .unwrap();
-        assert!(run.checkpoint::<4>(&device).unwrap().is_none());
+        assert!(run.checkpoint_of::<FNO<4>>(&device).unwrap().is_none());
 
         let model: FNO<4> = model_config().init::<4>(&device);
         let optim: ModuleOptimizer = AdamConfig::new().init();
@@ -830,7 +811,10 @@ mod tests {
         run.save_checkpoint(&state, &model, &optim, &scheduler)
             .unwrap();
         assert!(!run.path().join(CHECKPOINT_TMP).exists());
-        let read = run.checkpoint::<4>(&device).unwrap().expect("saved");
+        let read = run
+            .checkpoint_of::<FNO<4>>(&device)
+            .unwrap()
+            .expect("saved");
         assert_eq!(read.state, state);
 
         let path = run.path().join(CHECKPOINT);
@@ -844,7 +828,7 @@ mod tests {
         ] {
             std::fs::write(&path, broken).unwrap();
             let msg = run
-                .checkpoint::<4>(&device)
+                .checkpoint_of::<FNO<4>>(&device)
                 .err()
                 .expect("a broken checkpoint")
                 .to_string();
@@ -863,7 +847,7 @@ mod tests {
         assert!(run.costs().unwrap().is_none());
         assert!(run.data_config::<DarcyConfig>().is_err());
         assert_eq!(run.metrics().unwrap_err().kind(), io::ErrorKind::NotFound);
-        assert!(run.load_fno::<4>(&Device::default()).is_err());
+        assert!(run.load_model::<FNO<4>>(&Device::default()).is_err());
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -953,7 +937,7 @@ mod tests {
             err.ends_with("a model of kind `pointwise`, not `fno`"),
             "{err}"
         );
-        let err = run.load_fno::<4>(&device).unwrap_err().to_string();
+        let err = run.load_model::<FNO<4>>(&device).unwrap_err().to_string();
         assert!(
             err.ends_with("a model of kind `pointwise`, not `fno`"),
             "{err}"
@@ -965,7 +949,7 @@ mod tests {
         );
 
         std::fs::write(&path, json.replacen('{', "{\"kind\": \"fno\",", 1)).unwrap();
-        assert!(run.load_fno::<4>(&device).is_ok());
+        assert!(run.load_model::<FNO<4>>(&device).is_ok());
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

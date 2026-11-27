@@ -1,6 +1,6 @@
 //! Batched inference with a saved run's model.
 //!
-//! `runs::RunDir::load_model` (`load_fno` for the FNO) rebuilds the model on any device;
+//! `runs::RunDir::load_model` rebuilds the model on any device;
 //! [`predict_host`] runs any [`GridOperator`] over a host batch of inputs of any rank and
 //! returns the outputs on the host as f64, ready for decoding and the errors.
 
@@ -8,10 +8,6 @@ use burn::tensor::{Device, Tensor, TensorData};
 use ndarray::{ArrayD, ArrayViewD, Axis, IxDyn, Slice};
 
 use crate::neural_operators::models::operator::GridOperator;
-
-// for the tests' `use super::*`, written when `predict_host` took the FNO
-#[cfg(test)]
-use crate::neural_operators::models::fno::FNO;
 
 /// The outputs of `model` on `inputs`, forwarded in batches of `batch_size` in sample
 /// order on `device` and copied back to the host as f64.
@@ -62,7 +58,7 @@ pub fn predict_host<const R: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::models::fno::FNOConfig;
+    use crate::neural_operators::models::fno::{FNO, FNOConfig};
     use ndarray::{Array3, Array4, s};
 
     fn config() -> FNOConfig {

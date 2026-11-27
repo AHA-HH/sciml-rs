@@ -19,9 +19,9 @@
 
 use burn::{config::Config, tensor::Device};
 use sciml_rs::neural_operators::{
-    models::fno::FNOConfig,
+    models::fno::{FNO, FNOConfig},
     optim::gauss_newton::{GaussNewtonConfig, Preconditioner},
-    runs::{Checkpoint, RunCosts, RunDir},
+    runs::{OperatorCheckpoint, RunCosts, RunDir},
     training::{
         config::{LbfgsArm, LrSchedule, OptimizerConfig, TrainingConfig},
         gn::training_passes,
@@ -253,7 +253,13 @@ pub const CHECKPOINT_EVERY: usize = 25;
 
 /// A run's directory, model, training and data (`C`) configs, and the checkpoint of a
 /// rank-`R` FNO it resumes from (`None` for a new run).
-pub type Session<const R: usize, C> = (RunDir, FNOConfig, TrainingConfig, C, Option<Checkpoint<R>>);
+pub type Session<const R: usize, C> = (
+    RunDir,
+    FNOConfig,
+    TrainingConfig,
+    C,
+    Option<OperatorCheckpoint<FNO<R>>>,
+);
 
 /// The run to train: with `--resume <dir>` as the first arguments, that run reopened from
 /// its checkpoint on `device` ([`reopen`]); otherwise `new_run()`, a new run whose configs
@@ -302,13 +308,19 @@ fn resume_dir() -> Option<String> {
 fn reopen<const R: usize, C: Config>(
     dir: &str,
     device: &Device,
-) -> (RunDir, FNOConfig, TrainingConfig, C, Checkpoint<R>) {
+) -> (
+    RunDir,
+    FNOConfig,
+    TrainingConfig,
+    C,
+    OperatorCheckpoint<FNO<R>>,
+) {
     let run = RunDir::open(dir).unwrap_or_else(|e| panic!("could not open the run: {e}"));
     let model_cfg = run.model_config().unwrap_or_else(|e| panic!("{e}"));
     let train_cfg = run.training_config().unwrap_or_else(|e| panic!("{e}"));
     let dataset_cfg: C = run.data_config().unwrap_or_else(|e| panic!("{e}"));
     let mut ck = run
-        .checkpoint::<R>(device)
+        .checkpoint_of::<FNO<R>>(device)
         .unwrap_or_else(|e| panic!("could not read the checkpoint: {e}"))
         .unwrap_or_else(|| panic!("{dir} has no checkpoint to resume from"));
     ck.state.resumes += 1;

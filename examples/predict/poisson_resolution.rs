@@ -30,7 +30,7 @@ use sciml_rs::neural_operators::{
         poisson::{check_error3, poisson_errors},
         stats::ErrorStats,
     },
-    models::predict::predict_host,
+    models::{fno::FNO, predict::predict_host},
     runs::RunDir,
     utils::backend::backend_features,
 };
@@ -53,7 +53,7 @@ fn main() {
     // Inference only: no autodiff, so forward passes record no backward graph.
     let device = Device::default();
     let model = run
-        .load_fno::<4>(&device)
+        .load_model::<FNO<4>>(&device)
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     let trained_cfg = run

@@ -179,9 +179,14 @@ weight decay accounts for.
   Done 2026-11-27: `docs/optimisers/tasks/CO1.5.md`.
 - [ ] **CO1.6 Tidy `trainer/tests.rs`.** CO1.5's code-quality review: (F1) its 11 sections,
   named by the phase that added them, become submodules named by what they test, with the
-  shared helpers in `trainer/tests/mod.rs`; (F2) `train_built` and the test-only
-  `use burn::module::Module` move from `trainer.rs` into the tests; (F3) the repeated
-  `load_poisson_uniform` closures and temporary-directory setup become fixtures.
+  shared helpers in `trainer/tests/mod.rs`; (F2) `train_built` moves from `trainer.rs`
+  into the tests (the test-only `use burn::module::Module` moved there in library CM0.6);
+  (F3) the repeated `load_poisson_uniform` closures and temporary-directory setup become
+  fixtures. Also from library CM0.6: the training config passed as the data config to
+  `save_configs` (CM0.3's F6, four sites), and `train_fno_none_matches_identity_path` named
+  for `train`; and, the author's decision of 2026-11-27 (library CM0.6, #180), the
+  `M = FNO<R>` default dropped from `TrainingComponents` once `train_built` is in the tests
+  (every remaining use then names `FNO<R>`).
   *Done when:* the same tests, by name but for their new module path, and count, pass; no
   code outside `#[cfg(test)]` changed. *Needs:* CO1.5; no other `training/` task open
   beside it. Optional: nothing waits for it.
@@ -252,7 +257,10 @@ results written.
   Burgers at equal time if D14 is. *Done when:* `docs/optimisers/results/CO4.1.md` with
   error 4 against time and passes per arm, and the equal-time verdict with its spread; with
   D13, whether weight decay's effect splits by whether the arm reaches the penalised
-  minimiser (full-batch GN and L-BFGS) or is stochastic first-order (Adam, SOAP). *Needs:* CO0.1, CO2.2, CO3.3, D1, D5, D6, D13, D14
+  minimiser (full-batch GN and L-BFGS) or is stochastic first-order (Adam, SOAP); per run a
+  stability table as CO0.1's: NaN and inf (non-finite trial losses) reported separately,
+  and a step counted wild at |ρ| > 1e3, non-finite ρ included (the author, 2026-11-27,
+  CO0.1 audit #179). *Needs:* CO0.1, CO2.2, CO3.3, D1, D5, D6, D13, D14
   (CO1.3 if D14 is taken). *Machines:* the VM.
 
 ## O5: The 3D arms
