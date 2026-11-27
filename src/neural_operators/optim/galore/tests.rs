@@ -97,19 +97,68 @@ fn exact_tucker_tensor_is_reproduced() {
     assert!(max_abs(p.project_back(low) - x.clone()) < 1e-5 * max_abs(x));
 }
 
-/// As 2.0.0, later calls keep the first factors, even at the next gap.
-#[test]
-fn factors_are_not_refreshed() {
+/// Projects a new gradient `draw(iter)` at every `iter` 0..=4 with a projector of gap 2 and
+/// ranks 2, from `init()` alone (the default) or with `with_refresh(true)` when `refreshes`,
+/// and checks its factors: those of `tucker_factors` of the gradient of the last refresh, bit
+/// for bit, a refresh being `iter` 0 and, when `refreshes`, every even `iter`; each refresh
+/// changes them (by more than 1e-3) and every other step leaves them bit for bit.
+fn check_refresh_schedule<T: GaLoreTensor<2>>(
+    refreshes: bool,
+    draw: impl Fn(u64) -> T,
+    dist: impl Fn(&T::Factor, &T::Factor) -> f64,
+) {
     let mut p = TensorGaLoreConfig {
         rank: GaLoreRank::Uniform(2),
-        update_proj_gap: 3,
+        update_proj_gap: 2,
         scale: 1.0,
     }
-    .init::<2, Tensor<2>>();
-    p.project(draw([5, 4], 7), 0);
-    let first = p.factors().unwrap()[0].clone();
-    p.project(draw([5, 4], 8), 3);
-    assert_eq!(max_abs(p.factors().unwrap()[0].clone() - first), 0.0);
+    .init::<2, T>();
+    if refreshes {
+        p = p.with_refresh(true);
+    }
+    let mut expected: Option<[T::Factor; 2]> = None;
+    for iter in 0..=4 {
+        let grad = draw(iter as u64);
+        let before = p.factors().cloned();
+        p.project(grad.clone(), iter);
+        let now = p.factors().unwrap();
+        let refreshed = iter == 0 || (refreshes && iter % 2 == 0);
+        if refreshed {
+            expected = Some(tucker_factors(grad, [2, 2]));
+        }
+        for k in 0..2 {
+            assert_eq!(
+                dist(&now[k], &expected.as_ref().unwrap()[k]),
+                0.0,
+                "iter {iter}"
+            );
+            if let Some(before) = &before {
+                let moved = dist(&now[k], &before[k]);
+                assert!(refreshed == (moved > 1e-3), "iter {iter}: moved {moved}");
+                assert!(refreshed || moved == 0.0, "iter {iter}: moved {moved}");
+            }
+        }
+    }
+}
+
+fn real_refresh_schedule(refreshes: bool) {
+    check_refresh_schedule(
+        refreshes,
+        |i| draw([5, 4], 7 + i),
+        |a: &Tensor<2>, b: &Tensor<2>| max_abs(a.clone() - b.clone()),
+    );
+}
+
+/// As 2.0.0 (the default), later calls keep the first factors, even at every later gap.
+#[test]
+fn factors_are_not_refreshed() {
+    real_refresh_schedule(false);
+}
+
+/// With the refresh on (CM3.6c), the factors are recomputed at every multiple of the gap.
+#[test]
+fn factors_refresh_every_gap_when_on() {
+    real_refresh_schedule(true);
 }
 
 #[test]
@@ -240,6 +289,24 @@ fn complex_full_rank_round_trip_is_scale_times_identity() {
     let low = p.project(grad.clone(), 7);
     let back = p.project_back(low);
     assert!(complex_max_abs(back - grad.scaled(0.5)) < 1e-5);
+}
+
+fn complex_refresh_schedule(refreshes: bool) {
+    check_refresh_schedule(
+        refreshes,
+        |i| complex_draw([5, 4], 50 + i),
+        |a: &ComplexTensor<2>, b: &ComplexTensor<2>| complex_max_abs(a.clone() - b.clone()),
+    );
+}
+
+#[test]
+fn complex_factors_are_not_refreshed() {
+    complex_refresh_schedule(false);
+}
+
+#[test]
+fn complex_factors_refresh_every_gap_when_on() {
+    complex_refresh_schedule(true);
 }
 
 /// A complex tensor of exact Tucker rank (2, 3, 2) is reproduced from its projection.
