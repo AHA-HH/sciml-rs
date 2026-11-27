@@ -614,8 +614,8 @@ template:
   amplitude; at the input's size the same operations as `forward`); `layers::resample`
   (2.0.0's `resample`: linear 1D and bicubic 2D through Burn's `interpolate` with
   `AlignCorners`, a Fourier resize for three or more axes). CONVENTIONS §3's `padding` is
-  rejected with scaling or an output shape, and domain padding with more than one scaled
-  layer (2.0.0 runs padding with scaling only in a one-layer FNO).
+  rejected with scaling or an output shape, and domain padding with scaling in an FNO of
+  more than one layer (2.0.0 runs padding with scaling only in a one-layer FNO).
 - Tests: `tests/parity_fno.rs`, eight new f32 fixtures from `generate.py` (`SWEEPS`):
   `fno1d_padding` 1.5e-7, `fno2d_padding` 3.6e-7, `fno3d_padding` 3.7e-7, `fno1d_scaling`
   1.5e-7, `fno2d_scaling` 4.6e-7, `fno3d_scaling` 6.1e-7, `fno2d_padding_scaling` 1.1e-6,
@@ -630,8 +630,11 @@ template:
   --all-targets`), `cargo test`, `cargo test --features datagen`, `cargo doc --no-deps`,
   `--features metal` for `parity_fno`, the new unit tests and `gpu_parity`, `generate.py
   --check` (every fixture the same), the bit-identity dumps: all passed (see the PR).
-- Decisions: none. Question for sign-off: a CONVENTIONS §4 verification entry for how
-  `irfft` treats the DC and Nyquist imaginary parts, which the resize relies on.
+- Decisions: answered 2026-11-27 by the author (#183): (1) yes, CONVENTIONS §4's
+  verification gains `fno3d_scaling_matches_2_0_0` for the DC and Nyquist imaginary parts
+  (no convention change, no `CONVENTION_VERSION` bump); (2) reject scaling with domain
+  padding beyond a one-layer FNO, as 2.0.0 effectively does (`init` panics; tests
+  `domain_padding_with_{two_scaled_layers,one_scaled_layer_of_two}_panics`).
 - Review: plan review PASS with advisories (the F1 fix committed; CONVENTIONS §4 cited for the
   amplitude; "as in 2.0.0" reworded; the hand control recorded here; the §4 entry asked).
   Code quality BLOCKED (F1: §3's `padding` with scaling or an output shape cropped to the

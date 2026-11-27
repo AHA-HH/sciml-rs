@@ -58,8 +58,8 @@ unchanged bit for bit.
 - `models/fno/mod.rs`: `FNOConfig::domain_padding: Option<Vec<f64>>` (a fraction per
   spatial axis, symmetric), `FNOConfig::resolution_scaling_factor: Option<Vec<Vec<f64>>>`
   (per layer, per axis); `FNO::forward_with_output_shape(x, out)`. `None` is today's model.
-  With both options the crop removes `round(p · r)` per side, `r` the one scaled layer's
-  factor (2.0.0's rule; more than one scaled layer panics, as 2.0.0 raises). `init` panics on
+  With both options the crop removes `round(p · r)` per side (2.0.0's rule); scaling with
+  domain padding needs a one-layer FNO, as 2.0.0 (the author's answer of 2026-11-27). `init` panics on
   both paddings set, on CONVENTIONS §3's `padding` with scaling (its crop restores the
   unscaled extents; code-quality review F1), or on a wrong length;
   `forward_with_output_shape` panics with either padding (2.0.0 raises `KeyError` unless the
@@ -106,6 +106,10 @@ None.
 None.
 
 ## Open questions
+
+Both answered by the author, 2026-11-27 (#183): (1) yes, the §4 verification entry, no
+convention change and no `CONVENTION_VERSION` bump; (2) reject scaling with domain padding
+in an FNO of more than one layer, as 2.0.0 effectively does (a panic in `init`, with tests).
 
 1. CONVENTIONS §4 says `irfft`'s treatment of a nonzero imaginary part in the DC and
    Nyquist bins is not fixed by a test, and that a design relying on it adds one and records

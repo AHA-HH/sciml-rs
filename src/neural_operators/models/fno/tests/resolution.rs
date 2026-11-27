@@ -98,11 +98,30 @@ fn padding_with_scaling_panics() {
 }
 
 #[test]
-#[should_panic(expected = "at most one scaled layer")]
+#[should_panic(expected = "needs a one-layer FNO")]
 fn domain_padding_with_two_scaled_layers_panics() {
     config()
         .with_domain_padding(Some(vec![0.1; 2]))
         .with_resolution_scaling_factor(Some(vec![vec![2.0; 2]; 2]))
+        .init::<4>(&Device::default());
+}
+
+/// Scaling one layer of two with domain padding is rejected too (the author, 2026-11-27).
+#[test]
+#[should_panic(expected = "needs a one-layer FNO")]
+fn domain_padding_with_one_scaled_layer_of_two_panics() {
+    config()
+        .with_domain_padding(Some(vec![0.1; 2]))
+        .with_resolution_scaling_factor(Some(vec![vec![2.0, 1.0], vec![1.0; 2]]))
+        .init::<4>(&Device::default());
+}
+
+/// Unit factors scale nothing, so domain padding takes them in any FNO.
+#[test]
+fn domain_padding_with_unit_factors_builds() {
+    config()
+        .with_domain_padding(Some(vec![0.1; 2]))
+        .with_resolution_scaling_factor(Some(vec![vec![1.0; 2]; 2]))
         .init::<4>(&Device::default());
 }
 
