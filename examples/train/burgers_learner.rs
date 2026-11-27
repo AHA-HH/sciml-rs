@@ -88,6 +88,8 @@ fn main() {
         separable: None,
         max_modes: None,
         tanh_stabilizer: None,
+        domain_padding: None,
+        resolution_scaling_factor: None,
     };
 
     // 100 epochs, fewer than `train_burgers`' 500, so a TUI run finishes

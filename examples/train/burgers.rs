@@ -121,6 +121,8 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
         separable: None,
         max_modes: None,
         tanh_stabilizer: None,
+        domain_padding: None,
+        resolution_scaling_factor: None,
     };
 
     // Set the training configuration, test_batch_size = 20 by default

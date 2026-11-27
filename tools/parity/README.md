@@ -84,6 +84,14 @@ files, absent from the wheel, differ).
 | `fno2d_separable_f32` | `n_modes=(6, 6)`, `max_n_modes=(8, 8)`, `separable=True`, hidden 6; input (2, 1, 16, 16) | 3,667 | 32 kB |
 | `fno2d_odd_stabilizer_f32` | `n_modes=(7, 6)` (odd centred count), hidden 6, `fno_skip="identity"`, `channel_mlp_skip=None`, `stabilizer="tanh"`; input (2, 1, 16, 14) | 8,491 | 48 kB |
 | `fno1d_pre_no_mlp_f32` | `n_modes=(8,)`, hidden 6, `use_channel_mlp=False`, `preactivation=True`, `stabilizer="tanh"`, ReLU; input (2, 1, 32) | 1,819 | 14 kB |
+| `fno1d_padding_f32` | `n_modes=(8,)`, hidden 6, `domain_padding=0.25`; input (2, 1, 40) | 2,023 | 21 kB |
+| `fno2d_padding_f32` | `n_modes=(6, 4)`, hidden 6, `domain_padding=[0.2, 0.1]`; input (2, 1, 20, 18) | 5,779 | 42 kB |
+| `fno3d_padding_f32` | `n_modes=(4, 4, 4)`, 2 → 1, hidden 4, `n_layers=2`, `domain_padding=0.25`; input (2, 2, 8, 6, 5) | 3,297 | 27 kB |
+| `fno1d_scaling_f32` | `n_modes=(8,)`, hidden 6, `resolution_scaling_factor=[1.5, 1, 0.5, 1]`; input (2, 1, 32) | 2,023 | 21 kB |
+| `fno2d_scaling_f32` | `n_modes=(6, 4)`, hidden 6, `n_layers=2`, `resolution_scaling_factor=[[2, 1.5], [0.5, 1]]`; input (2, 1, 12, 10) | 3,001 | 22 kB |
+| `fno3d_scaling_f32` | `n_modes=(4, 4, 4)`, 2 → 1, hidden 4, `n_layers=2`, `resolution_scaling_factor=[[2, 1, 1.5], [1, 0.5, 1]]`; input (2, 2, 8, 6, 5) | 3,297 | 28 kB |
+| `fno2d_padding_scaling_f32` | `n_modes=(6, 4)`, hidden 6, `n_layers=1`, `domain_padding=0.25`, `resolution_scaling_factor=2`; input (2, 1, 12, 10) | 1,612 | 17 kB |
+| `fno2d_output_shape_f32` | `n_modes=(6, 4)`, hidden 6, `n_layers=2`, `forward(x, output_shape=(20, 15))` (`FNOOutputShape`); input (2, 1, 12, 10) | 3,001 | 23 kB |
 | `grid_embedding2d_{f32,f64}` | `GridEmbeddingND(3, dim=2, grid_boundaries=BOUNDARIES)`; input (2, 3, 6, 5) | 0 | 4 kB |
 | `sinusoidal_{transformer,nerf}_{f32,f64}` | `SinusoidalEmbedding(3, num_frequencies=4)`, `embedding_type` as named; input (2, 10, 3) | 0 | 5 kB |
 | `rotary2d_{f32,f64}` | `Rotary2d(8)`: `RotaryEmbedding2D(8)` on channels 0 and 1 as x and y, `apply_2d_rotary_pos_emb` on the other 16; input (2, 10, 18) | 0 | 6 kB |

@@ -20,7 +20,7 @@ use burn::{
     config::Config,
     module::{Module, Param},
     tensor::signal,
-    tensor::{Device, Distribution},
+    tensor::{Device, Distribution, ops::PadMode},
 };
 
 use std::ops::Range;
@@ -89,6 +89,22 @@ fn with_bc<T: Clone, const R: usize>(a: T, b: T, rest: &[T]) -> [T; R] {
     v.extend_from_slice(rest);
     v.try_into()
         .unwrap_or_else(|v: Vec<T>| panic!("with_bc: {} entries for rank {R}", v.len()))
+}
+
+/// `x` with `axis` trimmed to its first `len` entries, or zero-padded at its end to `len`:
+/// torch's `n` of a 1D FFT, along one axis.
+fn resize_end<const R: usize>(x: Tensor<R>, axis: usize, len: usize) -> Tensor<R> {
+    let dims = x.dims();
+    let n = dims[axis];
+    if len <= n {
+        let ranges: [Range<usize>; R] =
+            core::array::from_fn(|i| if i == axis { 0..len } else { 0..dims[i] });
+        x.slice(ranges)
+    } else {
+        let pairs: [(usize, usize); R] =
+            core::array::from_fn(|i| if i == axis { (0, len - n) } else { (0, 0) });
+        x.pad(pairs, PadMode::Constant(0.0))
+    }
 }
 
 /// Learned spectral convolution over `R - 2` spatial axes.
@@ -417,7 +433,7 @@ impl<const R: usize> SpectralConv<R> {
     /// Bluestein `cfft` along a non-last axis of non-power-of-two length is
     /// wrong when the trailing axes' product is even: the fused `cat` ignores
     /// broadcasting on the vectorised axis (`upstream/burn/cfft-kernel/`).
-    fn fft_ctensor(x: Tensor<R>) -> (Tensor<R>, Tensor<R>) {
+    pub(crate) fn fft_ctensor(x: Tensor<R>) -> (Tensor<R>, Tensor<R>) {
         let dims = x.dims(); // read before x is consumed
         let last = R - 1;
         let (mut re, mut im) = signal::rfft(x, last, Some(dims[last]));
@@ -436,7 +452,11 @@ impl<const R: usize> SpectralConv<R> {
 
     /// Inverse of [`Self::fft_ctensor`], applying the axes in the reverse order,
     /// each complex inverse on the last axis as there.
-    fn ifft_ctensor(mut re: Tensor<R>, mut im: Tensor<R>, orig_dims: &[usize]) -> Tensor<R> {
+    pub(crate) fn ifft_ctensor(
+        mut re: Tensor<R>,
+        mut im: Tensor<R>,
+        orig_dims: &[usize],
+    ) -> Tensor<R> {
         let last = R - 1;
         for (axis, &dim) in orig_dims.iter().enumerate().take(last).skip(2) {
             let (r, i) = icfft_full_spectrum(
@@ -460,10 +480,32 @@ impl<const R: usize> SpectralConv<R> {
     /// If a mode count does not fit the input grid: `modes[i] > n_i / 2` on a
     /// non-last spatial axis, or `modes[last] > n_last / 2 + 1`.
     pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
+        let dims = x.dims();
+        self.forward_to(x, &dims[2..])
+    }
+
+    /// `[B, in_channels, spatial..] -> [B, out_channels, out..]`: [`Self::forward`] with the
+    /// output on `out`'s spatial extents, as 2.0.0's `SpectralConv` with a
+    /// `resolution_scaling_factor` or an `output_shape` (library CM1.5b). The spectrum is
+    /// built at the input's size, then trimmed or zero-padded at the end of each axis (torch's
+    /// `irfftn(s=out)`), and scaled by `N_out / N_in` (products of the spatial extents), so the
+    /// amplitude is 2.0.0's `fft_norm="forward"`'s (an extension of CONVENTIONS §4's backward
+    /// norm, which it equals when the extents agree). At the input's own extents it is
+    /// [`Self::forward`], the same operations.
+    ///
+    /// # Panics
+    ///
+    /// As [`Self::forward`]; if `out` has not `R - 2` entries or one is 0.
+    pub fn forward_to(&self, x: Tensor<R>, out: &[usize]) -> Tensor<R> {
         // Captured before the transform: irfft needs the original extent to
         // recover the correct length from the truncated half-spectrum.
         let () = Self::RANK_OK;
         let orig_dims = x.dims();
+        assert!(
+            out.len() == R - 2 && out.iter().all(|&n| n > 0),
+            "SpectralConv: output extents {out:?} for {} spatial axes",
+            R - 2
+        );
         Self::check_modes_fit(&self.modes, &orig_dims[2..]);
         let (batch, in_ch) = (orig_dims[0], orig_dims[1]);
         let out_ch = self.weights_re[0].val().dims()[1];
@@ -515,7 +557,18 @@ impl<const R: usize> SpectralConv<R> {
             out_ft_im = out_ft_im.slice_assign(out_ranges, o_im);
         }
 
-        Self::ifft_ctensor(out_ft_re, out_ft_im, &orig_dims)
+        if out == &orig_dims[2..] {
+            return Self::ifft_ctensor(out_ft_re, out_ft_im, &orig_dims);
+        }
+        let out_dims: [usize; R] = with_bc(batch, out_ch, out);
+        for (axis, &n) in out_dims.iter().enumerate().skip(2) {
+            let len = if axis == R - 1 { n / 2 + 1 } else { n };
+            out_ft_re = resize_end(out_ft_re, axis, len);
+            out_ft_im = resize_end(out_ft_im, axis, len);
+        }
+        let n_in: usize = orig_dims[2..].iter().product();
+        let n_out: usize = out.iter().product();
+        Self::ifft_ctensor(out_ft_re, out_ft_im, &out_dims).mul_scalar(n_out as f64 / n_in as f64)
     }
 
     /// `(re, im)` weight values per mode corner, for tests outside this module.
@@ -977,6 +1030,20 @@ mod tests {
     // The distribution and bit-for-bit parity tests live in
     // `tests/spectral_init.rs`: they reseed Flex's process-wide RNG, so they
     // need their own test binary.
+
+    /// `forward_to` at the input's extents is `forward`, bit for bit; elsewhere its output has
+    /// the requested extents.
+    #[test]
+    fn forward_to_at_the_input_size_is_forward() {
+        let device = Device::default();
+        let conv = SpectralConv::<4>::new(&device, 2, 3, &[3, 2]);
+        let x = Tensor::<4>::random([2, 2, 8, 6], Distribution::Default, &device);
+        assert_eq!(
+            bits(conv.forward_to(x.clone(), &[8, 6])),
+            bits(conv.forward(x.clone()))
+        );
+        assert_eq!(conv.forward_to(x, &[11, 5]).dims(), [2, 3, 11, 5]);
+    }
 
     #[test]
     fn init_default_is_li_uniform() {

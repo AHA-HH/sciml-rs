@@ -30,6 +30,8 @@ pub struct Case {
     pub max_n_modes: Option<&'static [usize]>,
     /// The options on top of 2.0.0's defaults ([`defaults`]); the map follows them.
     pub options: fn(FNOConfig) -> FNOConfig,
+    /// 2.0.0's `forward(x, output_shape=…)` as a tuple (the last layer's shape), if set.
+    pub output_shape: Option<&'static [usize]>,
 }
 
 /// 2.0.0's `FNO` defaults: the block's and the lifting's ([`block_defaults`],
@@ -48,6 +50,7 @@ pub const FNO1D: Case = Case {
     n_modes: &[8],
     max_n_modes: None,
     options: |c| c,
+    output_shape: None,
 };
 
 /// 2.0.0's defaults, `FNO(n_modes=(4, 4), in=1, out=1, hidden=8)` on (2, 1, 32, 32):
@@ -134,7 +137,11 @@ pub fn output<const R: usize>(
     let mut map = map(&config, d);
     corners(&mut map);
     load_into(&mut fno, &mut fixture, &map);
-    let y = fno.forward(to_channels_last(fixture.input::<R>(device)));
+    let x = to_channels_last(fixture.input::<R>(device));
+    let y = match case.output_shape {
+        Some(shape) => fno.forward_with_output_shape(x, shape),
+        None => fno.forward(x),
+    };
     (to_channels_first(y), fixture)
 }
 
