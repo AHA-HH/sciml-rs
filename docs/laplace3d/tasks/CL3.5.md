@@ -24,21 +24,24 @@ one bit of what the 2D `generate()` returns.
 ## Changes
 Test-only, in `dataset.rs`'s `mod tests`:
 - `generate_frozen`: `generate()`'s body as on `main` at 94ef52e, verbatim but for the
-  wall time. Do not edit. It keeps calling the primitives `draw_xi`, `forcing_coeffs`,
-  `evaluate`, `solution_coeffs`, `CollocationSolver::solve_full`, which CL3.6 does not own,
-  and `label_check`, `cc_rel_l2_error`, `Transfers`, which have their own rank-2
-  bit-identity tests; `f` and `u` depend on none of the latter three.
-- `assert_bits_eq`: compares two f64 arrays by `to_bits` (so −0.0 ≠ +0.0 and NaN = NaN
-  bitwise), naming the first differing index.
+  wall time, calling `label_check_frozen` (`label_check`'s body at 94ef52e, since CL3.6
+  merges the 2D and 3D label checks and no rank-2 test pins it). Do not edit. They keep
+  calling the primitives `draw_xi`, `forcing_coeffs`, `evaluate`, `solution_coeffs`,
+  `CollocationSolver::solve_full`, which CL3.6 does not own, and `cc_rel_l2_error` and
+  `Transfers`, which have their own rank-2 bit-identity tests; `f` and `u` depend on
+  neither of the last two.
+- `split_bit_difference`: the first difference between two `Split`s, every field but the
+  wall time by `to_bits` (so −0.0 ≠ +0.0), naming the field and flat index; `Split` is
+  destructured exhaustively, so a field CL3.6 adds does not compile until it is compared
+  (code-quality review F1).
 - `generate_is_bit_identical_to_frozen`: two fixed splits, n = 17 at the default K (8,
-  label check recorded) and n = 65 at an explicit K = 16 (label check enforced); `f`, `u`,
-  `x`, K, the label check and error 2 statistics, bit for bit. A control in the same test:
-  `u` with one entry moved one ulp fails `assert_bits_eq`.
+  label check recorded) and n = 65 at an explicit K = 16 (label check enforced). A control
+  in the same test: the split with one `u` entry moved one ulp is caught, at that index.
 No 2D function body edited; no public API, dependency or convention change.
 
 ## Tests that prove it
 - The new test passes on `main`'s code.
-- The failing control, twice: in the test (one ulp on a copy of `u`, `catch_unwind`), and
+- The failing control, twice: in the test (one ulp on a clone of the split), and
   once by hand: `generate()` temporarily moves one label entry one ulp
   (`f64::next_up`), the test fails, the edit is reverted; the failing output goes in the PR.
 - `files_round_trip` and the whole datagen suite unchanged.
