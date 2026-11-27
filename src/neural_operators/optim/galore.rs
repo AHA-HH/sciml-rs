@@ -298,7 +298,8 @@ pub struct TensorGaLoreConfig {
     /// The Tucker rank of the projected gradient.
     pub rank: GaLoreRank,
     /// The first `project` must have an `iter` that is a multiple of this (2.0.0's default
-    /// 200; see the module documentation).
+    /// 200; see the module documentation); with
+    /// [`with_refresh`](TensorGaLoreProjector::with_refresh), the refresh period too.
     pub update_proj_gap: usize,
     /// The factor on `project_back`'s output (2.0.0's default 1.0).
     pub scale: f64,
