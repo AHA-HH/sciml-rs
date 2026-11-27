@@ -130,8 +130,50 @@ beyond the flex resume unless the author asks; the pilot does not resume.
 - `poisson_matrix --by-optimizer` labels a SOAP run as Adam until CO4.1 extends it; the pilot
   table is built from the run files, not from it.
 
+## Outcome on the Mac (2026-11-27)
+
+M2 Pro, flex, release builds; scratch run directories, not kept.
+
+- **Tests:** `training::config::tests::soap_arm_round_trips`,
+  `training::trainer::tests::{soap_run_resumes_exactly, soap_with_replicas_panics}`,
+  `optim::soap::tests::{symmetric_eigenvalues_of_a_known_spectrum,
+  spectrum_summary_counts_the_resolved_eigenvalues}`; all pass.
+- **Smoke run:** `OPTIMIZER=soap EPOCHS=3 SOAP_LOG_FIRST_REFRESH=1 train_poisson -- 4 65 16
+  42 20 0`: trains (epoch 0's single step is SOAP's first, which updates nothing: train L²
+  1.0074 at epochs 0 and 1, 1.0059 at 2); `costs.json` 3 steps, 3 forward, 3 backward
+  passes; `train_cfg.json` holds the `Soap` arm. `WEIGHT_DECAY=0` reaches `SoapConfig`.
+- **Resume:** `OPTIMIZER=soap EPOCHS=27 SOAP_FREQUENCY=2 SOAP_LOG_FIRST_REFRESH=1`, the same
+  arguments, uninterrupted against killed (`kill -9`) after its epoch-25 checkpoint and
+  resumed with `--resume` and no variable set: `metrics.csv` equal but `epoch_time_s`,
+  configs equal, `costs.json` equal but times, commit and `resumes` (1), the weights' bytes
+  equal outside 100–2408 (Burn's random `param_id` header). The two runs started in one
+  second and got CO0.4's `_1` suffix.
+- **First-refresh log (smoke, s = 16, f = 2):** the factors are rank-deficient at their
+  first refresh: λ_min is 0 or ±1e-9 round-off in almost every factor (a factor after 3
+  steps is a sum of few outer products; `[128, 1]` dim 0 has rank ≤ 3), so λ_max/λ_min is
+  `inf` by construction. The log also prints how many eigenvalues lie above f32's floor
+  n·ε·λ_max and the ratio over those (question 1).
+- **Constraint 1:** `tests/fno_bit_identity.rs`'s four dumps (forward, Adam epoch,
+  Gauss–Newton epoch, L-BFGS epoch) byte-identical on `origin/main` (`9b0337d`) and the
+  branch (`4d1a1bc`); the existing suite unedited (only new tests).
+- **Checks (`/verify`, at `4d1a1bc`):** fmt, clippy (lib, examples, all targets, datagen all
+  targets), `cargo test` (629 passed), `cargo test --features datagen` (717 passed),
+  `cargo doc`; after the review fixes (`dadcad4`, example code and a doc comment) fmt,
+  clippy (examples, all targets) and `cargo doc` again. Not run: `--features metal`
+  (no tensor op changed; SOAP's arithmetic is CO3.2's, checked on metal there).
+
 ## Pending runs
-The pilot (above): waiting for the VM.
+The pilot (VM runs above): four cells, `~/sciml-rs/logs/co3-3/`, tmux `co33-g0`, `co33-g1`;
+decides D6 and answers the eigenvalue question for D9. Waiting for the VM (booked to
+~14:30 UTC 2026-11-28).
 
 ## Open questions
-None yet.
+1. The first-refresh criterion (CO3.2's questions: "ratios near 1e7–1e8 bring an f64
+   eigenbasis back"): early factors are rank-deficient, so λ_max/λ_min is infinite whatever
+   the precision. Proposed: judge by the ratio over the eigenvalues above f32's floor
+   (n·ε·λ_max), which the log prints, and by how many fall below it; a null direction's
+   basis vector is arbitrary in any precision and harmless (V and the projected gradient
+   are ~0 there).
+2. If SOAP's epoch is much slower than Adam's 5.97 s, its cosine is cut short at equal time;
+   the pilot table shows the epochs reached. Keep the protocol (EPOCHS 500 under the budget)
+   or match `EPOCHS` to the budget for the matrix?
