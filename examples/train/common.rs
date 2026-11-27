@@ -94,7 +94,7 @@ pub struct Literals {
 ///
 /// # Panics
 /// For an `OPTIMIZER` not in `allowed`, a negative or non-finite `WEIGHT_DECAY` or
-/// `GN_WEIGHT_DECAY`, a `TIME_BUDGET_S` without Gauss–Newton or not positive and finite, a
+/// `GN_WEIGHT_DECAY`, a `TIME_BUDGET_S` without Gauss–Newton or L-BFGS or not positive and finite, a
 /// batch size or `GN_CG_MAX_ITERS` of 0, a `GN_PRECONDITIONER` but `none` and `hutchinson`,
 /// `lit.epochs` of 0, AdamW with `lit.epochs` not a multiple of 5, `hybrid` without
 /// `lit.hybrid_adam_epochs` or with a `GN_BATCH_SIZE` other than `lit.batch_size`, `lbfgs`
@@ -141,12 +141,12 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
         other => unreachable!("{other:?} is in `allowed` but names no optimiser"),
     };
     let gn = matches!(optimizer, Some(OptimizerConfig::GaussNewton(_)));
-    let lbfgs = matches!(optimizer, Some(OptimizerConfig::Lbfgs(_)));
+    let is_lbfgs = matches!(optimizer, Some(OptimizerConfig::Lbfgs(_)));
 
     let time_budget_s = env_var::<f64>("TIME_BUDGET_S");
     // Adam's cosine schedule spans the epochs, so a budget would cut it short
     assert!(
-        gn || lbfgs || time_budget_s.is_none(),
+        gn || is_lbfgs || time_budget_s.is_none(),
         "TIME_BUDGET_S is for OPTIMIZER=gauss-newton and lbfgs runs"
     );
     // NaN would never stop the run
@@ -156,7 +156,7 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
     );
     let batch_size = if gn {
         env_var("GN_BATCH_SIZE").unwrap_or(lit.gn.batch_size)
-    } else if let Some((_, full)) = lit.lbfgs.as_ref().filter(|_| lbfgs) {
+    } else if let Some((_, full)) = lit.lbfgs.as_ref().filter(|_| is_lbfgs) {
         *full
     } else {
         lit.batch_size

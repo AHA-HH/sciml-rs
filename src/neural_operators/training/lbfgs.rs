@@ -54,9 +54,8 @@ fn objective<const R: usize, const RM1: usize, M: GridOperator<R>>(
     if mu > 0.0 {
         let mut norm = HalfSquaredNorm { sum: None };
         model.visit(&mut norm);
-        if let Some(sq) = norm.sum {
-            return phi + sq * (0.5 * mu);
-        }
+        let sq = norm.sum.expect("the model has float parameters");
+        return phi + sq * (0.5 * mu);
     }
     phi
 }

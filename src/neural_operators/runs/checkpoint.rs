@@ -84,6 +84,11 @@ pub(super) fn encode(
     out.extend_from_slice(&(state.resumes as u64).to_le_bytes());
     out.extend_from_slice(&state.training_time_s.to_le_bytes());
     let gn = gn.map(GaussNewtonState::to_bytes);
+    // decode tells an L-BFGS checkpoint by its empty fourth blob
+    assert!(
+        gn.as_ref().is_none_or(|b| !b.is_empty()),
+        "a Gauss-Newton state is never empty (it starts with its magic)"
+    );
     let lbfgs = lbfgs.map(LBFGS::into_bytes).transpose()?;
     // an L-BFGS run's fourth (Gauss-Newton) blob is empty
     let gn = gn.or_else(|| lbfgs.as_ref().map(|_| Vec::new()));

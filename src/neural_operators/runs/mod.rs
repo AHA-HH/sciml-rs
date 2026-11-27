@@ -211,12 +211,7 @@ impl RunDir {
     /// # Errors
     /// As [`truncate_metrics`](Self::truncate_metrics).
     pub fn truncate_gn_steps(&self, next_epoch: usize) -> io::Result<()> {
-        let path = self.path.join(GN_STEPS_CSV);
-        if !path.exists() {
-            return Ok(());
-        }
-        // its first column is the epoch, as in metrics.csv
-        csv::truncate_metrics_csv(path, next_epoch)
+        self.truncate_steps(GN_STEPS_CSV, next_epoch)
     }
 
     /// The forward and backward passes summed over `gn_steps.csv`, and its row count (the
@@ -226,11 +221,7 @@ impl RunDir {
     /// If the file can't be read, lacks the pass columns or has a field that doesn't
     /// parse ([`io::ErrorKind::InvalidData`]).
     pub fn gn_passes(&self) -> io::Result<Option<GnPasses>> {
-        let path = self.path.join(GN_STEPS_CSV);
-        if !path.exists() {
-            return Ok(None);
-        }
-        gn_steps::sum_passes(path).map(Some)
+        self.step_passes(GN_STEPS_CSV)
     }
 
     /// Appends one L-BFGS step's row to `lbfgs_steps.csv`, writing the header first if the
@@ -248,11 +239,7 @@ impl RunDir {
     /// # Errors
     /// As [`truncate_metrics`](Self::truncate_metrics).
     pub fn truncate_lbfgs_steps(&self, next_epoch: usize) -> io::Result<()> {
-        let path = self.path.join(LBFGS_STEPS_CSV);
-        if !path.exists() {
-            return Ok(());
-        }
-        csv::truncate_metrics_csv(path, next_epoch)
+        self.truncate_steps(LBFGS_STEPS_CSV, next_epoch)
     }
 
     /// The forward and backward passes summed over `lbfgs_steps.csv`, and its row count
@@ -261,7 +248,23 @@ impl RunDir {
     /// # Errors
     /// As [`gn_passes`](Self::gn_passes).
     pub fn lbfgs_passes(&self) -> io::Result<Option<GnPasses>> {
-        let path = self.path.join(LBFGS_STEPS_CSV);
+        self.step_passes(LBFGS_STEPS_CSV)
+    }
+
+    /// Drops the rows of the step file `name` for epochs `next_epoch` and later; nothing to
+    /// do without the file.
+    fn truncate_steps(&self, name: &str, next_epoch: usize) -> io::Result<()> {
+        let path = self.path.join(name);
+        if !path.exists() {
+            return Ok(());
+        }
+        // its first column is the epoch, as in metrics.csv
+        csv::truncate_metrics_csv(path, next_epoch)
+    }
+
+    /// The passes summed over the step file `name`, `None` without the file.
+    fn step_passes(&self, name: &str) -> io::Result<Option<GnPasses>> {
+        let path = self.path.join(name);
         if !path.exists() {
             return Ok(None);
         }

@@ -496,46 +496,48 @@ fn run_loop_with<const R: usize, const RM1: usize, M: GridOperator<R>>(
             .gn
             .as_mut()
             .filter(|_| !train_cfg.adam_epoch(epoch));
-        let lbfgs = components.lbfgs.as_mut().zip(train_cfg.lbfgs());
-        let (m, means) = match (gn, peers.as_mut()) {
+        let (m, means) = if let Some(lbfgs) = components.lbfgs.as_mut() {
             // an L-BFGS run has neither Gauss-Newton nor replicas
-            _ if lbfgs.is_some() => {
-                let (lbfgs, arm) = lbfgs.expect("checked by the guard");
-                train_epoch_lbfgs(
-                    model,
-                    &components.train_loader,
-                    lbfgs,
-                    arm,
-                    decoder,
-                    epoch,
-                    on_lbfgs_step,
-                )
-            }
-            (Some(gn), None) => train_epoch_gn(
+            let arm = train_cfg
+                .lbfgs()
+                .expect("L-BFGS components come from an L-BFGS config");
+            train_epoch_lbfgs(
                 model,
                 &components.train_loader,
-                gn,
+                lbfgs,
+                arm,
                 decoder,
                 epoch,
-                on_gn_step,
-            ),
-            (None, None) => train_epoch_with_loss(
-                model,
-                &components.train_loader,
-                &mut components.optim,
-                &mut components.scheduler,
-                decoder,
-                train_cfg.squared_loss(),
-            ),
-            (Some(_), Some(_)) => unreachable!("Gauss-Newton with replicas is rejected above"),
-            (None, Some(peers)) => train_epoch_parallel(
-                model,
-                &components.train_loader,
-                &mut components.optim,
-                &mut components.scheduler,
-                decoder,
-                peers,
-            ),
+                on_lbfgs_step,
+            )
+        } else {
+            match (gn, peers.as_mut()) {
+                (Some(gn), None) => train_epoch_gn(
+                    model,
+                    &components.train_loader,
+                    gn,
+                    decoder,
+                    epoch,
+                    on_gn_step,
+                ),
+                (None, None) => train_epoch_with_loss(
+                    model,
+                    &components.train_loader,
+                    &mut components.optim,
+                    &mut components.scheduler,
+                    decoder,
+                    train_cfg.squared_loss(),
+                ),
+                (Some(_), Some(_)) => unreachable!("Gauss-Newton with replicas is rejected above"),
+                (None, Some(peers)) => train_epoch_parallel(
+                    model,
+                    &components.train_loader,
+                    &mut components.optim,
+                    &mut components.scheduler,
+                    decoder,
+                    peers,
+                ),
+            }
         };
         model = m;
 
