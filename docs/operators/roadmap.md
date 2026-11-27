@@ -30,9 +30,10 @@ FNO outputs unchanged bit for bit). CM1.5b done 2026-11-27 (domain padding, reso
 scaling, `resample`; FNO outputs unchanged bit for bit). CM3.6b done 2026-11-27 (complex
 tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to phase where
 2.0.0's factors are ill-conditioned). CM0.7 done 2026-11-27 (`Operator::NAME` retired, the
-name is `OperatorConfig::KIND`; FNO outputs unchanged bit for bit). CM1.5d split 2026-11-27
-into CM1.5d–f; CM1.5d done 2026-11-27 (the FNO's config rule, one padding, one grid
-builder; FNO outputs unchanged bit for bit). Next CM1.5e, CM3.6c.
+name is `OperatorConfig::KIND`; FNO outputs unchanged bit for bit). CM3.6c done 2026-11-27
+(the projector's periodic factor refresh, opt-in, off by default; 2.0.0's parity unchanged).
+CM1.5d split 2026-11-27 into CM1.5d–f; CM1.5d done 2026-11-27 (the FNO's config rule, one
+padding, one grid builder; FNO outputs unchanged bit for bit). Next CM1.5e.
 
 ## How to read this file
 
@@ -316,7 +317,9 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     Flex's f32 twiddles; the ridge case within 1e-9, signed off 2026-11-26); fixtures
     `derivatives_{f32,f64}` from `tools/parity/generate_losses.py`.
 - [ ] **CM1.7 Training features.** Incremental modes and resolution, AdamW as 2.0.0's,
-  mixed precision, multigrid patching. *Needs:* CM0.3, CM1.5.
+  mixed precision, multigrid patching. *Needs:* CM0.3, CM1.5. AdamW's GaLore options take
+  CM3.6's projector, and its refresh (CM3.6c's `with_refresh`) moves into the config the
+  optimiser holds (CM3.6c code-quality review, F4).
 - [ ] **CM1.8 Training parity on the 2D Poisson baseline.** The protocol of proposal §5,
   2.0.0 configured to this crate's FNO and at its own defaults. *Needs:* CM1.5, D7.
   *Machines:* the VM.
@@ -374,12 +377,14 @@ The order of M2 and M3 is set at the M1 gate (D6).
     for the spectral weights. *Done when:* against complex fixtures. *Needs:* CM3.6a. Done
     2026-11-27: `docs/operators/tasks/CM3.6b.md` (entry for entry where every unfolding is
     wide; up to phase where one is tall, 2.0.0's phases being ill-conditioned there).
-  - [ ] **CM3.6c Periodic factor refresh (opt-in).** 2.0.0 computes GaLore's Tucker
+  - [x] **CM3.6c Periodic factor refresh (opt-in).** 2.0.0 computes GaLore's Tucker
     factors once and never refreshes them, though its design intends a refresh every k
     steps; an option for that refresh, off by default, so the default stays 2.0.0's
     behaviour and its parity (the author, 2026-11-27, CM3.6a PR question). *Done when:*
     a test that the factors change every k steps when on and never when off, and the
-    CM3.6a parity tests unchanged. *Needs:* CM3.6a.
+    CM3.6a parity tests unchanged. *Needs:* CM3.6a. Done 2026-11-27:
+    `docs/operators/tasks/CM3.6c.md` (`TensorGaLoreProjector::with_refresh`; 2.0.0's
+    `warm_restart` and `tucker_n_iter_max` still not offered).
 
 ## M4: Beyond 2.0.0
 

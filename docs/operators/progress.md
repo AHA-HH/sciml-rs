@@ -777,6 +777,33 @@ template:
 - Matrix: `BaseModel` row (CM0.7 added).
 - Follow-ups: none.
 
+## 2026-11-27: CM3.6c Periodic factor refresh (opt-in)
+- Done: `TensorGaLoreProjector::with_refresh(bool)`: on, `project` recomputes the Tucker
+  factors from its gradient (a fresh `tucker_factors`) at every `iter` that is a multiple of
+  `update_proj_gap`, GaLore's intended schedule; off (the default), 2.0.0's behaviour, the
+  factors made once. The option sits on the projector, not as a `TensorGaLoreConfig` field,
+  so the parity harness's config literals stay unedited. 2.0.0's `warm_restart` and
+  `tucker_n_iter_max` are still not offered (no reference for their values).
+- Tests: `check_refresh_schedule` (gap 2, a new gradient at `iter` 0..=4): on, the factors
+  change at 0, 2, 4 (bit for bit `tucker_factors` of that step's gradient) and stay bit for
+  bit at 1, 3; off (`init()` alone), never change. Real and complex
+  (`factors_refresh_every_gap_when_on`, `complex_…`, `factors_are_not_refreshed`,
+  `complex_…`). The "on" tests fail with the refresh disabled. `tests/parity_galore*.rs`
+  and `parity_galore_common/` unedited, passing.
+- Checks: fmt, clippy (default, `--examples`, `--all-targets`, `--features datagen
+  --all-targets`), `cargo test`, `cargo test --features datagen`, `cargo doc --no-deps`: all
+  passed. Not run: `--features metal` (no device code changed).
+- Decisions: none (the refresh, off by default, is the author's of 2026-11-27).
+- Review: plan review PASS with two advisories (the plan's wording of the failing assertion;
+  `update_proj_gap`'s doc now names the refresh period), both fixed. Code quality APPROVE with
+  findings: F1 (the helper's projector and its flag could disagree), F2 (repeated test
+  set-up), F3 (the gap comment) fixed; F4 (the option on the projector, not the config) to
+  CM1.7's line.
+- FNO: not touched (`optim/galore*` only).
+- Matrix: `TensorGaLoreProjector` row notes the refresh.
+- Follow-ups: CM1.7's line (the refresh moves into AdamW's config when GaLore is wired;
+  code-quality F4).
+
 ## 2026-11-27: CM1.5d The FNO's config, padding and grid
 - Done: CM1.5d split into CM1.5d–f (the FNO; the spectral layer and FFTs; the parity
   harness). `FNOConfig`'s rustdoc states the author's M1-gate rule (every later option an

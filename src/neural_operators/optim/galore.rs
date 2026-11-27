@@ -13,7 +13,9 @@
 //! - the factors are computed on the first `project` (its `iter` a multiple of
 //!   `update_proj_gap`) and never again: 2.0.0 never resets them, so its `update_proj_gap`
 //!   only gates the first call and its `warm_restart` and `tucker_n_iter_max` never take
-//!   effect (they are not offered);
+//!   effect (they are not offered). GaLore's intended refresh, the factors recomputed at
+//!   every `iter` that is a multiple of `update_proj_gap`, is opt-in here:
+//!   [`TensorGaLoreProjector::with_refresh`] (CM3.6c; off by default, as 2.0.0);
 //! - the factors come from the higher-order orthogonal iteration: each Fₖ starts as the
 //!   leading left singular vectors of G's mode-k unfolding, then each sweep recomputes every
 //!   Fₖ from the unfolding of G multiplied by the other factors, transposed; up to 100
@@ -296,7 +298,8 @@ pub struct TensorGaLoreConfig {
     /// The Tucker rank of the projected gradient.
     pub rank: GaLoreRank,
     /// The first `project` must have an `iter` that is a multiple of this (2.0.0's default
-    /// 200; see the module documentation).
+    /// 200; see the module documentation); with
+    /// [`with_refresh`](TensorGaLoreProjector::with_refresh), the refresh period too.
     pub update_proj_gap: usize,
     /// The factor on `project_back`'s output (2.0.0's default 1.0).
     pub scale: f64,
@@ -318,6 +321,7 @@ impl TensorGaLoreConfig {
         TensorGaLoreProjector {
             config: self.clone(),
             factors: None,
+            refresh: false,
         }
     }
 }
@@ -328,17 +332,33 @@ impl TensorGaLoreConfig {
 pub struct TensorGaLoreProjector<const D: usize, T: GaLoreTensor<D> = Tensor<D>> {
     config: TensorGaLoreConfig,
     factors: Option<[T::Factor; D]>,
+    refresh: bool,
 }
 
 impl<const D: usize, T: GaLoreTensor<D>> TensorGaLoreProjector<D, T> {
+    /// With `refresh`, [`project`](Self::project) recomputes the factors from its gradient at
+    /// every `iter` that is a multiple of `update_proj_gap` (GaLore's schedule, a fresh
+    /// [`tucker_factors`] each time); without it (the default, 2.0.0's behaviour) only the
+    /// first call computes them.
+    pub fn with_refresh(mut self, refresh: bool) -> Self {
+        self.refresh = refresh;
+        self
+    }
+
     /// `grad` (`[I_0, .., I_{D−1}]`) in the low-rank space, `[r_0, .., r_{D−1}]`: G ×ₖ Fₖᴴ
     /// for every mode k (Fₖᵀ when real). The first call computes the factors from `grad` by
-    /// [`tucker_factors`]; later calls reuse them, whatever `iter` (as 2.0.0).
+    /// [`tucker_factors`]; later calls reuse them, whatever `iter` (as 2.0.0), unless
+    /// [`with_refresh`](Self::with_refresh) is on and `iter` is a multiple of
+    /// `update_proj_gap`, when they are computed again from `grad`.
     ///
     /// # Panics
     /// On the first call, if `update_proj_gap` is 0 or `iter` is not a multiple of it
     /// (2.0.0 has no factors to apply then), or as [`tucker_factors`].
     pub fn project(&mut self, grad: T, iter: usize) -> T {
+        // A zero gap is caught below: the refresh drops the factors, so the first call's check runs.
+        if self.refresh && iter.is_multiple_of(self.config.update_proj_gap) {
+            self.factors = None;
+        }
         let factors = self.factors.get_or_insert_with(|| {
             assert!(
                 self.config.update_proj_gap > 0,
