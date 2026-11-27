@@ -2,7 +2,8 @@
 
 2026-11-27. Plan: `docs/optimisers/tasks/CO0.3.md`. CO0.1's Adam setting (stage 3, n = 129,
 s = 64, p = 0, modes [12, 12], width 32, 4 layers, N = 1,000, batch 20, 50 steps per epoch,
-200 test samples), `adam_profile`, A100 (GPU 0 of the VM, alone, GPU 1 idle), cuda, f32.
+200 test samples), `adam_profile`, A100 (GPU 0 of the VM, no other compute process at
+the start of each run), cuda, f32.
 Three runs, one after another (driver `~/sciml-rs/logs/co0-3/driver.sh`):
 
 | run | build | Burn | TF32 | finished (UTC) |
@@ -24,21 +25,26 @@ code changed. The reports and logs are kept outside git
   3.36×, backward 3.32×, the optimiser update 4.13×, evaluation 2.97×. Their shares of the
   step hardly move (forward 31 % on both, backward 55 % against 56 %, the update 13 %
   against 11 %): no single phase went wrong.
-- **Where the extra 4.12 s per training epoch goes:** backward +2.20 s (55 %), forward and
-  loss +1.25 s (31 %), the optimiser update +0.57 s (14 %). The loader, metrics, scheduler,
-  the epoch's host reads and the checkpoint together add under 0.01 s per epoch.
-- **The step is host-bound on both Burns.** The host's time issuing each phase, without a
-  sync, equals the time until the device has finished it (summed, 100 % of the unsynced
-  epoch on both; syncing every phase adds 0.4 % on Burn 0.23 and 7.2 % on the fork). The
-  GPU waits for the host. So the extra time is spent on the host: Burn 0.23 takes about
-  3.5× as long to issue the same model's forward, backward and update (host time per step
-  3.46×, 3.49× and 5.02×).
+- **Where the extra time goes:** the training epoch is 4.12 s longer; of the 4.03 s by
+  which the synced phases differ, backward is +2.20 s (55 %), forward and loss +1.25 s
+  (31 %), the optimiser update +0.57 s (14 %). The loader, metrics, scheduler, the epoch's
+  host reads and the checkpoint together add under 0.01 s per epoch.
+- **The step looks host-bound on both Burns.** Per phase, the host's time without a sync is
+  close to the time until the device has finished it (on Burn 0.23 within a few per cent;
+  on the fork the device times are 7–18 % higher in the large phases), and syncing every
+  phase adds only 0.4 % to the epoch on Burn 0.23 and 7.2 % on the fork: there is almost
+  no overlap of host and device to lose. That fits a GPU waiting for the host to issue
+  work, but also blocking inside each phase (implicit syncs, allocator waits); device
+  activity data (Nsight, candidate 1 below) would tell them apart. Either way the extra
+  time is in issuing the work: Burn 0.23's host time per step is 3.46× the fork's for the
+  forward, 3.49× for the backward and 5.02× for the update.
 - **TF32 is not the cause.** With TF32 on (run C) the training epoch takes 5.766 s against
-  5.705 s with it off (+1.1 %, within run-to-run spread): a host-bound step does not speed
-  up when the kernels do. #119's other change to the GPU path, `cubek.toml`, is ruled out;
+  5.705 s with it off (+1.1 %; each setting ran once, and the warm-up epochs of run A
+  alone spread 5.57–5.87 s): a step that waits on the host does not speed up when the
+  kernels do. #119's other change to the GPU path, `cubek.toml`, is ruled out;
   what is left is the Burn version.
-- **Why Gauss–Newton slowed only 24 %** (CO0.2): consistent with this, though not measured
-  here. A GN200 step works on batches of 200, ten times the work per kernel at the same
+- **Why a Gauss–Newton step slowed only 1.27×** (CO0.2: 15.11 s against 11.88 s; CO0.1 and
+  the roadmap say about 24 %): consistent with this, though not measured here. A GN200 step works on batches of 200, ten times the work per kernel at the same
   number of kernels, so a fixed host cost per kernel is a smaller part of it.
 
 ## The profile
@@ -54,7 +60,7 @@ Burn 0.23 (A) over the fork (B), on device times.
 | backward (`backward`, `from_grads`) | 0.06384 | 0.06299 | 0.01827 | 0.01898 | 3.32× | 0.06288 |
 | scheduler | 0.00000 | 0.00006 | 0.00000 | 0.00002 | – | 0.00007 |
 | optimiser update | 0.01555 | 0.01508 | 0.00310 | 0.00365 | 4.13× | 0.01523 |
-| epoch's host reads (2 per epoch, per read) | 0.00082 | 0.00042 | 0.00064 | 0.00012 | – | 0.00065 |
+| epoch's host reads (both, once per epoch) | 0.00082 | 0.00042 | 0.00064 | 0.00012 | – | 0.00065 |
 
 Per epoch, seconds:
 
@@ -87,15 +93,17 @@ syncing every phase, 7.2 % of its epoch against 0.4 %.)
   of the loop the library runs.
 - The synced phases sum to within 0.4–0.5 % of `train_epoch` on Burn 0.23 and 7.2 % on the
   fork: syncing costs little, because there is almost no host–device overlap to lose.
-- Each run was alone on the machine. On the Mac a fork smoke that shared the GPU with a
+- Each run started with no compute process on either GPU (the driver's check before each
+  run; nothing checked during them). On the Mac a fork smoke that shared the GPU with a
   Burn 0.23 smoke read +162 %, so overlapping runs would have shown up.
 
 ## Where the extra time goes
 
-1. **Into the host's cost of issuing tensor work, in Burn 0.23.** The time grows in
-   proportion to the phases that issue kernels (forward, backward, update, evaluation) and
-   not in those that do not (scheduler, the checkpoint's file writes). The device is never
-   the limit.
+1. **Into issuing tensor work, in Burn 0.23.** The time grows with the phases that issue
+   kernels (forward, backward, update, evaluation, 3.0–4.1×); in those that issue few or
+   none (the loader, scheduler, metrics, the checkpoint's file writes) the change is
+   negligible in absolute terms (under 0.01 s per epoch together). The device's own work
+   does not appear to be the limit (above).
 2. **Not into one phase or one operation.** Forward and backward both slowed 3.3–3.4×; the
    update slowed most (4.1× on the device, 5.0× on the host), probably because Adam is many
    small element-wise ops per parameter, the case where per-op host cost dominates most.

@@ -381,7 +381,8 @@ template:
   (device). Its `bc26896` version builds on `main` and at `4541f02` (the fork); the fork
   build copies it in on the VM (plan, "VM runs"); since CM0.6 the branch calls
   `build_components`. VM runs A, B, C (alone, GPU 0): epoch 6.051 s on Burn 0.23 against
-  1.699 s on the fork (3.56×); host-bound on both; forward 3.36×, backward 3.32×, update
+  1.699 s on the fork (3.56×); no host–device overlap on either (host-bound, or blocking
+  per phase); forward 3.36×, backward 3.32×, update
   4.13×, evaluation 2.97×, checkpoint 1.02×; TF32 on 5.766 s against 5.705 s off.
   `docs/optimisers/results/CO0.3.md`.
 - Tests: `rows_by_hand` (the per-phase table), `create_output_makes_missing_parents`.

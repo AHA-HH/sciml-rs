@@ -100,8 +100,8 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   about 24 %. *Done when:* the profile table and where the extra time goes (nothing changed
   here; a fix, if any, is a later task, since it would move the equal-time budget).
   *Needs:* –. *Machines:* the VM. Done 2026-11-27: `docs/optimisers/results/CO0.3.md`
-  (host-bound on both Burns; every tensor phase 3.3–4.1× slower on Burn 0.23; TF32 not
-  the cause; candidate fixes listed there, none taken).
+  (host-bound on both Burns, as far as a profile without device data shows; forward,
+  backward, update and evaluation 3.0–4.1× slower on Burn 0.23; TF32 not the cause; candidate fixes listed there, none taken).
 - [x] **CO0.4 Run provenance: the commit at the start, one directory per run.** Two
   faults CO0.1 hit. (1) `train_poisson` and `train_burgers` call `git_commit()` (`git
   rev-parse HEAD` in the source checkout) when they write `costs.json` at the end of a run,
