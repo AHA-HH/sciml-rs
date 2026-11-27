@@ -73,6 +73,12 @@ path = "examples/profile/gn_profile.rs"
 test = true
 
 [[example]]
+name = "adam_profile"
+path = "examples/profile/adam_profile.rs"
+# its unit tests run under `cargo test` (optimisers CO0.3)
+test = true
+
+[[example]]
 name = "poisson_conditioning"
 path = "examples/predict/poisson_conditioning.rs"
 # its unit tests run under `cargo test`
