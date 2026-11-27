@@ -107,4 +107,9 @@ None.
 
 ## Open questions
 
-None yet.
+1. CONVENTIONS §4 says `irfft`'s treatment of a nonzero imaginary part in the DC and
+   Nyquist bins is not fixed by a test, and that a design relying on it adds one and records
+   it there. `forward_to` and `resample` rely on it when a resize breaks Hermitian symmetry
+   (`fno3d_scaling`'s 6 → 3 axis); the fixture shows Flex and Metal agree with torch. Add a
+   §4 verification entry naming `fno3d_scaling_matches_2_0_0` (no convention changes, no
+   version bump)? Asked in the PR, not edited here.
