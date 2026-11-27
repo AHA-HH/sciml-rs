@@ -108,8 +108,9 @@ pub struct RunDir {
 }
 
 impl RunDir {
-    /// Creates `root/<name>_<unix_secs>/` (and `root` if needed). `name` is also the
-    /// title of the metrics plot.
+    /// Creates `root/<name>_<unix_secs>/` (and `root` if needed), a new directory: if
+    /// another run of `name` took that second, `root/<name>_<unix_secs>_<k>/` with the
+    /// first free k = 1, 2, …. `name` is also the title of the metrics plot.
     ///
     /// Examples pass `Path::new(env!("CARGO_MANIFEST_DIR")).join("runs")` as `root`.
     ///
@@ -120,8 +121,22 @@ impl RunDir {
             .duration_since(UNIX_EPOCH)
             .map_err(io::Error::other)?
             .as_secs();
-        let path = root.join(format!("{name}_{stamp}"));
-        std::fs::create_dir_all(&path)?;
+        Self::create_at(root, name, stamp)
+    }
+
+    /// [`create`](Self::create) at the second `stamp`.
+    fn create_at(root: &Path, name: &str, stamp: u64) -> io::Result<Self> {
+        std::fs::create_dir_all(root)?;
+        let mut path = root.join(format!("{name}_{stamp}"));
+        let mut k = 0;
+        // `create_dir` fails on an existing directory, so two runs never share one
+        while let Err(e) = std::fs::create_dir(&path) {
+            if e.kind() != io::ErrorKind::AlreadyExists {
+                return Err(e);
+            }
+            k += 1;
+            path = root.join(format!("{name}_{stamp}_{k}"));
+        }
         Ok(Self {
             path,
             name: name.to_string(),
@@ -554,6 +569,21 @@ mod tests {
                 epoch_time_s: Some(2.25),
             },
         ]
+    }
+
+    #[test]
+    fn create_twice_in_one_second_gives_two_directories() {
+        let root = fresh_root("create_twice");
+        let dirs: Vec<PathBuf> = (0..3)
+            .map(|_| RunDir::create_at(&root, "run", 100).unwrap().path)
+            .collect();
+        let names: Vec<_> = dirs
+            .iter()
+            .map(|d| d.file_name().unwrap().to_str().unwrap())
+            .collect();
+        assert_eq!(names, ["run_100", "run_100_1", "run_100_2"]);
+        assert!(dirs.iter().all(|d| d.is_dir()));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
