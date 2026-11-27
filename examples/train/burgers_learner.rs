@@ -63,34 +63,15 @@ fn main() {
         train_data.inputs().shape()[1]
     );
 
-    let model_cfg = FNOConfig {
-        modes: vec![16],
-        hidden_channels: 64,
-        data_channels: 1,
-        out_channels: 1,
-        n_layers: 4,
+    let model_cfg = FNOConfig::new(vec![16], 1, 1)
+        .with_hidden_channels(64)
+        .with_n_layers(4)
         // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
         // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
-        spectral_init: None,
+        .with_spectral_init(None)
         // No domain padding: Burgers is periodic, and Li et al.'s fourier_1d.py
         // does not pad either
-        padding: None,
-        activation: None,
-        // 2.0.0's block options (library CM1.3b); None keeps today's block
-        fno_skip: None,
-        channel_mlp: None,
-        norm: None,
-        preactivation: None,
-        lifting_channel_ratio: None,
-        projection_channel_ratio: None,
-        positional_embedding: None,
-        conv_bias: None,
-        separable: None,
-        max_modes: None,
-        tanh_stabilizer: None,
-        domain_padding: None,
-        resolution_scaling_factor: None,
-    };
+        .with_padding(None);
 
     // 100 epochs, fewer than `train_burgers`' 500, so a TUI run finishes
     // quickly. Same metric as `train_burgers`, but after fewer epochs, so the

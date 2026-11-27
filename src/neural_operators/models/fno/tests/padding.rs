@@ -130,8 +130,8 @@ fn symmetric_padding_with_centre_crop_matches_end_padding() {
     assert!(err <= TOL, "symmetric + centre crop differs: {err:e}");
 }
 
-/// `pad_spatial` puts the data at `[0..n]` and exact zeros after it on
-/// every spatial axis, and `crop_spatial` undoes it bit for bit.
+/// `pad_spatial` with CONVENTIONS §3's `(0, p)` puts the data at `[0..n]` and exact zeros
+/// after it on every spatial axis, and `crop_ranges` without scaling undoes it bit for bit.
 #[test]
 fn pad_crop_helpers_exact() {
     use burn::tensor::TensorData;
@@ -140,7 +140,7 @@ fn pad_crop_helpers_exact() {
     let vals: Vec<f32> = (0..b * c * n0 * n1).map(|i| i as f32 + 1.0).collect();
     let x = Tensor::<4>::from_data(TensorData::new(vals.clone(), [b, c, n0, n1]), &device);
 
-    let padded = FNO::<4>::pad_spatial(x.clone(), p);
+    let padded = FNO::<4>::pad_spatial(x.clone(), [(0, 0), (0, 0), (0, p), (0, p)]);
     assert_eq!(padded.dims(), [b, c, n0 + p, n1 + p]);
     let got = padded.clone().into_data().try_to_vec::<f32>().unwrap();
     let (m0, m1) = (n0 + p, n1 + p);
@@ -160,8 +160,45 @@ fn pad_crop_helpers_exact() {
         }
     }
 
-    let cropped = FNO::<4>::crop_spatial(padded, [b, c, n0, n1]);
+    let model: FNO<4> = test_config(vec![2, 2], 1, c)
+        .with_padding(Some(p))
+        .init(&device);
+    let pads = model.pads([b, c, n0, n1]);
+    assert_eq!(pads, [(0, 0), (0, 0), (0, p), (0, p)]);
+    let cropped = padded.slice(model.crop_ranges([b, c, n0, n1], pads));
     assert_eq!(bits(cropped), bits(x));
+}
+
+/// CONVENTIONS §3's padding `p` beside 2.0.0's domain padding (library CM1.5d): each axis
+/// padded by `round(f · s)` before and `round(f · s) + p` after, both cropped, as the
+/// `cat`/`narrow` reference; and not as either padding alone.
+#[test]
+fn padding_with_domain_padding_pads_both() {
+    let device = Device::default();
+    let model = with_unit_lift_bias(
+        test_config(vec![3, 2], 1, 6)
+            .with_spectral_init(Some(SpectralInit::SymmetricUniform))
+            .with_padding(Some(3))
+            .with_domain_padding(Some(vec![0.25; 2])) // round(0.25 · 8) = 2
+            .init::<4>(&device),
+    );
+    let x = random_input::<4>(&[8, 8], 1, &device);
+    let out = model.forward(x.clone());
+    assert_eq!(out.dims(), [2, 8, 8, 1]);
+    let x = with_old_grid(x);
+    let err = rel_err(
+        flat(out.clone()),
+        flat(reference_forward_padded(&model, x.clone(), Pad::Both(2, 5))),
+    );
+    println!("FNO<4> vs Both(2, 5): rel err {err:e}");
+    assert!(err <= TOL, "padding with domain padding differs: {err:e}");
+    for wrong in [Pad::End(3), Pad::Both(2, 2)] {
+        let err = rel_err(
+            flat(out.clone()),
+            flat(reference_forward_padded(&model, x.clone(), wrong)),
+        );
+        assert!(err >= 1e-3, "indistinguishable from {wrong:?}: {err:e}");
+    }
 }
 
 /// Autodiff through pad/crop agrees with the `cat`/`narrow` reference for

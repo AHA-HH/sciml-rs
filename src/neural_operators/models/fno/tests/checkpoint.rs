@@ -91,29 +91,9 @@ fn autodiff_trained_weights_give_identical_inference_on_plain_device() {
 
     let ad = Device::default().autodiff();
     let plain = Device::default();
-    let config = FNOConfig {
-        modes: vec![4],
-        hidden_channels: 8,
-        data_channels: 1,
-        out_channels: 1,
-        n_layers: 2,
-        spectral_init: None,
-        padding: None,
-        activation: None,
-        fno_skip: None,
-        channel_mlp: None,
-        norm: None,
-        preactivation: None,
-        lifting_channel_ratio: None,
-        projection_channel_ratio: None,
-        positional_embedding: None,
-        conv_bias: None,
-        separable: None,
-        max_modes: None,
-        tanh_stabilizer: None,
-        domain_padding: None,
-        resolution_scaling_factor: None,
-    };
+    let config = FNOConfig::new(vec![4], 1, 1)
+        .with_hidden_channels(8)
+        .with_n_layers(2);
 
     let trained: FNO<3> = config.init::<3>(&ad);
     let loaded: FNO<3> = copy_weights(&trained, config.init::<3>(&plain));

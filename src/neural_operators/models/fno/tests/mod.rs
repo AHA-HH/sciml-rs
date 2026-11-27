@@ -3,6 +3,7 @@
 mod activation;
 mod blocks;
 mod checkpoint;
+mod config;
 mod embedding;
 mod grid;
 mod padding;
@@ -47,6 +48,8 @@ enum Pad {
     BeforeFc0(usize),
     /// `⌊p/2⌋` zeros before and `⌈p/2⌉` after each axis, centre crop.
     Symmetric(usize),
+    /// `lo` zeros before and `hi` after each axis, the leading `lo` and trailing `hi` cropped.
+    Both(usize, usize),
 }
 
 /// `x` with `before` zeros prepended and `after` appended on `dim`, built
@@ -87,6 +90,7 @@ fn reference_forward_padded<const R: usize>(m: &FNO<R>, x: Tensor<R>, pad: Pad) 
         x = match pad {
             Pad::End(p) | Pad::EndCropTail(p) => zero_extend(x, d, 0, p),
             Pad::Symmetric(p) => zero_extend(x, d, p / 2, p - p / 2),
+            Pad::Both(lo, hi) => zero_extend(x, d, lo, hi),
             Pad::Off | Pad::BeforeFc0(_) => x,
         };
     }
@@ -109,6 +113,7 @@ fn reference_forward_padded<const R: usize>(m: &FNO<R>, x: Tensor<R>, pad: Pad) 
             Pad::End(_) | Pad::BeforeFc0(_) => x.narrow(d, 0, n_d),
             Pad::EndCropTail(p) => x.narrow(d, p, n_d),
             Pad::Symmetric(p) => x.narrow(d, p / 2, n_d),
+            Pad::Both(lo, _) => x.narrow(d, lo, n_d),
         };
     }
 

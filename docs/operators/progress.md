@@ -803,3 +803,40 @@ template:
 - Matrix: `TensorGaLoreProjector` row notes the refresh.
 - Follow-ups: CM1.7's line (the refresh moves into AdamW's config when GaLore is wired;
   code-quality F4).
+
+## 2026-11-27: CM1.5d The FNO's config, padding and grid
+- Done: CM1.5d split into CM1.5d–f (the FNO; the spectral layer and FFTs; the parity
+  harness). `FNOConfig`'s rustdoc states the author's M1-gate rule (every later option an
+  `Option`, a boolean one `Option<bool>` with `None` meaning `false`; all four already were).
+  One padding in `FNO`: `pads` gives `(lo, hi)` per axis, CONVENTIONS §3's `(0, p)` plus
+  2.0.0's `(round(f · s), round(f · s))`, one `pad`, one `slice` (`crop_ranges`: `round(d · r)`
+  per side for domain padding, as 2.0.0, and §3's `p` changing no extent under scaling); the
+  asserts "domain_padding and padding are exclusive" and "padding with
+  resolution_scaling_factor" gone; kept: domain padding with scaling in a one-layer FNO
+  (#183), no padding with an output shape. `layers::embedding::coordinate_channels`, shared
+  by `FNO::grid_cl` and `GridEmbeddingNd::grid`. The `FNOConfig { .. }` literals of `src/`
+  (outside `training/`), the tests and the examples now `FNOConfig::new(..).with_*`; every
+  example states its width and layers and keeps its commented options.
+- Tests: `models/fno/tests/config.rs` (a Phase 5 `model_cfg.json` verbatim: every newer
+  option `None`, the forward bit for bit `FNOConfig::new`'s); `padding.rs`
+  `padding_with_domain_padding_pads_both` (the `cat`/`narrow` reference `Both(2, 5)`,
+  controls `End(3)`, `Both(2, 2)`); `resolution.rs` `padding_with_scaling_crops_the_scaled_padding`,
+  `padding_with_scaling_keeps_the_unpadded_extents` (5 at 1.5, 7 at 1.5 twice: the
+  review's F1 cases); the two exclusivity panic tests replaced by these.
+- Checks: fmt, clippy (default, `--examples`, `--all-targets`, `--features datagen
+  --all-targets`, `--features mlflow --all-targets`), `cargo test`, `cargo test --features
+  mlflow --lib tracking`, `cargo doc --no-deps`, the bit-identity dumps; `--features metal`
+  for `parity_fno`, `parity_embeddings`, `gpu_parity` and the FNO unit tests (see the PR).
+  `cargo test --features datagen` ran in the plan review (before the F1 fix; no datagen
+  code changed).
+- Decisions: none.
+- Review: plan review PASS (advisories: a stale reason in `forward_with_output_shape`'s doc,
+  fixed; the extents with rounding, fixed as F1). Code quality APPROVE with findings: F1
+  (padding with scaling one cell off the unpadded extents) fixed, F2 (pads as one array, no
+  per-forward `Vec`) fixed, F5, F6 (examples' rule) fixed; F3 left (the output-shape assert
+  reads as before), F4 not possible (`modes` is a required field, no `with_modes`). The
+  `mlflow` test module on `main` had a stale literal (`tracking/builder.rs`), fixed here.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` 9b0337d and the branch:
+  `forward`, `phase5_epoch`, `gauss_newton_epoch`, `lbfgs_epoch` `cmp` same).
+- Matrix: `FNO`, `DomainPadding` rows.
+- Follow-ups: CM1.5e, CM1.5f (roadmap lines).

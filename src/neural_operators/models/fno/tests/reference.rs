@@ -11,29 +11,7 @@ fn fno_forward_shape_check<const R: usize>(
     let device = Device::default();
     assert_eq!(spatial.len(), R - 2, "spatial dims must match modes count");
 
-    let config = FNOConfig {
-        modes,
-        hidden_channels,
-        data_channels,
-        out_channels: 1,
-        n_layers: 4,
-        spectral_init: None,
-        padding: None,
-        activation: None,
-        fno_skip: None,
-        channel_mlp: None,
-        norm: None,
-        preactivation: None,
-        lifting_channel_ratio: None,
-        projection_channel_ratio: None,
-        positional_embedding: None,
-        conv_bias: None,
-        separable: None,
-        max_modes: None,
-        tanh_stabilizer: None,
-        domain_padding: None,
-        resolution_scaling_factor: None,
-    };
+    let config = FNOConfig::new(modes, data_channels, 1).with_hidden_channels(hidden_channels);
     let model: FNO<R> = config.init::<R>(&device);
 
     // Channels-last data only; the model appends the grid.
@@ -76,29 +54,12 @@ fn forward_shape_3d() {
 #[should_panic(expected = "needs 2 modes")]
 fn init_rejects_rank_mismatch() {
     let device = Device::default();
-    let config = FNOConfig {
-        modes: vec![16], // 1 entry → R must be 3
-        hidden_channels: 32,
-        data_channels: 1,
-        out_channels: 1,
-        n_layers: 4,
-        spectral_init: None,
-        padding: None,
-        activation: None,
-        fno_skip: None,
-        channel_mlp: None,
-        norm: None,
-        preactivation: None,
-        lifting_channel_ratio: None,
-        projection_channel_ratio: None,
-        positional_embedding: None,
-        conv_bias: None,
-        separable: None,
-        max_modes: None,
-        tanh_stabilizer: None,
-        domain_padding: None,
-        resolution_scaling_factor: None,
-    };
+    let config = FNOConfig::new(
+        // 1 entry → R must be 3
+        vec![16],
+        1,
+        1,
+    );
     let _: FNO<4> = config.init::<4>(&device); // asking for rank 4
 }
 

@@ -51,36 +51,21 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
     // back to Bluestein's algorithm.
     let dataset_cfg = DarcyConfig::new(data_cfg.clone(), 5);
 
-    let model_cfg = FNOConfig {
+    let model_cfg = FNOConfig::new(
         // Two entries so a 2D FNO model. Same code path as Burgers' vec![16]
-        modes: vec![12, 12],
-        hidden_channels: 32,
-        data_channels: 1,
-        out_channels: 1,
-        n_layers: 4,
-        // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
-        // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
-        spectral_init: None,
-        // Darcy is non-periodic, so pad the domain with 9 zero cells at the end
-        // of each axis before the spectral layers (cropped after), as Li et al.'s
-        // fourier_2d.py does. The padded 94 x 94 grid is not a power of two
-        padding: Some(9),
-        activation: None,
-        // 2.0.0's block options (library CM1.3b); None keeps today's block
-        fno_skip: None,
-        channel_mlp: None,
-        norm: None,
-        preactivation: None,
-        lifting_channel_ratio: None,
-        projection_channel_ratio: None,
-        positional_embedding: None,
-        conv_bias: None,
-        separable: None,
-        max_modes: None,
-        tanh_stabilizer: None,
-        domain_padding: None,
-        resolution_scaling_factor: None,
-    };
+        vec![12, 12],
+        1,
+        1,
+    )
+    .with_hidden_channels(32)
+    .with_n_layers(4)
+    // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
+    // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
+    .with_spectral_init(None)
+    // Darcy is non-periodic, so pad the domain with 9 zero cells at the end
+    // of each axis before the spectral layers (cropped after), as Li et al.'s
+    // fourier_2d.py does. The padded 94 x 94 grid is not a power of two
+    .with_padding(Some(9));
 
     let default_seed = TrainingConfig::new().seed;
     let seed = common::env_var("SEED").unwrap_or(default_seed);

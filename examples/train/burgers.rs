@@ -90,40 +90,26 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
     // Set the FNO model, the number of modes sets the dimension of the problem
     // `modes` has one entry per spatial dimension, its length fixes the tensor rank
     // at compile time, for this example: 1 entry -> 1D FNO
-    let model_cfg = FNOConfig {
+    let model_cfg = FNOConfig::new(
         // How many Fourier modes to keep on the spatial axis
-        modes: vec![16],
-        // Channel width flowing through each spectral layer
-        hidden_channels: 64,
+        vec![16],
         // Input channels in the dataset itself
-        data_channels: 1,
+        1,
         // Only 1 is supported - see flatten_pair
-        out_channels: 1,
-        // Number of spectral convolution layers
-        n_layers: 4,
-        // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
-        // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
-        spectral_init: None,
-        // No domain padding: Burgers is periodic, and Li et al.'s fourier_1d.py
-        // does not pad either
-        padding: None,
-        // PETScML's network uses GELU; ReLU (None) otherwise
-        activation: petscml.then_some(Activation::Gelu),
-        // 2.0.0's block options (library CM1.3b); None keeps today's block
-        fno_skip: None,
-        channel_mlp: None,
-        norm: None,
-        preactivation: None,
-        lifting_channel_ratio: None,
-        projection_channel_ratio: None,
-        positional_embedding: None,
-        conv_bias: None,
-        separable: None,
-        max_modes: None,
-        tanh_stabilizer: None,
-        domain_padding: None,
-        resolution_scaling_factor: None,
-    };
+        1,
+    )
+    // Channel width flowing through each spectral layer
+    .with_hidden_channels(64)
+    // Number of spectral convolution layers
+    .with_n_layers(4)
+    // None keeps the Li et al. U(0, 1/(I·O)) spectral init; the zero-mean
+    // alternatives are SpectralInit::Normal and SpectralInit::SymmetricUniform
+    .with_spectral_init(None)
+    // No domain padding: Burgers is periodic, and Li et al.'s fourier_1d.py
+    // does not pad either
+    .with_padding(None)
+    // PETScML's network uses GELU; ReLU (None) otherwise
+    .with_activation(petscml.then_some(Activation::Gelu));
 
     // Set the training configuration, test_batch_size = 20 by default
     // Adam with weight decay for regularization and the Cosine Annealing learning rate

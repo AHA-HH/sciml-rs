@@ -383,16 +383,7 @@ mod tests {
     }
 
     fn model() -> FNOConfig {
-        FNOConfig {
-            modes: vec![12, 12],
-            hidden_channels: 32,
-            data_channels: 1,
-            out_channels: 1,
-            n_layers: 4,
-            spectral_init: None,
-            padding: Some(0),
-            activation: None,
-        }
+        FNOConfig::new(vec![12, 12], 1, 1).with_padding(Some(0))
     }
 
     fn data(source: bool) -> PoissonConfig {

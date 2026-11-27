@@ -54,15 +54,6 @@ fn domain_padding_keeps_the_extents() {
 }
 
 #[test]
-#[should_panic(expected = "exclusive")]
-fn domain_padding_with_padding_panics() {
-    config()
-        .with_padding(Some(2))
-        .with_domain_padding(Some(vec![0.1; 2]))
-        .init::<4>(&Device::default());
-}
-
-#[test]
 #[should_panic(expected = "domain_padding needs 2 axes")]
 fn domain_padding_of_the_wrong_rank_panics() {
     config()
@@ -88,13 +79,39 @@ fn output_shape_with_domain_padding_panics() {
     fno.forward_with_output_shape(random_input::<4>(&[8, 6], 1, &device), &[8, 6]);
 }
 
+/// CONVENTIONS §3's padding with scaling (library CM1.5d): 8 × 6 padded to 10 × 8, scaled
+/// to 20 × 16, `round(2 · 2) = 4` cropped from the end of each axis.
 #[test]
-#[should_panic(expected = "padding with resolution_scaling_factor")]
-fn padding_with_scaling_panics() {
-    config()
+fn padding_with_scaling_crops_the_scaled_padding() {
+    let device = Device::default();
+    let fno: FNO<4> = test_config(vec![3, 2], 1, 4)
+        .with_n_layers(1)
         .with_padding(Some(2))
-        .with_resolution_scaling_factor(Some(vec![vec![2.0; 2]; 2]))
-        .init::<4>(&Device::default());
+        .with_resolution_scaling_factor(Some(vec![vec![2.0; 2]]))
+        .init(&device);
+    let y = fno.forward(random_input::<4>(&[8, 6], 1, &device));
+    assert_eq!(y.dims(), [2, 16, 12, 1]);
+}
+
+/// Where rounding bites, padding still changes no extent: the padded model's output has the
+/// unpadded model's extents (5 → 8 at 1.5, where `round(6 · 1.5) − round(1 · 1.5)` would
+/// give 7; 7 → 10 → 15 over two layers, where it would give 16).
+#[test]
+fn padding_with_scaling_keeps_the_unpadded_extents() {
+    let device = Device::default();
+    for (s, factors) in [(5, vec![vec![1.5; 1]]), (7, vec![vec![1.5; 1]; 2])] {
+        let config = test_config(vec![2], 1, 4)
+            .with_n_layers(factors.len())
+            .with_resolution_scaling_factor(Some(factors));
+        let x = random_input::<3>(&[s], 1, &device);
+        let unpadded: FNO<3> = config.clone().init(&device);
+        let padded: FNO<3> = config.with_padding(Some(1)).init(&device);
+        assert_eq!(
+            padded.forward(x.clone()).dims(),
+            unpadded.forward(x).dims(),
+            "s = {s}"
+        );
+    }
 }
 
 #[test]

@@ -292,33 +292,14 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
     )))
     .with_subset(subset);
 
-    let model_cfg = FNOConfig {
-        modes: vec![modes; 2],
-        hidden_channels: WIDTH,
-        data_channels: 1,
-        out_channels: 1,
-        n_layers: N_LAYERS,
+    let model_cfg = FNOConfig::new(vec![modes; 2], 1, 1)
+        .with_hidden_channels(WIDTH)
+        .with_n_layers(N_LAYERS)
         // None keeps the Li et al. U(0, 1/(I·O)) spectral init
-        spectral_init: None,
+        .with_spectral_init(None)
         // Poisson is non-periodic: pad each axis with zero cells before the
         // spectral layers (cropped after). Some(0) means no padding
-        padding: Some(padding),
-        activation: None,
-        // 2.0.0's block options (library CM1.3b); None keeps today's block
-        fno_skip: None,
-        channel_mlp: None,
-        norm: None,
-        preactivation: None,
-        lifting_channel_ratio: None,
-        projection_channel_ratio: None,
-        positional_embedding: None,
-        conv_bias: None,
-        separable: None,
-        max_modes: None,
-        tanh_stabilizer: None,
-        domain_padding: None,
-        resolution_scaling_factor: None,
-    };
+        .with_padding(Some(padding));
 
     let lit = Literals {
         epochs: common::env_var("EPOCHS").unwrap_or(EPOCHS),
