@@ -25,7 +25,8 @@ outputs unchanged bit for bit). CM3.6 split 2026-11-27 into CM3.6a–b; CM3.6a d
 (the Tensor GaLore projector for real tensors, not wired into training). CM0.6 done
 2026-11-27 (one name per concept: the FNO wrappers retired; FNO outputs, Adam, Gauss–Newton
 and L-BFGS, unchanged bit for bit); CM0.7 added (retire `Operator::NAME`, the author's
-decision of 2026-11-27). Next CM0.7, CM1.5b, CM1.5c, CM1.5d, CM3.6b.
+decision of 2026-11-27). CM1.5c done 2026-11-27 (batch norm and 2.0.0's `fno_skip=None`;
+FNO outputs unchanged bit for bit). Next CM0.7, CM1.5b, CM1.5d, CM3.6b.
 
 ## How to read this file
 
@@ -220,10 +221,19 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     per layer, `forward`'s `output_shape`). *Done when:* fixtures with padding and with
     scaling factors, 1D–3D, pass through `FNO` within D3 in f32; the dumps equal `main`'s.
     *Needs:* CM1.5a.
-  - [ ] **CM1.5c Batch norm.** `NormKind::Batch` as 2.0.0's `batch_norm` (eval mode: the
-    running statistics), and 2.0.0's `fno_skip=None` if the author wants it (CM1.5a PR).
-    *Done when:* an `FNO` fixture with `norm="batch_norm"` passes within D3 in f32; the
-    dumps equal `main`'s. *Needs:* CM1.5a.
+  - [x] **CM1.5c Batch norm.** `NormKind::Batch` as 2.0.0's `batch_norm` (eval mode: the
+    running statistics), and 2.0.0's `fno_skip=None`: the author decided 2026-11-27 (CM1.5a
+    PR question 1) yes, a block with no FNO skip at all, taken in this task, with
+    `FNOConfig::fno_skip: None` still today's 1×1 convolution with bias so that old configs
+    load unchanged. *Done when:* an `FNO` fixture with `norm="batch_norm"` passes within D3
+    in f32; the dumps equal `main`'s. *Needs:* CM1.5a. Done 2026-11-27: plan
+    `docs/operators/tasks/CM1.5c.md`; `NormKind::Batch` (Burn's `BatchNorm`), `SkipKind::Disabled`
+    (`SkipKind::init` now returns an `Option`); `tests/parity_fno.rs` `fno2d_batch_norm` 1.5e-6
+    and `fno1d_pre_no_skip` 3.0e-7 (f32, eval, the running statistics redrawn). Training with
+    batch norm is not checked: Burn's running variance is biased (torch's unbiased), and
+    Gauss–Newton (JVP without autodiff, VJP with), L-BFGS's repeated evaluations and the
+    data-parallel trainer do not account for running statistics (rustdoc of `Norm::Batch`);
+    a task of its own if a batch-norm model is ever trained.
   - [ ] **CM1.5d Tidy after full parity.** The CM1.3b, CM1.4 and CM1.2 follow-ups above
     not taken by CM1.5a: the `FNOConfig` literals, one coordinate-channel builder (the
     dumps and `gpu_parity` decide), `layers/spectral_convolution.rs` split, one shared
@@ -231,8 +241,11 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     private. From CM1.5a's code-quality review: CM0.5's test-only `Fno1dRef`
     (`tests/parity_common/fno1d.rs`, `tests/parity_fno1d*.rs`) retired, its harness
     self-checks ported to the library `FNO` (F4); one rule for `FNOConfig`'s boolean options
-    (`Option<bool>` with `None` false, or `#[config(default = false)]`; F7, the author's
-    choice at the M1 gate); `parity_common::fno::output`'s map hook replaced by a load step
+    (F7): the author's M1-gate rule, decided 2026-11-27 (CM1.5a PR question 2), is
+    `Option<bool>` with `None` meaning `false`, never `#[config(default = false)]`, because
+    Burn's `Config` derive gives fields no serde default and a plain `bool` would fail to
+    load older `model_cfg.json` files; every new option follows it, and this task may add a
+    test loading an old `model_cfg.json`; `parity_common::fno::output`'s map hook replaced by a load step
     the control can corrupt (F6). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
     *Needs:* CM1.5a.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,

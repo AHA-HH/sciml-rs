@@ -56,14 +56,14 @@ pub fn channel_mlp3d(p: Precision, device: &Device) -> f64 {
 /// `skip_connection(3, 5, n_dim=3, skip_type="linear")`. Burn names an enum module's
 /// parameters after the variant.
 pub fn linear_skip3d(p: Precision, device: &Device) -> f64 {
-    let skip = SkipKind::Linear.init::<5>(3, 5, device);
+    let skip = SkipKind::Linear.init::<5>(3, 5, device).unwrap();
     let map = &[("conv.weight", "Linear.weight", Take::Whole)];
     run::<_, 5>("linear_skip3d", p, skip, map, device, Skip::forward)
 }
 
 /// `skip_connection(4, 4, n_dim=2, skip_type="soft-gating")`, weight redrawn.
 pub fn soft_gating2d(p: Precision, device: &Device) -> f64 {
-    let skip = SkipKind::SoftGating.init::<4>(4, 4, device);
+    let skip = SkipKind::SoftGating.init::<4>(4, 4, device).unwrap();
     let map = &[("weight", "SoftGating", Take::Whole)];
     run::<_, 4>("soft_gating2d", p, skip, map, device, Skip::forward)
 }

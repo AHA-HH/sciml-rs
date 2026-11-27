@@ -39,6 +39,25 @@ fn options_build_2_0_0_s_layers() {
     }
 }
 
+/// 2.0.0's `fno_skip=None` (library CM1.5c): neither `w` nor a configured skip, and the
+/// forward runs; with a channel MLP the activation still repeats, as 2.0.0's.
+#[test]
+fn disabled_fno_skip_builds_none() {
+    let device = Device::default();
+    let fno: FNO<4> = config()
+        .with_fno_skip(Some(SkipKind::Disabled))
+        .with_norm(Some(NormKind::Batch))
+        .init(&device);
+    assert!(fno.w.is_empty() && fno.fno_skips.is_empty());
+    assert!(fno.repeat_activation);
+    let y = fno.forward(Tensor::<4>::random(
+        [2, 8, 8, 1],
+        Distribution::Default,
+        &device,
+    ));
+    assert_eq!(y.dims(), [2, 8, 8, 1]);
+}
+
 fn ada_in_fno() -> FNO<4> {
     config()
         .with_norm(Some(NormKind::AdaIn { embed_dim: 2 }))
