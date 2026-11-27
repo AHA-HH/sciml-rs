@@ -681,7 +681,7 @@ template:
   projector and `tucker_factors` generic over a sealed `GaLoreTensor<D>` (real `Tensor<D>`,
   factors `Tensor<2>`; `ComplexTensor<D>`, factors `ComplexTensor<2>`), so the HOOI exists
   once; `TensorGaLoreConfig::init::<D, T>()`. Complex: conjugate-transpose mode products,
-  √Σ|x|² norms, a host one-sided Jacobi SVD in f64 (Burn's QR `svd` of the real embedding
+  √Σ|x|² norms, a host one-sided Jacobi SVD in f64 on `num_complex::Complex64` (Burn's QR `svd` of the real embedding
   stalls in f64 on the paired singular values), each column turned to LAPACK `gesdd`'s phase
   (first entry of v real when m ≥ n, of u when m < n), then tensorly's `svd_flip` with
   `torch.sgn` (which doubles the phase rather than removing it). 2.0.0 fails on `cdouble`;
@@ -691,7 +691,7 @@ template:
   phase turns every sweep; a 1e-7 change of the gradient moves them by O(1), in complex128
   too). The `matrix` case is compared up to phase (subspaces, `back`, `low2` taken back).
 - Tests: parity f32 against 2.0.0: `tensor4` 1.3e-6, `fraction` 7.0e-6, `matrix` (up to
-  phase) 2.9e-7; f64 against tensorly: 3.5e-15, 2.0e-14, 3.4e-15 (D3). Control: another
+  phase) 4.4e-7; f64 against tensorly: 7.0e-15, 1.5e-14, 2.7e-15 (D3). Control: another
   gradient's factors fail. 8 new unit tests: the Jacobi SVD (orthonormal, spans, repeated
   singular values), the phase invariant phase(u_max) = 2 phase(w), orthonormal factors, round
   trip, an exact complex Tucker tensor, a real tensor taken as complex gives the real factors.
@@ -699,15 +699,16 @@ template:
 - Checks: see the PR (fmt, clippy ×4 incl. datagen, `cargo test`, `cargo test --features
   datagen`, `cargo doc`, `generate_galore.py --check`, `generate.py`/`generate_losses.py
   --check`). Not run: `--features metal` (the SVD and phases run on the host).
-- Decisions: none. Question for sign-off: accept parity up to phase where 2.0.0's complex
-  factors are ill-conditioned (tall unfoldings)?
+- Decisions: the author, 2026-11-27: parity up to phase where 2.0.0's complex factors are
+  ill-conditioned (tall unfoldings) accepted, the factors being defined only up to phase;
+  `num-complex` added as a direct dependency, pinned to the locked 0.4.6 (the lock gains
+  only the edge).
 - Review: plan review FAIL → fixed (the harness's `complex_tensor` lacked its dead_code
   allow, so clippy `--all-targets` failed; advisories: a zero phase reference now panics,
   stale comments fixed, `init::<D, T>()` accepted, the thin f32 margin on `fraction` noted).
   Code quality APPROVE with findings: F1, F2, F4, F7, F10 fixed (one generic mode-product
   loop over a sealed `GaLoreMatrix`, the complex SVD in `galore/complex_svd.rs`, named
-  `to_low_rank` / `to_full_rank`); F3 (`num-complex` for `Cx`) needs a dependency sign-off,
-  asked; F5, F6, F8, F9 left, in the PR.
+  `to_low_rank` / `to_full_rank`); F3 (`num-complex` for `Cx`) done on the author's yes; F5, F6, F8, F9 left, in the PR.
 - FNO: not touched (`optim/galore*` and tests only).
 - Matrix: `TensorGaLoreProjector` have.
 - Follow-ups: CM3.6c (the refresh, #178); the wiring (an AdamW arm) may warn on tall

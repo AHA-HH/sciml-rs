@@ -40,7 +40,9 @@ fn fraction_f64_matches_2_0_0() {
     run::<3, Tensor<3>>("galore_f64", "fraction", &flex_f64());
 }
 
-/// Its sweeps' unfoldings are tall: the phases are ill-conditioned (`run_up_to_phase`).
+/// Compared up to phase (the author, 2026-11-27): its sweeps' unfoldings are tall, so the
+/// factors are defined only up to each column's phase, which a 1e-7 change of the gradient
+/// moves by O(1); `tests/parity_galore.rs` gives the reason in full.
 #[cfg(feature = "flex")]
 #[test]
 fn complex_matrix_f64_matches_tensorly_up_to_phase() {

@@ -38,7 +38,12 @@ fn factors_of_another_gradient_fail_parity() {
     assert!(err > 0.1, "error {err:.3e}");
 }
 
-/// Its sweeps' unfoldings are tall (12 × 3, 7 × 3): 2.0.0's phases there are ill-conditioned.
+/// Compared up to phase (the author, 2026-11-27): its sweeps' unfoldings are tall (12 × 3,
+/// 7 × 3), so 2.0.0's factors are defined only up to each column's phase. LAPACK's phase
+/// reference is then a column of the other factor's product, so the phases turn every
+/// sweep, and a 1e-7 change of the gradient moves them by O(1), in complex128 too. Their
+/// subspaces and the back-projection are well defined, and are what `run_up_to_phase`
+/// compares.
 #[test]
 fn complex_matrix_f32_matches_2_0_0_up_to_phase() {
     run_up_to_phase::<2>("galore_complex_f32", "matrix", &Device::default());

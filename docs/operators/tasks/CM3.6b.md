@@ -119,5 +119,8 @@ None.
 ## Open questions
 
 1. Accept parity up to phase where 2.0.0's complex factors are ill-conditioned (tall
-   unfoldings), as above? Entry-for-entry parity there is not reproducible, even by 2.0.0
-   against itself under a 1e-7 change.
+   unfoldings), as above? Answered 2026-11-27 by the author: accepted, as the factors are
+   only defined up to phase; the reason stated in the tests' doc comments.
+2. `num-complex` as a direct dependency for the host complex type (the code-quality
+   review's F3)? Answered 2026-11-27 by the author: yes, pinned to the version already in
+   `Cargo.lock` (0.4.6); the lock's diff is the dependency edge only.
