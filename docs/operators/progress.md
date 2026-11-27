@@ -629,8 +629,14 @@ template:
   --check`). Not run: `--features metal` (the SVD and phases run on the host).
 - Decisions: none. Question for sign-off: accept parity up to phase where 2.0.0's complex
   factors are ill-conditioned (tall unfoldings)?
-- Review: see the PR.
-- FNO: not touched (`optim/galore.rs` and tests only).
+- Review: plan review FAIL → fixed (the harness's `complex_tensor` lacked its dead_code
+  allow, so clippy `--all-targets` failed; advisories: a zero phase reference now panics,
+  stale comments fixed, `init::<D, T>()` accepted, the thin f32 margin on `fraction` noted).
+  Code quality APPROVE with findings: F1, F2, F4, F7, F10 fixed (one generic mode-product
+  loop over a sealed `GaLoreMatrix`, the complex SVD in `galore/complex_svd.rs`, named
+  `to_low_rank` / `to_full_rank`); F3 (`num-complex` for `Cx`) needs a dependency sign-off,
+  asked; F5, F6, F8, F9 left, in the PR.
+- FNO: not touched (`optim/galore*` and tests only).
 - Matrix: `TensorGaLoreProjector` have.
 - Follow-ups: CM3.6c (the refresh, #178); the wiring (an AdamW arm) may warn on tall
   unfoldings.
