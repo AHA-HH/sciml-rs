@@ -103,6 +103,7 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
         },
         hybrid_adam_epochs: None,
         lbfgs: None,
+        soap: None,
     };
     let train_cfg = common::training_config(&["adam", "adamw", "gauss-newton"], seed, &lit);
 

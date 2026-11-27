@@ -152,6 +152,7 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
         },
         hybrid_adam_epochs: None,
         lbfgs: None,
+        soap: None,
     };
     let mut train_cfg = common::training_config(&["adam", "adamw", "gauss-newton"], seed, &lit);
     if petscml {

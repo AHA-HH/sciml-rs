@@ -183,7 +183,8 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `OptimizerConfig`, `None` meaning Adam; since T5 `adam_epochs`, the Hybrid arm's Adam
   epochs before Gauss–Newton; since optimisers CO1.1 `OptimizerConfig::AdamW`,
   `lr_schedule` (`None` the cosine, `LrSchedule::Step` halving every k epochs) and `loss`
-  (`TrainLoss::SquaredRelL2`, PETScML's eq. 6, for the Adam path)), `step` (`flatten_pair`, `forward_loss`,
+  (`TrainLoss::SquaredRelL2`, PETScML's eq. 6, for the Adam path); since CO3.3
+  `OptimizerConfig::Soap(SoapConfig)`, SOAP built in Adam's place, one device), `step` (`flatten_pair`, `forward_loss`,
   `evaluate`: the per-sample mean test loss), `trainer` (components, `train_epoch`,
   `training_loop` with its `EpochObserver<'_, M>`, `train`), `gn` (Phase 10 T3:
   `GridResidual`, any `GridOperator`'s Gauss–Newton residual, and `train_epoch_gn`, the epoch the loop
@@ -208,7 +209,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   per-parameter `Optimizer` (one factor per dimension, D8; first basis by Burn's host `svd`,
   refreshes by a host f64 Householder QR, D9; M kept in the original space, V in the bases),
   `SoapState` (`RecordState` by hand: Burn's derive works only inside `burn-optim`) and
-  `Factor`; tests in `soap/tests.rs`. Nothing calls it before CO3.3.
+  `Factor`; tests in `soap/tests.rs`; since CO3.3 `log_first_refresh` (the factors'
+  eigenvalue ratios at the first refresh, f64 Jacobi). The trainer builds it for
+  `OptimizerConfig::Soap`.
 - `optim/galore.rs` (library CM3.6a, real tensors of any rank; CM3.6b complex ones; imports
   nothing from `models/` or `training/`): 2.0.0's `TensorGaLoreProjector<D, T>` (`T` a
   `Tensor<D>` or a `ComplexTensor<D>`, through the sealed `GaLoreTensor`; `TensorGaLoreConfig`,
@@ -431,7 +434,10 @@ than trusting prose when checking how an API behaves.
   those literals (Phase 10 follow-ups). `OPTIMIZER=lbfgs` (optimisers CO2.1) trains with
   Burn's L-BFGS on Φ, one step per epoch on the full batch of N (the `LBFGS_*` literals,
   overridden by `LBFGS_HISTORY`, `LBFGS_MAX_ITER`, `LBFGS_MAX_EVAL`, `LBFGS_WEIGHT_DECAY`;
-  `TIME_BUDGET_S`; one device; run name `_lbfgs`; writes `lbfgs_steps.csv`)
+  `TIME_BUDGET_S`; one device; run name `_lbfgs`; writes `lbfgs_steps.csv`).
+  `OPTIMIZER=soap` (optimisers CO3.3) trains with SOAP on Adam's batch and cosine (the
+  `SOAP_*` literals; `LEARNING_RATE`, `WEIGHT_DECAY` (decoupled), `SOAP_FREQUENCY`,
+  `SOAP_LOG_FIRST_REFRESH=1`; `TIME_BUDGET_S`; one device; run name `_soap`)
 - Export run directories to a local MLflow server (Phase 8 T1; server: `mlflow server
   --host 127.0.0.1 --port 5001 --backend-store-uri sqlite:///$HOME/mlflow/mlflow.db
   --artifacts-destination $HOME/mlflow/artifacts`, see `README.md`):

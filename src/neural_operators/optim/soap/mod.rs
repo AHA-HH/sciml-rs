@@ -60,6 +60,11 @@ pub struct SoapConfig {
     /// SOAP Adam.
     #[config(default = 10000)]
     pub max_precond_dim: usize,
+    /// At each parameter's first refresh, print every factor's extreme eigenvalues and
+    /// their ratio to stdout (optimisers CO3.3: the pilot's check of D9's f32 factors);
+    /// changes no arithmetic.
+    #[config(default = false)]
+    pub log_first_refresh: bool,
 }
 
 impl SoapConfig {
@@ -173,6 +178,9 @@ impl Optimizer for Soap {
             }
         }
         if state.step % c.precondition_frequency == 0 {
+            if c.log_first_refresh && state.step == c.precondition_frequency {
+                log_spectra(&state);
+            }
             refresh(&mut state);
         }
         (tensor, Some(state))
@@ -275,6 +283,25 @@ fn refresh<const D: usize>(state: &mut SoapState<D>) {
     }
 }
 
+/// Prints, for each factor of `state`, its dimension, size and the extreme eigenvalues
+/// of Lₖ (f64, from the f32 factor) with their ratio; `inf` when the smallest is not
+/// positive.
+fn log_spectra<const D: usize>(state: &SoapState<D>) {
+    let shape = state.moment_2.dims();
+    for (k, f) in state.factors.iter().enumerate() {
+        let Some(f) = f else { continue };
+        let eig = host::symmetric_eigenvalues(host::read(&f.gram));
+        let (max, min) = eig
+            .iter()
+            .fold((f64::MIN, f64::MAX), |(a, b), &e| (a.max(e), b.min(e)));
+        let ratio = if min > 0.0 { max / min } else { f64::INFINITY };
+        println!(
+            "soap first refresh: shape {shape:?} dim {k} (size {}): eigenvalues {max:.3e} .. {min:.3e}, ratio {ratio:.3e}",
+            eig.len()
+        );
+    }
+}
+
 /// The refresh's host arithmetic, in f64.
 mod host {
     use burn::prelude::*;
@@ -303,6 +330,45 @@ mod host {
         order.sort_by(|&a, &b| estimate[b].total_cmp(&estimate[a]));
         let sorted = basis.select(Axis(1), &order);
         (order, householder_q(gram.dot(&sorted)))
+    }
+
+    /// The eigenvalues of symmetric `a`, unordered, by cyclic Jacobi rotations until the
+    /// off-diagonal is negligible against the diagonal (at most 100 sweeps).
+    pub(super) fn symmetric_eigenvalues(mut a: Array2<f64>) -> Vec<f64> {
+        let n = a.nrows();
+        for _ in 0..100 {
+            let off: f64 = (0..n)
+                .flat_map(|p| (p + 1..n).map(move |q| (p, q)))
+                .map(|(p, q)| a[[p, q]] * a[[p, q]])
+                .sum();
+            let diag: f64 = (0..n).map(|i| a[[i, i]] * a[[i, i]]).sum();
+            if off <= 1e-30 * diag || off == 0.0 {
+                break;
+            }
+            for p in 0..n {
+                for q in p + 1..n {
+                    if a[[p, q]] == 0.0 {
+                        continue;
+                    }
+                    // the rotation that zeroes a[p, q] (Golub and Van Loan, Algorithm 8.5.1)
+                    let theta = (a[[q, q]] - a[[p, p]]) / (2.0 * a[[p, q]]);
+                    let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+                    let c = 1.0 / (t * t + 1.0).sqrt();
+                    let s = t * c;
+                    for k in 0..n {
+                        let (akp, akq) = (a[[k, p]], a[[k, q]]);
+                        a[[k, p]] = c * akp - s * akq;
+                        a[[k, q]] = s * akp + c * akq;
+                    }
+                    for k in 0..n {
+                        let (apk, aqk) = (a[[p, k]], a[[q, k]]);
+                        a[[p, k]] = c * apk - s * aqk;
+                        a[[q, k]] = s * apk + c * aqk;
+                    }
+                }
+            }
+        }
+        (0..n).map(|i| a[[i, i]]).collect()
     }
 
     /// Q of the Householder QR of a square matrix: orthogonal even when the matrix is

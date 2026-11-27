@@ -767,6 +767,94 @@ fn lbfgs_with_replicas_panics() {
     let _ = training_loop(c, &train_cfg, None, &mut |_, _| {}, None, None);
 }
 
+/// Optimisers CO3.3: a SOAP run (f = 2, so bases refresh inside and across epochs) killed
+/// in epoch 2 and resumed from epoch 1's checkpoint ends as the uninterrupted run does,
+/// bit for bit on flex; and it is not Adam's run.
+#[test]
+fn soap_run_resumes_exactly() {
+    use crate::neural_operators::optim::soap::SoapConfig;
+    let root = std::env::temp_dir().join(format!("sciml_rs_soap_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let adam_cfg = TrainingConfig::new()
+        .with_epochs(4)
+        .with_batch_size(2)
+        .with_test_batch_size(2)
+        .with_seed(5);
+    let soap = SoapConfig::new().with_precondition_frequency(2);
+    let train_cfg = adam_cfg
+        .clone()
+        .with_optimizer(Some(OptimizerConfig::Soap(soap)));
+    let device = Device::default().autodiff();
+    let build = |cfg: &TrainingConfig| {
+        build_components::<FNO<3>, 3, 2, _>(
+            &tiny_model_cfg(),
+            cfg,
+            tiny_dataset(5), // partial last batch
+            tiny_dataset(3),
+            &device,
+        )
+    };
+    // one initial model for every run (the device RNG is shared between parallel tests)
+    let whole = build(&train_cfg);
+    let mut first = build(&train_cfg);
+    first.model = whole.model.clone();
+    let mut adam = build(&adam_cfg);
+    adam.model = whole.model.clone();
+
+    let straight = RunDir::create(&root, "straight").unwrap();
+    let (straight_model, straight_metrics) = train_components(
+        whole,
+        None,
+        &train_cfg,
+        &device,
+        &straight,
+        Some(1),
+        None,
+        None,
+    );
+    let adam_run = RunDir::create(&root, "adam").unwrap();
+    let (_, adam_metrics) =
+        train_components(adam, None, &adam_cfg, &device, &adam_run, None, None, None);
+    assert_ne!(metric_bits(&straight_metrics), metric_bits(&adam_metrics));
+
+    let run = RunDir::create(&root, "resumed").unwrap();
+    // the checkpoint reader needs model_cfg.json; the data config is unused here
+    run.save_configs(&tiny_model_cfg(), &train_cfg, &train_cfg)
+        .unwrap();
+    interrupt_at(first, &train_cfg, None, &run, 1, 2);
+    let ck = run.checkpoint_of::<FNO<3>>(&device).unwrap().unwrap();
+    assert_eq!(ck.state.next_epoch, 2);
+    assert!(ck.gn.is_none() && ck.lbfgs.is_none());
+    run.truncate_metrics(ck.state.next_epoch).unwrap();
+    let (resumed_model, _) = train_components(
+        build(&train_cfg),
+        None,
+        &train_cfg,
+        &device,
+        &run,
+        Some(1),
+        Some(ck),
+        None,
+    );
+    assert_same_metrics(&run.metrics().unwrap(), &straight.metrics().unwrap());
+    assert_same_weights(&resumed_model, &straight_model);
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// Data-parallel SOAP is untested, so refused: replicas with SOAP panic.
+#[test]
+#[should_panic(expected = "data-parallel SOAP is out of scope")]
+fn soap_with_replicas_panics() {
+    let soap = crate::neural_operators::optim::soap::SoapConfig::new();
+    let train_cfg = TrainingConfig::new()
+        .with_epochs(1)
+        .with_batch_size(2)
+        .with_optimizer(Some(OptimizerConfig::Soap(soap)));
+    let device = Device::default().autodiff();
+    let c = parallel_components(&train_cfg, &device, std::slice::from_ref(&device));
+    let _ = training_loop(c, &train_cfg, None, &mut |_, _| {}, None, None);
+}
+
 /// A hybrid run must train both optimisers: `adam_epochs` equal to `epochs` panics.
 #[test]
 #[should_panic(expected = "0 < adam_epochs < epochs")]

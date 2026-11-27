@@ -2,7 +2,7 @@
 
 use burn::{config::Config, optim::LBFGSConfig};
 
-use crate::neural_operators::optim::gauss_newton::GaussNewtonConfig;
+use crate::neural_operators::optim::{gauss_newton::GaussNewtonConfig, soap::SoapConfig};
 
 /// Which optimiser trains the model (Phase 10 T3).
 #[derive(Config, Debug)]
@@ -23,6 +23,11 @@ pub enum OptimizerConfig {
     /// (optimisers CO2.1; D3, D4): [`TrainingConfig::batch_size`] must cover the training
     /// set, and [`TrainingConfig`]'s learning-rate and weight-decay fields are unused.
     Lbfgs(LbfgsArm),
+    /// SOAP ([`Soap`](crate::neural_operators::optim::soap::Soap)) in place of Adam, on
+    /// Adam's path: [`TrainingConfig`]'s learning rate, schedule and batch size drive it;
+    /// its weight decay is the [`SoapConfig`]'s own (decoupled), and
+    /// [`TrainingConfig::weight_decay`] is unused (optimisers CO3.3).
+    Soap(SoapConfig),
 }
 
 /// The L-BFGS arm (optimisers CO2.1): Burn's settings and the objective's.
@@ -144,7 +149,12 @@ impl TrainingConfig {
     pub fn gauss_newton(&self) -> Option<&GaussNewtonConfig> {
         match &self.optimizer {
             Some(OptimizerConfig::GaussNewton(gn)) => Some(gn),
-            Some(OptimizerConfig::Adam | OptimizerConfig::AdamW | OptimizerConfig::Lbfgs(_))
+            Some(
+                OptimizerConfig::Adam
+                | OptimizerConfig::AdamW
+                | OptimizerConfig::Lbfgs(_)
+                | OptimizerConfig::Soap(_),
+            )
             | None => None,
         }
     }
@@ -153,6 +163,14 @@ impl TrainingConfig {
     pub fn lbfgs(&self) -> Option<&LbfgsArm> {
         match &self.optimizer {
             Some(OptimizerConfig::Lbfgs(arm)) => Some(arm),
+            _ => None,
+        }
+    }
+
+    /// The SOAP settings if this run trains with SOAP, else `None`.
+    pub fn soap(&self) -> Option<&SoapConfig> {
+        match &self.optimizer {
+            Some(OptimizerConfig::Soap(soap)) => Some(soap),
             _ => None,
         }
     }
@@ -241,5 +259,21 @@ mod tests {
         assert_eq!(arm.lbfgs.line_search_fn, LineSearchFn::StrongWolfe);
         assert_eq!((arm.learning_rate, arm.weight_decay), (1.0, 1e-4));
         assert!(back.gauss_newton().is_none() && TrainingConfig::new().lbfgs().is_none());
+    }
+
+    /// Optimisers CO3.3: a SOAP arm round-trips, and is no other arm.
+    #[test]
+    fn soap_arm_round_trips() {
+        let soap = SoapConfig::new()
+            .with_precondition_frequency(50)
+            .with_weight_decay(0.0);
+        let cfg = TrainingConfig::new().with_optimizer(Some(OptimizerConfig::Soap(soap)));
+        let back: TrainingConfig =
+            TrainingConfig::load_binary(burn::config::config_to_json(&cfg).as_bytes()).unwrap();
+        let soap = back.soap().expect("a SOAP arm");
+        assert_eq!((soap.precondition_frequency, soap.weight_decay), (50, 0.0));
+        assert!(!soap.log_first_refresh);
+        assert!(back.gauss_newton().is_none() && back.lbfgs().is_none());
+        assert!(TrainingConfig::new().soap().is_none());
     }
 }

@@ -154,7 +154,8 @@ fn train_epoch_with_loss<const R: usize, const RM1: usize, M: GridOperator<R>>(
 pub struct TrainingComponents<const R: usize, const RM1: usize, M = FNO<R>> {
     /// The freshly initialised model, on the autodiff device.
     pub model: M,
-    /// Adam with coupled weight decay, or AdamW when `TrainingConfig::optimizer` asks for it.
+    /// Adam with coupled weight decay, or AdamW or SOAP when `TrainingConfig::optimizer`
+    /// asks for it.
     pub optim: ModuleOptimizer,
     /// Cosine annealing over [`TrainingConfig::schedule_steps`] steps, or the step schedule
     /// of [`TrainingConfig::lr_schedule`]; stepped once per batch.
@@ -227,6 +228,7 @@ pub fn build_components<M: GridOperator<R>, const R: usize, const RM1: usize, T:
             .with_epsilon(1e-8)
             .with_weight_decay(train_cfg.weight_decay)
             .init(),
+        Some(OptimizerConfig::Soap(ref soap)) => soap.init(),
         // a Gauss-Newton or L-BFGS run builds Adam too: a hybrid run's epochs, or unused
         Some(
             OptimizerConfig::Adam | OptimizerConfig::GaussNewton(_) | OptimizerConfig::Lbfgs(_),
@@ -421,6 +423,10 @@ fn run_loop_with<const R: usize, const RM1: usize, M: GridOperator<R>>(
     assert!(
         components.lbfgs.is_none() || components.replicas.is_empty(),
         "L-BFGS trains on one device: data-parallel L-BFGS is out of scope"
+    );
+    assert!(
+        train_cfg.soap().is_none() || components.replicas.is_empty(),
+        "SOAP trains on one device: data-parallel SOAP is out of scope"
     );
     assert!(
         !train_cfg.squared_loss() || components.replicas.is_empty(),
