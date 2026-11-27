@@ -139,7 +139,8 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
 ## Layout
 - `src/neural_operators/`: `models/fno/` (`mod.rs`: FNOConfig, FNO, `Activation`: ReLU, or GELU since optimisers CO1.1; tests in `tests/{reference,padding,grid,checkpoint,activation}.rs`),
   `models/operator.rs` (library CM0.3, D4: `Operator`, the trait every model implements for
-  the training stack, with associated `Config`, `Input`, `Output` and `NAME`;
+  the training stack, with associated `Config`, `Input` and `Output` (its name is the config's
+  `OperatorConfig::KIND`; `NAME` retired in CM0.7);
   `GridOperator<R>`, rank-R tensors in and out, which `training/`, `runs` and
   `predict_host` are generic over; since CM0.6 the generic names only: `train::<FNO<R>, …>`,
   `build_components`, `RunDir::load_model`, `checkpoint_of`, `OperatorCheckpoint<M>`),

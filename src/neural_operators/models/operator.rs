@@ -24,10 +24,6 @@ pub trait Operator: Module {
     type Input;
     /// What [`forward`](Operator::forward) returns.
     type Output;
-    /// The operator's name in the registry (CM0.4): its config's
-    /// [`KIND`](OperatorConfig::KIND). Never overridden: the registry and
-    /// `model_cfg.json` know the operator by `KIND`.
-    const NAME: &'static str = <Self::Config as OperatorConfig>::KIND;
 
     /// A freshly initialised operator on `device`, drawn from the device's RNG.
     fn init(config: &Self::Config, device: &Device) -> Self;
@@ -158,7 +154,10 @@ mod tests {
             values(direct.forward(x.clone())),
             values(Operator::forward(&direct, x))
         );
-        assert_eq!(<FNO<3> as Operator>::NAME, "fno");
+        assert_eq!(
+            <<FNO<3> as Operator>::Config as OperatorConfig>::KIND,
+            "fno"
+        );
     }
 
     /// A model that is not the FNO trains through the generic stack, checkpoints, reloads
