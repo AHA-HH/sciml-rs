@@ -1,6 +1,6 @@
 //! Optimizer and schedule settings for a training run.
 
-use burn::config::Config;
+use burn::{config::Config, optim::LBFGSConfig};
 
 use crate::neural_operators::optim::gauss_newton::GaussNewtonConfig;
 
@@ -19,6 +19,24 @@ pub enum OptimizerConfig {
     /// the learning rate), from [`TrainingConfig`]'s learning-rate and weight-decay fields:
     /// PETScML's reference solver (optimisers CO1.1, D11).
     AdamW,
+    /// Burn's L-BFGS on Gauss–Newton's objective Φ, one `step` per epoch on the full batch
+    /// (optimisers CO2.1; D3, D4): [`TrainingConfig::batch_size`] must cover the training
+    /// set, and [`TrainingConfig`]'s learning-rate and weight-decay fields are unused.
+    Lbfgs(LbfgsArm),
+}
+
+/// The L-BFGS arm (optimisers CO2.1): Burn's settings and the objective's.
+#[derive(Config, Debug)]
+pub struct LbfgsArm {
+    /// Burn's L-BFGS settings: history, inner iterations, tolerances, line search.
+    pub lbfgs: LBFGSConfig,
+    /// The learning rate `LBFGS::step` takes: the step a line search starts from, or the
+    /// fixed step without one (D5: 1).
+    #[config(default = 1.0)]
+    pub learning_rate: f64,
+    /// μ in the closure's Φ + ½μ‖θ‖² (D3, D13: 0 or 1e-4); 0 adds nothing.
+    #[config(default = 0.0)]
+    pub weight_decay: f64,
 }
 
 /// A learning-rate schedule other than the default cosine (optimisers CO1.1).
@@ -126,7 +144,16 @@ impl TrainingConfig {
     pub fn gauss_newton(&self) -> Option<&GaussNewtonConfig> {
         match &self.optimizer {
             Some(OptimizerConfig::GaussNewton(gn)) => Some(gn),
-            Some(OptimizerConfig::Adam | OptimizerConfig::AdamW) | None => None,
+            Some(OptimizerConfig::Adam | OptimizerConfig::AdamW | OptimizerConfig::Lbfgs(_))
+            | None => None,
+        }
+    }
+
+    /// The L-BFGS arm if this run trains with L-BFGS, else `None`.
+    pub fn lbfgs(&self) -> Option<&LbfgsArm> {
+        match &self.optimizer {
+            Some(OptimizerConfig::Lbfgs(arm)) => Some(arm),
+            _ => None,
         }
     }
 
@@ -194,5 +221,25 @@ mod tests {
             Some(LrSchedule::Step { every_epochs: 100 })
         ));
         assert!(back.squared_loss() && back.gauss_newton().is_none());
+    }
+
+    /// Optimisers CO2.1: an L-BFGS arm round-trips, and is neither Gauss–Newton nor Adam.
+    #[test]
+    fn lbfgs_arm_round_trips() {
+        use burn::optim::LineSearchFn;
+        let arm = LbfgsArm::new(
+            LBFGSConfig::new()
+                .with_history_size(10)
+                .with_line_search_fn(LineSearchFn::StrongWolfe),
+        )
+        .with_weight_decay(1e-4);
+        let cfg = TrainingConfig::new().with_optimizer(Some(OptimizerConfig::Lbfgs(arm)));
+        let back: TrainingConfig =
+            TrainingConfig::load_binary(burn::config::config_to_json(&cfg).as_bytes()).unwrap();
+        let arm = back.lbfgs().expect("an L-BFGS arm");
+        assert_eq!(arm.lbfgs.history_size, 10);
+        assert_eq!(arm.lbfgs.line_search_fn, LineSearchFn::StrongWolfe);
+        assert_eq!((arm.learning_rate, arm.weight_decay), (1.0, 1e-4));
+        assert!(back.gauss_newton().is_none() && TrainingConfig::new().lbfgs().is_none());
     }
 }

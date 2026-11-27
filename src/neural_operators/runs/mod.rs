@@ -10,7 +10,9 @@
 //! - `checkpoint.bin` ([`Checkpoint`]): the latest checkpoint, Poisson runs since Phase 9
 //!   T1, replaced every k epochs and after the last;
 //! - `gn_steps.csv` ([`GnStepRecord`]): one row per Gauss–Newton step, Gauss–Newton runs
-//!   only (Phase 10 T3).
+//!   only (Phase 10 T3);
+//! - `lbfgs_steps.csv` ([`LbfgsStepRecord`]): one row per L-BFGS step (epoch), L-BFGS runs
+//!   only (optimisers CO2.1).
 //!
 //! [`RunDir`] writes these and reads them back. File names live only here. Runs written
 //! since Phase 3 open, including Learner runs from before Phase 4s T2, which lack
@@ -26,11 +28,13 @@ mod checkpoint;
 mod costs;
 mod csv;
 mod gn_steps;
+mod lbfgs_steps;
 mod plots;
 
 pub use checkpoint::{Checkpoint, CheckpointState, OperatorCheckpoint};
 pub use costs::RunCosts;
 pub use gn_steps::{GnPasses, GnStepRecord};
+pub use lbfgs_steps::LbfgsStepRecord;
 
 use std::error::Error;
 use std::io;
@@ -40,7 +44,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use burn::{
     config::Config,
     module::Module,
-    optim::{ModuleOptimizer, lr_scheduler::module_lr_scheduler::ModuleLrScheduler},
+    optim::{LBFGS, ModuleOptimizer, lr_scheduler::module_lr_scheduler::ModuleLrScheduler},
     store::{BurnpackStore, ModuleSnapshot},
     tensor::Device,
 };
@@ -65,6 +69,7 @@ const TRAIN_CFG: &str = "train_cfg.json";
 const DATA_CFG: &str = "data_cfg.json";
 const METRICS_CSV: &str = "metrics.csv";
 const GN_STEPS_CSV: &str = "gn_steps.csv";
+const LBFGS_STEPS_CSV: &str = "lbfgs_steps.csv";
 const PLOTS_PNG: &str = "plots.png";
 const X_NORMALIZER: &str = "x_normalizer.json";
 const Y_NORMALIZER: &str = "y_normalizer.json";
@@ -228,6 +233,41 @@ impl RunDir {
         gn_steps::sum_passes(path).map(Some)
     }
 
+    /// Appends one L-BFGS step's row to `lbfgs_steps.csv`, writing the header first if the
+    /// file is new: the file's only writer.
+    ///
+    /// # Errors
+    /// If the file can't be opened or written.
+    pub fn append_lbfgs_step(&self, record: &LbfgsStepRecord) -> io::Result<()> {
+        lbfgs_steps::append_lbfgs_step_row(self.path.join(LBFGS_STEPS_CSV), record)
+    }
+
+    /// Drops the rows of `lbfgs_steps.csv` for epochs `next_epoch` and later, as
+    /// [`truncate_gn_steps`](Self::truncate_gn_steps); nothing to do without the file.
+    ///
+    /// # Errors
+    /// As [`truncate_metrics`](Self::truncate_metrics).
+    pub fn truncate_lbfgs_steps(&self, next_epoch: usize) -> io::Result<()> {
+        let path = self.path.join(LBFGS_STEPS_CSV);
+        if !path.exists() {
+            return Ok(());
+        }
+        csv::truncate_metrics_csv(path, next_epoch)
+    }
+
+    /// The forward and backward passes summed over `lbfgs_steps.csv`, and its row count
+    /// (the steps); `None` for a run without the file (not an L-BFGS run).
+    ///
+    /// # Errors
+    /// As [`gn_passes`](Self::gn_passes).
+    pub fn lbfgs_passes(&self) -> io::Result<Option<GnPasses>> {
+        let path = self.path.join(LBFGS_STEPS_CSV);
+        if !path.exists() {
+            return Ok(None);
+        }
+        gn_steps::sum_passes(path).map(Some)
+    }
+
     /// Draws `plots.png` (loss curves and learning rate) from `metrics`, titled with the
     /// run's name: an end-of-run action. A missing gnuplot only skips the plot, with a
     /// warning on stderr.
@@ -385,7 +425,7 @@ impl RunDir {
 
     /// The run's files worth viewing beside its metrics, those present, sorted by name:
     /// the three configs, `costs.json`, `errors.json` ([`ERRORS_JSON`]), `gn_steps.csv`
-    /// (Gauss–Newton runs) and every `.png`
+    /// (Gauss–Newton runs), `lbfgs_steps.csv` (L-BFGS runs) and every `.png`
     /// (`plots.png`, `prediction_<k>.png`). Not the weights, checkpoint, normalizers or
     /// `metrics.csv`, and no symbolic link, so nothing outside the directory is picked up.
     /// The MLflow exporter (Phase 8 T1) uploads these.
@@ -400,6 +440,7 @@ impl RunDir {
             COSTS,
             ERRORS_JSON,
             GN_STEPS_CSV,
+            LBFGS_STEPS_CSV,
         ];
         let mut files = Vec::new();
         for entry in std::fs::read_dir(&self.path)? {
@@ -445,10 +486,46 @@ impl RunDir {
         scheduler: &ModuleLrScheduler,
         gn: Option<&GaussNewtonState>,
     ) -> Result<(), Box<dyn Error>> {
-        let bytes = checkpoint::encode(state, model, optim.to_record(), scheduler.to_record(), gn)?;
+        let bytes = checkpoint::encode(
+            state,
+            model,
+            optim.to_record(),
+            scheduler.to_record(),
+            gn,
+            None,
+        )?;
+        self.write_checkpoint(&bytes)
+    }
+
+    /// [`save_checkpoint`](Self::save_checkpoint) with the L-BFGS state of an L-BFGS run
+    /// (optimisers CO2.1), the checkpoint's fifth section after an empty fourth.
+    ///
+    /// # Errors
+    /// As [`save_checkpoint`](Self::save_checkpoint).
+    pub fn save_checkpoint_lbfgs(
+        &self,
+        state: &CheckpointState,
+        model: &impl Module,
+        optim: &ModuleOptimizer,
+        scheduler: &ModuleLrScheduler,
+        lbfgs: &LBFGS,
+    ) -> Result<(), Box<dyn Error>> {
+        let bytes = checkpoint::encode(
+            state,
+            model,
+            optim.to_record(),
+            scheduler.to_record(),
+            None,
+            Some(lbfgs),
+        )?;
+        self.write_checkpoint(&bytes)
+    }
+
+    /// Writes `checkpoint.bin` atomically: under a temporary name, synced, then renamed.
+    fn write_checkpoint(&self, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
         let tmp = self.path.join(CHECKPOINT_TMP);
         let mut file = std::fs::File::create(&tmp)?;
-        io::Write::write_all(&mut file, &bytes)?;
+        io::Write::write_all(&mut file, bytes)?;
         file.sync_all()?;
         std::fs::rename(&tmp, self.path.join(CHECKPOINT))?;
         Ok(())
