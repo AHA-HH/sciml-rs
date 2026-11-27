@@ -27,6 +27,7 @@ const FNO3D: Case = Case {
     n_modes: &[4, 4, 4],
     max_n_modes: None,
     options: |c| c,
+    output_shape: None,
 };
 /// Instance norm, pre-activation, tanh; `n_modes=(6, 4)`, hidden 6, on (2, 1, 16, 12).
 const FNO2D_INSTANCE_PRE: Case = Case {
@@ -97,6 +98,140 @@ const FNO1D_PRE_NO_MLP: Case = Case {
     },
     ..FNO1D
 };
+
+// Library CM1.5b: domain padding and resolution scaling (`generate.py`'s `SWEEPS`, f32).
+
+/// Per layer, every axis scaled by `r`: 2.0.0's `resolution_scaling_factor` as a list of
+/// scalars.
+fn per_layer(factors: &[f64], d: usize) -> Vec<Vec<f64>> {
+    factors.iter().map(|&r| vec![r; d]).collect()
+}
+
+/// `domain_padding=0.25`; `n_modes=(8,)`, hidden 6, on (2, 1, 40): 10 cells each side.
+const FNO1D_PADDING: Case = Case {
+    stem: "fno1d_padding",
+    hidden: 6,
+    options: |c| c.with_domain_padding(Some(vec![0.25])),
+    ..FNO1D
+};
+/// `domain_padding=[0.2, 0.1]`; `n_modes=(6, 4)`, hidden 6, on (2, 1, 20, 18): 4 and 2.
+const FNO2D_PADDING: Case = Case {
+    stem: "fno2d_padding",
+    hidden: 6,
+    n_modes: &[6, 4],
+    options: |c| c.with_domain_padding(Some(vec![0.2, 0.1])),
+    ..FNO1D
+};
+/// `domain_padding=0.25` on FNO3D's shape (2, 2, 8, 6, 5): 2, 2 (1.5 rounded to even), 1.
+const FNO3D_PADDING: Case = Case {
+    stem: "fno3d_padding",
+    options: |c| c.with_domain_padding(Some(vec![0.25; 3])),
+    ..FNO3D
+};
+/// `resolution_scaling_factor=[1.5, 1, 0.5, 1]`; `n_modes=(8,)`, hidden 6, on (2, 1, 32):
+/// 32 → 48 → 48 → 24 → 24, the skips resampled linearly.
+const FNO1D_SCALING: Case = Case {
+    stem: "fno1d_scaling",
+    hidden: 6,
+    options: |c| c.with_resolution_scaling_factor(Some(per_layer(&[1.5, 1.0, 0.5, 1.0], 1))),
+    ..FNO1D
+};
+/// `resolution_scaling_factor=[[2, 1.5], [0.5, 1]]`, two layers; `n_modes=(6, 4)`, hidden 6,
+/// on (2, 1, 12, 10): 24 × 15, then 12 × 15, the skips resampled bicubically.
+const FNO2D_SCALING: Case = Case {
+    stem: "fno2d_scaling",
+    hidden: 6,
+    n_layers: 2,
+    n_modes: &[6, 4],
+    options: |c| c.with_resolution_scaling_factor(Some(vec![vec![2.0, 1.5], vec![0.5, 1.0]])),
+    ..FNO1D
+};
+/// `resolution_scaling_factor=[[2, 1, 1.5], [1, 0.5, 1]]` on FNO3D: 16 × 6 × 8 (7.5 rounded
+/// to even), then 16 × 3 × 8, the skips resampled in Fourier space.
+const FNO3D_SCALING: Case = Case {
+    stem: "fno3d_scaling",
+    options: |c| {
+        c.with_resolution_scaling_factor(Some(vec![vec![2.0, 1.0, 1.5], vec![1.0, 0.5, 1.0]]))
+    },
+    ..FNO3D
+};
+/// `domain_padding=0.25`, `resolution_scaling_factor=2`, one layer (the only combination
+/// 2.0.0 runs); hidden 6, `n_modes=(6, 4)`, on (2, 1, 12, 10): padded 18 × 14, scaled
+/// 36 × 28, cropped by 6 and 4 per side to 24 × 20.
+const FNO2D_PADDING_SCALING: Case = Case {
+    stem: "fno2d_padding_scaling",
+    hidden: 6,
+    n_layers: 1,
+    n_modes: &[6, 4],
+    options: |c| {
+        c.with_domain_padding(Some(vec![0.25; 2]))
+            .with_resolution_scaling_factor(Some(per_layer(&[2.0], 2)))
+    },
+    ..FNO1D
+};
+/// `forward(x, output_shape=(20, 15))`, two layers; hidden 6, `n_modes=(6, 4)`, on
+/// (2, 1, 12, 10).
+const FNO2D_OUTPUT_SHAPE: Case = Case {
+    stem: "fno2d_output_shape",
+    hidden: 6,
+    n_layers: 2,
+    n_modes: &[6, 4],
+    output_shape: Some(&[20, 15]),
+    ..FNO1D
+};
+
+#[test]
+fn fno1d_padding_matches_2_0_0() {
+    check::<3>(&FNO1D_PADDING, F32, &Device::default());
+}
+
+#[test]
+fn fno2d_padding_matches_2_0_0() {
+    check::<4>(&FNO2D_PADDING, F32, &Device::default());
+}
+
+#[test]
+fn fno3d_padding_matches_2_0_0() {
+    check::<5>(&FNO3D_PADDING, F32, &Device::default());
+}
+
+#[test]
+fn fno1d_scaling_matches_2_0_0() {
+    check::<3>(&FNO1D_SCALING, F32, &Device::default());
+}
+
+#[test]
+fn fno2d_scaling_matches_2_0_0() {
+    check::<4>(&FNO2D_SCALING, F32, &Device::default());
+}
+
+#[test]
+fn fno3d_scaling_matches_2_0_0() {
+    check::<5>(&FNO3D_SCALING, F32, &Device::default());
+}
+
+#[test]
+fn fno2d_padding_scaling_matches_2_0_0() {
+    check::<4>(&FNO2D_PADDING_SCALING, F32, &Device::default());
+}
+
+#[test]
+fn fno2d_output_shape_matches_2_0_0() {
+    check::<4>(&FNO2D_OUTPUT_SHAPE, F32, &Device::default());
+}
+
+/// The padding is not passing vacuously: the padded fixture without its padding breaks the
+/// f32 bound.
+#[test]
+fn padding_left_off_fails_parity() {
+    let case = Case {
+        options: |c| c,
+        ..FNO2D_PADDING
+    };
+    let (y, mut fixture) = output::<4>(&case, F32, |_| {}, &Device::default());
+    let err = rel_max_error(y, &fixture.output());
+    assert!(err > D3_F32, "the padding went unnoticed: {err:.3e}");
+}
 
 #[test]
 fn fno1d_matches_2_0_0() {

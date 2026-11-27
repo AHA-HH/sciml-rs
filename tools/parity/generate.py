@@ -107,7 +107,18 @@ def fno_boundaries(in_channels, **kwargs):
     return FNO(in_channels=in_channels, positional_embedding=grid, **kwargs)
 
 
-def blocks(n_modes, channels=4, n_layers=2, **kwargs):
+class FNOOutputShape(FNO):
+    """2.0.0's `FNO` whose forward passes `output_shape` (a tuple: the last layer's shape)."""
+
+    def __init__(self, output_shape, **kwargs):
+        super().__init__(**kwargs)
+        self.output_shape = output_shape
+
+    def forward(self, x):
+        return super().forward(x, output_shape=self.output_shape)
+
+
+def blocks(n_modes,channels=4, n_layers=2, **kwargs):
     """`FNOBlocks(channels, channels, n_modes, n_layers, **kwargs)`, 2.0.0's defaults otherwise."""
     return FNOBlocksRun(in_channels=channels, out_channels=channels, n_modes=n_modes, n_layers=n_layers, **kwargs)
 
@@ -166,6 +177,17 @@ CONFIGS = {
     # An odd centred count (7): the crate's corners carry a zero row for it (CM1.2).
     "fno2d_odd_stabilizer": (FNO, dict(n_modes=(7, 6), in_channels=1, out_channels=1, hidden_channels=6, fno_skip="identity", channel_mlp_skip=None, stabilizer="tanh"), (2, 1, 16, 14)),
     "fno1d_pre_no_mlp": (FNO, dict(n_modes=(8,), in_channels=1, out_channels=1, hidden_channels=6, use_channel_mlp=False, preactivation=True, stabilizer="tanh", non_linearity=F.relu), (2, 1, 32)),
+    # CM1.5b: domain padding (symmetric, a fraction per axis) and resolution scaling (the
+    # convolution's output size, the skips resampled: linear 1D, bicubic 2D, Fourier 3D).
+    "fno1d_padding": (FNO, dict(n_modes=(8,), in_channels=1, out_channels=1, hidden_channels=6, domain_padding=0.25), (2, 1, 40)),
+    "fno2d_padding": (FNO, dict(n_modes=(6, 4), in_channels=1, out_channels=1, hidden_channels=6, domain_padding=[0.2, 0.1]), (2, 1, 20, 18)),
+    "fno3d_padding": (FNO, dict(n_modes=(4, 4, 4), in_channels=2, out_channels=1, hidden_channels=4, n_layers=2, domain_padding=0.25), (2, 2, 8, 6, 5)),
+    "fno1d_scaling": (FNO, dict(n_modes=(8,), in_channels=1, out_channels=1, hidden_channels=6, resolution_scaling_factor=[1.5, 1, 0.5, 1]), (2, 1, 32)),
+    "fno2d_scaling": (FNO, dict(n_modes=(6, 4), in_channels=1, out_channels=1, hidden_channels=6, n_layers=2, resolution_scaling_factor=[[2, 1.5], [0.5, 1]]), (2, 1, 12, 10)),
+    "fno3d_scaling": (FNO, dict(n_modes=(4, 4, 4), in_channels=2, out_channels=1, hidden_channels=4, n_layers=2, resolution_scaling_factor=[[2, 1, 1.5], [1, 0.5, 1]]), (2, 2, 8, 6, 5)),
+    # Padding with scaling runs in 2.0.0 only when one layer scales (its unpad lookup).
+    "fno2d_padding_scaling": (FNO, dict(n_modes=(6, 4), in_channels=1, out_channels=1, hidden_channels=6, n_layers=1, domain_padding=0.25, resolution_scaling_factor=2), (2, 1, 12, 10)),
+    "fno2d_output_shape": (FNOOutputShape, dict(output_shape=(20, 15), n_modes=(6, 4), in_channels=1, out_channels=1, hidden_channels=6, n_layers=2), (2, 1, 12, 10)),
     "grid_embedding2d": (GridEmbeddingND, dict(in_channels=3, dim=2, grid_boundaries=BOUNDARIES), (2, 3, 6, 5)),
     "sinusoidal_transformer": (SinusoidalEmbedding, dict(in_channels=3, num_frequencies=4), (2, 10, 3)),
     "sinusoidal_nerf": (SinusoidalEmbedding, dict(in_channels=3, num_frequencies=4, embedding_type="nerf"), (2, 10, 3)),
@@ -176,6 +198,8 @@ CONFIGS = {
 # constant.
 # CM1.5a's sweeps: the soft-gating and group-norm weights.
 SWEEPS = {"fno3d", "fno2d_instance_pre", "fno1d_group_skips", "fno2d_separable", "fno2d_odd_stabilizer", "fno1d_pre_no_mlp"}
+# CM1.5b's sweeps: padding, scaling, the output shape.
+SWEEPS |= {n for n in CONFIGS if n.endswith(("_padding", "_scaling", "_output_shape"))}
 REDRAW = {"soft_gating2d", "group_norm3d"} | {n for n in CONFIGS if n.startswith("fno_blocks")} | SWEEPS
 DTYPES = {"f32": torch.float32, "f64": torch.float64}
 # f32 only: the legacy layer computes its spectrum in `cfloat` and returns f32 (no bias to
