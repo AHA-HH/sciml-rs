@@ -160,7 +160,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `FNOConfig`'s `lifting_channel_ratio`, `projection_channel_ratio`, `positional_embedding`
   (`PositionalEmbedding::{GridNd, Disabled}`), each `None` today's, parity in
   `tests/parity_embeddings*.rs`; since CM1.5a `conv_bias`, `separable`, `max_modes`,
-  `tanh_stabilizer`, and 2.0.0's whole `FNO` in `tests/parity_fno*.rs`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
+  `tanh_stabilizer`, and 2.0.0's whole `FNO` in `tests/parity_fno*.rs`; since CM1.5b
+  `domain_padding`, `resolution_scaling_factor`, `FNO::forward_with_output_shape`,
+  `SpectralConv::forward_to` and `layers/resample.rs`, 2.0.0's `resample`), `losses/` (LpLoss; since library CM1.6a 2.0.0's
   `differentiation::FiniteDiff`, `sobolev::SobolevLoss` (H1, Hdiv) and
   `pointwise::{PointwiseQuantileLoss, mse_loss}`; since CM1.6b `meta_losses`:
   `WeightedSumLoss`, `FieldwiseAggregatorLoss`, `SoftAdapt`, `Relobralo`; since CM2.5

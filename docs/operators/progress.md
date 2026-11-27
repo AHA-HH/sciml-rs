@@ -565,3 +565,43 @@ template:
 - Matrix: `FNO` (CM1.5a–c), centred `SpectralConv`, `FNOBlocks` rows updated.
 - Follow-ups: CM1.5b (padding, resampling), CM1.5c (batch norm; `fno_skip=None` on the
   author's answer), CM1.5d's line (F4, F6, F7 with the earlier tidies).
+
+## 2026-11-27: CM1.5b Domain padding and resampling
+- Done: `FNOConfig::domain_padding` (2.0.0's `DomainPadding`: a fraction per axis,
+  `round(f · s)` zeros on both ends after the lifting, cropped by `round(p · r)` per side;
+  all-zero fractions are none, as 2.0.0), `FNOConfig::resolution_scaling_factor` (per layer,
+  per axis), `FNO::forward_with_output_shape` (2.0.0's tuple `output_shape`, the last layer);
+  `SpectralConv::forward_to` (the output size: the spectrum trimmed or zero-padded at the end
+  of each axis, torch's `irfftn(s=…)`, scaled by `N_out / N_in` to 2.0.0's forward-norm
+  amplitude; at the input's size the same operations as `forward`); `layers::resample`
+  (2.0.0's `resample`: linear 1D and bicubic 2D through Burn's `interpolate` with
+  `AlignCorners`, a Fourier resize for three or more axes). CONVENTIONS §3's `padding` is
+  rejected with scaling or an output shape, and domain padding with more than one scaled
+  layer (2.0.0 runs padding with scaling only in a one-layer FNO).
+- Tests: `tests/parity_fno.rs`, eight new f32 fixtures from `generate.py` (`SWEEPS`):
+  `fno1d_padding` 1.5e-7, `fno2d_padding` 3.6e-7, `fno3d_padding` 3.7e-7, `fno1d_scaling`
+  1.5e-7, `fno2d_scaling` 4.6e-7, `fno3d_scaling` 6.1e-7, `fno2d_padding_scaling` 1.1e-6,
+  `fno2d_output_shape` 6.0e-7 (D3 1e-5, Flex, M2 Pro; also within D3 on Metal). Controls:
+  the padding fixture without its padding fails (test); by hand, once, a symmetric spectrum
+  resize instead of torch's end trim fails `fno2d_scaling` 7.2e-3, `fno3d_scaling` 8.4e-3,
+  `fno2d_padding_scaling` 2.7e-2 (1D unaffected: the rfft axis only). Unit tests:
+  `resample` (identity, exact on a line, a band-limited 3D signal kept, the panic),
+  `forward_to` at the input size bit for bit `forward`, the FNO's shapes and every new panic
+  (`models/fno/tests/resolution.rs`).
+- Checks: fmt, clippy (default, `--examples`, `--all-targets`, `--features datagen
+  --all-targets`), `cargo test`, `cargo test --features datagen`, `cargo doc --no-deps`,
+  `--features metal` for `parity_fno`, the new unit tests and `gpu_parity`, `generate.py
+  --check` (every fixture the same), the bit-identity dumps: all passed (see the PR).
+- Decisions: none. Question for sign-off: a CONVENTIONS §4 verification entry for how
+  `irfft` treats the DC and Nyquist imaginary parts, which the resize relies on.
+- Review: plan review PASS with advisories (the F1 fix committed; CONVENTIONS §4 cited for the
+  amplitude; "as in 2.0.0" reworded; the hand control recorded here; the §4 entry asked).
+  Code quality BLOCKED (F1: §3's `padding` with scaling or an output shape cropped to the
+  wrong size), fixed; r2 APPROVE with findings: R2-4 (all-zero padding), R2-5 (matrix text)
+  fixed; F2, F3, F6, R2-1 to CM1.5d's line; R2-3 goes with R2-1.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` f7e769a and the branch:
+  `forward`, `phase5_epoch`, `gauss_newton_epoch` `cmp` same); existing tests edited only to
+  complete `FNOConfig` literals with `None`.
+- Matrix: `FNO`, centred `SpectralConv`, `DomainPadding` (have), `resample` (partial),
+  `validate_scaling_factor` rows updated.
+- Follow-ups: CM1.5d's line (F2, F3, F6, R2-1).
