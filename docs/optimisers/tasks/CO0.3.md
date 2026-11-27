@@ -37,8 +37,12 @@ reference arms; changes it suggests are later work.
   `FlatDecoder`, `LpLoss`, `RunDir::create` / `save_checkpoint`, `load_poisson_uniform`,
   `catalogue::stage`, `Device::sync`, `backend_features`, `git_commit`. The configs come
   from builders (`FNOConfig::new`, `TrainingConfig::new().with_*`), never struct literals,
-  so the fields `main` added since the fork keep their defaults. One source file serves
-  both builds.
+  so the fields `main` added since the fork keep their defaults. One source file served
+  both builds up to `bc26896`, the commit the VM runs build. **Amended 2026-11-27:** library
+  CM0.6 (#180) retires `build_training_components`, so the branch now calls its generic
+  form, `build_components::<FNO<4>, 4, 3, f32>`, which `main` has and the fork does not;
+  on `main` the old name was a wrapper of the new one, so run A's code is the same. The
+  fork build takes the file at `bc26896` (below).
 - Setting: CO0.1's Adam (Phase 5): stage 3, n = 129, s = 64, p = 0, modes [12, 12], width
   32, 4 layers, N = 1,000, batch 20 (50 steps per epoch), lr 1e-3 cosine over 500 epochs,
   min 1e-5, weight decay 1e-4, seed 42, the 200 test samples at the test batch size; a
@@ -67,8 +71,8 @@ reference arms; changes it suggests are later work.
   VM reports (below): per phase, Burn 0.23 against the fork and the ratio; where the extra
   time goes; candidate fixes for a later task.
 - **The fork build.** No branch and no patch: on the VM a detached worktree at `4541f02`
-  takes the example file from this branch (`git checkout origin/optimisers/co0-3 --
-  examples/profile/adam_profile.rs`) and one `[[example]]` entry appended to its
+  takes the example file from this branch at `bc26896` (`git checkout bc26896 --
+  examples/profile/adam_profile.rs`, the last version before the CM0.6 rename) and one `[[example]]` entry appended to its
   `Cargo.toml`; nothing is committed there. Checked on the Mac before the PR: the example
   builds and its smoke run completes at `4541f02` (flex), so the VM build is the only
   unknown left.
@@ -103,8 +107,8 @@ tmux ls; nvidia-smi --query-compute-apps=pid,name --format=csv   # nothing else 
 mkdir -p ~/sciml-rs/logs/co0-3
 cd ~/sciml-rs && git fetch origin
 
-# A: Burn 0.23 (this branch; TF32 off by cubek.toml, as CO0.1 ran)
-git worktree add --detach ~/sciml-rs-wt/co0-3 origin/optimisers/co0-3
+# A: Burn 0.23 (this branch at bc26896; TF32 off by cubek.toml, as CO0.1 ran)
+git worktree add --detach ~/sciml-rs-wt/co0-3 bc26896
 cd ~/sciml-rs-wt/co0-3
 find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
 tmux new -d -s co0-3 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/co0-3; CUDA_VISIBLE_DEVICES=0 cargo run --release --no-default-features --features cuda --example adam_profile -- ~/sciml-rs/logs/co0-3/burn023.md 2>&1 | tee ~/sciml-rs/logs/co0-3/burn023.log"
@@ -114,7 +118,7 @@ tmux new -d -s co0-3 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-
 cd ~/sciml-rs
 git worktree add --detach ~/sciml-rs-wt/co0-3-fork 4541f02
 cd ~/sciml-rs-wt/co0-3-fork
-git checkout origin/optimisers/co0-3 -- examples/profile/adam_profile.rs
+git checkout bc26896 -- examples/profile/adam_profile.rs   # before the CM0.6 rename
 printf '\n[[example]]\nname = "adam_profile"\npath = "examples/profile/adam_profile.rs"\n' >> Cargo.toml
 find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
 tmux new -d -s co0-3-fork "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/co0-3-fork; CUDA_VISIBLE_DEVICES=0 cargo run --release --no-default-features --features cuda --example adam_profile -- ~/sciml-rs/logs/co0-3/fork.md 2>&1 | tee ~/sciml-rs/logs/co0-3/fork.log"

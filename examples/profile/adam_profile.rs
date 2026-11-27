@@ -5,8 +5,9 @@
 //! (`--no-default-features --features cuda` on the VM). Needs stage 3 (n = 129) in
 //! `datasets/poisson/`.
 //!
-//! The same file builds on `main` (Burn 0.23) and at `4541f02`, the last commit on the Burn
-//! fork: it uses only public API both have, and builds its configs with builders, never
+//! Its version at `bc26896` also builds at `4541f02`, the last commit on the Burn fork; this
+//! one differs from it only in calling `build_components` (library CM0.6), which the fork
+//! lacks, for `build_training_components`. It builds its configs with builders, never
 //! struct literals, so fields added since the fork keep their defaults. From a freshly
 //! initialised model (a step's cost does not depend on the weights):
 //! 1. [`WARMUP_EPOCHS`] epochs of the library's `train_epoch`, untimed.
@@ -48,7 +49,7 @@ use sciml_rs::neural_operators::{
     training::{
         config::TrainingConfig,
         step::{evaluate, flatten_pair},
-        trainer::{build_training_components, train_epoch},
+        trainer::{build_components, train_epoch},
     },
     utils::backend::{backend_features, git_commit},
 };
@@ -248,7 +249,7 @@ fn main() {
         .with_weight_decay(WEIGHT_DECAY)
         .with_min_lr(MIN_LR)
         .with_seed(SEED);
-    let c = build_training_components::<4, 3, f32>(&model_cfg, &train_cfg, train, test, &device);
+    let c = build_components::<FNO<4>, 4, 3, f32>(&model_cfg, &train_cfg, train, test, &device);
     let mut model = c.model;
     let mut parts = Parts {
         optim: c.optim,
