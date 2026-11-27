@@ -191,7 +191,10 @@ mod tests {
     fn kinds_lists_every_variant() {
         assert_eq!(KINDS, &["fno"]);
         assert_eq!(ModelConfig::Fno(fno_cfg()).kind(), "fno");
-        assert_eq!(<FNO<3> as Operator>::NAME, FNOConfig::KIND);
+        assert_eq!(
+            <<FNO<3> as Operator>::Config as OperatorConfig>::KIND,
+            FNOConfig::KIND
+        );
     }
 
     #[test]
