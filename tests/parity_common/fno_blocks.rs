@@ -176,7 +176,13 @@ pub fn check<const R: usize>(case: &Case, device: &Device) -> f64 {
     // Every block path; the lifting `fc0` and projection `fc1`, `fc2` are not in the fixture.
     let filter = PathFilter::new()
         .with_regex(r"^(embedding|fno\.(conv|w|fno_skips|channel_mlp|channel_mlp_skips|norms)\.)");
-    load_into_part(&mut blocks, &mut fixture, &map(d, &config), Some(filter));
+    load_into_part(
+        &mut blocks,
+        &mut fixture,
+        &map(d, &config),
+        &[],
+        Some(filter),
+    );
     let embedding = blocks.embedding.as_ref().map(Param::val);
     let out = blocks
         .fno

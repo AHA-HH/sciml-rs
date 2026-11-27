@@ -7,13 +7,14 @@
 //! (real, imaginary). Each map entry names one such array, the Burn path it goes to (as
 //! `ModuleSnapshot::collect` names it) and which part of it to take.
 //!
-//! A parameter whose layout differs from the crate's is converted when the fixture is
-//! loaded, into `Fixture::replaced` (2.0.0's centred spectral weights: CM1.2's
-//! `centred_conv.rs`, D5).
+//! A parameter whose layout differs from the crate's is converted for one load: the caller
+//! passes [`load_into`] the [`Conversion`]s, the fixture itself is never changed (2.0.0's
+//! centred spectral weights: CM1.2's `centred_conv.rs`, D5).
 //!
-//! The reference models beside this file (`fno1d.rs`, `legacy_conv.rs`) are included only by
-//! the test binaries that use them, with `#[path]`, so no binary compiles dead code; the FNO
-//! family's shared map pieces are `fno_map.rs`, included the same way (library CM1.5a).
+//! The reference layers beside this file (`biased_conv.rs`, `legacy_conv.rs`,
+//! `centred_conv.rs`) are included only by the test binaries that use them, with `#[path]`,
+//! so no binary compiles dead code; the FNO family's shared map pieces are `fno_map.rs`,
+//! included the same way (library CM1.5a).
 //! 2.0.0's centred spectral weights as corners (`centred_to_corners`) are here.
 
 use std::{collections::BTreeMap, path::Path};
@@ -82,18 +83,19 @@ impl Precision {
     }
 }
 
+/// A fixture parameter converted for one load (D5): its 2.0.0 name (without `param.`) and
+/// the parts that replace it, each a name the map can take and its array.
+pub type Conversion = (String, Vec<(String, ArrayD<f64>)>);
+
 /// An open fixture.
 pub struct Fixture {
     /// The fixture's file stem, `<config>_<dtype>`.
-    pub(crate) name: String,
+    name: String,
     reader: NpzFileReader,
-    /// The 2.0.0 parameter names, `param.` stripped (as replaced, if any).
-    pub(crate) params: Vec<String>,
+    /// The 2.0.0 parameter names, `param.` stripped.
+    params: Vec<String>,
     /// The fixture's precision.
     pub precision: Precision,
-    /// Converted arrays, by full key (`param.…`), read before the file's: a layout
-    /// converted at load (D5) is put here, with `params` updated to match.
-    pub(crate) replaced: BTreeMap<String, ArrayD<f64>>,
 }
 
 impl Fixture {
@@ -120,29 +122,6 @@ impl Fixture {
         Self::open(&format!("{stem}_{}", precision.suffix()))
     }
 
-    /// Replaces the parameter `name` by `parts` (each a new parameter name and its array),
-    /// for this load only, so that [`load_into`]'s checks see the converted parameters.
-    ///
-    /// # Panics
-    /// If the fixture has no parameter `name`.
-    #[allow(
-        dead_code,
-        reason = "every parity binary includes this harness; only layouts converted at load use it"
-    )]
-    pub fn replace(&mut self, name: &str, parts: Vec<(String, ArrayD<f64>)>) {
-        let i = self
-            .params
-            .iter()
-            .position(|p| p == name)
-            .unwrap_or_else(|| panic!("fixture: no parameter `{name}`"));
-        self.params.remove(i);
-        self.replaced.remove(&format!("{PARAM_PREFIX}{name}"));
-        for (part, a) in parts {
-            self.replaced.insert(format!("{PARAM_PREFIX}{part}"), a);
-            self.params.push(part);
-        }
-    }
-
     /// Opens the fixture at `path`; its precision comes from the file stem's suffix.
     ///
     /// # Panics
@@ -167,7 +146,6 @@ impl Fixture {
             reader,
             params,
             precision,
-            replaced: BTreeMap::new(),
         }
     }
 
@@ -176,9 +154,6 @@ impl Fixture {
     /// # Panics
     /// If the fixture has no such array.
     pub fn array(&mut self, key: &str) -> ArrayD<f64> {
-        if let Some(a) = self.replaced.get(key) {
-            return a.clone();
-        }
         self.reader
             .read_field(key)
             .unwrap_or_else(|e| panic!("fixture {}: {e}", self.name))
@@ -279,19 +254,26 @@ pub fn take(a: ArrayD<f64>, take: Take) -> ArrayD<f64> {
     a.index_axis(Axis(last), part).to_owned()
 }
 
-/// Loads `fixture`'s parameters into `module` through `map`.
+/// Loads `fixture`'s parameters into `module` through `map`, each parameter `converted`
+/// names replaced by its parts for this load.
 ///
 /// # Panics
-/// Unless the load is complete in both directions: every fixture parameter is taken by the
-/// map (a complex one by its `Re` and `Im` both, any other once, `Whole` or `Transposed`), every map entry names a
-/// fixture parameter and is applied without error (shapes included), and no module
-/// parameter is left out.
+/// Unless the load is complete in both directions: every fixture parameter (after
+/// conversion) is taken by the map (a complex one by its `Re` and `Im` both, any other
+/// once, `Whole` or `Transposed`), every map entry names such a parameter and is applied
+/// without error (shapes included), and no module parameter is left out; or if a
+/// conversion names a parameter the fixture lacks.
 #[allow(
     dead_code,
     reason = "every parity binary includes this harness; some load only part of a module"
 )]
-pub fn load_into<M: ModuleSnapshot>(module: &mut M, fixture: &mut Fixture, map: &[MapEntry]) {
-    load_into_part(module, fixture, map, None);
+pub fn load_into<M: ModuleSnapshot>(
+    module: &mut M,
+    fixture: &mut Fixture,
+    map: &[MapEntry],
+    converted: &[Conversion],
+) {
+    load_into_part(module, fixture, map, converted, None);
 }
 
 /// As [`load_into`], but only the module parameters `filter` selects must be loaded (all of
@@ -304,15 +286,29 @@ pub fn load_into_part<M: ModuleSnapshot>(
     module: &mut M,
     fixture: &mut Fixture,
     map: &[MapEntry],
+    converted: &[Conversion],
     filter: Option<PathFilter>,
 ) {
     let name = fixture.name.clone();
+    let mut params = fixture.params.clone();
+    let mut arrays: BTreeMap<&str, &ArrayD<f64>> = BTreeMap::new();
+    for (from, parts) in converted {
+        let i = params
+            .iter()
+            .position(|p| p == from)
+            .unwrap_or_else(|| panic!("fixture {name}: no parameter `{from}` to convert"));
+        params.remove(i);
+        for (part, a) in parts {
+            arrays.insert(part, a);
+            params.push(part.clone());
+        }
+    }
+
     let mut parts: BTreeMap<&str, Vec<Take>> = BTreeMap::new();
     for &(from, _, part) in map {
         parts.entry(from).or_default().push(part);
     }
-    let unmapped: Vec<&str> = fixture
-        .params
+    let unmapped: Vec<&str> = params
         .iter()
         .map(String::as_str)
         .filter(|p| !parts.contains_key(p))
@@ -320,6 +316,15 @@ pub fn load_into_part<M: ModuleSnapshot>(
     assert!(
         unmapped.is_empty(),
         "fixture {name}: parameters the map leaves out: {unmapped:?}"
+    );
+    let unknown: Vec<&str> = parts
+        .keys()
+        .copied()
+        .filter(|from| !params.iter().any(|p| p == from))
+        .collect();
+    assert!(
+        unknown.is_empty(),
+        "fixture {name}: map names that are not fixture parameters: {unknown:?}"
     );
     for (from, parts) in &parts {
         let complete = matches!(
@@ -336,7 +341,11 @@ pub fn load_into_part<M: ModuleSnapshot>(
     let tensors: Vec<_> = map
         .iter()
         .map(|&(from, to, part)| {
-            let a = take(fixture.array(&format!("{PARAM_PREFIX}{from}")), part);
+            let a = match arrays.get(from) {
+                Some(&a) => a.clone(),
+                None => fixture.array(&format!("{PARAM_PREFIX}{from}")),
+            };
+            let a = take(a, part);
             bridge::from_data(fixture.data(&a), to.to_owned(), None)
         })
         .collect();

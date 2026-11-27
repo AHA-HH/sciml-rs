@@ -4,6 +4,8 @@
 //! separable weights, and modes below `max_n_modes`. The f64 fixtures are
 //! `tests/parity_spectral_conv_f64.rs`.
 
+#[path = "parity_common/biased_conv.rs"]
+mod biased_conv;
 #[path = "parity_common/centred_conv.rs"]
 mod centred_conv;
 mod parity_common;

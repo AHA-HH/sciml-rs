@@ -2,7 +2,8 @@
 //! amended 2026-11-25): 2.0.0's defaults on a Burgers- and a Darcy-shaped input, and a sweep
 //! of its options (`tools/parity/generate.py`, CM1.5a's `SWEEPS`, f32 only), and since CM1.5c
 //! batch norm and no FNO skip. The f64
-//! fixtures of the defaults are `tests/parity_fno_f64.rs`.
+//! fixtures of the defaults are `tests/parity_fno_f64.rs`. Since CM1.5f also the parity
+//! harness's own checks (CM0.5's, on the library `FNO`).
 
 #[path = "parity_common/fno.rs"]
 mod fno;
@@ -12,7 +13,8 @@ mod parity_common;
 
 use burn::prelude::*;
 use fno::*;
-use parity_common::{D3_F32, MapEntry, Precision::F32, rel_max_error};
+use ndarray::{ArrayD, IxDyn};
+use parity_common::{D3_F32, MapEntry, Precision::F32, Take, rel_max_error, take};
 use sciml_rs::neural_operators::{
     layers::{norm::NormKind, skip::SkipKind},
     models::fno::{Activation, BlockMlpConfig, PositionalEmbedding},
@@ -251,7 +253,7 @@ fn padding_left_off_fails_parity() {
         options: |c| c,
         ..FNO2D_PADDING
     };
-    let (y, mut fixture) = output::<4>(&case, F32, |_| {}, &Device::default());
+    let (y, mut fixture) = load::<4>(&case, F32, &Device::default()).run();
     let err = rel_max_error(y, &fixture.output());
     assert!(err > D3_F32, "the padding went unnoticed: {err:.3e}");
 }
@@ -310,8 +312,13 @@ fn fno1d_pre_no_skip_matches_2_0_0() {
 /// variances loaded into each other's places break the f32 bound.
 #[test]
 fn swapped_batch_statistics_fail_parity() {
-    let swap = swap_targets("norms.0.Batch.running_var", "norms.1.Batch.running_var");
-    let (y, mut fixture) = output::<4>(&FNO2D_BATCH_NORM, F32, swap, &Device::default());
+    let mut loading = load::<4>(&FNO2D_BATCH_NORM, F32, &Device::default());
+    swap_targets(
+        &mut loading.map,
+        "norms.0.Batch.running_var",
+        "norms.1.Batch.running_var",
+    );
+    let (y, mut fixture) = loading.run();
     let err = rel_max_error(y, &fixture.output());
     assert!(err > D3_F32, "swapped statistics went unnoticed: {err:.3e}");
 }
@@ -320,24 +327,124 @@ fn swapped_batch_statistics_fail_parity() {
 /// (the same shape) break the f32 bound.
 #[test]
 fn swapped_corners_fail_parity() {
-    let swap = |map: &mut Vec<MapEntry>| {
-        swap_targets("conv.0.weights_re.0", "conv.0.weights_re.1")(map);
-        swap_targets("conv.0.weights_im.0", "conv.0.weights_im.1")(map);
-    };
-    let (y, mut fixture) = output::<4>(&FNO2D, F32, swap, &Device::default());
+    let mut loading = load::<4>(&FNO2D, F32, &Device::default());
+    swap_targets(
+        &mut loading.map,
+        "conv.0.weights_re.0",
+        "conv.0.weights_re.1",
+    );
+    swap_targets(
+        &mut loading.map,
+        "conv.0.weights_im.0",
+        "conv.0.weights_im.1",
+    );
+    let (y, mut fixture) = loading.run();
     let err = rel_max_error(y, &fixture.output());
     assert!(err > D3_F32, "swapped corners went unnoticed: {err:.3e}");
 }
 
-/// A map edit loading the parameters bound for `a` and `b` into each other's places.
-fn swap_targets(a: &'static str, b: &'static str) -> impl Fn(&mut Vec<MapEntry>) {
-    move |map| {
-        for (_, to, _) in map.iter_mut() {
-            *to = match *to {
-                t if t == a => b,
-                t if t == b => a,
-                other => other,
-            };
-        }
+/// Loads the parameters bound for `a` and `b` into each other's places.
+fn swap_targets(map: &mut [MapEntry], a: &'static str, b: &'static str) {
+    for (_, to, _) in map.iter_mut() {
+        *to = match *to {
+            t if t == a => b,
+            t if t == b => a,
+            other => other,
+        };
     }
+}
+
+// The harness's own checks (CM0.5, ported from the retired `Fno1dRef` in CM1.5f).
+
+/// The harness can fail: one converted weight moved by 1e-3 (layer 0's bias) breaks the
+/// f32 bound.
+#[test]
+fn perturbed_weight_fails_parity() {
+    let mut loading = load::<3>(&FNO1D, F32, &Device::default());
+    let (_, parts) = loading
+        .converted
+        .iter_mut()
+        .find(|(from, _)| from == "fno_blocks.convs.0.bias")
+        .expect("layer 0's bias is converted");
+    parts[0].1 += 1e-3;
+    let (y, mut fixture) = loading.run();
+    let err = rel_max_error(y, &fixture.output());
+    assert!(err > D3_F32, "a 1e-3 shift went unnoticed: {err:.3e}");
+}
+
+#[test]
+#[should_panic(expected = "parameters the map leaves out")]
+fn load_rejects_an_unmapped_fixture_parameter() {
+    let mut loading = load::<3>(&FNO1D, F32, &Device::default());
+    loading.map.remove(0);
+    loading.run();
+}
+
+#[test]
+#[should_panic(expected = "map paths not in the module")]
+fn load_rejects_a_path_the_module_lacks() {
+    let mut loading = load::<3>(&FNO1D, F32, &Device::default());
+    loading.map[0].1 = "nowhere.weight";
+    loading.run();
+}
+
+#[test]
+#[should_panic(expected = "once each Re and Im")]
+fn load_rejects_half_a_complex_parameter() {
+    let mut loading = load::<3>(&FNO1D, F32, &Device::default());
+    loading.map.retain(|e| e.1 != "conv.0.weights_im.0");
+    loading.run();
+}
+
+/// A map entry still naming the 2.0.0 parameter a conversion replaced is refused by name,
+/// not read from the file behind the conversion's back.
+#[test]
+#[should_panic(expected = "map names that are not fixture parameters")]
+fn load_rejects_a_converted_away_parameter() {
+    let mut loading = load::<3>(&FNO1D, F32, &Device::default());
+    loading.map.push((
+        "fno_blocks.convs.0.weight.tensor",
+        "conv_biases.0",
+        Take::Whole,
+    ));
+    loading.run();
+}
+
+#[test]
+#[should_panic(expected = "no parameter `missing` to convert")]
+fn load_rejects_a_conversion_of_a_missing_parameter() {
+    let mut loading = load::<3>(&FNO1D, F32, &Device::default());
+    loading.converted[0].0 = "missing".into();
+    loading.run();
+}
+
+#[test]
+fn take_splits_the_trailing_complex_axis() {
+    // [[1+2i, 3+4i]] stored as shape (1, 2, 2).
+    let a = ArrayD::from_shape_vec(IxDyn(&[1, 2, 2]), vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+    assert_eq!(
+        take(a.clone(), Take::Re).into_raw_vec_and_offset().0,
+        [1.0, 3.0]
+    );
+    assert_eq!(
+        take(a.clone(), Take::Im).into_raw_vec_and_offset().0,
+        [2.0, 4.0]
+    );
+    assert_eq!(take(a.clone(), Take::Whole), a);
+}
+
+#[test]
+fn rel_max_error_is_relative_to_the_reference_scale() {
+    let expected = ArrayD::from_shape_vec(IxDyn(&[1, 1, 3]), vec![2.0, -4.0, 0.0]).unwrap();
+    let actual = Tensor::<3>::from_data([[[2.0_f32, -4.5, 0.25]]], &Device::default());
+    // max |a − e| = 0.5, max |e| = 4.
+    assert!((rel_max_error(actual, &expected) - 0.125).abs() < 1e-7);
+}
+
+#[test]
+#[should_panic(expected = "the output has a non-finite value")]
+fn rel_max_error_rejects_nan() {
+    let expected = ArrayD::from_shape_vec(IxDyn(&[1, 1, 2]), vec![1.0, 2.0]).unwrap();
+    let actual = Tensor::<3>::from_data([[[1.0_f32, f32::NAN]]], &Device::default());
+    rel_max_error(actual, &expected);
 }

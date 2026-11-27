@@ -7,6 +7,9 @@
 //! and Flex's f64 `rfft` uses f32 twiddles (`tests/gauss_newton_f64.rs`).
 
 #[cfg(feature = "flex")]
+#[path = "parity_common/biased_conv.rs"]
+mod biased_conv;
+#[cfg(feature = "flex")]
 mod flex_f64;
 #[cfg(feature = "flex")]
 #[path = "parity_common/legacy_conv.rs"]

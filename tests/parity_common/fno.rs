@@ -5,14 +5,16 @@
 
 use burn::prelude::*;
 use ndarray::{ArrayD, Axis};
-use sciml_rs::neural_operators::models::fno::FNOConfig;
+use sciml_rs::neural_operators::models::fno::{FNO, FNOConfig};
 
 use crate::{
     fno_map::{
         block_defaults, block_parts, leak, lift_defaults, lift_project, to_channels_first,
         to_channels_last,
     },
-    parity_common::{Fixture, MapEntry, Precision, Take, centred_to_corners, check_d3, load_into},
+    parity_common::{
+        Conversion, Fixture, MapEntry, Precision, Take, centred_to_corners, check_d3, load_into,
+    },
 };
 
 /// A fixture's configuration, as `generate.py`'s `CONFIGS`.
@@ -80,10 +82,11 @@ impl Case {
     }
 }
 
-/// Converts the opened fixture at load: each layer's centred weight to corners
-/// (`fno_blocks.convs.<l>.weight.corner<c>`; separable with a leading axis of 1), and its
-/// bias `(W, 1, …)` to `[W]`.
-fn convert(fixture: &mut Fixture, config: &FNOConfig, d: usize) {
+/// The conversions of the opened fixture for its load: each layer's centred weight to
+/// corners (`fno_blocks.convs.<l>.weight.corner<c>`; separable with a leading axis of 1),
+/// and its bias `(W, 1, …)` to `[W]`.
+fn convert(fixture: &mut Fixture, config: &FNOConfig, d: usize) -> Vec<Conversion> {
+    let mut converted = Vec::new();
     for l in 0..config.n_layers {
         let name = format!("fno_blocks.convs.{l}.weight.tensor");
         let mut weight = fixture.array(&format!("param.{name}"));
@@ -95,12 +98,13 @@ fn convert(fixture: &mut Fixture, config: &FNOConfig, d: usize) {
             .enumerate()
             .map(|(c, a)| (format!("fno_blocks.convs.{l}.weight.corner{c}"), a))
             .collect();
-        fixture.replace(&name, parts);
+        converted.push((name, parts));
         let name = format!("fno_blocks.convs.{l}.bias");
         let bias = fixture.array(&format!("param.{name}"));
         let bias: ArrayD<f64> = bias.flatten().to_owned().into_dyn();
-        fixture.replace(&name, vec![(name.clone(), bias)]);
+        converted.push((name.clone(), vec![(name, bias)]));
     }
+    converted
 }
 
 /// The whole map, from 2.0.0's `FNO` names to the crate's `FNO` paths, for `config`.
@@ -120,29 +124,50 @@ fn map(config: &FNOConfig, d: usize) -> Vec<MapEntry> {
     m
 }
 
-/// `case`'s fixture in `precision` through the crate's `FNO`, with `corners` applied to the
-/// converted map before the load (the identity for parity, a swap for the control): the
-/// output, channels first, and the open fixture.
-pub fn output<const R: usize>(
-    case: &Case,
-    precision: Precision,
-    corners: impl Fn(&mut Vec<MapEntry>),
-    device: &Device,
-) -> (Tensor<R>, Fixture) {
+/// A load of a fixture into the crate's `FNO`, not yet applied: a control corrupts its
+/// `map` or `converted` before [`Load::run`].
+pub struct Load<const R: usize> {
+    /// 2.0.0's names to the `FNO`'s paths.
+    pub map: Vec<MapEntry>,
+    /// The fixture's parameters converted for this load (the centred weights and biases).
+    pub converted: Vec<Conversion>,
+    fno: FNO<R>,
+    fixture: Fixture,
+    output_shape: Option<&'static [usize]>,
+    device: Device,
+}
+
+/// `case`'s fixture in `precision`, opened and converted, with its map and an `FNO` of its
+/// configuration on `device`.
+pub fn load<const R: usize>(case: &Case, precision: Precision, device: &Device) -> Load<R> {
     let d = R - 2;
     let config = case.config();
     let mut fixture = Fixture::open_as(case.stem, precision);
-    convert(&mut fixture, &config, d);
-    let mut fno = config.init::<R>(device);
-    let mut map = map(&config, d);
-    corners(&mut map);
-    load_into(&mut fno, &mut fixture, &map);
-    let x = to_channels_last(fixture.input::<R>(device));
-    let y = match case.output_shape {
-        Some(shape) => fno.forward_with_output_shape(x, shape),
-        None => fno.forward(x),
-    };
-    (to_channels_first(y), fixture)
+    Load {
+        map: map(&config, d),
+        converted: convert(&mut fixture, &config, d),
+        fno: config.init::<R>(device),
+        fixture,
+        output_shape: case.output_shape,
+        device: device.clone(),
+    }
+}
+
+impl<const R: usize> Load<R> {
+    /// Loads the fixture into the `FNO` and runs it on the fixture's input: the output,
+    /// channels first, and the open fixture.
+    ///
+    /// # Panics
+    /// If the load is incomplete (`load_into`).
+    pub fn run(mut self) -> (Tensor<R>, Fixture) {
+        load_into(&mut self.fno, &mut self.fixture, &self.map, &self.converted);
+        let x = to_channels_last(self.fixture.input::<R>(&self.device));
+        let y = match self.output_shape {
+            Some(shape) => self.fno.forward_with_output_shape(x, shape),
+            None => self.fno.forward(x),
+        };
+        (to_channels_first(y), self.fixture)
+    }
 }
 
 /// Asserts `case`'s fixture in `precision` within D3 through the crate's `FNO`; prints and
@@ -151,6 +176,6 @@ pub fn output<const R: usize>(
 /// # Panics
 /// If the load is incomplete or the error exceeds D3's bound for `precision`.
 pub fn check<const R: usize>(case: &Case, precision: Precision, device: &Device) -> f64 {
-    let (y, mut fixture) = output::<R>(case, precision, |_| {}, device);
+    let (y, mut fixture) = load::<R>(case, precision, device).run();
     check_d3(y, &mut fixture)
 }

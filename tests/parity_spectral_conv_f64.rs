@@ -9,6 +9,9 @@
 //! `cargo test --test parity_spectral_conv_f64 -- --ignored`
 
 #[cfg(feature = "flex")]
+#[path = "parity_common/biased_conv.rs"]
+mod biased_conv;
+#[cfg(feature = "flex")]
 #[path = "parity_common/centred_conv.rs"]
 mod centred_conv;
 #[cfg(feature = "flex")]

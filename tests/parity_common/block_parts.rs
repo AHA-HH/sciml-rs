@@ -114,7 +114,7 @@ fn run<M: ModuleSnapshot, const R: usize>(
     forward: impl Fn(&M, Tensor<R>) -> Tensor<R>,
 ) -> f64 {
     let mut fixture = Fixture::open_as(case, precision);
-    load_into(&mut module, &mut fixture, map);
+    load_into(&mut module, &mut fixture, map, &[]);
     let out = forward(&module, fixture.input::<R>(device));
     check_d3(out, &mut fixture)
 }

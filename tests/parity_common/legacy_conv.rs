@@ -1,5 +1,5 @@
 //! 2.0.0's legacy `SpectralConv` (`layers/legacy_spectral_convolution.py`) as the crate's
-//! `SpectralConv<R>` plus a bias, for library CM1.1's `legacy_spectral_conv{1,2,3}d_{f32,f64}`
+//! `SpectralConv<R>` plus a bias (`biased_conv.rs`), for library CM1.1's `legacy_spectral_conv{1,2,3}d_{f32,f64}`
 //! fixtures, and the hand-written maps to it. Test code only.
 //!
 //! The legacy layer keeps corner weights `(in, out, *[m // 2 for m in n_modes])`, stored by
@@ -9,37 +9,14 @@
 //! index has axis `j` in bit `j` (CONVENTIONS §5). The two agree in 1D and 2D; in 3D 2.0.0's
 //! `weight.1` (low axis 0, high axis 1) is corner 2 here and `weight.2` corner 1.
 
-use burn::{module::Param, prelude::*};
+use burn::prelude::*;
 use ndarray::ArrayD;
 use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
 
-use crate::parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into};
-
-/// 2.0.0's legacy layer: the spectral convolution, then the bias.
-#[derive(Module, Debug)]
-pub struct LegacyConv<const R: usize> {
-    pub conv: SpectralConv<R>,
-    /// `[1, out_channels, 1, …]`.
-    pub bias: Param<Tensor<R>>,
-}
-
-impl<const R: usize> LegacyConv<R> {
-    /// Arbitrary weights, to be replaced by [`load_into`]. `modes` per axis, as the crate
-    /// counts them (2.0.0's `n_modes // 2`).
-    pub fn new(device: &Device, in_channels: usize, out_channels: usize, modes: &[usize]) -> Self {
-        let mut bias = [1; R];
-        bias[1] = out_channels;
-        Self {
-            conv: SpectralConv::new(device, in_channels, out_channels, modes),
-            bias: Param::from_tensor(Tensor::zeros(bias, device)),
-        }
-    }
-
-    /// `x`: `[batch, in_channels, spatial..]` → `[batch, out_channels, spatial..]`.
-    pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
-        self.conv.forward(x) + self.bias.val()
-    }
-}
+use crate::{
+    biased_conv::BiasedConv,
+    parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into},
+};
 
 /// One corner: 2.0.0's `weight.<i>.tensor` to the crate's corner `c`.
 macro_rules! corner {
@@ -116,15 +93,6 @@ pub const CASE_3D: Case = Case {
     map: map_3d,
 };
 
-/// The fixture's name: `case`'s stem and `_f32` or `_f64`.
-fn name(case: &Case, precision: Precision) -> String {
-    let dtype = match precision {
-        Precision::F32 => "f32",
-        Precision::F64 => "f64",
-    };
-    format!("{}_{dtype}", case.stem)
-}
-
 /// `case`'s fixture in `precision` loaded through `map`: the layer's output on the fixture's
 /// input, and the reference output.
 pub fn output<const R: usize>(
@@ -133,9 +101,10 @@ pub fn output<const R: usize>(
     map: &[MapEntry],
     device: &Device,
 ) -> (Tensor<R>, ArrayD<f64>) {
-    let mut fixture = Fixture::open(&name(case, precision));
-    let mut layer = LegacyConv::<R>::new(device, case.in_channels, case.out_channels, case.modes);
-    load_into(&mut layer, &mut fixture, map);
+    let mut fixture = Fixture::open_as(case.stem, precision);
+    let conv = SpectralConv::new(device, case.in_channels, case.out_channels, case.modes);
+    let mut layer = BiasedConv::<R>::new(conv, case.out_channels, device);
+    load_into(&mut layer, &mut fixture, map, &[]);
     let out = layer.forward(fixture.input(device));
     (out, fixture.output())
 }
@@ -147,7 +116,7 @@ pub fn output<const R: usize>(
 /// If the error exceeds D3's bound for `precision`.
 pub fn check<const R: usize>(case: &Case, precision: Precision, device: &Device) -> f64 {
     let (out, reference) = output::<R>(case, precision, &(case.map)(), device);
-    let what = name(case, precision);
+    let what = format!("{}_{}", case.stem, precision.suffix());
     let err = assert_parity(out, &reference, precision.d3(), &what);
     println!("{what}: relative max error {err:.3e}");
     err
