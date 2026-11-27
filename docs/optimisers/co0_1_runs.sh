@@ -4,6 +4,9 @@
 #   adam:<seed>                   Adam, 500 epochs (Phase 5 settings)
 #   adam:<seed>:<epochs>          Adam, that many epochs (the long budget)
 #   gn:<seed>:<cap>:<budget_s>    GN200-D at mu = 0, CG cap <cap>, stopped by the budget
+#   soap:<seed>:<lr>:<f>:<budget_s>  SOAP (optimisers CO3.3's pilot): learning rate <lr>,
+#                                 refresh every <f> steps, weight decay 1e-4 (the literal),
+#                                 stopped by the budget, first refresh's spectra logged
 #
 # From the run's worktree, inside tmux, with the Spack environment and CARGO_TARGET_DIR
 # set in the same command (a running tmux server does not pass the client's environment):
@@ -59,6 +62,9 @@ for spec in "$@"; do
     gn) [ -n "$b" ] && [ -z "$extra" ] || { echo "FAILED $spec: gn takes <seed>:<cap>:<budget_s>" | tee -a "$PROGRESS"; continue; }
         vars=(OPTIMIZER=gauss-newton GN_BATCH_SIZE=200 GN_PRECONDITIONER=hutchinson
               GN_WEIGHT_DECAY=0 GN_CG_MAX_ITERS="$a" TIME_BUDGET_S="$b") ;;
+    soap) [ -n "$extra" ] || { echo "FAILED $spec: soap takes <seed>:<lr>:<f>:<budget_s>" | tee -a "$PROGRESS"; continue; }
+          vars=(OPTIMIZER=soap LEARNING_RATE="$a" SOAP_FREQUENCY="$b" TIME_BUDGET_S="$extra"
+                SOAP_LOG_FIRST_REFRESH=1) ;;
     *) echo "FAILED $spec: unknown arm" | tee -a "$PROGRESS"; continue ;;
   esac
   log=$LOGDIR/${spec//:/_}.log
@@ -70,7 +76,7 @@ for spec in "$@"; do
   start=$(date +%s)
   env -u OPTIMIZER -u EPOCHS -u TIME_BUDGET_S -u WEIGHT_DECAY -u TRAIN_DEVICES \
     -u GN_BATCH_SIZE -u GN_PRECONDITIONER -u GN_WEIGHT_DECAY -u GN_CG_MAX_ITERS \
-    -u MLFLOW_EXPERIMENT_NAME ${vars[@]+"${vars[@]}"} CUDA_VISIBLE_DEVICES="$GPU" \
+    -u LEARNING_RATE -u SOAP_FREQUENCY -u SOAP_LOG_FIRST_REFRESH -u MLFLOW_EXPERIMENT_NAME ${vars[@]+"${vars[@]}"} CUDA_VISIBLE_DEVICES="$GPU" \
     "$BIN" 0 129 64 "$seed" > "$log" 2>&1
   status=$?
   kill "$smi" 2>/dev/null

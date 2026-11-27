@@ -562,3 +562,30 @@ fn zero_first_gradient() {
 fn zero_frequency_panics() {
     SoapConfig::new().with_precondition_frequency(0).build();
 }
+
+/// Optimisers CO3.3: the first refresh's log reads the eigenvalues of Q diag(λ) Qᵀ, a
+/// spread of 1e10 included, to 1e-12 relative to the largest.
+#[test]
+fn symmetric_eigenvalues_of_a_known_spectrum() {
+    let mut rng = Rng(7);
+    for n in [1, 2, 12, 32] {
+        let q = orthogonal(&mut rng, n);
+        let want: Vec<f64> = (0..n)
+            .map(|i| 10f64.powf(-10.0 * i as f64 / n as f64))
+            .collect();
+        let a = with_spectrum(&q, &want, &q, n);
+        let a = ndarray::Array2::from_shape_vec((n, n), a).unwrap();
+        let mut got = super::host::symmetric_eigenvalues(a);
+        got.sort_by(|x, y| y.total_cmp(x));
+        assert!(max_abs_diff(&got, &want) < 1e-12, "n = {n}: {got:?}");
+    }
+}
+
+/// The first refresh's summary: a rank-2 factor of size 4 with round-off below the floor
+/// has 2 eigenvalues resolved, and the resolved ratio is λ₁/λ₂.
+#[test]
+fn spectrum_summary_counts_the_resolved_eigenvalues() {
+    let (max, min, resolved, min_resolved) =
+        super::host::spectrum_summary(vec![1e-9, 2.0, -1e-9, 0.5]);
+    assert_eq!((max, min, resolved, min_resolved), (2.0, -1e-9, 2, 0.5));
+}

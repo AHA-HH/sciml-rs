@@ -7,10 +7,14 @@
 //! - `OPTIMIZER`: `adam` (the default, Adam with coupled weight decay and the cosine),
 //!   `adamw` (AdamW with the learning rate halved every `epochs / 5` epochs: every 100 at
 //!   500, D11), `gauss-newton`, `hybrid` (Gauss–Newton after Adam epochs, Phase 10 T5), or
-//!   `lbfgs` (L-BFGS on the full batch, optimisers CO2.1); each example names those it
-//!   takes.
-//! - `WEIGHT_DECAY`: Adam's and AdamW's weight decay.
-//! - `TIME_BUDGET_S`: with Gauss–Newton or L-BFGS, stop after the first epoch that ends at
+//!   `lbfgs` (L-BFGS on the full batch, optimisers CO2.1), or `soap` (SOAP on Adam's path,
+//!   the cosine, optimisers CO3.3); each example names those it takes.
+//! - `WEIGHT_DECAY`: Adam's, AdamW's and SOAP's (decoupled) weight decay.
+//! - `LEARNING_RATE`: the initial learning rate of Adam, AdamW and SOAP (and of a hybrid
+//!   run's Adam epochs; Gauss–Newton and L-BFGS ignore it).
+//! - `SOAP_FREQUENCY` (steps between basis refreshes) and `SOAP_LOG_FIRST_REFRESH=1` (print
+//!   the factors' eigenvalue ratios at the first refresh): SOAP's settings.
+//! - `TIME_BUDGET_S`: with Gauss–Newton, L-BFGS or SOAP, stop after the first epoch that ends at
 //!   or over that many seconds of training (`TrainingConfig::time_budget_s`).
 //! - `LBFGS_HISTORY`, `LBFGS_MAX_ITER`, `LBFGS_MAX_EVAL` (closure evaluations per step,
 //!   line search included) and `LBFGS_WEIGHT_DECAY` (μ): L-BFGS's settings.
@@ -21,6 +25,7 @@ use burn::{config::Config, tensor::Device};
 use sciml_rs::neural_operators::{
     models::fno::{FNO, FNOConfig},
     optim::gauss_newton::{GaussNewtonConfig, Preconditioner},
+    optim::soap::SoapConfig,
     runs::{OperatorCheckpoint, RunCosts, RunDir},
     training::{
         config::{LbfgsArm, LrSchedule, OptimizerConfig, TrainingConfig},
@@ -71,9 +76,9 @@ pub struct Literals {
     pub epochs: usize,
     /// Adam's and AdamW's batch size.
     pub batch_size: usize,
-    /// Adam's and AdamW's initial learning rate.
+    /// Adam's, AdamW's and SOAP's initial learning rate (`LEARNING_RATE`).
     pub learning_rate: f64,
-    /// Adam's and AdamW's weight decay (`WEIGHT_DECAY`).
+    /// Adam's, AdamW's and SOAP's weight decay (`WEIGHT_DECAY`).
     pub weight_decay: f32,
     /// The cosine's final learning rate.
     pub min_lr: f64,
@@ -85,6 +90,9 @@ pub struct Literals {
     /// The L-BFGS arm (`OPTIMIZER=lbfgs`, optimisers CO2.1) and its batch size, the training
     /// set's (D4); `None` for an example that takes no `lbfgs`.
     pub lbfgs: Option<(LbfgsArm, usize)>,
+    /// The SOAP arm (`OPTIMIZER=soap`, optimisers CO3.3), its weight decay replaced by
+    /// `WEIGHT_DECAY`'s; `None` for an example that takes no `soap`.
+    pub soap: Option<SoapConfig>,
 }
 
 /// The training configuration `OPTIMIZER`, one of `allowed` (unset is `adam`), asks for,
@@ -94,12 +102,13 @@ pub struct Literals {
 ///
 /// # Panics
 /// For an `OPTIMIZER` not in `allowed`, a negative or non-finite `WEIGHT_DECAY` or
-/// `GN_WEIGHT_DECAY`, a `TIME_BUDGET_S` without Gauss–Newton or L-BFGS or not positive and finite, a
+/// `GN_WEIGHT_DECAY`, a `LEARNING_RATE` not positive and finite, a `TIME_BUDGET_S` without
+/// Gauss–Newton, L-BFGS or SOAP or not positive and finite, a
 /// batch size or `GN_CG_MAX_ITERS` of 0, a `GN_PRECONDITIONER` but `none` and `hutchinson`,
 /// `lit.epochs` of 0, AdamW with `lit.epochs` not a multiple of 5, `hybrid` without
 /// `lit.hybrid_adam_epochs` or with a `GN_BATCH_SIZE` other than `lit.batch_size`, `lbfgs`
-/// without `lit.lbfgs`, or an `LBFGS_*` of 0 or a negative or non-finite
-/// `LBFGS_WEIGHT_DECAY`.
+/// without `lit.lbfgs`, an `LBFGS_*` of 0 or a negative or non-finite
+/// `LBFGS_WEIGHT_DECAY`, `soap` without `lit.soap`, or a `SOAP_FREQUENCY` of 0.
 pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingConfig {
     let name = std::env::var("OPTIMIZER").unwrap_or_else(|_| "adam".to_string());
     assert!(
@@ -108,6 +117,11 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
         allowed.join(", ")
     );
     assert!(lit.epochs > 0, "EPOCHS must be positive");
+    let weight_decay = env_var("WEIGHT_DECAY").unwrap_or(lit.weight_decay);
+    assert!(
+        weight_decay.is_finite() && weight_decay >= 0.0,
+        "WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
+    );
     let (optimizer, lr_schedule, adam_epochs) = match name.as_str() {
         "adam" => (None, None, None),
         "adamw" => {
@@ -138,16 +152,23 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
             ),
         ),
         "lbfgs" => (Some(OptimizerConfig::Lbfgs(lbfgs(lit))), None, None),
+        "soap" => (
+            Some(OptimizerConfig::Soap(soap(lit, weight_decay))),
+            None,
+            None,
+        ),
         other => unreachable!("{other:?} is in `allowed` but names no optimiser"),
     };
     let gn = matches!(optimizer, Some(OptimizerConfig::GaussNewton(_)));
     let is_lbfgs = matches!(optimizer, Some(OptimizerConfig::Lbfgs(_)));
+    let is_soap = matches!(optimizer, Some(OptimizerConfig::Soap(_)));
 
     let time_budget_s = env_var::<f64>("TIME_BUDGET_S");
-    // Adam's cosine schedule spans the epochs, so a budget would cut it short
+    // Adam's cosine schedule spans the epochs, so a budget would cut it short; SOAP runs
+    // at Adam's equal time (D6), its cosine cut short if it is slower
     assert!(
-        gn || is_lbfgs || time_budget_s.is_none(),
-        "TIME_BUDGET_S is for OPTIMIZER=gauss-newton and lbfgs runs"
+        gn || is_lbfgs || is_soap || time_budget_s.is_none(),
+        "TIME_BUDGET_S is for OPTIMIZER=gauss-newton, lbfgs and soap runs"
     );
     // NaN would never stop the run
     assert!(
@@ -169,16 +190,16 @@ pub fn training_config(allowed: &[&str], seed: u64, lit: &Literals) -> TrainingC
         "OPTIMIZER=hybrid trains at the batch size {}, got GN_BATCH_SIZE = {batch_size}",
         lit.batch_size
     );
-    let weight_decay = env_var("WEIGHT_DECAY").unwrap_or(lit.weight_decay);
+    let learning_rate = env_var("LEARNING_RATE").unwrap_or(lit.learning_rate);
     assert!(
-        weight_decay.is_finite() && weight_decay >= 0.0,
-        "WEIGHT_DECAY must be a finite number ≥ 0, got {weight_decay}"
+        learning_rate.is_finite() && learning_rate > 0.0,
+        "LEARNING_RATE must be a positive number, got {learning_rate}"
     );
     TrainingConfig::new()
         .with_epochs(lit.epochs)
         .with_time_budget_s(time_budget_s)
         .with_batch_size(batch_size)
-        .with_learning_rate(lit.learning_rate)
+        .with_learning_rate(learning_rate)
         .with_weight_decay(weight_decay)
         .with_min_lr(lit.min_lr)
         .with_seed(seed)
@@ -215,6 +236,21 @@ fn lbfgs(lit: &Literals) -> LbfgsArm {
         weight_decay,
         ..arm
     }
+}
+
+/// The SOAP arm of `lit` with the `SOAP_*` variables and decoupled weight decay
+/// `weight_decay` (`WEIGHT_DECAY`, D13).
+fn soap(lit: &Literals, weight_decay: f32) -> SoapConfig {
+    let soap = lit
+        .soap
+        .clone()
+        .expect("OPTIMIZER=soap needs the example's SOAP literals");
+    let frequency = env_var("SOAP_FREQUENCY").unwrap_or(soap.precondition_frequency);
+    assert!(frequency > 0, "SOAP_FREQUENCY must be positive");
+    let log = env_var::<u8>("SOAP_LOG_FIRST_REFRESH").map_or(soap.log_first_refresh, |v| v == 1);
+    soap.with_precondition_frequency(frequency)
+        .with_log_first_refresh(log)
+        .with_weight_decay(weight_decay)
 }
 
 /// Gauss–Newton from `lit` and the `GN_*` variables, its probes seeded with `seed`.
@@ -363,11 +399,13 @@ pub struct Measured {
 /// (a budget may stop it before the last epoch), plus a hybrid run's Adam steps, from the
 /// epochs `metrics.csv` holds. L-BFGS: one step per epoch, from `lbfgs_steps.csv`, its
 /// closure evaluations as passes (D7) plus one metrics forward per step, as Gauss–Newton's.
+/// SOAP: every step of the epochs `metrics.csv` holds (a budget may stop it), one forward
+/// and one backward each (D7).
 ///
 /// # Panics
 /// If a Gauss–Newton run's `metrics.csv` or `gn_steps.csv` cannot be read, or it has no
-/// `gn_steps.csv` and no Adam epochs; if an L-BFGS run's `lbfgs_steps.csv` is missing or
-/// cannot be read.
+/// `gn_steps.csv` and no Adam epochs; if a SOAP run's `metrics.csv` cannot be read; if an
+/// L-BFGS run's `lbfgs_steps.csv` is missing or cannot be read.
 pub fn run_costs(
     run: &RunDir,
     train_cfg: &TrainingConfig,
@@ -384,6 +422,11 @@ pub fn run_costs(
             Some(p) => {
                 let (forward, backward) = training_passes(&p);
                 (p.steps, forward, backward)
+            }
+            None if train_cfg.soap().is_some() => {
+                let epochs = run.metrics().expect("could not read metrics.csv").len();
+                let steps = epochs * train_cfg.steps_per_epoch(n_train);
+                (steps, steps, steps)
             }
             None => {
                 let steps = train_cfg.total_steps(n_train);

@@ -48,6 +48,14 @@
 //! device; the run name gains `_lbfgs`, `TIME_BUDGET_S` stops it, `EPOCHS` caps it, and it
 //! writes `lbfgs_steps.csv`, one row per step.
 //!
+//! `OPTIMIZER=soap` (optimisers CO3.3) trains with SOAP in place of Adam, on Adam's batch
+//! and cosine, with the `SOAP_*` literals below (D6's starting point); `LEARNING_RATE`,
+//! `WEIGHT_DECAY` (SOAP's decoupled decay), `SOAP_FREQUENCY` and `SOAP_LOG_FIRST_REFRESH=1`
+//! override them. One device; the run name gains `_soap`, `TIME_BUDGET_S` stops it (the
+//! equal-time budget, its cosine then unfinished) and `EPOCHS` caps it:
+//! OPTIMIZER=soap TIME_BUDGET_S=2952 cargo run --release --no-default-features \
+//!     --features cuda --example train_poisson -- 0 129 64 42
+//!
 //! `OPTIMIZER=hybrid` (Phase 10 T5's Hybrid arm) is Gauss–Newton whose first
 //! `HYBRID_ADAM_EPOCHS` epochs train with Adam (`TrainingConfig::adam_epochs`), the
 //! cosine schedule spanning those epochs; the run name gains `_hybrid`. Everything below
@@ -122,6 +130,7 @@ use sciml_rs::neural_operators::{
         },
     },
     models::fno::{FNO, FNOConfig},
+    optim::soap::SoapConfig,
     runs::{RunCosts, RunDir},
     training::{
         config::{LbfgsArm, TrainingConfig},
@@ -189,6 +198,13 @@ const LBFGS_MAX_ITER: usize = 20;
 const LBFGS_MAX_EVAL: Option<usize> = None;
 /// μ in the closure's Φ + ½μ‖θ‖² (D3, D13: 0 or 1e-4).
 const LBFGS_WEIGHT_DECAY: f64 = 0.0;
+
+// SOAP (`OPTIMIZER=soap`, optimisers CO3.3): D6's starting point, lr `LEARNING_RATE` on the
+// cosine and decoupled weight decay `WEIGHT_DECAY`, until CO3.3's pilot
+/// Adam's β₁ and β₂ in SOAP's bases, and the factors' rate (the reference's defaults).
+const SOAP_BETAS: (f32, f32) = (0.95, 0.95);
+/// Steps between basis refreshes, f (`SOAP_FREQUENCY`).
+const SOAP_FREQUENCY: usize = 10;
 
 /// The `i`-th command-line argument parsed as `T`, or `default` when it is absent.
 ///
@@ -347,8 +363,14 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
             .with_weight_decay(LBFGS_WEIGHT_DECAY),
             n_train,
         )),
+        soap: Some(
+            SoapConfig::new()
+                .with_beta_1(SOAP_BETAS.0)
+                .with_beta_2(SOAP_BETAS.1)
+                .with_precondition_frequency(SOAP_FREQUENCY),
+        ),
     };
-    let allowed = ["adam", "gauss-newton", "hybrid", "lbfgs"];
+    let allowed = ["adam", "gauss-newton", "hybrid", "lbfgs", "soap"];
     let train_cfg = common::training_config(&allowed, seed, &lit);
     let gn = train_cfg.gauss_newton().is_some();
     // Adam's long budget is more epochs, its cosine schedule spanning them; Gauss-Newton
@@ -378,6 +400,7 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         (_, Some(_)) => "_hybrid",
         (true, None) => "_gn",
         (false, None) if train_cfg.lbfgs().is_some() => "_lbfgs",
+        (false, None) if train_cfg.soap().is_some() => "_soap",
         (false, None) => "",
     };
     let name = format!("poisson_fno{grid}_p{padding}{subset_tag}{seed_tag}{gn_tag}");
@@ -398,9 +421,12 @@ fn main() {
     let device = devices[0].clone();
     let (run, model_cfg, train_cfg, dataset_cfg, resume) =
         common::session::<4, PoissonConfig>(&device, || new_run(&device));
+    let one_device = train_cfg.gauss_newton().is_some()
+        || train_cfg.lbfgs().is_some()
+        || train_cfg.soap().is_some();
     assert!(
-        (train_cfg.gauss_newton().is_none() && train_cfg.lbfgs().is_none()) || devices.len() == 1,
-        "Gauss-Newton and L-BFGS train on one device: unset TRAIN_DEVICES"
+        !one_device || devices.len() == 1,
+        "Gauss-Newton, L-BFGS and SOAP train on one device: unset TRAIN_DEVICES"
     );
     let set = stage(dataset_cfg.n).unwrap_or_else(|e| panic!("{e}"));
 

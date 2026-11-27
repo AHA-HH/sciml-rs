@@ -372,3 +372,29 @@ template:
 - Adam and Gauss–Newton: not touched (no code outside `#[cfg(test)]` changed).
 - Follow-ups: CO1.6 (optional: the tests' submodules, `train_built` into the tests,
   shared fixtures).
+
+## 2026-11-27: CO3.3 The SOAP arm and pilot (code; the pilot pending)
+- Done: `OptimizerConfig::Soap(SoapConfig)` and `TrainingConfig::soap()`; `build_components`
+  builds `SoapConfig::init()` where Adam's `ModuleOptimizer` is built, so SOAP runs Adam's
+  loop, checkpoint and resume unchanged; SOAP with replicas panics (one device).
+  `SoapConfig::log_first_refresh`: each factor's eigenvalues at the first refresh (f64
+  Jacobi), with the count above f32's floor. `OPTIMIZER=soap` in `train_poisson` (D6's
+  start: lr 1e-3 cosine, decoupled weight decay 1e-4, β (0.95, 0.95), f 10; run name
+  `_soap`); `LEARNING_RATE`, `SOAP_FREQUENCY`, `SOAP_LOG_FIRST_REFRESH`, `WEIGHT_DECAY`
+  (SOAP's, D13), `TIME_BUDGET_S`; `costs.json` steps from `metrics.csv`, one forward and one
+  backward each (D7). `co0_1_runs.sh` takes `soap:<seed>:<lr>:<f>:<budget_s>`.
+- Tests: five new (config round trip; a SOAP run with f = 2 killed and resumed equals the
+  uninterrupted one bit for bit and differs from Adam's; replicas refused; Jacobi eigenvalues
+  against a known spectrum; the floor count).
+- Checks: fmt, clippy (lib, examples, all targets, datagen all targets), `cargo test` (629),
+  `cargo test --features datagen` (717), `cargo doc` pass. Flex smoke run (3 epochs) and a
+  `kill -9` resume of a 27-epoch run, bit for bit (weights but the `param_id` header).
+- Decisions: none taken; questions: the first-refresh criterion for rank-deficient factors,
+  and SOAP's cosine under the equal-time budget.
+- Review: plan review PASS (advisories: doc wording, fixed); code quality APPROVE with
+  findings (F1 SOAP's decay patched after the fact, fixed; F6 and doc wording fixed; F2, F3,
+  F4, F8 follow-ups; F5, F7, F9 left).
+- Adam, Gauss–Newton and L-BFGS: unchanged bit for bit: `tests/fno_bit_identity.rs`'s four
+  dumps equal on `9b0337d` and `4d1a1bc`.
+- Follow-ups: CO3.3's line (F2, F3, F4) and CO1.6's (F8); the pilot (VM).
+
