@@ -57,7 +57,7 @@ The proposal's Section 12. Recorded when the author takes them:
 | D4 | Shape of the operator trait | trait with associated config and input type, generic | CM0.3 | CM0.3 | signed off 2026-11-24: option A as recommended (a generic trait with associated config and input types, static dispatch, no trait objects; `docs/operators/tasks/CM0.3.md`) |
 | D5 | Spectral weight layout | corners internally; convert at fixture load | – | CM1.2 | signed off 2026-11-25: A, as recommended (corners internally, CONVENTIONS §5 unchanged; 2.0.0's centred weights converted at fixture load, FFT norm and mode counts included). A centred layout may come later only as an opt-in option, off by default, in its own task, if a need (PyTorch checkpoint interchange) or a measured gain appears |
 | D6 | Order of M2 and M3 | at the M1 gate; default M2 first | M1 gate | CM2.1, CM3.1 | open |
-| D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | open |
+| D7 | Training-parity hardware | one A100 on the VM | – | CM1.8 | signed off 2026-11-27: as recommended, one A100 on the VM |
 | D8 | Fixture size | tiny models, under about 1 MB per fixture | CM0.2 | CM0.2 | signed off 2026-11-24: as recommended (tiny models, P ≲ 10⁴, under about 1 MB per fixture) |
 
 ## M0: Foundations

@@ -191,7 +191,10 @@ weight decay accounts for.
   and 1 at 2, and a run with too few stalls for good (CO2.1's smoke run). Burn's `LBFGS`
   does not expose its inner iterations, so "updates" are not counted (CO2.1): the pilot
   says whether `optimisation_steps` (steps = epochs) and the passes suffice or the count
-  is needed. *Done when:* the pilot table and D5 proposed.
+  is needed. The author (2026-11-27, CO2.1's questions): `max_eval` set explicitly with
+  every cell, and the uncounted inner iterations accepted (steps and passes are reported;
+  updates can be estimated from closure evaluations if ever needed).
+  *Done when:* the pilot table and D5 proposed.
   *Needs:* CO2.1, CO0.1. *Machines:* the VM. *Sign-off:* D5.
 
 ## O3: SOAP
