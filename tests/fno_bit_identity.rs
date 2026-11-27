@@ -1,10 +1,11 @@
 //! Constraint 1 of the library objective (CM0.3): the FNO's outputs, bit for bit.
 //!
 //! Each case writes its results as raw bytes to `target/bit-identity/<case>.bin`. The
-//! file uses only names that exist on `main` before CM0.3, so `/verify` runs this same
-//! file on a `main` worktree and on the branch and `cmp`s the dumps: the trusted path is
-//! `main`'s code. Here the test only checks that every case runs and is deterministic
-//! within the process (flex's bits need not agree across machines, so no golden values).
+//! file uses only names on `main` since optimisers CO2.1 (the generic stack of CM0.3, the
+//! L-BFGS arm), so `/verify` runs this same file on a `main` worktree and on the branch
+//! and `cmp`s the dumps: the trusted path is `main`'s code. Here the test only checks that
+//! every case runs and is deterministic within the process (flex's bits need not agree
+//! across machines, so no golden values).
 //! Ignored by default (about 4 minutes in a debug build): run it with
 //! `cargo test --release --test fno_bit_identity -- --ignored`.
 //! Files are compared by what they hold, not their bytes: Burnpack records each
@@ -14,6 +15,7 @@
 use std::{fs, path::PathBuf};
 
 use burn::{
+    optim::LBFGSConfig,
     prelude::*,
     tensor::{Device, TensorData},
 };
@@ -31,8 +33,8 @@ use sciml_rs::neural_operators::{
     optim::gauss_newton::{GaussNewtonConfig, params},
     runs::{EpochMetrics, RunDir},
     training::{
-        config::{OptimizerConfig, TrainingConfig},
-        trainer::{build_training_components, train_components},
+        config::{LbfgsArm, OptimizerConfig, TrainingConfig},
+        trainer::{build_components, train_components},
     },
 };
 
@@ -98,11 +100,11 @@ fn fixed_forward() -> Vec<u8> {
     dump("forward", vec![tensor_bytes(model.forward(x))])
 }
 
-/// One training epoch through `build_training_components` and `train_components` (the
-/// path `train_fno` and `train_poisson` take) with a checkpoint, then the run read back:
+/// One training epoch through `build_components` and `train_components` (the path
+/// `train` and `train_poisson` take) with a checkpoint, then the run read back:
 /// the epoch's metrics, the trained, reloaded and checkpointed parameters, the
 /// checkpoint's epoch counters, and the reloaded models'
-/// predictions (`load_fno`, `RunDir::checkpoint`, `predict_host`).
+/// predictions (`load_model`, `RunDir::checkpoint_of`, `predict_host`).
 fn one_epoch(
     case: &str,
     model_cfg: &FNOConfig,
@@ -116,7 +118,7 @@ fn one_epoch(
     let y_norm = UnitGaussianNormalizer::fit(train.targets());
     let device = Device::default().autodiff();
     let components =
-        build_training_components::<4, 3, _>(model_cfg, train_cfg, train, test, &device);
+        build_components::<FNO<4>, 4, 3, _>(model_cfg, train_cfg, train, test, &device);
     let run = RunDir::create(&root, case).unwrap();
     // the data are synthetic: a Darcy-shaped data config (subsampling 1) for `data_cfg.json`
     let data_cfg = DarcyConfig::new(
@@ -142,8 +144,8 @@ fn one_epoch(
 
     let plain = Device::default();
     let inputs = dataset(2, s, 0.9).inputs().mapv(|v| v as f32);
-    let loaded: FNO<4> = run.load_fno::<4>(&plain).unwrap();
-    let ck = run.checkpoint::<4>(&plain).unwrap().unwrap();
+    let loaded: FNO<4> = run.load_model::<FNO<4>>(&plain).unwrap();
+    let ck = run.checkpoint_of::<FNO<4>>(&plain).unwrap().unwrap();
     let resumed = ck.model;
     let state = [ck.state.next_epoch, ck.state.resumes].map(|v| v as u64);
     // its fields, not `to_bytes`, which records the random `ParamId`s
@@ -204,6 +206,22 @@ fn gauss_newton_epoch() -> Vec<u8> {
     one_epoch("gauss_newton_epoch", &model_cfg, &train_cfg, 8, (4, 2))
 }
 
+/// One L-BFGS epoch (optimisers CO2.1) on the Gauss–Newton case's tiny model: one
+/// `LBFGS::step` on the full batch of 4, history 5, at most 5 inner iterations, no line
+/// search; the trained, reloaded and checkpointed parameters cover the record.
+fn lbfgs_epoch() -> Vec<u8> {
+    let model_cfg = FNOConfig::new(vec![2, 2], 1, 1)
+        .with_hidden_channels(4)
+        .with_n_layers(2);
+    let arm = LbfgsArm::new(LBFGSConfig::new().with_history_size(5).with_max_iter(5));
+    let train_cfg = TrainingConfig::new()
+        .with_epochs(1)
+        .with_batch_size(4)
+        .with_test_batch_size(2)
+        .with_optimizer(Some(OptimizerConfig::Lbfgs(arm)));
+    one_epoch("lbfgs_epoch", &model_cfg, &train_cfg, 8, (4, 2))
+}
+
 #[test]
 #[ignore = "the bit-identity dump /verify compares against main (CM0.3); run in release"]
 fn fno_outputs_dumped_and_deterministic() {
@@ -211,6 +229,7 @@ fn fno_outputs_dumped_and_deterministic() {
         ("forward", fixed_forward as fn() -> Vec<u8>),
         ("phase5_epoch", phase5_epoch),
         ("gauss_newton_epoch", gauss_newton_epoch),
+        ("lbfgs_epoch", lbfgs_epoch),
     ] {
         let first = f();
         assert!(!first.is_empty(), "{case}: nothing dumped");

@@ -1,5 +1,6 @@
 use super::*;
 use crate::neural_operators::data::host_oracle::{HostItems, OperatorBatcher};
+use crate::neural_operators::models::fno::FNOConfig;
 use crate::neural_operators::training::config::{LrSchedule, OptimizerConfig, TrainLoss};
 use crate::neural_operators::training::fixtures::{tiny_dataset, tiny_dataset_2d, tiny_model_cfg};
 use crate::neural_operators::{
@@ -12,6 +13,7 @@ use crate::neural_operators::{
     training::{data_parallel, step::flatten_pair},
 };
 use burn::data::dataloader::DataLoaderBuilder;
+use burn::module::Module;
 use burn::store::ModuleSnapshot;
 use ndarray::{Array1, Array3, ArrayD};
 use ndarray_npy::NpzWriter;
@@ -23,7 +25,7 @@ use std::path::{Path, PathBuf};
 #[test]
 fn components_take_sample_counts_from_the_datasets() {
     let train_cfg = TrainingConfig::new().with_batch_size(2);
-    let c = build_training_components::<3, 2, _>(
+    let c = build_components::<FNO<3>, 3, 2, _>(
         &tiny_model_cfg(),
         &train_cfg,
         tiny_dataset(5),
@@ -46,7 +48,7 @@ fn schedule_and_test_divisor_match_the_data() {
         .with_test_batch_size(2)
         .with_learning_rate(lr)
         .with_min_lr(min_lr);
-    let components = build_training_components::<3, 2, _>(
+    let components = build_components::<FNO<3>, 3, 2, _>(
         &tiny_model_cfg(),
         &train_cfg,
         tiny_dataset(n_train),
@@ -101,7 +103,7 @@ fn device_loaders_train_identically_to_host_loaders() {
         .with_seed(11);
     let device = Device::default().autodiff();
     let build = || {
-        build_training_components::<3, 2, _>(
+        build_components::<FNO<3>, 3, 2, _>(
             &tiny_model_cfg(),
             &train_cfg,
             tiny_dataset(n_train),
@@ -156,7 +158,7 @@ fn device_loaders_train_identically_to_host_loaders() {
     }
 }
 
-// --- Phase 4s T3: `train_fno` reproduces the per-PDE trainers it replaced ---
+// --- Phase 4s T3: `train` reproduces the per-PDE trainers it replaced ---
 
 /// Every metric of every epoch, as bits.
 fn metric_bits(metrics: &[EpochMetrics]) -> Vec<(u32, u32, u32, u64)> {
@@ -183,7 +185,7 @@ fn train_fno_none_matches_identity_path() {
         .with_test_batch_size(2);
     let device = Device::default().autodiff();
     let build = || {
-        build_training_components::<3, 2, _>(
+        build_components::<FNO<3>, 3, 2, _>(
             &tiny_model_cfg(),
             &train_cfg,
             tiny_dataset(5),
@@ -203,7 +205,7 @@ fn train_fno_none_matches_identity_path() {
 
 // --- Phase 4s T17: y_train stored in physical units ---
 
-/// One epoch of `train_fno`'s `Some(y)` path on a physical `y_train` (only the
+/// One epoch of `train`'s `Some(y)` path on a physical `y_train` (only the
 /// prediction decoded) against the old asymmetric path, inlined here as the oracle:
 /// `y_train` encoded at load, prediction and target both decoded in training, the
 /// prediction only in evaluation. Same initial model and batches, so the metrics differ
@@ -228,7 +230,7 @@ fn train_loss_matches_old_asymmetric_path() {
     };
     let device = Device::default().autodiff();
     let build = |train| {
-        build_training_components::<4, 3, _>(
+        build_components::<FNO<4>, 4, 3, _>(
             &model_cfg,
             &train_cfg,
             train,
@@ -289,7 +291,7 @@ fn train_loss_matches_old_asymmetric_path() {
 #[test]
 #[should_panic(expected = "non-empty datasets")]
 fn empty_training_set_is_rejected() {
-    let _ = build_training_components::<3, 2, _>(
+    let _ = build_components::<FNO<3>, 3, 2, _>(
         &tiny_model_cfg(),
         &TrainingConfig::new(),
         tiny_dataset(0),
@@ -351,7 +353,7 @@ fn train_poisson_smoke() {
         .with_epochs(2)
         .with_batch_size(2)
         .with_test_batch_size(2);
-    let (_, metrics) = train_fno::<4, 3, _>(
+    let (_, metrics) = super::train::<FNO<4>, 4, 3, _>(
         train,
         test,
         Some(&normalizers.y),
@@ -379,13 +381,13 @@ fn train_poisson_smoke() {
     run.save_configs(&model_cfg, &train_cfg, &cfg).unwrap();
     let build = || {
         let (train, test, _) = load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
-        build_training_components::<4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
+        build_components::<FNO<4>, 4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
     };
     let decoder = FlatDecoder::new(&normalizers.y, &device);
     interrupt_at(build(), &train_cfg, Some(&decoder), &run, 1, 1);
     let run = RunDir::open(run.path()).unwrap();
     let ck = run
-        .checkpoint::<4>(&device)
+        .checkpoint_of::<FNO<4>>(&device)
         .unwrap()
         .expect("checkpoint after epoch 1");
     assert_eq!(ck.state.next_epoch, 1);
@@ -404,7 +406,7 @@ fn train_poisson_smoke() {
     let rows = run.metrics().unwrap();
     assert_eq!(rows.iter().map(|m| m.epoch).collect::<Vec<_>>(), [0, 1]);
     finite(&rows);
-    let last = run.checkpoint::<4>(&device).unwrap().unwrap();
+    let last = run.checkpoint_of::<FNO<4>>(&device).unwrap().unwrap();
     assert_eq!(last.state.next_epoch, 2);
     let _ = fs::remove_dir_all(&dir);
 }
@@ -424,7 +426,7 @@ fn old_training_config_trains_as_adam() {
         .with_test_batch_size(2);
     let device = Device::default().autodiff();
     let build = |cfg: &TrainingConfig| {
-        build_training_components::<3, 2, _>(
+        build_components::<FNO<3>, 3, 2, _>(
             &tiny_model_cfg(),
             cfg,
             tiny_dataset(5),
@@ -473,8 +475,7 @@ fn hybrid_smoke_run_switches_and_resumes_exactly() {
     let (train, test, normalizers) =
         load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
     let device = Device::default().autodiff();
-    let mut adam =
-        build_training_components::<4, 3, _>(&model_cfg, &adam_cfg, train, test, &device);
+    let mut adam = build_components::<FNO<4>, 4, 3, _>(&model_cfg, &adam_cfg, train, test, &device);
     adam.model = init;
     let (_, adam) = train_built(
         adam,
@@ -533,7 +534,7 @@ fn gn_smoke_run_resumes_exactly(
     let (_, _, normalizers) = load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
     let build = || {
         let (train, test, _) = load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
-        build_training_components::<4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
+        build_components::<FNO<4>, 4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
     };
     let whole = build();
     let init = whole.model.clone();
@@ -567,7 +568,7 @@ fn gn_smoke_run_resumes_exactly(
         crate::neural_operators::training::gn::training_passes(&passes),
         (passes.forward + steps, passes.backward)
     );
-    let ck = straight.checkpoint::<4>(&device).unwrap().unwrap();
+    let ck = straight.checkpoint_of::<FNO<4>>(&device).unwrap().unwrap();
     assert_eq!(ck.gn.expect("Gauss-Newton state").step as usize, steps);
 
     let run = RunDir::create(&dir, "gn_resumed").unwrap();
@@ -591,7 +592,7 @@ fn gn_smoke_run_resumes_exactly(
         )
     }));
     assert!(killed.is_err(), "the run was not interrupted");
-    let ck = run.checkpoint::<4>(&device).unwrap().unwrap();
+    let ck = run.checkpoint_of::<FNO<4>>(&device).unwrap().unwrap();
     assert_eq!(ck.state.next_epoch, 1);
     run.truncate_metrics(ck.state.next_epoch).unwrap();
     run.truncate_gn_steps(ck.state.next_epoch).unwrap();
@@ -667,7 +668,7 @@ fn lbfgs_smoke_run_resumes_exactly() {
     let (_, _, normalizers) = load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
     let build = || {
         let (train, test, _) = load_poisson_uniform::<f32>(&train_path, &test_path, &cfg).unwrap();
-        build_training_components::<4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
+        build_components::<FNO<4>, 4, 3, _>(&model_cfg, &train_cfg, train, test, &device)
     };
     let whole = build();
     let mut first = build();
@@ -693,7 +694,7 @@ fn lbfgs_smoke_run_resumes_exactly() {
     assert_eq!(passes.forward, passes.backward);
     assert!(passes.forward >= 2 * 3, "{passes:?}");
     assert!(straight.gn_passes().unwrap().is_none());
-    let ck = straight.checkpoint::<4>(&device).unwrap().unwrap();
+    let ck = straight.checkpoint_of::<FNO<4>>(&device).unwrap().unwrap();
     assert!(ck.gn.is_none() && ck.lbfgs.is_some());
 
     let run = RunDir::create(&dir, "lbfgs_resumed").unwrap();
@@ -720,7 +721,7 @@ fn lbfgs_smoke_run_resumes_exactly() {
         )
     }));
     assert!(killed.is_err(), "the run was not interrupted");
-    let ck = run.checkpoint::<4>(&device).unwrap().unwrap();
+    let ck = run.checkpoint_of::<FNO<4>>(&device).unwrap().unwrap();
     assert_eq!(ck.state.next_epoch, 1);
     run.truncate_metrics(ck.state.next_epoch).unwrap();
     run.truncate_lbfgs_steps(ck.state.next_epoch).unwrap();
@@ -777,7 +778,7 @@ fn hybrid_without_gauss_newton_epochs_panics() {
         .with_epochs(2)
         .with_optimizer(Some(OptimizerConfig::GaussNewton(GaussNewtonConfig::new())))
         .with_adam_epochs(Some(2));
-    let _ = build_training_components::<3, 2, _>(
+    let _ = build_components::<FNO<3>, 3, 2, _>(
         &tiny_model_cfg(),
         &cfg,
         tiny_dataset(5),
@@ -906,7 +907,7 @@ fn resumed_run_matches_uninterrupted_run() {
         .with_seed(5);
     let device = Device::default().autodiff();
     let build = || {
-        build_training_components::<3, 2, _>(
+        build_components::<FNO<3>, 3, 2, _>(
             &tiny_model_cfg(),
             &train_cfg,
             tiny_dataset(5), // partial last batch
@@ -937,7 +938,7 @@ fn resumed_run_matches_uninterrupted_run() {
         .unwrap();
     interrupt_at(first, &train_cfg, None, &run, 2, 2);
     assert_eq!(run.metrics().unwrap().len(), 3);
-    let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
+    let ck = run.checkpoint_of::<FNO<3>>(&device).unwrap().unwrap();
     assert_eq!(ck.state.next_epoch, 2);
     run.truncate_metrics(ck.state.next_epoch).unwrap();
     let (resumed_model, _) = train_components(
@@ -956,7 +957,7 @@ fn resumed_run_matches_uninterrupted_run() {
     assert_eq!(epochs(&resumed), [0, 1, 2, 3, 4, 5]);
     assert_same_metrics(&resumed, &uninterrupted);
     assert_same_weights(&resumed_model, &straight_model);
-    let last = run.checkpoint::<3>(&device).unwrap().unwrap();
+    let last = run.checkpoint_of::<FNO<3>>(&device).unwrap().unwrap();
     assert_eq!(last.state.next_epoch, 6);
     let _ = fs::remove_dir_all(&root);
 }
@@ -974,7 +975,7 @@ fn checkpoint_round_trips_adam_moments_and_cosine_position() {
     let train_cfg = TrainingConfig::new().with_epochs(4).with_batch_size(2);
     let device = Device::default().autodiff();
     let build = || {
-        build_training_components::<3, 2, _>(
+        build_components::<FNO<3>, 3, 2, _>(
             &tiny_model_cfg(),
             &train_cfg,
             tiny_dataset(5),
@@ -1002,7 +1003,7 @@ fn checkpoint_round_trips_adam_moments_and_cosine_position() {
     };
     run.save_checkpoint(&state, &model, &live.optim, &live.scheduler)
         .unwrap();
-    let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
+    let ck = run.checkpoint_of::<FNO<3>>(&device).unwrap().unwrap();
     assert_eq!(ck.state, state);
     assert!(!ck.optim.is_empty(), "no Adam moments in the checkpoint");
     let mut loaded = build();
@@ -1037,7 +1038,7 @@ fn checkpoint_round_trips_adam_moments_and_cosine_position() {
 
 // --- Phase 4s T12: the epoch observer ---
 
-/// `train_fno` writes one `metrics.csv` row per epoch through the observer, and the
+/// `train` writes one `metrics.csv` row per epoch through the observer, and the
 /// rows read back as exactly the metrics it returns.
 #[test]
 fn metrics_csv_holds_every_epoch() {
@@ -1048,7 +1049,7 @@ fn metrics_csv_holds_every_epoch() {
         .with_batch_size(2)
         .with_test_batch_size(2);
     let run = RunDir::create(&root, "live").unwrap();
-    let (_, metrics) = train_fno::<3, 2, _>(
+    let (_, metrics) = train::<FNO<3>, 3, 2, _>(
         tiny_dataset(5),
         tiny_dataset(3),
         None,
@@ -1082,7 +1083,7 @@ fn time_budget_stops_after_the_epoch_that_reaches_it() {
             .with_time_budget_s(Some(budget))
     };
     let build = |train_cfg: &TrainingConfig| {
-        build_training_components::<3, 2, _>(
+        build_components::<FNO<3>, 3, 2, _>(
             &tiny_model_cfg(),
             train_cfg,
             tiny_dataset(5),
@@ -1103,7 +1104,7 @@ fn time_budget_stops_after_the_epoch_that_reaches_it() {
         None,
     );
     assert_eq!(metrics.len(), 1);
-    let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
+    let ck = run.checkpoint_of::<FNO<3>>(&device).unwrap().unwrap();
     assert_eq!(ck.state.next_epoch, 1);
 
     let (_, resumed) = training_loop(
@@ -1131,7 +1132,7 @@ fn parallel_components(
     device: &Device,
     extra: &[Device],
 ) -> TrainingComponents<3, 2> {
-    let mut c = build_training_components::<3, 2, _>(
+    let mut c = build_components::<FNO<3>, 3, 2, _>(
         &tiny_model_cfg(),
         train_cfg,
         tiny_dataset(7),
@@ -1217,7 +1218,7 @@ fn resumed_parallel_run_matches_uninterrupted_run() {
     run.save_configs(&tiny_model_cfg(), &train_cfg, &train_cfg)
         .unwrap();
     interrupt_at(first, &train_cfg, None, &run, 2, 2);
-    let ck = run.checkpoint::<3>(&device).unwrap().unwrap();
+    let ck = run.checkpoint_of::<FNO<3>>(&device).unwrap().unwrap();
     run.truncate_metrics(ck.state.next_epoch).unwrap();
     let (resumed_model, _) = train_components(
         build(),
@@ -1246,7 +1247,7 @@ fn co1_1_pair(
 ) -> [(FNO<3>, Vec<EpochMetrics>); 2] {
     let device = Device::default().autodiff();
     let build = |cfg: &TrainingConfig| {
-        build_training_components::<3, 2, _>(
+        build_components::<FNO<3>, 3, 2, _>(
             &tiny_model_cfg(),
             cfg,
             tiny_dataset(n_train),
@@ -1309,7 +1310,7 @@ fn step_schedule_halves_at_the_stated_epochs() {
         .with_batch_size(2)
         .with_learning_rate(lr)
         .with_lr_schedule(Some(LrSchedule::Step { every_epochs: 2 }));
-    let mut c = build_training_components::<3, 2, _>(
+    let mut c = build_components::<FNO<3>, 3, 2, _>(
         &tiny_model_cfg(),
         &cfg,
         tiny_dataset(5),
@@ -1359,7 +1360,7 @@ fn squared_loss_steps_on_the_squared_objective() {
         .with_loss(Some(TrainLoss::SquaredRelL2));
     let device = Device::default().autodiff();
     let build = || {
-        build_training_components::<3, 2, _>(
+        build_components::<FNO<3>, 3, 2, _>(
             &tiny_model_cfg(),
             &cfg,
             tiny_dataset(4),

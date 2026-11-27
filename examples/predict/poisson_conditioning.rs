@@ -12,7 +12,7 @@
 //!    that s (decision 18, as `poisson_resolution` does; at the run's own s they are the
 //!    run's). On the same [`SAMPLES`] training samples, Phase 7's subset [`SUBSET_SEED`]
 //!    (T4's training set), [`lanczos`] gives the Ritz values of G + μI, G = JᵀJ of T3's
-//!    residual (`FnoResidual`, J v by finite differences) and μ = [`MU`], the weight
+//!    residual (`GridResidual`, J v by finite differences) and μ = [`MU`], the weight
 //!    decay, the same for every run (no run's damping λ). Reported: θ_max, the top
 //!    [`TOP`] values, their decay θ_TOP / θ_max, θ_max / μ, and the adjoint error of one
 //!    random direction.
@@ -54,7 +54,7 @@ use sciml_rs::neural_operators::{
     models::fno::FNO,
     optim::gauss_newton::{ParamVec, adjoint_error, jvp, lanczos, params, vjp},
     runs::RunDir,
-    training::gn::FnoResidual,
+    training::gn::GridResidual,
     utils::backend::backend_features,
 };
 
@@ -221,7 +221,7 @@ struct RunResult {
 fn measure(dir: &Path, device: &Device) -> RunResult {
     let run = RunDir::open(dir).unwrap_or_else(|e| panic!("open {}: {e}", dir.display()));
     let model: FNO<4> = run
-        .load_fno(device)
+        .load_model(device)
         .unwrap_or_else(|e| panic!("load the model: {e}"));
     let name = dir
         .file_name()
@@ -231,7 +231,7 @@ fn measure(dir: &Path, device: &Device) -> RunResult {
     for s in GRIDS {
         let (data, y) = samples_at(&run, s);
         let decoder = FlatDecoder::new(&y, device);
-        let problem = FnoResidual::<4, 3>::new(Some(&decoder));
+        let problem = GridResidual::<4, 3>::new(Some(&decoder));
         let batch = one_batch(&data, device);
         let apply = |v: &ParamVec| {
             let jv = jvp(&problem, &model, &batch, v, None);
