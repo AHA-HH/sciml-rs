@@ -178,10 +178,9 @@ CONFIGS = {
 # only those) are redrawn from a seeded normal, so the fixture tests the map and not only the
 # constant.
 # CM1.5a's sweeps: the soft-gating and group-norm weights.
-SWEEPS = {"fno3d", "fno2d_instance_pre", "fno1d_group_skips", "fno2d_separable", "fno2d_odd_stabilizer", "fno1d_pre_no_mlp"}
 # CM1.5c's: the batch norm's weights, and its running statistics (buffers, redrawn apart).
 BATCH_NORM = {"fno2d_batch_norm", "fno1d_pre_no_skip"}
-SWEEPS |= BATCH_NORM
+SWEEPS = {"fno3d", "fno2d_instance_pre", "fno1d_group_skips", "fno2d_separable", "fno2d_odd_stabilizer", "fno1d_pre_no_mlp"} | BATCH_NORM
 REDRAW = {"soft_gating2d", "group_norm3d"} | {n for n in CONFIGS if n.startswith("fno_blocks")} | SWEEPS
 DTYPES = {"f32": torch.float32, "f64": torch.float64}
 # f32 only: the legacy layer computes its spectrum in `cfloat` and returns f32 (no bias to
@@ -216,10 +215,11 @@ def build(name, dtype):
             if name in BATCH_NORM:
                 # torch's initial statistics (mean 0, variance 1) would leave the map untested;
                 # the variance kept positive.
-                for m in model.modules():
-                    if isinstance(m, torch.nn.modules.batchnorm._BatchNorm):
-                        m.running_mean.copy_(torch.randn_like(m.running_mean))
-                        m.running_var.copy_(torch.rand_like(m.running_var) + 0.5)
+                for k, b in model.named_buffers():
+                    if k.endswith("running_mean"):
+                        b.copy_(torch.randn_like(b))
+                    elif k.endswith("running_var"):
+                        b.copy_(torch.rand_like(b) + 0.5)
     x = torch.randn(shape, generator=torch.Generator().manual_seed(INPUT_SEED))
     if dtype == torch.float64:
         for t in list(model.parameters()) + list(model.buffers()):

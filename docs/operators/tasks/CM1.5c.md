@@ -52,7 +52,8 @@ with `fno_skip=None` passes within D3 in f32 as well.
   enter the eval forward) and its reload check ignores only that key.
 - `tests/parity_fno.rs`: both within D3 (1e-5) through `FNO` in f32; the map gains the batch
   norm's `γ`, `β`, running mean and variance.
-- A control: the batch norm's running mean and variance swapped at load fails D3.
+- A control: the first two batch norms' running variances swapped at load fail D3 (one
+  norm's mean and variance swapped give a negative variance, a NaN, not a failed bound).
 - Unit tests: `NormKind::Batch` builds torch's initial values and, on a plain device, uses
   the running statistics (a closed form per channel); `SkipKind::Disabled` builds nothing;
   an `FNO` with `fno_skip: Some(Disabled)` has no `w` and no skip parameters.

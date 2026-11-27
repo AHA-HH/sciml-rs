@@ -40,7 +40,8 @@ pub struct BlockMlpConfig {
     /// (2.0.0's `channel_mlp_expansion`).
     #[config(default = 0.5)]
     pub expansion: f64,
-    /// The skip added to the MLP's output (2.0.0's `channel_mlp_skip`); `None` is none.
+    /// The skip added to the MLP's output (2.0.0's `channel_mlp_skip`); `None` is none, and so
+    /// is `Some(SkipKind::Disabled)`.
     #[config(default = "Some(SkipKind::SoftGating)")]
     pub skip: Option<SkipKind>,
 }
@@ -557,10 +558,13 @@ impl<const R: usize> FNO<R> {
     /// Layer `idx`'s FNO skip: the configured one, the original `w`, or none when
     /// [`SkipKind::Disabled`].
     fn fno_skip(&self, idx: usize, x: Tensor<R>) -> Option<Tensor<R>> {
-        match (self.fno_skips.get(idx), self.w.get(idx)) {
-            (Some(skip), _) => Some(skip.forward(x)),
-            (None, Some(w)) => Some(conv1x1(w, x)),
-            (None, None) => None,
+        // `init` builds one list or neither; indexing keeps a length mismatch a panic.
+        if !self.fno_skips.is_empty() {
+            Some(self.fno_skips[idx].forward(x))
+        } else if !self.w.is_empty() {
+            Some(conv1x1(&self.w[idx], x))
+        } else {
+            None
         }
     }
 

@@ -12,7 +12,7 @@ mod parity_common;
 
 use burn::prelude::*;
 use fno::*;
-use parity_common::{D3_F32, Precision::F32, rel_max_error};
+use parity_common::{D3_F32, MapEntry, Precision::F32, rel_max_error};
 use sciml_rs::neural_operators::{
     layers::{norm::NormKind, skip::SkipKind},
     models::fno::{Activation, BlockMlpConfig, PositionalEmbedding},
@@ -175,16 +175,7 @@ fn fno1d_pre_no_skip_matches_2_0_0() {
 /// variances loaded into each other's places break the f32 bound.
 #[test]
 fn swapped_batch_statistics_fail_parity() {
-    let swap = |map: &mut Vec<_>| {
-        for entry in map.iter_mut() {
-            let (_, to, _): &mut (&str, &str, _) = entry;
-            *to = match *to {
-                "norms.0.Batch.running_var" => "norms.1.Batch.running_var",
-                "norms.1.Batch.running_var" => "norms.0.Batch.running_var",
-                other => other,
-            };
-        }
-    };
+    let swap = swap_targets("norms.0.Batch.running_var", "norms.1.Batch.running_var");
     let (y, mut fixture) = output::<4>(&FNO2D_BATCH_NORM, F32, swap, &Device::default());
     let err = rel_max_error(y, &fixture.output());
     assert!(err > D3_F32, "swapped statistics went unnoticed: {err:.3e}");
@@ -194,19 +185,24 @@ fn swapped_batch_statistics_fail_parity() {
 /// (the same shape) break the f32 bound.
 #[test]
 fn swapped_corners_fail_parity() {
-    let swap = |map: &mut Vec<_>| {
-        for entry in map.iter_mut() {
-            let (_, to, _): &mut (&str, &str, _) = entry;
-            *to = match *to {
-                "conv.0.weights_re.0" => "conv.0.weights_re.1",
-                "conv.0.weights_re.1" => "conv.0.weights_re.0",
-                "conv.0.weights_im.0" => "conv.0.weights_im.1",
-                "conv.0.weights_im.1" => "conv.0.weights_im.0",
-                other => other,
-            };
-        }
+    let swap = |map: &mut Vec<MapEntry>| {
+        swap_targets("conv.0.weights_re.0", "conv.0.weights_re.1")(map);
+        swap_targets("conv.0.weights_im.0", "conv.0.weights_im.1")(map);
     };
     let (y, mut fixture) = output::<4>(&FNO2D, F32, swap, &Device::default());
     let err = rel_max_error(y, &fixture.output());
     assert!(err > D3_F32, "swapped corners went unnoticed: {err:.3e}");
+}
+
+/// A map edit loading the parameters bound for `a` and `b` into each other's places.
+fn swap_targets(a: &'static str, b: &'static str) -> impl Fn(&mut Vec<MapEntry>) {
+    move |map| {
+        for (_, to, _) in map.iter_mut() {
+            *to = match *to {
+                t if t == a => b,
+                t if t == b => a,
+                other => other,
+            };
+        }
+    }
 }

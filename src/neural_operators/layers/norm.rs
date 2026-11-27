@@ -119,6 +119,11 @@ pub enum Norm {
     /// Burn's `BatchNorm`: the batch statistics on an autodiff device (training, updating
     /// the running ones), the running statistics otherwise (torch's eval mode). Burn updates
     /// the running variance with the biased batch variance, torch with the unbiased one.
+    /// Parity is shown in eval only (library CM1.5c). The trainers do not account for it yet:
+    /// Gauss–Newton's JVP (no autodiff: running statistics) and VJP (autodiff: batch
+    /// statistics) would differentiate different maps, L-BFGS's and Gauss–Newton's repeated
+    /// evaluations update the running statistics each time, and the data-parallel trainer
+    /// does not reduce them across devices.
     Batch(BatchNorm),
 }
 
