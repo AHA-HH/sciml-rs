@@ -14,7 +14,9 @@ tensorly's complex sign rule, matching 2.0.0 on complex fixtures within D3.
 ## Acceptance (roadmap *Done when*, verbatim, and the proposal's matching text)
 
 - "against complex fixtures": the ranks, the factors, `project`, `project_back` and the
-  second `project` against 2.0.0 on `cfloat` gradients within D3 (≤ 1e-5, f32, CPU).
+  second `project` against 2.0.0 on `cfloat` gradients within D3 (≤ 1e-5, f32, CPU),
+  where 2.0.0's factors are well defined; up to phase (subspaces, `back`, `low2` taken back)
+  where they are not (below, "Found while implementing").
 - Proposal §1.4, constraint 1: every existing FNO output bit for bit identical. No FNO
   code path is touched (`optim/galore.rs` only).
 
@@ -38,10 +40,24 @@ tensorly's complex sign rule, matching 2.0.0 on complex fixtures within D3.
   column j so that v_j[0] = (Aᴴ u_j)₀ / σ_j (m ≥ n) or u_j[0] (m < n) is real, then apply
   the rule. Checked in torch against `torch.linalg.svd` + `svd_flip` on wide, tall, square,
   QR-path and LQ-path shapes: equal to 1e-7 (complex64) and 1e-15 (complex128).
-- The complex SVD: Burn has none. The real embedding E = [[B, −C], [C, B]] of M = B + iC
-  has each singular value of M twice; Burn's `svd` sorts them, and column 2j of E's U,
-  [x; y], gives a unit left singular vector x + iy of M (phase arbitrary, then fixed as
-  above). Degenerate singular values of M leave the factors non-unique, in tensorly too.
+- The complex SVD: Burn has none. Planned as Burn's `svd` of the real embedding
+  [[B, −C], [C, B]] (each singular value twice); it passed in f32 but Burn's shifted QR
+  never deflates the exactly paired values in f64 (3,000 sweeps tried). Replaced by a host
+  one-sided Jacobi (Hestenes) on the rows, in f64, results cast to the tensor's precision:
+  robust to repeated values, no new dependency. Degenerate singular values leave the
+  factors non-unique, in tensorly too.
+
+## Found while implementing
+
+- 2.0.0's complex factors are ill-conditioned where a sweep's unfolding is tall
+  (Iₖ > ∏_{j≠k} rⱼ): gesdd's phase reference there is a column of the other factors'
+  product, so every sweep turns the phases again (O(1) changes from sweep to sweep, never
+  settling), and a 1e-7 change of the gradient changes the factors by O(1), in complex128
+  too. Where every unfolding is wide the reference is u₀ⱼ and they converge (changes
+  ~1e-6). The `matrix` case (12 × 3, 7 × 3 sweeps) is therefore compared up to phase: the
+  subspaces Fₖ Fₖᴴ, `back`, and `low2` taken back to the full space; `tensor4` and
+  `fraction` (all wide) entry for entry. The spectral weights' usual ranks give wide
+  unfoldings; a later wiring task may want to warn on tall ones.
 
 ## Changes
 
@@ -67,10 +83,11 @@ tensorly's complex sign rule, matching 2.0.0 on complex fixtures within D3.
   `fraction` 8 × 6 × 5, 0.5), each structured (a complex Tucker tensor plus noise): ranks,
   factors, `project(grad, 0)`, `project_back`, `project(grad2, gap)`. f32 against 2.0.0
   (1e-5); f64 against tensorly with 2.0.0's transforms (1e-12).
-- Control: factors with the phase left as the embedding's SVD gives it (no LAPACK rotation)
-  fail parity (shows the rotation is what matches); another gradient's factors fail.
-- Unit: the complex SVD (U Σ Vᴴ reconstructs M; Uᴴ U = I); the phase rule on a hand-built
-  matrix (wide and tall); orthonormal complex factors; full ranks make
+- Control: another gradient's complex factors fail parity. (A planned control, a gradient
+  rotated by e^{iθ}, turned out meaningless on the tall case; the f64 match to 2e-14 shows
+  the phase rule exactly.)
+- Unit: the complex SVD (Uᴴ U = I, U Uᴴ M = M, also with repeated singular values); the
+  phase rule's invariant phase(u_max) = 2 phase(w) (wide and tall); orthonormal complex factors; full ranks make
   `project_back ∘ project` the identity; an exact complex Tucker tensor is reproduced; a
   complex tensor with zero imaginary part gives the real path's factors.
 
@@ -92,8 +109,8 @@ None.
 - The reproduction rests on `gesdd`'s structural phase; a different torch LAPACK
   (e.g. MKL on Linux) follows the same bidiagonalisation, and the f32 fixture records the
   platform in its sidecar.
-- The embedding doubles each SVD's size (4× the entries); the spectral weights' unfoldings
-  are small enough for the host SVD, as for CM3.6a.
+- The Jacobi costs O(m² n) per sweep for an m × n unfolding (Iₖ rows); the spectral
+  weights' unfoldings have few rows.
 
 ## Pending runs
 
@@ -101,4 +118,6 @@ None.
 
 ## Open questions
 
-None yet.
+1. Accept parity up to phase where 2.0.0's complex factors are ill-conditioned (tall
+   unfoldings), as above? Entry-for-entry parity there is not reproducible, even by 2.0.0
+   against itself under a 1e-7 change.
