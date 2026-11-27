@@ -88,9 +88,11 @@ source ~/sciml-gpu.sh
 export CARGO_TARGET_DIR=~/sciml-rs-target/cl4-2   # one build directory per task
 F="--release --no-default-features --features cuda"
 
-# 1. CL0.2's cases on cuda, before any 3D cuda run; stop here unless it prints PARITY OK
+# 1. CL0.2's cases on cuda, before any 3D cuda run; stop here unless it prints PARITY OK.
+#    `flex` too: the `*_flex` twins and the replays compare against Flex, whose rfft
+#    needs `burn/flex` (without it 4 of 9 fail: "Backend not supported for custom op rfft")
 set -o pipefail
-cargo test $F --test gpu_parity 2>&1 | tee ~/sciml-rs/logs/cl4-2-parity.log && echo PARITY OK
+cargo test $F,flex --test gpu_parity 2>&1 | tee ~/sciml-rs/logs/cl4-2-parity.log && echo PARITY OK
 
 # 2. Build once, then one queue per GPU (balanced: ~12.1 h and ~19.4 h).
 cargo build $F --example train_poisson3d --example predict_poisson3d

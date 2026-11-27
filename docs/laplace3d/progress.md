@@ -401,3 +401,18 @@ template:
   the 2D `metrics::poisson` tests unedited but for their reference function, the whole
   2D suite; `train_poisson`, `predict_poisson` and the 2D record not edited.
 - Follow-ups: CL4.2's first commit (F3, roadmap).
+
+## 2026-11-27: CL4.2 3D baseline, s = 32 pass (runs; the task stays open)
+- Done: the s = 32 pass at the author's go (s = 32 only, p = 0): n = 65, seeds 42–44, 500
+  epochs, one run per GPU on the VM at `69c05f6`. Error 4 mean 9.68e-3 [9.45e-3–1.01e-2],
+  error 2 (transfer floor) 1.99e-4, boundary ratio 0.012–0.013 (no hard-constraint
+  ablation); ~5,840 s per run. Results `docs/laplace3d/results/cl4-2.md`, with 2D Phase 5
+  at s = 32 (1.33e-2, n = 129) as context.
+- Tests: none new.
+- Checks: `gpu_parity` 9/9 on cuda with `flex`; `predict_poisson3d` cross-check of error 3
+  against `metrics.csv` (≤ 1.3e-7) on each run; run directories distinct.
+- Decisions: the author chose s = 32 first and p = 0 (plan Q1, Q2, 2026-11-27); s = 64 open.
+- Review: none (results and a plan fix only).
+- 2D: not touched.
+- Follow-ups: the plan's parity command lacked `flex` (4 of 9 failed: no Flex rfft without
+  `burn/flex`); fixed in the plan and the roadmap line. s = 64 on the author's decision.
