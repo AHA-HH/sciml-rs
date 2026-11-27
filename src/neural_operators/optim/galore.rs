@@ -27,14 +27,17 @@
 
 use burn::prelude::*;
 
+use super::SVD_SWEEPS;
+
 #[cfg(test)]
 mod tests;
 
-/// The QR sweeps allowed to Burn's `svd` per singular value (as [`soap`](super::soap)).
-const SVD_SWEEPS: usize = 30;
 /// tensorly's `tucker` defaults, which 2.0.0 does not override.
 const HOOI_MAX_SWEEPS: usize = 100;
 const HOOI_TOL: f64 = 1e-4;
+/// Bisection steps for the fraction rule's root: enough to reach f64 resolution on its
+/// bracket, which is at most [0, max(fraction, 1)].
+const ROOT_BISECTIONS: usize = 200;
 
 /// The Tucker rank: 2.0.0's `rank` argument, validated as tensorly's `validate_tucker_rank`.
 #[derive(Clone, Debug, PartialEq)]
@@ -53,15 +56,11 @@ impl GaLoreRank {
     /// The rank of each mode of a tensor of shape `shape`.
     ///
     /// # Panics
-    /// If a fraction is not positive and finite, or a `PerMode` list's length is not the
-    /// tensor's rank.
-    pub fn ranks(&self, shape: &[usize]) -> Vec<usize> {
+    /// If a fraction is not positive and finite, or a `PerMode` list's length is not `D`.
+    pub fn ranks<const D: usize>(&self, shape: [usize; D]) -> [usize; D] {
         match self {
-            GaLoreRank::Uniform(r) => vec![*r; shape.len()],
-            GaLoreRank::PerMode(r) => {
-                assert_eq!(r.len(), shape.len(), "one rank per mode");
-                r.clone()
-            }
+            GaLoreRank::Uniform(r) => [*r; D],
+            GaLoreRank::PerMode(r) => r.as_slice().try_into().expect("one rank per mode"),
             GaLoreRank::Fraction(fraction) => {
                 assert!(
                     fraction.is_finite() && *fraction > 0.0,
@@ -69,11 +68,11 @@ impl GaLoreRank {
                 );
                 let n: f64 = shape.iter().map(|&s| s as f64).product();
                 let squares: f64 = shape.iter().map(|&s| (s * s) as f64).sum();
-                let d = shape.len() as i32;
+                let d = D as i32;
                 let excess = |c: f64| n * c.powi(d) + squares * c - fraction * n;
                 // tensorly's brentq bracket; excess(0) < 0 ≤ excess(hi), excess increasing.
                 let (mut lo, mut hi) = (0.0, fraction.max(1.0));
-                for _ in 0..200 {
+                for _ in 0..ROOT_BISECTIONS {
                     let mid = 0.5 * (lo + hi);
                     if excess(mid) < 0.0 {
                         lo = mid;
@@ -82,10 +81,7 @@ impl GaLoreRank {
                     }
                 }
                 let c = 0.5 * (lo + hi);
-                shape
-                    .iter()
-                    .map(|&s| ((s as f64 * c).round_ties_even() as usize).max(1))
-                    .collect()
+                shape.map(|s| ((s as f64 * c).round_ties_even() as usize).max(1))
             }
         }
     }
@@ -126,7 +122,7 @@ impl TensorGaLoreConfig {
 #[derive(Clone, Debug)]
 pub struct TensorGaLoreProjector<const D: usize> {
     config: TensorGaLoreConfig,
-    factors: Option<Vec<Tensor<2>>>,
+    factors: Option<[Tensor<2>; D]>,
 }
 
 impl<const D: usize> TensorGaLoreProjector<D> {
@@ -144,10 +140,10 @@ impl<const D: usize> TensorGaLoreProjector<D> {
                 "the first project needs iter ({iter}) a multiple of update_proj_gap ({})",
                 self.config.update_proj_gap
             );
-            let ranks = self.config.rank.ranks(&grad.dims());
-            tucker_factors(grad.clone(), &ranks)
+            let ranks = self.config.rank.ranks(grad.dims());
+            tucker_factors(grad.clone(), ranks)
         });
-        multi_mode_dot(grad, factors, true)
+        to_low_rank(grad, factors)
     }
 
     /// `low` (`[r_0, .., r_{D−1}]`) back in the full space, `[I_0, .., I_{D−1}]`:
@@ -157,12 +153,12 @@ impl<const D: usize> TensorGaLoreProjector<D> {
     /// Before the first [`project`](Self::project), or if `low`'s shape is not the ranks.
     pub fn project_back(&self, low: Tensor<D>) -> Tensor<D> {
         let factors = self.factors.as_ref().expect("project_back before project");
-        multi_mode_dot(low, factors, false).mul_scalar(self.config.scale)
+        from_low_rank(low, factors).mul_scalar(self.config.scale)
     }
 
     /// The factors Fₖ, `[I_k, r_k]` each, once [`project`](Self::project) has made them.
-    pub fn factors(&self) -> Option<&[Tensor<2>]> {
-        self.factors.as_deref()
+    pub fn factors(&self) -> Option<&[Tensor<2>; D]> {
+        self.factors.as_ref()
     }
 }
 
@@ -170,15 +166,14 @@ impl<const D: usize> TensorGaLoreProjector<D> {
 /// orthogonal iteration with SVD initialisation (see the module documentation): one
 /// `[I_k, r_k]` matrix with orthonormal columns per mode.
 ///
+/// An all-zero `x` makes the error NaN, so every sweep runs (as tensorly).
+///
 /// # Panics
-/// If `ranks` does not have one entry per mode, a rank is 0 or above min(Iₖ, ∏_{j≠k} Iⱼ)
-/// (tensorly would fall back to a full-matrix SVD there), `x` requires gradients, or an SVD
-/// does not converge.
-pub fn tucker_factors<const D: usize>(x: Tensor<D>, ranks: &[usize]) -> Vec<Tensor<2>> {
-    assert_eq!(ranks.len(), D, "one rank per mode");
-    let mut factors: Vec<Tensor<2>> = (0..D)
-        .map(|k| leading_vectors(unfold(x.clone(), k), ranks[k]))
-        .collect();
+/// If a rank is 0 or above min(Iₖ, ∏_{j≠k} Iⱼ) (tensorly would fall back to a full-matrix
+/// SVD there), `x` requires gradients, or an SVD does not converge.
+pub fn tucker_factors<const D: usize>(x: Tensor<D>, ranks: [usize; D]) -> [Tensor<2>; D] {
+    let mut factors: [Tensor<2>; D] =
+        std::array::from_fn(|k| leading_vectors(unfold(x.clone(), k), ranks[k]));
     let norm_sq = sum_sq(x.clone());
     let mut previous = None;
     for sweep in 0..HOOI_MAX_SWEEPS {
@@ -186,7 +181,7 @@ pub fn tucker_factors<const D: usize>(x: Tensor<D>, ranks: &[usize]) -> Vec<Tens
             let partial = mode_products(x.clone(), &factors, Some(k), true);
             factors[k] = leading_vectors(unfold(partial, k), ranks[k]);
         }
-        let core = multi_mode_dot(x.clone(), &factors, true);
+        let core = to_low_rank(x.clone(), &factors);
         let error = (norm_sq - sum_sq(core)).abs().sqrt() / norm_sq.sqrt();
         if sweep > 1 && previous.is_some_and(|p: f64| (p - error).abs() < HOOI_TOL) {
             break;
@@ -196,36 +191,37 @@ pub fn tucker_factors<const D: usize>(x: Tensor<D>, ranks: &[usize]) -> Vec<Tens
     factors
 }
 
-/// `x` multiplied along every mode k by its factor: by Fₖᵀ (`transpose`, `[I_k, r_k]` to
-/// `r_k`) or by Fₖ (`r_k` to `I_k`); tensorly's `multi_mode_dot`.
-///
-/// # Panics
-/// If `factors` does not have one matrix per mode or a matrix does not fit its mode.
-pub fn multi_mode_dot<const D: usize>(
-    x: Tensor<D>,
-    factors: &[Tensor<2>],
-    transpose: bool,
-) -> Tensor<D> {
-    mode_products(x, factors, None, transpose)
+/// `x` (`[I_0, .., I_{D−1}]`) multiplied along every mode k by Fₖᵀ, giving
+/// `[r_0, .., r_{D−1}]`: tensorly's `multi_mode_dot(x, factors, transpose=True)`.
+fn to_low_rank<const D: usize>(x: Tensor<D>, factors: &[Tensor<2>; D]) -> Tensor<D> {
+    mode_products(x, factors, None, true)
 }
 
-/// [`multi_mode_dot`] leaving mode `skip` as it is. Each pass contracts the leading
-/// dimension and moves the result last, so D passes restore the order.
+/// `y` (`[r_0, .., r_{D−1}]`) multiplied along every mode k by Fₖ, giving
+/// `[I_0, .., I_{D−1}]`: tensorly's `multi_mode_dot(y, factors)`.
+fn from_low_rank<const D: usize>(y: Tensor<D>, factors: &[Tensor<2>; D]) -> Tensor<D> {
+    mode_products(y, factors, None, false)
+}
+
+/// `x` multiplied along every mode but `skip` by Fₖᵀ (`transpose`) or Fₖ. Each pass
+/// contracts the leading dimension and moves the result last, so D passes restore the order.
 fn mode_products<const D: usize>(
     mut x: Tensor<D>,
-    factors: &[Tensor<2>],
+    factors: &[Tensor<2>; D],
     skip: Option<usize>,
     transpose: bool,
 ) -> Tensor<D> {
-    assert_eq!(factors.len(), D, "one factor per mode");
     for (k, f) in factors.iter().enumerate() {
         let mut dims = x.dims();
-        let rows: Tensor<2> = x.reshape([dims[0] as i32, -1]).transpose();
-        let rows = match () {
-            _ if skip == Some(k) => rows,
-            _ if transpose => rows.matmul(f.clone()),
-            _ => rows.matmul(f.clone().transpose()),
-        };
+        let mut rows: Tensor<2> = x.reshape([dims[0] as i32, -1]).transpose();
+        if skip != Some(k) {
+            let f = if transpose {
+                f.clone()
+            } else {
+                f.clone().transpose()
+            };
+            rows = rows.matmul(f);
+        }
         dims[0] = rows.dims()[1];
         dims.rotate_left(1);
         x = rows.reshape(dims);

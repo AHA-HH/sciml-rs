@@ -36,7 +36,11 @@ pub fn run<const D: usize>(fixture: &str, case: &str, device: &Device) {
         .iter()
         .map(|&r| r as usize)
         .collect();
-    assert_eq!(config.rank.ranks(&grad.dims()), ranks, "{case}: ranks");
+    assert_eq!(
+        config.rank.ranks(grad.dims()).as_slice(),
+        ranks,
+        "{case}: ranks"
+    );
 
     let mut projector = config.init::<D>();
     let low = projector.project(grad, 0);

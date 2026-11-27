@@ -29,8 +29,8 @@ fn max_abs<const D: usize>(x: Tensor<D>) -> f64 {
 
 #[test]
 fn uniform_and_per_mode_ranks_are_as_given() {
-    assert_eq!(GaLoreRank::Uniform(2).ranks(&[4, 5, 6]), vec![2, 2, 2]);
-    assert_eq!(GaLoreRank::PerMode(vec![1, 3]).ranks(&[4, 5]), vec![1, 3]);
+    assert_eq!(GaLoreRank::Uniform(2).ranks([4, 5, 6]), [2, 2, 2]);
+    assert_eq!(GaLoreRank::PerMode(vec![1, 3]).ranks([4, 5]), [1, 3]);
 }
 
 /// tensorly's equation solved by hand. The fixtures' (8, 6, 5) case, fraction 0.5, is checked
@@ -38,26 +38,26 @@ fn uniform_and_per_mode_ranks_are_as_given() {
 #[test]
 fn fraction_ranks_solve_tensorly_equation() {
     // Matrix 10 × 10, fraction 1: 100 c² + 200 c = 100, c = √2 − 1, ranks round(4.14) = 4.
-    assert_eq!(GaLoreRank::Fraction(1.0).ranks(&[10, 10]), vec![4, 4]);
+    assert_eq!(GaLoreRank::Fraction(1.0).ranks([10, 10]), [4, 4]);
     // A tiny fraction keeps rank 1.
-    assert_eq!(GaLoreRank::Fraction(1e-6).ranks(&[10, 10]), vec![1, 1]);
+    assert_eq!(GaLoreRank::Fraction(1e-6).ranks([10, 10]), [1, 1]);
 }
 
 #[test]
 #[should_panic(expected = "must be positive")]
 fn fraction_must_be_positive() {
-    GaLoreRank::Fraction(0.0).ranks(&[3, 3]);
+    GaLoreRank::Fraction(0.0).ranks([3, 3]);
 }
 
 #[test]
 #[should_panic(expected = "one rank per mode")]
 fn per_mode_needs_one_rank_per_mode() {
-    GaLoreRank::PerMode(vec![1]).ranks(&[3, 3]);
+    GaLoreRank::PerMode(vec![1]).ranks([3, 3]);
 }
 
 #[test]
 fn factors_are_orthonormal_with_positive_largest_entries() {
-    let factors = tucker_factors(draw([6, 5, 4], 1), &[3, 2, 2]);
+    let factors = tucker_factors(draw([6, 5, 4], 1), [3, 2, 2]);
     for (f, (n, r)) in factors.iter().zip([(6, 3), (5, 2), (4, 2)]) {
         assert_eq!(f.dims(), [n, r]);
         let gram = f.clone().transpose().matmul(f.clone());
@@ -90,7 +90,7 @@ fn full_rank_round_trip_is_scale_times_identity() {
 fn exact_tucker_tensor_is_reproduced() {
     let core = draw([2, 3, 2], 3);
     let a = [draw([5, 2], 4), draw([6, 3], 5), draw([4, 2], 6)];
-    let x = multi_mode_dot(core, &a, false);
+    let x = from_low_rank(core, &a);
     let mut p = TensorGaLoreConfig::new(GaLoreRank::PerMode(vec![2, 3, 2])).init::<3>();
     let low = p.project(x.clone(), 0);
     assert_eq!(low.dims(), [2, 3, 2]);
@@ -131,5 +131,5 @@ fn project_back_needs_factors() {
 #[test]
 #[should_panic(expected = "rank 4 outside")]
 fn rank_above_its_dimension_panics() {
-    tucker_factors(draw([3, 5], 11), &[4, 2]);
+    tucker_factors(draw([3, 5], 11), [4, 2]);
 }

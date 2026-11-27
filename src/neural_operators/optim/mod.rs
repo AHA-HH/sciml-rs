@@ -11,3 +11,7 @@
 pub mod galore;
 pub mod gauss_newton;
 pub mod soap;
+
+/// The QR sweeps allowed to Burn's host `svd` per singular value ([`galore`], [`soap`]; as
+/// in CO3.1's spike).
+pub(crate) const SVD_SWEEPS: usize = 30;
