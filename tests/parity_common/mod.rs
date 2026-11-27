@@ -83,9 +83,28 @@ impl Precision {
     }
 }
 
-/// A fixture parameter converted for one load (D5): its 2.0.0 name (without `param.`) and
-/// the parts that replace it, each a name the map can take and its array.
-pub type Conversion = (String, Vec<(String, ArrayD<f64>)>);
+/// A fixture parameter converted for one load (D5).
+pub struct Conversion {
+    /// Its 2.0.0 name, without `param.`.
+    pub from: String,
+    /// The parts that replace it, each a name the map can take (no other parameter's) and
+    /// its array.
+    pub parts: Vec<(String, ArrayD<f64>)>,
+}
+
+impl Conversion {
+    /// `from` replaced by one array under its own name (a layout change, no split).
+    #[allow(
+        dead_code,
+        reason = "every parity binary includes this harness; only layouts converted at load use it"
+    )]
+    pub fn whole(from: &str, array: ArrayD<f64>) -> Self {
+        Self {
+            from: from.to_owned(),
+            parts: vec![(from.to_owned(), array)],
+        }
+    }
+}
 
 /// An open fixture.
 pub struct Fixture {
@@ -262,7 +281,7 @@ pub fn take(a: ArrayD<f64>, take: Take) -> ArrayD<f64> {
 /// conversion) is taken by the map (a complex one by its `Re` and `Im` both, any other
 /// once, `Whole` or `Transposed`), every map entry names such a parameter and is applied
 /// without error (shapes included), and no module parameter is left out; or if a
-/// conversion names a parameter the fixture lacks.
+/// conversion names a parameter the fixture lacks or gives a part another parameter's name.
 #[allow(
     dead_code,
     reason = "every parity binary includes this harness; some load only part of a module"
@@ -292,13 +311,17 @@ pub fn load_into_part<M: ModuleSnapshot>(
     let name = fixture.name.clone();
     let mut params = fixture.params.clone();
     let mut arrays: BTreeMap<&str, &ArrayD<f64>> = BTreeMap::new();
-    for (from, parts) in converted {
+    for Conversion { from, parts } in converted {
         let i = params
             .iter()
             .position(|p| p == from)
             .unwrap_or_else(|| panic!("fixture {name}: no parameter `{from}` to convert"));
         params.remove(i);
         for (part, a) in parts {
+            assert!(
+                !params.contains(part),
+                "fixture {name}: conversion part `{part}` shadows a parameter"
+            );
             arrays.insert(part, a);
             params.push(part.clone());
         }

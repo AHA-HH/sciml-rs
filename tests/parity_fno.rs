@@ -361,12 +361,12 @@ fn swap_targets(map: &mut [MapEntry], a: &'static str, b: &'static str) {
 #[test]
 fn perturbed_weight_fails_parity() {
     let mut loading = load::<3>(&FNO1D, F32, &Device::default());
-    let (_, parts) = loading
+    let bias = loading
         .converted
         .iter_mut()
-        .find(|(from, _)| from == "fno_blocks.convs.0.bias")
+        .find(|c| c.from == "fno_blocks.convs.0.bias")
         .expect("layer 0's bias is converted");
-    parts[0].1 += 1e-3;
+    bias.parts[0].1 += 1e-3;
     let (y, mut fixture) = loading.run();
     let err = rel_max_error(y, &fixture.output());
     assert!(err > D3_F32, "a 1e-3 shift went unnoticed: {err:.3e}");
@@ -397,7 +397,8 @@ fn load_rejects_half_a_complex_parameter() {
 }
 
 /// A map entry still naming the 2.0.0 parameter a conversion replaced is refused by name,
-/// not read from the file behind the conversion's back.
+/// not read from the file behind the conversion's back (the target, layer 0's bias, is any
+/// path the module has).
 #[test]
 #[should_panic(expected = "map names that are not fixture parameters")]
 fn load_rejects_a_converted_away_parameter() {
@@ -414,7 +415,19 @@ fn load_rejects_a_converted_away_parameter() {
 #[should_panic(expected = "no parameter `missing` to convert")]
 fn load_rejects_a_conversion_of_a_missing_parameter() {
     let mut loading = load::<3>(&FNO1D, F32, &Device::default());
-    loading.converted[0].0 = "missing".into();
+    loading.converted[0].from = "missing".into();
+    loading.run();
+}
+
+/// A conversion part may not take the name of a parameter still in the fixture: the
+/// converted array would silently win over it.
+#[test]
+#[should_panic(expected = "shadows a parameter")]
+fn load_rejects_a_conversion_part_shadowing_a_parameter() {
+    let mut loading = load::<3>(&FNO1D, F32, &Device::default());
+    let bias = &mut loading.converted[1];
+    assert_eq!(bias.from, "fno_blocks.convs.0.bias");
+    bias.parts[0].0 = "fno_blocks.convs.1.bias".into();
     loading.run();
 }
 

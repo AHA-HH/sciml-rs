@@ -1,6 +1,7 @@
 //! 2.0.0's legacy `SpectralConv` (`layers/legacy_spectral_convolution.py`) as the crate's
-//! `SpectralConv<R>` plus a bias (`biased_conv.rs`), for library CM1.1's `legacy_spectral_conv{1,2,3}d_{f32,f64}`
-//! fixtures, and the hand-written maps to it. Test code only.
+//! `SpectralConv<R>` plus a bias (`biased_conv.rs`), for library CM1.1's
+//! `legacy_spectral_conv{1,2,3}d_{f32,f64}` fixtures, and the hand-written maps to it. Test
+//! code only.
 //!
 //! The legacy layer keeps corner weights `(in, out, *[m // 2 for m in n_modes])`, stored by
 //! tltorch as real tensors with a trailing (re, im) axis, uses `fft_norm="backward"` as
@@ -10,12 +11,11 @@
 //! `weight.1` (low axis 0, high axis 1) is corner 2 here and `weight.2` corner 1.
 
 use burn::prelude::*;
-use ndarray::ArrayD;
 use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
 
 use crate::{
-    biased_conv::BiasedConv,
-    parity_common::{Fixture, MapEntry, Precision, Take, assert_parity, load_into},
+    biased_conv::{BiasedConv, run},
+    parity_common::{Fixture, MapEntry, Precision, Take, check_d3},
 };
 
 /// One corner: 2.0.0's `weight.<i>.tensor` to the crate's corner `c`.
@@ -93,20 +93,23 @@ pub const CASE_3D: Case = Case {
     map: map_3d,
 };
 
-/// `case`'s fixture in `precision` loaded through `map`: the layer's output on the fixture's
-/// input, and the reference output.
+/// `case`'s fixture in `precision` run through `map`: the layer's output on the
+/// fixture's input, and the open fixture.
 pub fn output<const R: usize>(
     case: &Case,
     precision: Precision,
     map: &[MapEntry],
     device: &Device,
-) -> (Tensor<R>, ArrayD<f64>) {
-    let mut fixture = Fixture::open_as(case.stem, precision);
+) -> (Tensor<R>, Fixture) {
+    let fixture = Fixture::open_as(case.stem, precision);
     let conv = SpectralConv::new(device, case.in_channels, case.out_channels, case.modes);
-    let mut layer = BiasedConv::<R>::new(conv, case.out_channels, device);
-    load_into(&mut layer, &mut fixture, map, &[]);
-    let out = layer.forward(fixture.input(device));
-    (out, fixture.output())
+    run(
+        fixture,
+        BiasedConv::new(conv, case.out_channels, device),
+        map,
+        &[],
+        device,
+    )
 }
 
 /// Asserts `case` in `precision`, through its own map, is within D3; prints and returns the
@@ -115,9 +118,6 @@ pub fn output<const R: usize>(
 /// # Panics
 /// If the error exceeds D3's bound for `precision`.
 pub fn check<const R: usize>(case: &Case, precision: Precision, device: &Device) -> f64 {
-    let (out, reference) = output::<R>(case, precision, &(case.map)(), device);
-    let what = format!("{}_{}", case.stem, precision.suffix());
-    let err = assert_parity(out, &reference, precision.d3(), &what);
-    println!("{what}: relative max error {err:.3e}");
-    err
+    let (out, mut fixture) = output::<R>(case, precision, &(case.map)(), device);
+    check_d3(out, &mut fixture)
 }

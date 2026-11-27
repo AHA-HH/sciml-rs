@@ -5,6 +5,8 @@
 use burn::{module::Param, prelude::*};
 use sciml_rs::neural_operators::layers::spectral_convolution::SpectralConv;
 
+use crate::parity_common::{Conversion, Fixture, MapEntry, load_into};
+
 /// A spectral convolution and a bias.
 #[derive(Module, Debug)]
 pub struct BiasedConv<const R: usize> {
@@ -28,4 +30,20 @@ impl<const R: usize> BiasedConv<R> {
     pub fn forward(&self, x: Tensor<R>) -> Tensor<R> {
         self.conv.forward(x) + self.bias.val()
     }
+}
+
+/// Loads `fixture` into `layer` through `map` and `converted`, and runs it on the fixture's
+/// input: the output and the fixture.
+///
+/// # Panics
+/// If the load is incomplete (`load_into`).
+pub fn run<const R: usize>(
+    mut fixture: Fixture,
+    mut layer: BiasedConv<R>,
+    map: &[MapEntry],
+    converted: &[Conversion],
+    device: &Device,
+) -> (Tensor<R>, Fixture) {
+    load_into(&mut layer, &mut fixture, map, converted);
+    (layer.forward(fixture.input(device)), fixture)
 }

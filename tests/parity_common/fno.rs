@@ -98,11 +98,11 @@ fn convert(fixture: &mut Fixture, config: &FNOConfig, d: usize) -> Vec<Conversio
             .enumerate()
             .map(|(c, a)| (format!("fno_blocks.convs.{l}.weight.corner{c}"), a))
             .collect();
-        converted.push((name, parts));
+        converted.push(Conversion { from: name, parts });
         let name = format!("fno_blocks.convs.{l}.bias");
         let bias = fixture.array(&format!("param.{name}"));
         let bias: ArrayD<f64> = bias.flatten().to_owned().into_dyn();
-        converted.push((name.clone(), vec![(name, bias)]));
+        converted.push(Conversion::whole(&name, bias));
     }
     converted
 }

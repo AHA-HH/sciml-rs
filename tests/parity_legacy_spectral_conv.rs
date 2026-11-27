@@ -37,8 +37,8 @@ fn legacy_3d_corner_order_matters() {
         map[k].1 = map[k + 2].1;
         map[k + 2].1 = to;
     }
-    let (out, reference) = output::<5>(&CASE_3D, F32, &map, &Device::default());
-    let err = rel_max_error(out, &reference);
+    let (out, mut fixture) = output::<5>(&CASE_3D, F32, &map, &Device::default());
+    let err = rel_max_error(out, &fixture.output());
     println!("legacy_spectral_conv3d_f32, corners unpermuted: relative max error {err:.3e}");
     assert!(
         err > F32.d3(),

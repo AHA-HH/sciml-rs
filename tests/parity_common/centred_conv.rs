@@ -1,6 +1,6 @@
 //! 2.0.0's centred `SpectralConv` (`layers/spectral_convolution.py`) as the crate's
-//! `SpectralConv<R>` plus a bias (`biased_conv.rs`), for library CM1.2's `spectral_conv*_{f32,f64}` fixtures.
-//! Test code only.
+//! `SpectralConv<R>` plus a bias (`biased_conv.rs`), for library CM1.2's
+//! `spectral_conv*_{f32,f64}` fixtures. Test code only.
 //!
 //! 2.0.0 stores one weight `(in, out, *max_n_modes)` (`(channels, *max_n_modes)` if
 //! separable) in its centred layout, a complex tensor saved with a trailing (re, im) axis,
@@ -16,11 +16,8 @@ use ndarray::{ArrayD, Axis};
 use sciml_rs::neural_operators::layers::spectral_convolution::{SpectralConv, SpectralInit};
 
 use crate::{
-    biased_conv::BiasedConv,
-    parity_common::{
-        Conversion, Fixture, MapEntry, Precision, Take, assert_parity, centred_to_corners,
-        load_into,
-    },
+    biased_conv::{BiasedConv, run},
+    parity_common::{Conversion, Fixture, MapEntry, Precision, Take, centred_to_corners, check_d3},
 };
 
 /// A fixture's configuration, in the crate's terms.
@@ -44,11 +41,6 @@ impl Case {
             SpectralConv::new(device, self.in_channels, self.out_channels, self.stored)
         };
         BiasedConv::new(conv.with_modes(self.active), self.out_channels, device)
-    }
-
-    /// The fixture's name in `precision`.
-    pub fn name(&self, precision: Precision) -> String {
-        format!("{}_{}", self.stem, precision.suffix())
     }
 }
 
@@ -144,25 +136,25 @@ pub fn convert(
         .map(|(c, a)| (format!("weight.tensor.corner{c}"), a))
         .collect();
     vec![
-        ("bias".into(), vec![("bias".into(), bias)]),
-        ("weight.tensor".into(), parts),
+        Conversion::whole("bias", bias),
+        Conversion {
+            from: "weight.tensor".into(),
+            parts,
+        },
     ]
 }
 
-/// `case`'s fixture in `precision`, its weight turned into corners by `corners`: the
-/// layer's output on the fixture's input, and the reference output.
+/// `case`'s fixture in `precision`, its weight turned into corners by `corners`, run
+/// through the layer: its output on the fixture's input, and the open fixture.
 pub fn output<const R: usize>(
     case: &Case,
     precision: Precision,
     corners: impl FnOnce(ArrayD<f64>) -> Vec<ArrayD<f64>>,
     device: &Device,
-) -> (Tensor<R>, ArrayD<f64>) {
-    let mut fixture = Fixture::open(&case.name(precision));
+) -> (Tensor<R>, Fixture) {
+    let mut fixture = Fixture::open_as(case.stem, precision);
     let converted = convert(&mut fixture, case, corners);
-    let mut layer = case.layer::<R>(device);
-    load_into(&mut layer, &mut fixture, &map(R - 2), &converted);
-    let out = layer.forward(fixture.input(device));
-    (out, fixture.output())
+    run(fixture, case.layer(device), &map(R - 2), &converted, device)
 }
 
 /// Asserts `case` in `precision`, through `centred_to_corners`, is within D3; prints and
@@ -171,9 +163,6 @@ pub fn output<const R: usize>(
 /// # Panics
 /// If the error exceeds D3's bound for `precision`.
 pub fn check<const R: usize>(case: &Case, precision: Precision, device: &Device) -> f64 {
-    let (out, reference) = output::<R>(case, precision, |a| centred_to_corners(a, R - 2), device);
-    let what = case.name(precision);
-    let err = assert_parity(out, &reference, precision.d3(), &what);
-    println!("{what}: relative max error {err:.3e}");
-    err
+    let (out, mut fixture) = output::<R>(case, precision, |a| centred_to_corners(a, R - 2), device);
+    check_d3(out, &mut fixture)
 }
