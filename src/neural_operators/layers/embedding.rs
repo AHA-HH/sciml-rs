@@ -60,9 +60,7 @@ impl GridEmbeddingNd {
             self.boundaries.len(),
             spatial.len()
         );
-        let mut full = shape;
-        full[channel_axis] = 1;
-        let mut channels: Vec<Tensor<R>> = spatial
+        let lines = spatial
             .iter()
             .zip(&self.boundaries)
             .map(|(&axis, &(start, stop))| {
@@ -71,16 +69,9 @@ impl GridEmbeddingNd {
                     .cast(FloatDType::from(dtype))
                     .mul_scalar((stop - start) / n as f64)
                     .add_scalar(start);
-                let mut line = [1; R];
-                line[axis] = n;
-                coords.reshape(line).expand(full)
-            })
-            .collect();
-        // As `FNO::grid_cl`: a single-input `cat` misbehaves on the fused GPU backends.
-        if channels.len() == 1 {
-            return channels.pop().expect("one channel");
-        }
-        Tensor::cat(channels, channel_axis)
+                (axis, coords)
+            });
+        coordinate_channels(shape, channel_axis, lines)
     }
 
     /// `[B, C, s_1..s_D]` → `[B, C + D, s_1..s_D]`: the input with the grid appended, as
@@ -92,6 +83,33 @@ impl GridEmbeddingNd {
         let grid = self.grid(x.dims(), 1, x.dtype(), &x.device());
         Tensor::cat(vec![x, grid], 1)
     }
+}
+
+/// Coordinate channels for a tensor of shape `shape` with its channels on `channel_axis`:
+/// each `(axis, line)` (`line` of length `shape[axis]`) broadcast over the other axes, the
+/// channels concatenated in the order given. Shared by [`GridEmbeddingNd::grid`] and the
+/// FNO's CONVENTIONS §2 grid (library CM1.5d).
+pub(crate) fn coordinate_channels<const R: usize>(
+    shape: [usize; R],
+    channel_axis: usize,
+    lines: impl Iterator<Item = (usize, Tensor<1>)>,
+) -> Tensor<R> {
+    let mut full = shape;
+    full[channel_axis] = 1;
+    let mut channels: Vec<Tensor<R>> = lines
+        .map(|(axis, coords)| {
+            let mut line = [1; R];
+            line[axis] = shape[axis];
+            coords.reshape(line).expand(full)
+        })
+        .collect();
+    // One channel (1D) is returned as is: a single-input `cat` of the expanded channel,
+    // followed by the caller's `cat`, gives wrong values on the fused GPU backends once the
+    // chain has run at another shape (`upstream/burn/fused-cat-reused-at-new-shape/`).
+    if channels.len() == 1 {
+        return channels.pop().expect("one channel");
+    }
+    Tensor::cat(channels, channel_axis)
 }
 
 /// The frequencies of a [`SinusoidalEmbedding`].

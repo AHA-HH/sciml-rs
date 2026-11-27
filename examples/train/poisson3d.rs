@@ -152,29 +152,10 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
         split("test", &test_sidecar),
     )));
 
-    let model_cfg = FNOConfig {
-        modes: vec![modes; 3],
-        hidden_channels: WIDTH,
-        data_channels: 1,
-        out_channels: 1,
-        n_layers: N_LAYERS,
-        spectral_init: None,
-        padding: Some(padding),
-        activation: None,
-        fno_skip: None,
-        channel_mlp: None,
-        norm: None,
-        preactivation: None,
-        lifting_channel_ratio: None,
-        projection_channel_ratio: None,
-        positional_embedding: None,
-        conv_bias: None,
-        separable: None,
-        max_modes: None,
-        tanh_stabilizer: None,
-        domain_padding: None,
-        resolution_scaling_factor: None,
-    };
+    let model_cfg = FNOConfig::new(vec![modes; 3], 1, 1)
+        .with_hidden_channels(WIDTH)
+        .with_n_layers(N_LAYERS)
+        .with_padding(Some(padding));
     let train_cfg = TrainingConfig::new()
         .with_epochs(epochs)
         .with_batch_size(BATCH_SIZE)

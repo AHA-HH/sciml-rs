@@ -574,29 +574,10 @@ mod tests {
     use ndarray::{Array4, ArrayD, IxDyn};
 
     fn model_config() -> FNOConfig {
-        FNOConfig {
-            modes: vec![3, 3],
-            hidden_channels: 4,
-            data_channels: 1,
-            out_channels: 1,
-            n_layers: 1,
-            spectral_init: None,
-            padding: Some(2),
-            activation: None,
-            fno_skip: None,
-            channel_mlp: None,
-            norm: None,
-            preactivation: None,
-            lifting_channel_ratio: None,
-            projection_channel_ratio: None,
-            positional_embedding: None,
-            conv_bias: None,
-            separable: None,
-            max_modes: None,
-            tanh_stabilizer: None,
-            domain_padding: None,
-            resolution_scaling_factor: None,
-        }
+        FNOConfig::new(vec![3, 3], 1, 1)
+            .with_hidden_channels(4)
+            .with_n_layers(1)
+            .with_padding(Some(2))
     }
 
     fn data_config() -> DarcyConfig {
