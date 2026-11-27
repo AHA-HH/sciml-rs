@@ -21,6 +21,9 @@ CO1.1 done 2026-11-25 (A1 seed 42 inside D10's band); next in O1 CO1.2 (D12 sign
 the library's CM0.6 may take `training/` once CO1.1 is merged. CO1.2 done 2026-11-26: every
 O1 cell runs from `train_burgers` and `train_darcy` (`EPOCHS` added, the author's choice of
 2026-11-26); next CO1.3 on the VM, and `training/` free for CO2.1, CO1.5, CM0.6, CO3.3.
+CO0.1 done 2026-11-27 (B = 2,952 s, E = 915; D1 cap 150): at equal time GN200-D at μ = 0
+is ahead of Adam on average (6.34e-3 against 1.03e-2, 4 of 5 seeds), at 5,400 s on all
+three; next in O0 CO0.3 (the Adam step profile), and CO0.4.
 
 ## How to read this file
 
@@ -51,8 +54,8 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 | ID | Decision | Proposal's recommendation | Prepared by | Needed by | Status |
 | --- | --- | --- | --- | --- | --- |
 | D0 | Draft 0.2 of the proposal as the plan of record | after the author's review | – | every task | signed off 2026-11-24: draft 0.2, with the corrections of #128, as the plan of record |
-| D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; CG cap 50 or 150 from CO0.1 | CO0.1 | CO4.1 | open |
-| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both); amended 2026-11-25 by the author: seeds 42–44 at 5,400 s, 42–46 at equal time |
+| D1 | The reference Gauss–Newton arm | GN200-D at μ = 0; CG cap 50 or 150 from CO0.1 | CO0.1 | CO4.1 | signed off 2026-11-26: cap 150 (CO0.1's proposal; given with stage 3's go, through the coordinating session) |
+| D2 | Seeds and budgets | seeds 42–46; equal time (CO0.1's Adam mean) and 5,400 s, every arm at both | – | CO0.1 | signed off 2026-11-24: as recommended (seeds 42–46; equal time and 5,400 s, every arm at both); amended 2026-11-25 by the author: seeds 42–44 at 5,400 s, 42–46 at equal time; 2026-11-25, after Adam measured about 3.6× slower on Burn 0.23 (CO0.1): keep 5,400 s |
 | D3 | L-BFGS's objective and weight decay | Φ at μ = 0 | – | CO2.1 | signed off 2026-11-25: Φ, Gauss–Newton's objective, at μ ∈ {0, 1e-4} (widened by D13; ½μ‖θ‖² in the closure) |
 | D4 | L-BFGS's batch | one batch of 1,000; accumulation if memory requires | – | CO2.1 | signed off 2026-11-25: as recommended |
 | D5 | L-BFGS's settings | strong Wolfe, lr 1; history and `max_iter` from the pilot | CO2.2 | CO4.1 | open |
@@ -71,7 +74,7 @@ The proposal's Section 12. A decision is recorded here when the author takes it:
 **Gate:** the reference arms measured on Burn 0.23 with five seeds; the equal-time budget
 set; D1 put to the author; where a Gauss–Newton step's time goes.
 
-- [ ] **CO0.1 Reference arms on Burn 0.23.** Adam (Phase 5 settings) on seeds 42–46, 500
+- [x] **CO0.1 Reference arms on Burn 0.23.** (`docs/optimisers/results/CO0.1.md`) Adam (Phase 5 settings) on seeds 42–46, 500
   epochs, giving the equal-time budget; Adam at 5,400 s on seeds 42–44; GN200-D at μ = 0
   with CG cap 50 and 150 on seed 42 at both budgets, then the chosen cap on seeds 43–46 at
   equal time and 43–44 at 5,400 s (D2). Timed runs side by side on the two GPUs only after a
@@ -82,6 +85,26 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   second on Burn 0.23 against Phase 10's. *Done when:* the profile table and a short list of
   where passes could be saved (for later work; nothing changed here). *Needs:* –.
   *Machines:* the VM.
+- [ ] **CO0.3 Cost profile of an Adam step.** Time per phase of one Adam step at batch 20
+  (forward, backward, the optimiser update, the loader, the per-epoch evaluation and
+  checkpoint) on Burn 0.23 against the fork, to explain why CO0.1's Adam epoch took about
+  3.6× the fork's time (3,067 s for 500 epochs against 859.4 s) while a GN200 step slowed
+  about 24 %. *Done when:* the profile table and where the extra time goes (nothing changed
+  here; a fix, if any, is a later task, since it would move the equal-time budget).
+  *Needs:* –. *Machines:* the VM.
+- [ ] **CO0.4 Run provenance: the commit at the start, one directory per run.** Two
+  faults CO0.1 hit. (1) `train_poisson` and `train_burgers` call `git_commit()` (`git
+  rev-parse HEAD` in the source checkout) when they write `costs.json` at the end of a run,
+  so a checkout moved during a run records the wrong commit (CO0.1's seeds 42 and 44
+  recorded CO0.2's): read it once at the start and carry it to `costs.json`. (2)
+  `RunDir::create` names a directory `<name>_<unix_secs>` and opens it with
+  `create_dir_all`, which reuses an existing one, so two runs of the same name started in
+  the same second write into one directory (CO0.1's two long GN runs on seed 42, 2026-11-26,
+  both void): create it with `create_dir`, which fails if it exists, and on that failure try
+  `<name>_<unix_secs>_<k>`. Names are unchanged unless two collide; no model output moves.
+  Follow-ups of CO0.1 (the author, 2026-11-26), outside O0's gate. *Done when:* both
+  examples read the commit before training; a test creates two run directories of one name
+  in the same second and gets two directories. *Needs:* –. *Machines:* the Mac.
 
 ## O1: The Burgers replication and the Darcy extension
 
@@ -182,7 +205,8 @@ results written.
 
 - [ ] **CO4.1 The matrix.** Adam, GN (D1), L-BFGS (D5), SOAP (D6), seeds 42–46 at equal
   time and 42–44 at 5,400 s (D2) (reusing CO0.1's Adam and GN runs); `poisson_matrix --by-optimizer` extended to
-  the new arms; each arm at weight decay 0 and 1e-4 if D13 is taken, and the four arms on
+  the new arms, and its arm labels to the CG cap and the budget (CO0.1 tabulates them by
+  separate calls); each arm at weight decay 0 and 1e-4 if D13 is taken, and the four arms on
   Burgers at equal time if D14 is. *Done when:* `docs/optimisers/results/CO4.1.md` with
   error 4 against time and passes per arm, and the equal-time verdict with its spread; with
   D13, whether weight decay's effect splits by whether the arm reaches the penalised

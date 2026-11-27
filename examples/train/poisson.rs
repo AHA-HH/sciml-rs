@@ -53,10 +53,17 @@
 //! follow-ups: μ = 0, a higher CG cap). `WEIGHT_DECAY` overrides Adam's literal of that
 //! name (Phase 10 follow-up: Adam at μ = 0, the control for GN at μ = 0).
 //!
+//! `EPOCHS` overrides the literal of that name for an Adam run, the cosine schedule
+//! spanning the new count: Adam at a longer budget is Adam given more epochs, since a time
+//! budget would stop it partway down its schedule (optimisers CO0.1). Saved in
+//! `train_cfg.json`, so `--resume` keeps it:
+//! EPOCHS=3142 cargo run --release --no-default-features --features cuda \
+//!     --example train_poisson -- 0 129 64 43
+//!
 //! With Gauss–Newton, `GN_BATCH_SIZE` overrides the literal of that name (T4's full batch
 //! is the subset's N), and `TIME_BUDGET_S` stops the run after the first epoch that ends
 //! at or over that many seconds of training (`TrainingConfig::time_budget_s`; G4's equal
-//! wall-clock, `EPOCHS` staying the cap). Both are saved in `train_cfg.json`, so
+//! wall-clock, the `EPOCHS` literal staying the cap). Both are saved in `train_cfg.json`, so
 //! `--resume` keeps them. Phase 10 T4, against Phase 7's Adam run of N = 100, subset 0,
 //! seed 42 (`training_time_s` 132.5):
 //! OPTIMIZER=gauss-newton GN_BATCH_SIZE=100 TIME_BUDGET_S=132.5 cargo run --release \
@@ -284,7 +291,7 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
     };
 
     let lit = Literals {
-        epochs: EPOCHS,
+        epochs: common::env_var("EPOCHS").unwrap_or(EPOCHS),
         batch_size: BATCH_SIZE,
         learning_rate: LEARNING_RATE,
         weight_decay: WEIGHT_DECAY,
@@ -302,6 +309,12 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
     };
     let train_cfg = common::training_config(&["adam", "gauss-newton", "hybrid"], seed, &lit);
     let gn = train_cfg.gauss_newton().is_some();
+    // Adam's long budget is more epochs, its cosine schedule spanning them; Gauss-Newton
+    // stops by TIME_BUDGET_S, and a hybrid run's Adam half is fixed at HYBRID_ADAM_EPOCHS
+    assert!(
+        !gn || lit.epochs == EPOCHS,
+        "EPOCHS is for Adam runs; Gauss-Newton runs take TIME_BUDGET_S"
+    );
 
     // Stage 2 at s = n − 1 keeps its run name; other stages carry n, other s carry n and s,
     // then a subset its N and seed, and a seed other than the default is appended

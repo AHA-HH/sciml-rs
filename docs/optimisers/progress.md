@@ -206,6 +206,76 @@ template:
 - Follow-ups: CO1.2 (the `SEED` and `TIME_BUDGET_S` variables and the shared example
   helpers, added to its line); CO1.5 (split `trainer.rs`'s tests).
 
+## 2026-11-25: CO0.1 Reference arms on Burn 0.23 (code and run plan; runs pending)
+- Done: the run plan (`docs/optimisers/tasks/CO0.1.md`): Adam on seeds 42–46 at 500
+  epochs (giving the equal-time budget B), Adam on 42–44 at the long budget, GN200-D at
+  μ = 0 with CG caps 50 and 150 on seed 42 at both budgets, then the chosen cap on 43–46
+  and 43–44; about 13.2 GPU-hours, 8 h wall on two A100s if the side-by-side checks hold.
+  `EPOCHS` in `train_poisson` for Adam runs only: Adam's long budget is E = round(5,400 ×
+  500 / B) epochs, the cosine schedule spanning them, since a time budget would cut the
+  schedule. The run script `docs/optimisers/co0_1_runs.sh` (Phase 7's pattern).
+- Tests: with `EPOCHS` unset, `train_cfg.json`, `model_cfg.json` and `data_cfg.json` byte
+  for byte equal to `origin/main`'s binary (flex, `-- 0 129 64`); `EPOCHS=3` saved as
+  `epochs: 3`; with `OPTIMIZER=gauss-newton` it panics.
+- Checks: ran fmt, clippy (lib, examples, all targets), `cargo test`, `cargo doc`, `bash -n`
+  on the script; pending: every VM run (stages 1–3 of the plan).
+- Decisions: none signed off; D1 is proposed after stage 2.
+- Review: plan review FAIL → fixed (the shared build cache could swap the binary between
+  specs: the script now runs its own copies); code quality APPROVE, findings 4.1, 4.2, 7.1,
+  7.2 fixed, the rest in the PR.
+- Adam and Gauss–Newton: unchanged bit for bit (configs identical with `EPOCHS` unset; the
+  example's configs are its only input to training).
+- Follow-ups: `poisson_matrix --by-optimizer` labels arms by batch and preconditioner only
+  (cap and budget merge); CO4.1's extension of the tool covers it.
+
+## 2026-11-26: CO0.1 stage 1 (Adam at equal time)
+- Done: Adam on seeds 42–46, 500 epochs, on the VM; `docs/optimisers/results/CO0.1.md`.
+  Error 4 1.029e-2 [9.637e-3–1.105e-2] (seeds 42–44: 1.055e-2 against the fork's 1.061e-2);
+  training 2,949 s against the fork's 859 s, 3.4× slower, which a bisect puts on the move
+  to Burn 0.23 (#119). B = 2,952 s, E = 915. Seed 46 data-parallel on both GPUs: 2.09× the
+  one-GPU time.
+- Tests: none new.
+- Checks: ran `poisson_matrix --by-optimizer` on the five runs (the table); pending stages
+  2 and 3.
+- Decisions: D2 amended 2026-11-25 by the author (keep 5,400 s); pairing accepted
+  2026-11-26 by the author; D1 after stage 2.
+- Review: –
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO0.3 (the Adam step profile); `git_commit()` reads HEAD at the end of a run,
+  so a checkout moved mid-run records the wrong commit (seeds 42 and 44): a question for the
+  PR.
+
+## 2026-11-26: CO0.1 stage 2 (Gauss–Newton on seed 42; Adam at the long budget)
+- Done: GN200-D at μ = 0, seed 42, caps 50 and 150, at B and at 5,400 s; Adam at 915
+  epochs on seeds 42 and 43; `docs/optimisers/results/CO0.1.md`. Error 4 on seed 42:
+  at equal time Adam 9.637e-3, GN cap 50 6.129e-3, cap 150 5.846e-3; at the long budget
+  Adam 8.585e-3, cap 50 4.579e-3, cap 150 2.469e-3. The first long GN pair shared a run
+  directory (same name, same second) and was void; rerun at the author's go.
+- Tests: none new.
+- Checks: after merging `origin/main` (CO1.2's `common::training_config`; `EPOCHS` moved
+  into `Literals`): fmt, clippy (lib, examples, all targets), `cargo test`, `cargo doc` pass.
+- Decisions: D1 proposed (cap 150); the long GN rerun, the author, 2026-11-26.
+- Review: –
+- Adam and Gauss–Newton: not touched (the merge keeps main's code with `EPOCHS` unset).
+- Follow-ups: CO0.4 (the commit read at run start; one directory per run).
+
+## 2026-11-27: CO0.1 stage 3; CO0.1 done
+- Done: GN200-D at μ = 0, cap 150 (D1) on seeds 43–46 at B and 43–44 at 5,400 s; Adam
+  seed 44 at 915 epochs; the final tables in `docs/optimisers/results/CO0.1.md`. Error 4,
+  mean [min–max]: at equal time Adam 1.029e-2 [9.64e-3–1.105e-2], GN 6.341e-3
+  [4.48e-3–1.008e-2] (GN lower on 4 of 5 seeds, level on 45); at 5,400 s Adam 9.160e-3,
+  GN 4.044e-3 (lower on all three). No NaN in any valid run. Same-seed GN runs on cuda
+  agree only to f32's last digits after the first step, and diverge from there (seed 43's
+  long run ended above its equal-time run).
+- Tests: none new.
+- Checks: none since the merge (docs only).
+- Decisions: D1 signed off 2026-11-26, cap 150 (given with stage 3's go through the
+  coordinating session; the PR asks the author to confirm); GN pairing accepted with it.
+- Review: –
+- Adam and Gauss–Newton: not touched.
+- Follow-ups: CO0.3, CO0.4 (roadmap lines); for CO4.1, GN's run-to-run spread on cuda
+  (results, stage 3).
+
 ## 2026-11-26: CO1.2 Gauss–Newton on Burgers and Darcy
 - Done: `train_burgers` and `train_darcy` take `OPTIMIZER=adam|adamw|gauss-newton`, the
   `GN_*` variables with D12's literals (full batch, CG cap 100, the Hutchinson diagonal, 10
