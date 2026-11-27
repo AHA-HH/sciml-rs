@@ -250,7 +250,7 @@ against 500 epochs), 983 MiB.
   agree only to f32's last digits after the first step on cuda (φ 0.49425319 against
   0.49425325 at step 1; seeds 42 and 44 the same). Gauss–Newton amplifies that, so by
   epoch 4 the long run's train L² was 6.75e-2 against 9.60e-2, and at 2,952 s its test
-  L² was about 1.1e-2 against 4.85e-3. Its damping swung widely from step 100 on (4e-5 to
+  L² was about 9.3e-3 against 4.85e-3. Its damping swung widely from step 100 on (4e-5 to
   7.6, sampled every 15 steps), with 112 of its 295 steps rejected (35 of them wild).
 - **What follows for CO4.1:** with GN at μ = 0, an equal-time run and a long run on one
   seed are independent draws, not one run read at two times. The spread by seed includes
