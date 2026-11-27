@@ -24,8 +24,10 @@ matrix"; D5 "strong Wolfe, lr 1; history and `max_iter` from the pilot".
   `max_eval` Burn's default, μ 0) and `examples/train/common.rs` (`LBFGS_*`, `EPOCHS`,
   `TIME_BUDGET_S`).
 - Burn's `LBFGS::step` (`burn-optim-0.23.0-pre.2/src/optim/lbfgs.rs`): `max_eval` counts
-  the step's first closure evaluation, so the strong Wolfe search gets `max_eval − 1` at
-  `max_iter` 1.
+  the step's first closure evaluation and passes `max_eval − 1` to the strong Wolfe search
+  as `max_ls`; the search makes one trial before its loop and up to `max_ls` more, so at
+  `max_iter` 1 it gets up to `max_eval` evaluations and the step up to `max_eval` + 1.
+  `max_eval` is not a hard cap per step.
 
 ## Changes
 - No Rust. `OPTIMIZER=lbfgs` and the `LBFGS_*` variables (CO2.1, on `main`) cover every cell.
@@ -44,7 +46,7 @@ matrix"; D5 "strong Wolfe, lr 1; history and `max_iter` from the pilot".
 ### The grid
 | cell | history | `max_iter` | `max_eval` | why that `max_eval` |
 |---|---|---|---|---|
-| H10-I1 | 10 | 1 | 10 | the search gets up to 9 evaluations (Burn's default, 1, gives it none) |
+| H10-I1 | 10 | 1 | 10 | the search gets up to 10 evaluations (Burn's default, 1, gives it one trial at t = 1 and no bracketing; a failed trial returns t = 0, the stall) |
 | H100-I1 | 100 | 1 | 10 | as H10-I1 |
 | H10-I20 | 10 | 20 | 25 | Burn's default ⌊1.25 · 20⌋, made explicit |
 | H100-I20 | 100 | 20 | 25 | as H10-I20 |
@@ -104,15 +106,19 @@ done
 What comes back: each run's `metrics.csv`, `lbfgs_steps.csv`, `costs.json`, `errors.json`,
 `train_cfg.json`, and the logs. The pilot table (`docs/optimisers/results/CO2.2.md`), per
 cell: steps (epochs) reached, training time, closure evaluations (= forward and backward
-passes, D7) and their mean per step, median step time, final Φ, train and test L², error 4,
-peak GPU memory, and stalled steps (`phi_after == phi_before`, the CO2.1 failure); beside
+passes, D7) and their mean and maximum per step, median step time, final Φ, train and test
+L², errors 3 and 4, peak GPU memory, the checkpoint share (below), and stalled steps (`phi_after == phi_before`, the CO2.1 failure); beside
 them CO0.1's seed-42 errors 4 at B: Adam 9.637e-3, GN200-D (cap 150) 5.846e-3
 (`docs/optimisers/results/CO0.1.md`). Updates are not counted
 (Burn hides the inner iterations; accepted 2026-11-27), so the table says only whether steps
 and passes were enough to compare the cells.
 
-D5 is proposed from it: the cell with the lowest error 4; within 5 % of each other, the
-smaller history (less memory) and then the smaller `max_iter`. No GPU resume check: the pilot
+D5 is proposed from it as history, `max_iter` and `max_eval` together (the literal
+`LBFGS_MAX_EVAL` is `None`, Burn's default, which stalls at `max_iter` 1, so `max_eval` must
+travel with the decision): the cell with the lowest error 4; among cells within 5 % of the
+lowest, the smaller history (less memory) and then the smaller `max_iter`. The proposal names
+no rule; this one follows CO3.3's. One seed cannot resolve 5 % (Adam's error 4 at B spreads
+about 14 % over seeds 42–46, CO0.1), which the D5 question states as a limitation. No GPU resume check: the pilot
 does not resume (flex resume shown in CO2.1).
 
 ## Constraints and risks
@@ -122,9 +128,10 @@ does not resume (flex resume shown in CO2.1).
 - Checkpoints count against the budget (the trainer's clock runs through them), and a
   history-100 checkpoint carries about 1.9 GB of curvature pairs every 25 epochs. At
   `max_iter` 1 epochs are short, so H100-I1 may spend a visible share of B writing
-  checkpoints. Reported, not fixed (fixing would touch `training/`, which CO3.3 holds);
-  the share is read from `metrics.csv`'s `epoch_time_s` against the steps' wall times in
-  `lbfgs_steps.csv`.
+  checkpoints. Reported, not fixed (fixing would touch `training/`, which CO3.3 holds).
+  `epoch_time_s` is taken before the checkpoint write, so the share is `costs.json`'s
+  `training_time_s` minus Σ `metrics.csv` `epoch_time_s` (setup aside), per cell; whether
+  that biases D5 is an author's question once it is known.
 - R1 of CO2.1 (Φ in f32, passed to Burn as f64): line searches may end on rounding at small
   Φ; stalls are counted, not fixed.
 - Memory: history 100 at the full batch of 1,000; the proposal's estimate (1.9 GB history,
