@@ -152,8 +152,11 @@ on their own: they fill the profile table and the "where the extra time goes" li
   example's own scratch checkpoint (in the system temp directory, removed at the end).
 
 ## Pending runs
-A, B and C above (not started; the orchestrator runs them). Reports and logs in
-`~/sciml-rs/logs/co0-3/` on the VM.
+None. A, B and C ran 2026-11-27 on the VM, alone on GPU 0 (GPU 1 idle), exit 0 each (A
+17:20:32, B 17:25:21, C 17:26:44 UTC; `cubek.toml` restored after C), the orchestrator
+driving; A and C at `bc26896`, B at `4541f02` with the `bc26896` example copied in. The
+reports and logs are on the Mac in `~/Code/sciml-rs/runs/co0-3/` (git-ignored); the VM
+worktrees are removed. Results: `docs/optimisers/results/CO0.3.md`.
 
 Done on the Mac (2026-11-27, metal, M2 Pro; timings are not results): the example builds
 and runs to its report on this branch and, unchanged, at `4541f02` (a scratch worktree
