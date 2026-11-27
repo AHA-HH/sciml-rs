@@ -240,25 +240,35 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     Gauss–Newton (JVP without autodiff, VJP with), L-BFGS's repeated evaluations and the
     data-parallel trainer do not account for running statistics (rustdoc of `Norm::Batch`);
     a task of its own if a batch-norm model is ever trained.
-  - [ ] **CM1.5d Tidy after full parity.** The CM1.3b, CM1.4 and CM1.2 follow-ups above
-    not taken by CM1.5a: the `FNOConfig` literals, one coordinate-channel builder (the
-    dumps and `gpu_parity` decide), `layers/spectral_convolution.rs` split, one shared
-    biased test layer, converted arrays passed to `load_into` with `Fixture`'s fields
-    private. From CM1.5a's code-quality review: CM0.5's test-only `Fno1dRef`
-    (`tests/parity_common/fno1d.rs`, `tests/parity_fno1d*.rs`) retired, its harness
-    self-checks ported to the library `FNO` (F4); one rule for `FNOConfig`'s boolean options
-    (F7): the author's M1-gate rule, decided 2026-11-27 (CM1.5a PR question 2), is
+  - **CM1.5d–f Tidy after full parity.** The CM1.3b, CM1.4 and CM1.2 follow-ups above
+    not taken by CM1.5a, and those of CM1.5a's and CM1.5b's code-quality reviews. Split
+    2026-11-27 (eleven follow-ups across `models/fno`, `layers`, `utils/fft` and the parity
+    harness) into the FNO, the spectral layer, and the harness:
+  - [ ] **CM1.5d The FNO's config, padding and grid.** One rule for `FNOConfig`'s boolean
+    options (F7): the author's M1-gate rule, decided 2026-11-27 (CM1.5a PR question 2), is
     `Option<bool>` with `None` meaning `false`, never `#[config(default = false)]`, because
     Burn's `Config` derive gives fields no serde default and a plain `bool` would fail to
-    load older `model_cfg.json` files; every new option follows it, and this task may add a
-    test loading an old `model_cfg.json`; `parity_common::fno::output`'s map hook replaced by a load step
-    the control can corrupt (F6). From CM1.5b's code-quality review: `fft_ctensor` and
-    `ifft_ctensor` moved to `utils/fft.rs`, with one inverse that resizes and scales for
-    `SpectralConv::forward_to` and `resample` (F2, F3); `spectral_convolution.rs`'s tests in a
-    file of their own (F6); one per-axis `(lo, hi)` padding in `FNO` for CONVENTIONS §3's
-    `padding` and `domain_padding`, one pad and one crop that knows the scale, so `padding`
-    works with scaling and the exclusivity asserts go (R2-1). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
+    load older `model_cfg.json` files; every new option follows it, with a test loading an
+    old `model_cfg.json`. The `FNOConfig` struct literals replaced by `FNOConfig::new(..)
+    .with_*` (outside `training/`); one coordinate-channel builder for `FNO::grid_cl` and
+    `GridEmbeddingNd::grid` (the dumps and `gpu_parity` decide); one per-axis `(lo, hi)`
+    padding in `FNO` for CONVENTIONS §3's `padding` and `domain_padding`, one pad and one
+    crop that knows the scale, so `padding` works with scaling and the exclusivity asserts
+    go (CM1.5b R2-1, R2-3). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on
+    Metal. *Needs:* CM1.5a.
+  - [ ] **CM1.5e The spectral layer and the FFTs.** `layers/spectral_convolution.rs`
+    (over 1,000 lines with its tests) split as `optim/soap/` is, its tests in a file of
+    their own (CM1.2; CM1.5b F6); `fft_ctensor` and `ifft_ctensor` moved to `utils/fft.rs`,
+    with one inverse that resizes and scales for `SpectralConv::forward_to` and `resample`
+    (CM1.5b F2, F3). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
     *Needs:* CM1.5a.
+  - [ ] **CM1.5f The parity harness.** One shared biased test layer for `legacy_conv.rs`
+    and `centred_conv.rs`; converted arrays passed to `load_into` with `Fixture`'s fields
+    private (CM1.2); CM0.5's test-only `Fno1dRef` (`tests/parity_common/fno1d.rs`,
+    `tests/parity_fno1d*.rs`) retired, its harness self-checks ported to the library `FNO`
+    (CM1.5a F4); `parity_common::fno::output`'s map hook replaced by a load step the control
+    can corrupt (CM1.5a F6). *Done when:* every parity test passes at its recorded error,
+    and the dumps equal `main`'s. *Needs:* CM1.5a.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of
   `differentiation`. *Done when:* each against fixtures. *Needs:* CM0.5. Split 2026-11-25
