@@ -399,3 +399,16 @@ template:
 - Follow-ups: the candidate fixes in `docs/optimisers/results/CO0.3.md` (kernel launch
   counts, fusion settings, a fused Adam, upstream report), none taken; each would move
   CO0.1's equal-time budget, so a new task needs the author's go.
+
+## 2026-11-27: CO2.2 L-BFGS pilot (planned; runs pending)
+- Done: the plan (`docs/optimisers/tasks/CO2.2.md`); `docs/optimisers/co0_1_runs.sh` takes
+  `lbfgs:<seed>:<history>:<max_iter>:<max_eval>:<budget_s>` (strong Wolfe, lr 1, μ 0 from the
+  literals; `EPOCHS=20000` so the budget stops it), placed apart from CO3.3's `soap` arm so
+  the two merge without conflict. No Rust changes. The grid: history {10, 100} × `max_iter`
+  {1, 20}, `max_eval` 10 and 25 (CO2.1's proposal, set explicitly as the author asked).
+- Tests: none (no code); the script's parsing checked by hand, `bash -n`.
+- Checks: ran `bash -n`; pending the four VM cells and their `predict_poisson`.
+- Decisions: none; D5 proposed once the table exists.
+- Review: plan review (see the PR); code quality skipped (docs and a run script).
+- Adam and Gauss–Newton: not touched (the script's `adam` and `gn` arms unchanged).
+- Follow-ups: the results and D5 in this PR once the runs return.

@@ -31,7 +31,9 @@ directory; its leftovers are CO0.5. CO2.1 done 2026-11-27: the L-BFGS arm
 done 2026-11-27: `trainer.rs`'s tests in `training/trainer/tests.rs`, the same 26 by name;
 `training/` free for CM0.6 and CO3.3 (and the optional CO1.6). CO0.3 done 2026-11-27: Adam's
 3.6× is host time issuing tensor work in Burn 0.23 (forward, backward and the update alike;
-TF32 not the cause); a fix would be a later task.
+TF32 not the cause); a fix would be a later task. CO2.2 planned 2026-11-27 (draft PR): the
+four L-BFGS cells as `lbfgs:` specs of `co0_1_runs.sh`, waiting for the VM after CO3.3's
+pilot; then D5.
 
 ## How to read this file
 
@@ -215,7 +217,8 @@ weight decay accounts for.
   every cell, and the uncounted inner iterations accepted (steps and passes are reported;
   updates can be estimated from closure evaluations if ever needed).
   *Done when:* the pilot table and D5 proposed.
-  *Needs:* CO2.1, CO0.1. *Machines:* the VM. *Sign-off:* D5.
+  *Needs:* CO2.1, CO0.1. *Machines:* the VM. *Sign-off:* D5. Plan:
+  `docs/optimisers/tasks/CO2.2.md` (`max_eval` 10 at `max_iter` 1, 25 at 20; runs pending).
 - [ ] **CO2.3 A deterministic L-BFGS resume test.**
   `training::trainer::tests::lbfgs_smoke_run_resumes_exactly` (CO2.1) failed once in a full
   `cargo test` (CM1.5c's agent, 2026-11-27) and passed alone 3 of 3 and in two later full
