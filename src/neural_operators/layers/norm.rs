@@ -116,8 +116,9 @@ pub enum Norm {
     Group(GroupNorm),
     /// The crate's [`AdaIn`], boxed: its MLP makes it far larger than the other variants.
     AdaIn(Box<AdaIn>),
-    /// Burn's `BatchNorm`: the batch statistics on an autodiff device (training, updating
-    /// the running ones), the running statistics otherwise (torch's eval mode). Burn updates
+    /// Burn's `BatchNorm`: the batch statistics on an autodiff device unless the layer is
+    /// frozen (training, updating the running ones), the running statistics otherwise
+    /// (torch's eval mode). Burn updates
     /// the running variance with the biased batch variance, torch with the unbiased one.
     /// Parity is shown in eval only (library CM1.5c). The trainers do not account for it yet:
     /// Gauss–Newton's JVP (no autodiff: running statistics) and VJP (autodiff: batch
@@ -255,6 +256,12 @@ mod tests {
             batch.beta.val().into_data(),
             TensorData::from([0.0f32, 0.0])
         );
+        let initial = |state: &RunningState<Tensor<1>>| state.value().into_data();
+        assert_eq!(
+            initial(&batch.running_mean),
+            TensorData::from([0.0f32, 0.0])
+        );
+        assert_eq!(initial(&batch.running_var), TensorData::from([1.0f32, 1.0]));
         batch.gamma = Param::from_tensor(Tensor::from_data([2.0, -1.0], &device));
         batch.beta = Param::from_tensor(Tensor::from_data([0.5, 3.0], &device));
         batch.running_mean = RunningState::new(Tensor::from_data([1.0, -2.0], &device));
