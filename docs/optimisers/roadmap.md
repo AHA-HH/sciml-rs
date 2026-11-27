@@ -184,7 +184,9 @@ weight decay accounts for.
   (F3) the repeated `load_poisson_uniform` closures and temporary-directory setup become
   fixtures. Also from library CM0.6: the training config passed as the data config to
   `save_configs` (CM0.3's F6, four sites), and `train_fno_none_matches_identity_path` named
-  for `train`.
+  for `train`; and, the author's decision of 2026-11-27 (library CM0.6, #180), the
+  `M = FNO<R>` default dropped from `TrainingComponents` once `train_built` is in the tests
+  (every remaining use then names `FNO<R>`).
   *Done when:* the same tests, by name but for their new module path, and count, pass; no
   code outside `#[cfg(test)]` changed. *Needs:* CO1.5; no other `training/` task open
   beside it. Optional: nothing waits for it.

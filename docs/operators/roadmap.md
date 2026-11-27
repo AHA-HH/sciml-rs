@@ -24,7 +24,8 @@ split 2026-11-26 into CM1.5a–d; CM1.5a done 2026-11-26 (2.0.0's whole `FNO` wi
 outputs unchanged bit for bit). CM3.6 split 2026-11-27 into CM3.6a–b; CM3.6a done 2026-11-27
 (the Tensor GaLore projector for real tensors, not wired into training). CM0.6 done
 2026-11-27 (one name per concept: the FNO wrappers retired; FNO outputs, Adam, Gauss–Newton
-and L-BFGS, unchanged bit for bit). Next CM1.5b, CM1.5c, CM1.5d, CM3.6b.
+and L-BFGS, unchanged bit for bit); CM0.7 added (retire `Operator::NAME`, the author's
+decision of 2026-11-27). Next CM0.7, CM1.5b, CM1.5c, CM1.5d, CM3.6b.
 
 ## How to read this file
 
@@ -118,9 +119,16 @@ the feature matrix is verified.
   `NpzFileReader::names()` (CM0.5's follow-up); `tests/fno_bit_identity.rs` gains an
   L-BFGS epoch, its four dumps identical to `main`. The test module split was done by
   optimisers CO1.5 (#176, `training/trainer/tests.rs`); CO1.5's review findings on that
-  file are the optional task CO1.6, not CM0.6's. Left for the author: `Operator::NAME`
-  (CM0.4's F3) and `TrainingComponents`' `M = FNO<R>` default (CM0.6's review F1), both
-  questions in the PR.
+  file are the optional task CO1.6, not CM0.6's. The PR's two questions, answered by the
+  author 2026-11-27: `Operator::NAME` (CM0.4's F3) is retired, in CM0.7;
+  `TrainingComponents`' `M = FNO<R>` default (CM0.6's review F1) is dropped with CO1.6's
+  move of `train_built` (`docs/optimisers/roadmap.md`).
+- [ ] **CM0.7 Retire `Operator::NAME`.** CM0.4's code-quality F3: `NAME` is always its
+  config's `OperatorConfig::KIND`, a second name for one concept. The author's decision of
+  2026-11-27 (CM0.6, #180): retire it in favour of `OperatorConfig::KIND`, as a follow-up.
+  *Done when:* `Operator` has no `NAME`; its readers use `<M::Config as
+  OperatorConfig>::KIND`; root `CLAUDE.md` and `feature-matrix.md` say so; the CM0.3
+  bit-identity check passes against `main`. *Needs:* CM0.6.
 
 ## M1: The FNO family
 

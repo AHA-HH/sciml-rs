@@ -627,14 +627,17 @@ template:
   b2aa523 and on the branch: `forward` (65,536 bytes), `phase5_epoch` (28,481,592),
   `gauss_newton_epoch` (22,476), `lbfgs_epoch` (17,112) `cmp` identical. Not run:
   `--features metal` (names only, nothing backend-specific).
-- Decisions: none. Questions for the author in the PR: `Operator::NAME` (CM0.4's F3); the
-  `M = FNO<R>` default on `TrainingComponents` (review F1).
+- Decisions: none taken in the task. The PR's two questions, answered by the author
+  2026-11-27: retire `Operator::NAME` in favour of `OperatorConfig::KIND` as a follow-up
+  (CM0.7); drop `TrainingComponents`' `M = FNO<R>` default together with CO1.6's move of
+  `train_built` (CO1.6's line).
 - Review: plan review PASS (advisories: the historical `spikes/linalg/REPORT.md` and two test names keep `train_fno`/`load_fno`, left); code quality APPROVE with findings: F3 (doc wraps) and
   F5 (one import) fixed; F1 a question; F2 (the session tuple spelt three times in
   `examples/train`, pre-existing) and F4 (two test names keep the old names; `super::train`
   where a local shadows it) left, in the PR.
 - FNO: unchanged bit for bit (the four dumps above against `main`).
 - Matrix: `Trainer` row names `train`.
-- Follow-ups: CO1.6 (optional; its line in `docs/optimisers/roadmap.md`) also takes the
+- Follow-ups: CM0.7 (retire `Operator::NAME`); CO1.6 (optional; its line in `docs/optimisers/roadmap.md`) also takes the
   old F6 in `trainer/tests.rs` (the training config passed as the data config at four
-  sites) and the test name `train_fno_none_matches_identity_path`.
+  sites), the test name `train_fno_none_matches_identity_path`, and the dropped `M = FNO<R>`
+  default.
