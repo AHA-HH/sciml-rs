@@ -565,3 +565,37 @@ template:
 - Matrix: `FNO` (CM1.5a–c), centred `SpectralConv`, `FNOBlocks` rows updated.
 - Follow-ups: CM1.5b (padding, resampling), CM1.5c (batch norm; `fno_skip=None` on the
   author's answer), CM1.5d's line (F4, F6, F7 with the earlier tidies).
+
+## 2026-11-27: CM1.5c Batch norm, and no FNO skip
+- Done: `NormKind::Batch` (Burn's `BatchNorm`: torch's eps, momentum and initial values;
+  the running statistics without autodiff, as torch's eval) and, on the author's answer to
+  CM1.5a's question 1, `SkipKind::Disabled` (2.0.0's `fno_skip=None`): `SkipKind::init`
+  returns an `Option`, and `FNOConfig::fno_skip: Some(Disabled)` builds neither a skip nor
+  `w` (`fno_skip: None` is still the 1×1 convolution with bias). Two f32 fixtures from
+  `generate.py` (`BATCH_NORM`, the running statistics redrawn, the variance positive;
+  integer `num_batches_tracked` left out of the fixture). The author's M1-gate rule for
+  boolean options recorded on CM1.5d's line.
+- Tests: `tests/parity_fno.rs`: `fno2d_batch_norm` 1.5e-6, `fno1d_pre_no_skip` (batch norm,
+  pre-activation) 3.0e-7 (D3 1e-5, f32, Flex, M2 Pro); the first two norms' running
+  variances swapped fail (control). Unit tests: the batch norm's initial values and its eval
+  closed form; `Disabled` builds nothing; an `FNO` with it has no `w` and runs.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo test` (562 passed), `cargo test --features
+  datagen` (653 passed), `cargo doc --no-deps`, `cargo test --features metal --test
+  gpu_parity` (9) and `--test parity_fno` (12), `generate.py --check` (72 fixtures the same).
+  One `cargo test` run failed `training::trainer::tests::lbfgs_smoke_run_resumes_exactly`
+  (CO2.1's; train L² rose over three epochs); it passed alone three times and in the next
+  full run: flaky under parallel tests, outside this task (`training/`), reported in the PR.
+- Decisions: the author's of 2026-11-27 (CM1.5a's questions 1 and 2), recorded on CM1.5c's
+  and CM1.5d's lines.
+- Review: plan review PASS (advisories fixed: the control's wording, the initial running
+  statistics asserted, the frozen-layer wording). Code quality APPROVE with findings: F2
+  (indexing keeps a mismatch a panic), F3 (training hazards in `Norm::Batch`'s rustdoc and
+  the roadmap), F4 (one remap helper), F5 (`named_buffers`, `SWEEPS` defined once), F6
+  fixed; F1 (`SkipKind::init`'s `Option` and the `.unwrap()`s in tests) kept, with
+  `Some(Disabled)` documented on the channel MLP's skip.
+- FNO: unchanged bit for bit (`fno_bit_identity` dumps on `main` f7e769a and the branch,
+  separate target directories, `forward`, `phase5_epoch`, `gauss_newton_epoch` `cmp` same).
+- Matrix: `FNO`, `FNOBlocks`, `skip_connection`, the norms rows.
+- Follow-ups: training with batch norm (CM1.5c's line: Burn's biased running variance,
+  Gauss–Newton, L-BFGS, data parallel), a task only if a batch-norm model is trained.

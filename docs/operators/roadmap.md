@@ -21,7 +21,8 @@ unchanged bit for bit). CM2.5 done 2026-11-26 (the equation losses, PINO; indepe
 D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outputs
 unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). CM1.5
 split 2026-11-26 into CM1.5a–d; CM1.5a done 2026-11-26 (2.0.0's whole `FNO` within D3; FNO
-outputs unchanged bit for bit). Next CM0.6, CM1.5b, CM1.5c, CM1.5d.
+outputs unchanged bit for bit). CM1.5c done 2026-11-27 (batch norm and 2.0.0's
+`fno_skip=None`; FNO outputs unchanged bit for bit). Next CM0.6, CM1.5b, CM1.5d.
 
 ## How to read this file
 
@@ -200,12 +201,19 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     per layer, `forward`'s `output_shape`). *Done when:* fixtures with padding and with
     scaling factors, 1D–3D, pass through `FNO` within D3 in f32; the dumps equal `main`'s.
     *Needs:* CM1.5a.
-  - [ ] **CM1.5c Batch norm.** `NormKind::Batch` as 2.0.0's `batch_norm` (eval mode: the
+  - [x] **CM1.5c Batch norm.** `NormKind::Batch` as 2.0.0's `batch_norm` (eval mode: the
     running statistics), and 2.0.0's `fno_skip=None`: the author decided 2026-11-27 (CM1.5a
     PR question 1) yes, a block with no FNO skip at all, taken in this task, with
     `FNOConfig::fno_skip: None` still today's 1×1 convolution with bias so that old configs
     load unchanged. *Done when:* an `FNO` fixture with `norm="batch_norm"` passes within D3
-    in f32; the dumps equal `main`'s. *Needs:* CM1.5a.
+    in f32; the dumps equal `main`'s. *Needs:* CM1.5a. Done 2026-11-27: plan
+    `docs/operators/tasks/CM1.5c.md`; `NormKind::Batch` (Burn's `BatchNorm`), `SkipKind::Disabled`
+    (`SkipKind::init` now returns an `Option`); `tests/parity_fno.rs` `fno2d_batch_norm` 1.5e-6
+    and `fno1d_pre_no_skip` 3.0e-7 (f32, eval, the running statistics redrawn). Training with
+    batch norm is not checked: Burn's running variance is biased (torch's unbiased), and
+    Gauss–Newton (JVP without autodiff, VJP with), L-BFGS's repeated evaluations and the
+    data-parallel trainer do not account for running statistics (rustdoc of `Norm::Batch`);
+    a task of its own if a batch-norm model is ever trained.
   - [ ] **CM1.5d Tidy after full parity.** The CM1.3b, CM1.4 and CM1.2 follow-ups above
     not taken by CM1.5a: the `FNOConfig` literals, one coordinate-channel builder (the
     dumps and `gpu_parity` decide), `layers/spectral_convolution.rs` split, one shared
