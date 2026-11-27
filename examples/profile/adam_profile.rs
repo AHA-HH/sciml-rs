@@ -77,9 +77,12 @@ const CHECKPOINT_EVERY: usize = 25;
 const WARMUP_EPOCHS: usize = 3;
 /// Timed epochs of each kind.
 const EPOCHS: usize = 3;
+/// The inline loop's unsynced epoch is reported as a faithful copy of `train_epoch` when
+/// within this fraction of it.
+const FAITHFUL: f64 = 0.10;
 
 /// The step's phases in `train_epoch`'s order, then the epoch's closing host reads.
-const PHASES: [&str; 7] = [
+const PHASES: [&str; N_PHASES] = [
     "loader (`next`)",
     "forward and loss",
     "metrics (MSE, accumulators)",
@@ -88,6 +91,8 @@ const PHASES: [&str; 7] = [
     "optimiser update",
     "epoch's host reads (2 per epoch)",
 ];
+/// [`PHASES`]'s length, the size of every array of phase times.
+const N_PHASES: usize = 7;
 /// The phases that run once per step (the last runs once per epoch).
 const STEP_PHASES: usize = 6;
 
@@ -130,7 +135,7 @@ fn inline_epoch(
     parts: &mut Parts,
     decoder: &FlatDecoder,
     sync: Option<&Device>,
-    t: &mut [f64; 7],
+    t: &mut [f64; N_PHASES],
 ) -> (FNO<4>, usize) {
     let (mut mse_sum, mut l2_sum, mut steps) = (None, None, 0);
     let mut iterator = parts.train.iter();
@@ -182,7 +187,12 @@ struct Row {
 
 /// The rows of [`PHASES`] from the phase totals of `epochs` epochs of `steps` steps each,
 /// unsynced (`host`) and synced (`device`), and the device epoch they sum to.
-fn rows(host: &[f64; 7], device: &[f64; 7], epochs: usize, steps: usize) -> (Vec<Row>, f64) {
+fn rows(
+    host: &[f64; N_PHASES],
+    device: &[f64; N_PHASES],
+    epochs: usize,
+    steps: usize,
+) -> (Vec<Row>, f64) {
     let device_epoch: f64 = device.iter().sum::<f64>() / epochs as f64;
     let rows = PHASES
         .iter()
@@ -271,16 +281,12 @@ fn main() {
 
     let root = std::env::temp_dir().join(format!("adam_profile_{}", std::process::id()));
     let run = RunDir::create(&root, "adam_profile").expect("scratch run directory");
-    let mut lib = Library {
-        epoch: 0.0,
-        evaluate: 0.0,
-        checkpoint: 0.0,
-    };
+    let (mut t_epoch, mut t_evaluate, mut t_checkpoint) = (0.0, 0.0, 0.0);
     for e in 0..EPOCHS {
-        model = time(Some(&device), &mut lib.epoch, || {
+        model = time(Some(&device), &mut t_epoch, || {
             library_epoch(model, &mut parts)
         });
-        let test_l2 = time(Some(&device), &mut lib.evaluate, || {
+        let test_l2 = time(Some(&device), &mut t_evaluate, || {
             evaluate(&model.valid(), &parts.test, Some(&eval_decoder))
         });
         let state = CheckpointState {
@@ -288,20 +294,21 @@ fn main() {
             resumes: 0,
             training_time_s: 0.0,
         };
-        time(Some(&device), &mut lib.checkpoint, || {
+        time(Some(&device), &mut t_checkpoint, || {
             run.save_checkpoint(&state, &model, &parts.optim, &parts.scheduler)
                 .expect("save checkpoint")
         });
         println!("library epoch {e}: test L² {test_l2:.4e}");
     }
     std::fs::remove_dir_all(&root).expect("remove the scratch run directory");
+    let k = EPOCHS as f64;
     let lib = Library {
-        epoch: lib.epoch / EPOCHS as f64,
-        evaluate: lib.evaluate / EPOCHS as f64,
-        checkpoint: lib.checkpoint / EPOCHS as f64,
+        epoch: t_epoch / k,
+        evaluate: t_evaluate / k,
+        checkpoint: t_checkpoint / k,
     };
 
-    let (mut host, mut dev) = ([0.0; 7], [0.0; 7]);
+    let (mut host, mut dev) = ([0.0; N_PHASES], [0.0; N_PHASES]);
     let (mut host_epoch, mut steps) = (0.0, 0);
     for _ in 0..EPOCHS {
         device.sync().expect("device sync");
@@ -311,6 +318,7 @@ fn main() {
         host_epoch += start.elapsed().as_secs_f64();
     }
     let host_epoch = host_epoch / EPOCHS as f64;
+    // no epoch timer here: the per-phase syncs already bracket all of it
     for _ in 0..EPOCHS {
         (model, _) = inline_epoch(model, &mut parts, &decoder, Some(&device), &mut dev);
     }
@@ -332,8 +340,8 @@ fn create_output(out: &Path) -> std::io::Result<()> {
 
 /// The report: the library's epoch, the phases unsynced and synced, the reconciliation.
 fn write_report(
-    host: &[f64; 7],
-    dev: &[f64; 7],
+    host: &[f64; N_PHASES],
+    dev: &[f64; N_PHASES],
     steps: usize,
     host_epoch: f64,
     lib: &Library,
@@ -385,18 +393,28 @@ fn write_report(
         .unwrap();
     }
     let host_sum: f64 = host.iter().sum::<f64>() / EPOCHS as f64;
+    let copy_gap = (host_epoch - lib.epoch) / lib.epoch;
+    let faithful = if copy_gap.abs() <= FAITHFUL {
+        format!("the copy is faithful, within {:.0} %", 100.0 * FAITHFUL)
+    } else {
+        format!(
+            "**above {:.0} %: the copy is not faithful; the phase table does not describe \
+             `train_epoch`**",
+            100.0 * FAITHFUL
+        )
+    };
     writeln!(
         r,
         "| **sum** | | | **{device_epoch:.4}** | 100 % |\n\n\
          ## Reconciliation\n\n\
          - Inline loop, unsynced, epoch (synced at its ends): {host_epoch:.4} s, against \
-         `train_epoch`'s {:.4} s ({:+.1} %; the copy is faithful within 10 %).\n\
+         `train_epoch`'s {:.4} s ({:+.1} %; {faithful}).\n\
          - Host time issuing the phases, summed: {host_sum:.4} s per epoch ({:.0} % of the \
          unsynced epoch; near 100 % means the host, not the device, sets the pace).\n\
          - Synced phases, summed: {device_epoch:.4} s per epoch ({:+.1} % against \
          `train_epoch`; the syncs' own cost and the lost overlap).",
         lib.epoch,
-        100.0 * (host_epoch - lib.epoch) / lib.epoch,
+        100.0 * copy_gap,
         100.0 * host_sum / host_epoch,
         100.0 * (device_epoch - lib.epoch) / lib.epoch
     )

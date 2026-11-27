@@ -75,8 +75,8 @@ reference arms; changes it suggests are later work.
 - Conventions: none.
 
 ## Tests that prove it
-- Unit test in the example (run by `cargo test`): the per-phase summary (`Phases::mean`,
-  the per-epoch scaling and the shares) against numbers by hand.
+- Unit test in the example (run by `cargo test`): the per-phase summary (`rows`: the
+  per-step and per-epoch scaling and the shares) against numbers by hand (`rows_by_hand`).
 - The measurement validates itself: the unsynced inline epoch against the library's
   `train_epoch` epoch (the copy is faithful within 10 %, reported); the synced sum against
   the library epoch (the sync's own cost, reported, not a pass mark).
@@ -107,31 +107,28 @@ cd ~/sciml-rs && git fetch origin
 git worktree add --detach ~/sciml-rs-wt/co0-3 origin/optimisers/co0-3
 cd ~/sciml-rs-wt/co0-3
 find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
-source ~/sciml-gpu.sh
-export CARGO_TARGET_DIR=~/sciml-rs-target/co0-3
-tmux new -d -s co0-3 "CUDA_VISIBLE_DEVICES=0 cargo run --release --no-default-features --features cuda --example adam_profile -- ~/sciml-rs/logs/co0-3/burn023.md 2>&1 | tee ~/sciml-rs/logs/co0-3/burn023.log"
+tmux new -d -s co0-3 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/co0-3; CUDA_VISIBLE_DEVICES=0 cargo run --release --no-default-features --features cuda --example adam_profile -- ~/sciml-rs/logs/co0-3/burn023.md 2>&1 | tee ~/sciml-rs/logs/co0-3/burn023.log"
 
-# B: the fork (after A has finished): 4541f02 with the example copied in, uncommitted
+# B: the fork (after A has finished): 4541f02 with the example copied in, uncommitted.
+# 4541f02 has no cubek.toml, so the fork runs on its own TF32 default, as CO0.1's fork runs did.
 cd ~/sciml-rs
 git worktree add --detach ~/sciml-rs-wt/co0-3-fork 4541f02
 cd ~/sciml-rs-wt/co0-3-fork
 git checkout origin/optimisers/co0-3 -- examples/profile/adam_profile.rs
 printf '\n[[example]]\nname = "adam_profile"\npath = "examples/profile/adam_profile.rs"\n' >> Cargo.toml
 find ~/sciml-rs/datasets -mindepth 1 -maxdepth 1 ! -name README.md -exec ln -s {} datasets/ \;
-source ~/sciml-gpu.sh
-export CARGO_TARGET_DIR=~/sciml-rs-target/co0-3-fork   # its own cache: another Burn, and the same binary name
-tmux new -d -s co0-3-fork "CUDA_VISIBLE_DEVICES=0 cargo run --release --no-default-features --features cuda --example adam_profile -- ~/sciml-rs/logs/co0-3/fork.md 2>&1 | tee ~/sciml-rs/logs/co0-3/fork.log"
+tmux new -d -s co0-3-fork "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/co0-3-fork; CUDA_VISIBLE_DEVICES=0 cargo run --release --no-default-features --features cuda --example adam_profile -- ~/sciml-rs/logs/co0-3/fork.md 2>&1 | tee ~/sciml-rs/logs/co0-3/fork.log"
 
-# C: Burn 0.23 with TF32 on (after B): #119 also turned TF32 off; this isolates that change
+# C: Burn 0.23 with TF32 on (after B): #119 also turned TF32 off; this isolates that change.
+# cubek.toml is read when the binary runs, so it is restored inside the session, after the run.
 cd ~/sciml-rs-wt/co0-3
 sed -i 's/allow_tf32 = false/allow_tf32 = true/' cubek.toml && grep allow_tf32 cubek.toml
-source ~/sciml-gpu.sh
-export CARGO_TARGET_DIR=~/sciml-rs-target/co0-3
-tmux new -d -s co0-3-tf32 "CUDA_VISIBLE_DEVICES=0 cargo run --release --no-default-features --features cuda --example adam_profile -- ~/sciml-rs/logs/co0-3/burn023-tf32.md 2>&1 | tee ~/sciml-rs/logs/co0-3/burn023-tf32.log"
-git checkout cubek.toml
+tmux new -d -s co0-3-tf32 "source ~/sciml-gpu.sh; export CARGO_TARGET_DIR=~/sciml-rs-target/co0-3; CUDA_VISIBLE_DEVICES=0 cargo run --release --no-default-features --features cuda --example adam_profile -- ~/sciml-rs/logs/co0-3/burn023-tf32.md 2>&1 | tee ~/sciml-rs/logs/co0-3/burn023-tf32.log; git checkout cubek.toml"
 ```
 
-The fork's target dir is a sibling of the one asked for (`co0-3-fork`): both builds name
+`source` and `export` sit inside each tmux command: a tmux server already running gives a
+new session its own environment, not the calling shell's (plan review, 2026-11-27). The
+fork's target dir is a sibling of the one asked for (`co0-3-fork`): both builds name
 their binary `release/examples/adam_profile`, and another Burn shares nothing with the
 first build anyway. Afterwards the three `.md` reports (and logs) come back to the Mac; the
 two worktrees are removed (`git -C ~/sciml-rs worktree remove ~/sciml-rs-wt/co0-3` and
@@ -151,7 +148,15 @@ on their own: they fill the profile table and the "where the extra time goes" li
   example's own scratch checkpoint (in the system temp directory, removed at the end).
 
 ## Pending runs
-A, B and C above (not started; the orchestrator runs them).
+A, B and C above (not started; the orchestrator runs them). Reports and logs in
+`~/sciml-rs/logs/co0-3/` on the VM.
+
+Done on the Mac (2026-11-27, metal, M2 Pro; timings are not results): the example builds
+and runs to its report on this branch and, unchanged, at `4541f02` (a scratch worktree
+with the file copied in and the `[[example]]` entry appended, as in B). Each run alone, the
+inline copy against `train_epoch`: −5.3 % on Burn 0.23, −0.0 % on the fork. A first fork
+smoke that overlapped the Burn 0.23 one on the same GPU read +162 %, so the runs must not
+share the device.
 
 ## Open questions
 None blocking.
