@@ -1,6 +1,6 @@
 //! Gauss–Newton training (Phase 10 T3; design §13.17), of the FNO and, since library
-//! CM0.3, of any [`GridOperator`]: [`GridResidual`], the least-squares residual, and [`train_epoch_gn`], one epoch of
-//! [`GaussNewton`] steps, the counterpart of
+//! CM0.3, of any [`GridOperator`]: [`GridResidual`], the least-squares residual, and
+//! [`train_epoch_gn`], one epoch of [`GaussNewton`] steps, the counterpart of
 //! [`train_epoch`](crate::neural_operators::training::trainer::train_epoch).
 
 use std::marker::PhantomData;

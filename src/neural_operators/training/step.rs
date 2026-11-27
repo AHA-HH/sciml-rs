@@ -156,13 +156,12 @@ pub(crate) fn squared_rel_l2(out: Tensor<2>, target: Tensor<2>) -> Tensor<1> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neural_operators::models::fno::FNO;
     use crate::neural_operators::{
         data::{
             dataset::OperatorDataset, device_batcher::device_loader,
             transforms::normalizers::UnitGaussianNormalizer,
         },
-        models::fno::FNOConfig,
+        models::fno::{FNO, FNOConfig},
         training::fixtures::{tiny_dataset, tiny_dataset_2d, tiny_model_cfg},
     };
 
