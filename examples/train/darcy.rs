@@ -74,6 +74,10 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
         lifting_channel_ratio: None,
         projection_channel_ratio: None,
         positional_embedding: None,
+        conv_bias: None,
+        separable: None,
+        max_modes: None,
+        tanh_stabilizer: None,
     };
 
     let default_seed = TrainingConfig::new().seed;
@@ -124,6 +128,8 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
 }
 
 fn main() {
+    // the commit at the start: the checkout may move during the run (CO0.4)
+    let git_commit = sciml_rs::neural_operators::utils::backend::git_commit();
     let device = Device::default().autodiff();
     println!("device: {device:?}");
 
@@ -193,6 +199,7 @@ fn main() {
             device: format!("{device:?}"),
             num_params: model.num_params(),
             resumes,
+            git_commit,
         },
     );
 

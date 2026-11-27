@@ -8,9 +8,9 @@
 use burn::{
     Tensor,
     config::Config,
-    module::Module,
+    module::{Module, Param},
     nn::{
-        Linear, LinearConfig,
+        Initializer, Linear, LinearConfig,
         conv::{Conv1d, Conv1dConfig},
     },
     tensor::{
@@ -108,6 +108,21 @@ pub struct FNOConfig {
     /// The coordinate channels (2.0.0's `positional_embedding`); `None` is CONVENTIONS §2's
     /// grid.
     pub positional_embedding: Option<PositionalEmbedding>,
+    // The options of 2.0.0's centred `SpectralConv` and its stabiliser (library CM1.5a).
+    // Each `None` is today's model, and an `Option` so that saved configs load as `None`.
+    /// The spectral convolution's bias (2.0.0's `SpectralConv` `bias`, default on): `[W]` per
+    /// layer, added to the convolution's output, before the norm. `None` is `false`.
+    pub conv_bias: Option<bool>,
+    /// Separable spectral weights (2.0.0's `separable`): one weight per channel and mode
+    /// ([`SpectralConv::new_separable`]). `None` is `false`.
+    pub separable: Option<bool>,
+    /// The modes stored per axis (2.0.0's `max_n_modes`), counted as [`FNOConfig::modes`],
+    /// of which the leading `modes` are used ([`SpectralConv::with_modes`]). `None` is
+    /// `modes`.
+    pub max_modes: Option<Vec<usize>>,
+    /// `tanh` on each convolution's input (2.0.0's `stabilizer="tanh"`); the skips take the
+    /// input before it. `None` is `false`.
+    pub tanh_stabilizer: Option<bool>,
 }
 
 /// The FNO's coordinate channels other than CONVENTIONS §2's grid
@@ -206,6 +221,11 @@ pub struct FNO<const R: usize> {
     /// [`FNOConfig::positional_embedding`]; not a parameter.
     #[module(skip)]
     positional_embedding: Option<PositionalEmbedding>,
+    /// Each layer's convolution bias, `[W]`, when [`FNOConfig::conv_bias`] is set (library
+    /// CM1.5a); empty otherwise.
+    conv_biases: Vec<Param<Tensor<1>>>,
+    /// [`FNOConfig::tanh_stabilizer`].
+    tanh_stabilizer: bool,
 }
 
 impl FNOConfig {
@@ -213,8 +233,10 @@ impl FNOConfig {
     ///
     /// # Panics
     /// If `modes.len() != R - 2`, if a [`PositionalEmbedding::GridNd`] has not `R - 2`
-    /// boundaries, or if [`FNOConfig::projection_channel_ratio`] gives a width of 0. Modes
-    /// that do not fit the grid panic later, in [`FNO::forward`].
+    /// boundaries, if [`FNOConfig::projection_channel_ratio`] gives a width of 0, or if
+    /// [`FNOConfig::max_modes`] has a count below `modes`' or not `R - 2` entries
+    /// ([`SpectralConv::with_modes`]). Modes that do not fit the grid panic later, in
+    /// [`FNO::forward`].
     pub fn init<const R: usize>(&self, device: &Device) -> FNO<R> {
         assert_eq!(
             self.modes.len() + 2,
@@ -245,6 +267,8 @@ impl FNOConfig {
         fn layers<T>(n: usize, build: impl Fn() -> T) -> Vec<T> {
             (0..n).map(|_| build()).collect()
         }
+        let stored = self.max_modes.as_deref().unwrap_or(&self.modes);
+        let init = self.spectral_init.clone().unwrap_or_default();
         let skips = |kind: Option<&SkipKind>| match kind {
             Some(kind) => layers(self.n_layers, || kind.init(width, width, device)),
             None => Vec::new(),
@@ -259,13 +283,15 @@ impl FNOConfig {
 
             conv: (0..self.n_layers)
                 .map(|_| {
-                    SpectralConv::<R>::new_with_init(
-                        device,
-                        self.hidden_channels,
-                        self.hidden_channels,
-                        &self.modes,
-                        self.spectral_init.clone().unwrap_or_default(),
-                    )
+                    let conv = if self.separable == Some(true) {
+                        SpectralConv::<R>::new_separable(device, width, stored, init.clone())
+                    } else {
+                        SpectralConv::<R>::new_with_init(device, width, width, stored, init.clone())
+                    };
+                    match self.max_modes {
+                        Some(_) => conv.with_modes(&self.modes),
+                        None => conv,
+                    }
                 })
                 .collect(),
 
@@ -303,6 +329,15 @@ impl FNOConfig {
                 .map(|l| vec![LinearConfig::new(l, width).init(device)])
                 .unwrap_or_default(),
             positional_embedding: self.positional_embedding.clone(),
+            conv_biases: match self.conv_bias {
+                // 2.0.0's `init_std="auto"`, √(2 / (in + out)), times a standard normal.
+                Some(true) => layers(self.n_layers, || {
+                    let std = (2.0 / (2 * width) as f64).sqrt();
+                    Initializer::Normal { mean: 0.0, std }.init([width], device)
+                }),
+                _ => Vec::new(),
+            },
+            tanh_stabilizer: self.tanh_stabilizer == Some(true),
         }
     }
 }
@@ -473,7 +508,7 @@ impl<const R: usize> FNO<R> {
     fn post_block(&self, idx: usize, x: Tensor<R>, embedding: Option<&Tensor<1>>) -> Tensor<R> {
         let last = idx + 1 == self.conv.len();
         let mlp_skip = self.channel_mlp_skip(idx, &x);
-        let x_fno = self.norm(2 * idx, self.conv[idx].forward(x.clone()), embedding);
+        let x_fno = self.norm(2 * idx, self.spectral(idx, x.clone()), embedding);
         let mut x = x_fno + self.fno_skip(idx, x);
         if !last {
             x = self.activate(x);
@@ -490,12 +525,28 @@ impl<const R: usize> FNO<R> {
         let last = idx + 1 == self.conv.len();
         let x = self.norm(2 * idx, self.activate(x), embedding);
         let mlp_skip = self.channel_mlp_skip(idx, &x);
-        let mut x = self.conv[idx].forward(x.clone()) + self.fno_skip(idx, x);
+        let mut x = self.spectral(idx, x.clone()) + self.fno_skip(idx, x);
         if !last {
             x = self.activate(x);
         }
         let x = self.norm(2 * idx + 1, x, embedding);
         self.channel_mlp(idx, x, mlp_skip)
+    }
+
+    /// Layer `idx`'s spectral convolution of `x` (`[B, W, s..]`): `tanh` first with
+    /// [`FNOConfig::tanh_stabilizer`], the bias after with [`FNOConfig::conv_bias`], as in
+    /// 2.0.0's `FNOBlocks`; the convolution alone with neither.
+    fn spectral(&self, idx: usize, x: Tensor<R>) -> Tensor<R> {
+        let x = if self.tanh_stabilizer { tanh(x) } else { x };
+        let y = self.conv[idx].forward(x);
+        match self.conv_biases.get(idx) {
+            Some(bias) => {
+                let mut shape = [1; R];
+                shape[1] = bias.dims()[0];
+                y + bias.val().reshape(shape)
+            }
+            None => y,
+        }
     }
 
     /// Layer `idx`'s FNO skip: the configured one, or the original `w`.

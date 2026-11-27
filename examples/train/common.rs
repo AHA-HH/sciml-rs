@@ -26,7 +26,7 @@ use sciml_rs::neural_operators::{
         config::{LbfgsArm, LrSchedule, OptimizerConfig, TrainingConfig},
         gn::training_passes,
     },
-    utils::backend::{backend_features, git_commit},
+    utils::backend::backend_features,
 };
 use std::fmt::Display;
 use std::str::FromStr;
@@ -341,6 +341,8 @@ pub struct Measured {
     pub num_params: usize,
     /// Times the run was resumed.
     pub resumes: usize,
+    /// The commit the session started from, read before training.
+    pub git_commit: String,
 }
 
 /// `costs.json` of a run trained on `n_train` samples, without dataset sidecars: `m` and
@@ -403,7 +405,7 @@ pub fn run_costs(
         peak_gpu_memory: "unavailable".to_string(),
         backend_features: backend_features().into_iter().map(String::from).collect(),
         device: m.device,
-        git_commit: git_commit(),
+        git_commit: m.git_commit,
         num_params: m.num_params,
         optimisation_steps: Some(steps),
         resumes: Some(m.resumes),

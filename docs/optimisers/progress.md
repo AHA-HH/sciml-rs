@@ -307,6 +307,27 @@ template:
 - Follow-ups: CO1.3 (long-budget `EPOCHS`, G0-200's `EPOCHS` cap, grouping by config) and
   CO1.4 (full-batch Darcy on one A100), in their roadmap lines.
 
+## 2026-11-27: CO0.4 Run provenance: the commit at the start, one directory per run
+- Done: `train_burgers`, `train_darcy` and `train_poisson` read the commit first thing in
+  `main` (before the session, new or `--resume`) and carry it in `common::Measured` to
+  `costs.json`; a resumed run records the resuming session's commit, as before.
+  `RunDir::create` makes `<name>_<unix_secs>` with `create_dir` and on `AlreadyExists`
+  takes `<name>_<unix_secs>_<k>`, k = 1, 2, …; names are unchanged unless two collide.
+- Tests: `runs::tests::create_twice_in_one_second_gives_two_directories` (three creates
+  at one second: `run_100`, `run_100_1`, `run_100_2`).
+- Checks: fmt, clippy (lib, examples, all targets, datagen all targets), `cargo test` (533
+  passed), `cargo test --features datagen` (620 passed), `cargo doc` pass.
+- Decisions: none; question for sign-off: the collided name's form (CO0.5 (1)).
+- Review: plan review PASS with advisories (resume records the resuming commit, in the
+  PR; `start_ms` follow-up, CO0.5); code quality APPROVE with findings (F1 `start_ms`,
+  CO0.5 and the PR's question; F2 the full path to `git_commit` kept to leave
+  `poisson.rs`'s imports to CO2.1; F3 as the plan review's advisory; F4 CO0.5 (2)).
+- Adam and Gauss–Newton: unchanged bit for bit: `EPOCHS=2 train_burgers` on flex at
+  `655fabc` and `fd05eb9`: configs and `plots.png` equal, `metrics.csv` equal but
+  `epoch_time_s`, `costs.json` equal but the times and the commit, `model_weights.bpk`
+  equal but Burn's random `param_id`s in its header (bytes 97–1710).
+- Follow-ups: CO0.5 (`start_ms` on a collided name; `train_poisson3d`'s commit).
+
 ## 2026-11-27: CO2.1 The L-BFGS arm
 - Done: `OptimizerConfig::Lbfgs(LbfgsArm)` (Burn's `LBFGSConfig`, lr 1, μ);
   `training/lbfgs.rs`, `train_epoch_lbfgs`: one `LBFGS::step` per epoch on the full batch
@@ -332,4 +353,3 @@ template:
   aside).
 - Follow-ups: CO2.2's line (`max_eval` per cell; whether updates are needed); CO3.3's line
   (the code-quality review's F1, F3, F4, F8).
-

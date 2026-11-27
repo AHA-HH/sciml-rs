@@ -10,7 +10,10 @@ use sciml_rs::neural_operators::{
     models::fno::{Activation, BlockMlpConfig, FNO, FNOConfig},
 };
 
-use crate::parity_common::{Fixture, MapEntry, Take, assert_parity, load_into_part};
+use crate::{
+    fno_map::{block_defaults as defaults, block_parts, leak},
+    parity_common::{Fixture, MapEntry, Precision, Take, check_d3, load_into_part},
+};
 
 /// The FNO and, for AdaIN, the fixture's embedding as a test-only parameter.
 #[derive(Module, Debug)]
@@ -30,14 +33,6 @@ pub struct Case {
     pub n_modes: &'static [usize],
     /// The block options on top of `FNOConfig`'s; the map follows them.
     pub options: fn(FNOConfig) -> FNOConfig,
-}
-
-/// 2.0.0's defaults: GELU, the linear (bias-free) FNO skip, the channel MLP of expansion 0.5
-/// with a soft-gating skip.
-fn defaults(c: FNOConfig) -> FNOConfig {
-    c.with_activation(Some(Activation::Gelu))
-        .with_fno_skip(Some(SkipKind::Linear))
-        .with_channel_mlp(Some(BlockMlpConfig::new()))
 }
 
 fn pre(c: FNOConfig) -> FNOConfig {
@@ -133,90 +128,19 @@ fn corner(i: usize, d: usize) -> usize {
     (0..d - 1).fold(0, |c, j| c | ((i >> (d - 2 - j)) & 1) << j)
 }
 
-/// The map, for the block `options` build, from 2.0.0's `FNOBlocksRun` names to the `Blocks` paths. Burn names an enum
-/// module's parameters after the variant (`Linear`, `SoftGating`, `Group`, `AdaIn`).
+/// The map, for the block `options` build, from 2.0.0's `FNOBlocksRun` names to the
+/// `Blocks` paths: the legacy convolution's corners, then the shared block parts.
 fn map(d: usize, options: &FNOConfig) -> Vec<MapEntry> {
-    let n_layers = options.n_layers;
-    // Test-only: leaked so the harness's `&'static str` entries can be built in a loop.
-    let s = |x: String| -> &'static str { x.leak() };
     let mut m = Vec::new();
-    let skip = |m: &mut Vec<MapEntry>, from: String, to: String, kind: &Option<SkipKind>| {
-        match kind {
-            // 2.0.0's linear skip is a `Flattened1dConv`, its weight `conv.weight`.
-            Some(SkipKind::Linear) => m.push((
-                s(format!("{from}.conv.weight")),
-                s(format!("{to}.Linear.weight")),
-                Take::Whole,
-            )),
-            Some(SkipKind::SoftGating) => m.push((
-                s(format!("{from}.weight")),
-                s(format!("{to}.SoftGating")),
-                Take::Whole,
-            )),
-            Some(SkipKind::Identity) | None => {}
-        }
-    };
-    for l in 0..n_layers {
+    for l in 0..options.n_layers {
         for i in 0..1 << (d - 1) {
-            let from = s(format!("fno_blocks.convs.{l}.weight.{i}.tensor"));
+            let from = leak(format!("fno_blocks.convs.{l}.weight.{i}.tensor"));
             let c = corner(i, d);
-            m.push((from, s(format!("fno.conv.{l}.weights_re.{c}")), Take::Re));
-            m.push((from, s(format!("fno.conv.{l}.weights_im.{c}")), Take::Im));
-        }
-        skip(
-            &mut m,
-            format!("fno_blocks.fno_skips.{l}"),
-            format!("fno.fno_skips.{l}"),
-            &options.fno_skip,
-        );
-        if let Some(mlp) = &options.channel_mlp {
-            for k in 0..2 {
-                for p in ["weight", "bias"] {
-                    let path = format!("channel_mlp.{l}.fcs.{k}.{p}");
-                    m.push((
-                        s(format!("fno_blocks.{path}")),
-                        s(format!("fno.{path}")),
-                        Take::Whole,
-                    ));
-                }
-            }
-            skip(
-                &mut m,
-                format!("fno_blocks.channel_mlp_skips.{l}"),
-                format!("fno.channel_mlp_skips.{l}"),
-                &mlp.skip,
-            );
+            m.push((from, leak(format!("fno.conv.{l}.weights_re.{c}")), Take::Re));
+            m.push((from, leak(format!("fno.conv.{l}.weights_im.{c}")), Take::Im));
         }
     }
-    for k in 0..2 * n_layers {
-        let (from, to) = (format!("fno_blocks.norm.{k}"), format!("fno.norms.{k}"));
-        match options.norm {
-            Some(NormKind::Group) => {
-                m.push((
-                    s(format!("{from}.weight")),
-                    s(format!("{to}.Group.gamma")),
-                    Take::Whole,
-                ));
-                m.push((
-                    s(format!("{from}.bias")),
-                    s(format!("{to}.Group.beta")),
-                    Take::Whole,
-                ));
-            }
-            Some(NormKind::AdaIn { .. }) => {
-                for (t, b) in [(0, "fc_hidden"), (2, "fc_out")] {
-                    let (f, t) = (format!("{from}.mlp.{t}"), format!("{to}.AdaIn.{b}"));
-                    m.push((
-                        s(format!("{f}.weight")),
-                        s(format!("{t}.weight")),
-                        Take::Transposed,
-                    ));
-                    m.push((s(format!("{f}.bias")), s(format!("{t}.bias")), Take::Whole));
-                }
-            }
-            Some(NormKind::Instance) | None => {}
-        }
-    }
+    m.extend(block_parts(options, "fno."));
     if embed_dim(options).is_some() {
         m.push(("embedding", "embedding", Take::Whole));
     }
@@ -248,8 +172,7 @@ pub fn check<const R: usize>(case: &Case, device: &Device) -> f64 {
         fno: config.init(device),
         embedding: embed_dim(&config).map(|e| Param::from_tensor(Tensor::zeros([e], device))),
     };
-    let name = format!("{}_f32", case.stem);
-    let mut fixture = Fixture::open(&name);
+    let mut fixture = Fixture::open_as(case.stem, Precision::F32);
     // Every block path; the lifting `fc0` and projection `fc1`, `fc2` are not in the fixture.
     let filter = PathFilter::new()
         .with_regex(r"^(embedding|fno\.(conv|w|fno_skips|channel_mlp|channel_mlp_skips|norms)\.)");
@@ -258,7 +181,5 @@ pub fn check<const R: usize>(case: &Case, device: &Device) -> f64 {
     let out = blocks
         .fno
         .fourier_layers(fixture.input::<R>(device), embedding);
-    let err = assert_parity(out, &fixture.output(), fixture.precision.d3(), &name);
-    println!("{name}: relative max error {err:.3e}");
-    err
+    check_d3(out, &mut fixture)
 }
