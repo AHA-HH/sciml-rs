@@ -26,9 +26,10 @@ outputs unchanged bit for bit). CM3.6 split 2026-11-27 into CM3.6a–b; CM3.6a d
 2026-11-27 (one name per concept: the FNO wrappers retired; FNO outputs, Adam, Gauss–Newton
 and L-BFGS, unchanged bit for bit); CM0.7 added (retire `Operator::NAME`, the author's
 decision of 2026-11-27). CM1.5c done 2026-11-27 (batch norm and 2.0.0's `fno_skip=None`;
-FNO outputs unchanged bit for bit). CM3.6b done 2026-11-27 (complex tensors: host Jacobi
-SVD, gesdd's phase and tensorly's rule; parity up to phase where 2.0.0's factors are
-ill-conditioned). Next CM0.7, CM1.5b, CM1.5d, CM3.6c.
+FNO outputs unchanged bit for bit). CM1.5b done 2026-11-27 (domain padding, resolution
+scaling, `resample`; FNO outputs unchanged bit for bit). CM3.6b done 2026-11-27 (complex
+tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to phase where
+2.0.0's factors are ill-conditioned). Next CM0.7, CM1.5d, CM3.6c.
 
 ## How to read this file
 
@@ -216,13 +217,16 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     (two `#[ignore]`d, ≤ 1.2e-8: Flex's f32 twiddles, 2.0.0's f32 grid); shared map pieces
     `tests/parity_common/fno_map.rs`. The f64 fixtures with f64 constants (CM1.4's plan
     review) are not needed while Flex's f64 `rfft` uses f32 twiddles.
-  - [ ] **CM1.5b Domain padding and resampling.** 2.0.0's `DomainPadding` (symmetric, a
+  - [x] **CM1.5b Domain padding and resampling.** 2.0.0's `DomainPadding` (symmetric, a
     fraction of the resolution, unpadded at the scaled size) as an FNO option beside
     CONVENTIONS §3's one-sided `padding`; `resample` (linear in 1D, bicubic in 2D, Fourier
     for three or more axes) and the convolution's output size (`resolution_scaling_factor`
     per layer, `forward`'s `output_shape`). *Done when:* fixtures with padding and with
     scaling factors, 1D–3D, pass through `FNO` within D3 in f32; the dumps equal `main`'s.
-    *Needs:* CM1.5a.
+    *Needs:* CM1.5a. Done 2026-11-27: plan `docs/operators/tasks/CM1.5b.md`;
+    `FNOConfig::{domain_padding, resolution_scaling_factor}`, `FNO::forward_with_output_shape`,
+    `SpectralConv::forward_to`, `layers::resample`; `tests/parity_fno.rs` (eight fixtures,
+    f32 ≤ 1.1e-6); CONVENTIONS §3's `padding` rejected with scaling or an output shape.
   - [x] **CM1.5c Batch norm.** `NormKind::Batch` as 2.0.0's `batch_norm` (eval mode: the
     running statistics), and 2.0.0's `fno_skip=None`: the author decided 2026-11-27 (CM1.5a
     PR question 1) yes, a block with no FNO skip at all, taken in this task, with
@@ -248,7 +252,12 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     Burn's `Config` derive gives fields no serde default and a plain `bool` would fail to
     load older `model_cfg.json` files; every new option follows it, and this task may add a
     test loading an old `model_cfg.json`; `parity_common::fno::output`'s map hook replaced by a load step
-    the control can corrupt (F6). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
+    the control can corrupt (F6). From CM1.5b's code-quality review: `fft_ctensor` and
+    `ifft_ctensor` moved to `utils/fft.rs`, with one inverse that resizes and scales for
+    `SpectralConv::forward_to` and `resample` (F2, F3); `spectral_convolution.rs`'s tests in a
+    file of their own (F6); one per-axis `(lo, hi)` padding in `FNO` for CONVENTIONS §3's
+    `padding` and `domain_padding`, one pad and one crop that knows the scale, so `padding`
+    works with scaling and the exclusivity asserts go (R2-1). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
     *Needs:* CM1.5a.
 - **CM1.6 Losses.** H1, Hdiv, quantile, MSE; `WeightedSumLoss`,
   `FieldwiseAggregatorLoss`, SoftAdapt, Relobralo; the grid derivatives of

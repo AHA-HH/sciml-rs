@@ -7,6 +7,7 @@ mod embedding;
 mod grid;
 mod padding;
 mod reference;
+mod resolution;
 mod spectral;
 
 use super::*;

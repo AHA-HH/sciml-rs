@@ -78,6 +78,8 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, DarcyConfig) {
         separable: None,
         max_modes: None,
         tanh_stabilizer: None,
+        domain_padding: None,
+        resolution_scaling_factor: None,
     };
 
     let default_seed = TrainingConfig::new().seed;
