@@ -353,6 +353,8 @@ fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig
 }
 
 fn main() {
+    // the commit at the start: the checkout may move during the run (CO0.4)
+    let git_commit = sciml_rs::neural_operators::utils::backend::git_commit();
     let devices = train_devices();
     let device = devices[0].clone();
     let (run, model_cfg, train_cfg, dataset_cfg, resume) =
@@ -447,6 +449,7 @@ fn main() {
         device: device_name,
         num_params: model.num_params(),
         resumes,
+        git_commit,
     };
     let costs = RunCosts {
         dataset_train_wall_time_s: Some(train_sidecar.wall_time_s),

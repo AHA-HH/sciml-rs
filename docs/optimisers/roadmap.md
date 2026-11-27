@@ -23,7 +23,9 @@ O1 cell runs from `train_burgers` and `train_darcy` (`EPOCHS` added, the author'
 2026-11-26); next CO1.3 on the VM, and `training/` free for CO2.1, CO1.5, CM0.6, CO3.3.
 CO0.1 done 2026-11-27 (B = 2,952 s, E = 915; D1 cap 150): at equal time GN200-D at μ = 0
 is ahead of Adam on average (6.34e-3 against 1.03e-2, 4 of 5 seeds), at 5,400 s on all
-three; next in O0 CO0.3 (the Adam step profile), and CO0.4.
+three; next in O0 CO0.3 (the Adam step profile), and CO0.4. CO0.4 done 2026-11-27: the
+training examples read the commit at the start, and `RunDir::create` never reuses a
+directory; its leftovers are CO0.5.
 
 ## How to read this file
 
@@ -92,7 +94,7 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   about 24 %. *Done when:* the profile table and where the extra time goes (nothing changed
   here; a fix, if any, is a later task, since it would move the equal-time budget).
   *Needs:* –. *Machines:* the VM.
-- [ ] **CO0.4 Run provenance: the commit at the start, one directory per run.** Two
+- [x] **CO0.4 Run provenance: the commit at the start, one directory per run.** Two
   faults CO0.1 hit. (1) `train_poisson` and `train_burgers` call `git_commit()` (`git
   rev-parse HEAD` in the source checkout) when they write `costs.json` at the end of a run,
   so a checkout moved during a run records the wrong commit (CO0.1's seeds 42 and 44
@@ -104,7 +106,18 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   `<name>_<unix_secs>_<k>`. Names are unchanged unless two collide; no model output moves.
   Follow-ups of CO0.1 (the author, 2026-11-26), outside O0's gate. *Done when:* both
   examples read the commit before training; a test creates two run directories of one name
-  in the same second and gets two directories. *Needs:* –. *Machines:* the Mac.
+  in the same second and gets two directories. *Needs:* –. *Machines:* the Mac. Done
+  2026-11-27: plan `docs/optimisers/tasks/CO0.4.md`; `train_darcy` fixed with them.
+- [ ] **CO0.5 Provenance leftovers of CO0.4.** (1) `tracking::builder::start_ms` reads a run
+  directory's last `_` segment as its start second, so a collided `<name>_<secs>_<k>`
+  exports to MLflow with a start time k s after 1970; `_<k>` cannot be told from a
+  stamp by its text, so the fix is the suffix's form (`<name>_<k>_<secs>`, or `-<k>`) or
+  the start time read from elsewhere: the author's choice (CO0.4's PR, question 1).
+  (2) `train_poisson3d` (laplace3d) still reads the commit when it writes `costs.json`:
+  read it at the start, as CO0.4's examples do, once CL4.2 has merged (it runs that
+  example). *Done when:* a test exports a collided directory with its true start time;
+  `train_poisson3d` reads the commit before training. *Needs:* CO0.4, CL4.2.
+  *Machines:* the Mac.
 
 ## O1: The Burgers replication and the Darcy extension
 
