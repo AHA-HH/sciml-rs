@@ -148,9 +148,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   `model_cfg.json`, absent meaning `"fno"`; `ModelConfig` and `Model<R>`, one enum variant
   per kind, built by name; `RunDir::any_model_config`),
   `models/predict.rs` (`predict_host`: batched inference to host f64, any rank, any
-  `GridOperator`), `layers/spectral_convolution.rs`
+  `GridOperator`), `layers/spectral_convolution/`
   (SpectralConv, SpectralInit; since library CM1.2 `new_separable` and `with_modes`, modes
-  below the stored ones), `layers/{channel_mlp,skip,norm}.rs` (library CM1.3a:
+  below the stored ones; tests in `tests.rs` since CM1.5e), `layers/{channel_mlp,skip,norm}.rs` (library CM1.3a:
   2.0.0's `ChannelMlp`, `SkipKind`/`Skip<R>`, `AdaIn`; `layers/pointwise.rs`, the shared
   `conv1x1`; activations are Burn's `ActivationConfig`, instance and group norm Burn's;
   parity in `tests/parity_block_parts*.rs`; since CM1.3b `norm::{NormKind, Norm}`, the
@@ -178,7 +178,9 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
   npz/.mat, transforms: normalizers and `take_strided`; `host_oracle` is the test-only host
   batcher), `metrics/` (Poisson
   errors, `ErrorStats`; `pod`, behind `datagen`: `Pod`, the weighted POD of a snapshot set, by LAPACK `gesvd`
-  since Accelerate's `gesdd` returned wrong singular values), `utils/fft.rs` (icfft_full_spectrum), `utils/backend.rs`
+  since Accelerate's `gesdd` returned wrong singular values), `utils/fft.rs` (icfft_full_spectrum; since library CM1.5e the spectral layers' N-d
+  transforms `fft_ctensor`, `ifft_ctensor` and `ifft_ctensor_to`, the inverse to a new size at
+  2.0.0's forward-norm amplitude), `utils/backend.rs`
   (`backend_features`, `git_commit`).
 - `training/`: `config` (`TrainingConfig`; since Phase 10 T3 `optimizer`, an
   `OptimizerConfig`, `None` meaning Adam; since T5 `adam_epochs`, the Hybrid arm's Adam

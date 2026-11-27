@@ -33,7 +33,9 @@ tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to phase 
 name is `OperatorConfig::KIND`; FNO outputs unchanged bit for bit). CM3.6c done 2026-11-27
 (the projector's periodic factor refresh, opt-in, off by default; 2.0.0's parity unchanged).
 CM1.5d split 2026-11-27 into CM1.5d–f; CM1.5d done 2026-11-27 (the FNO's config rule, one
-padding, one grid builder; FNO outputs unchanged bit for bit). Next CM1.5e.
+padding, one grid builder; FNO outputs unchanged bit for bit). CM1.5e done 2026-11-27 (the
+spectral layer split, the FFTs in `utils/fft.rs`; FNO outputs unchanged bit for bit). Next
+CM1.5f.
 
 ## How to read this file
 
@@ -267,12 +269,17 @@ the aggregators exist; one training-parity run on the 2D Poisson baseline.
     scaling, `padding` changing no extent); `layers::embedding::coordinate_channels`; the
     literals outside `training/` (`training/fixtures.rs` keeps one, and `models/predict.rs`
     one struct update, `modes` having no `with_`); the dumps identical to `main`.
-  - [ ] **CM1.5e The spectral layer and the FFTs.** `layers/spectral_convolution.rs`
+  - [x] **CM1.5e The spectral layer and the FFTs.** `layers/spectral_convolution.rs`
     (over 1,000 lines with its tests) split as `optim/soap/` is, its tests in a file of
     their own (CM1.2; CM1.5b F6); `fft_ctensor` and `ifft_ctensor` moved to `utils/fft.rs`,
     with one inverse that resizes and scales for `SpectralConv::forward_to` and `resample`
     (CM1.5b F2, F3). *Done when:* the dumps equal `main`'s and `gpu_parity` passes on Metal.
-    *Needs:* CM1.5a.
+    *Needs:* CM1.5a. Done 2026-11-27: plan `docs/operators/tasks/CM1.5e.md`;
+    `layers/spectral_convolution/{mod,tests}.rs`; `utils/fft.rs`'s `fft_ctensor`,
+    `ifft_ctensor`, `ifft_ctensor_to` (the inverse and `N_out / N_in` scale, each caller
+    keeping its own spectrum resize); the dumps identical to `main`. Follow-up: CONVENTIONS
+    §4 still names `SpectralConv::fft_ctensor` (a reference, no convention change; the PR's
+    question 1).
   - [ ] **CM1.5f The parity harness.** One shared biased test layer for `legacy_conv.rs`
     and `centred_conv.rs`; converted arrays passed to `load_into` with `Fixture`'s fields
     private (CM1.2); CM0.5's test-only `Fno1dRef` (`tests/parity_common/fno1d.rs`,
