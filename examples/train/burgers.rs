@@ -176,6 +176,8 @@ fn new_run() -> (RunDir, FNOConfig, TrainingConfig, BurgersConfig) {
 }
 
 fn main() {
+    // the commit at the start: the checkout may move during the run (CO0.4)
+    let git_commit = sciml_rs::neural_operators::utils::backend::git_commit();
     // Set the device for the underlying compute backend
     // .autodiff() wraps the backend to enable automatic differentiation for the tensors
     let device = Device::default().autodiff();
@@ -246,6 +248,7 @@ fn main() {
             device: format!("{device:?}"),
             num_params: model.num_params(),
             resumes,
+            git_commit,
         },
     );
 
