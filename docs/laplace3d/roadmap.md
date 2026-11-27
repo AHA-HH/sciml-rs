@@ -15,8 +15,9 @@ CL3.1 (the 3D GRF; D3 confirmed 2026-11-24), CL3.2 (the 3D datasets of D5, n = 3
 written 2026-11-25; n = 65 generated on the Mac and uploaded to the VM), CL3.3 (the 3D
 loader, 2026-11-26; the N-D helpers in `chebyshev/tensor.rs`), CL3.4 (one sidecar writer
 for 2D and 3D, 2026-11-26), CL4.1 (`train_poisson3d`, `predict_poisson3d`, `evaluate_3d`,
-one per-sample error loop; a two-epoch n = 33 run on the Mac evaluated, 2026-11-26). D8
-signed off at the L0 gate. Next: CL4.2 (the VM); then CL3.5 and CL3.6 (L3 gate Q1).
+one per-sample error loop; a two-epoch n = 33 run on the Mac evaluated, 2026-11-26). CL3.5 (the
+exact 2D generator oracle, 2026-11-27; its *Needs* CL4.2 waived by the author). D8
+signed off at the L0 gate. Next: CL4.2 (the VM); CL3.6 (L3 gate Q1) after the author's go.
 
 ## How to read this file
 
@@ -168,10 +169,12 @@ dimension key with the first task that reads 3D sidecars).
 
 Follow-ups of the L3 gate (Q1), not part of its gate; they run after CL4.2:
 
-- [ ] **CL3.5 Exact 2D generator oracle.** L3 gate review finding 4: a test that pins the
+- [x] **CL3.5 Exact 2D generator oracle.** L3 gate review finding 4: a test that pins the
   2D `generate()`'s `f` and `u` bit for bit, in process (D2), on a small fixed split, beside
   the exact-bytes `files_round_trip`. Test-only. *Done when:* the test passes on `main`'s
-  code and fails on a one-ulp change to a label. *Needs:* CL4.2.
+  code and fails on a one-ulp change to a label. *Needs:* CL4.2, waived by the author
+  2026-11-27 (CL4.2's s = 64 runs on the VM; CL3.5 touches none of its files or runs).
+  Plan `docs/laplace3d/tasks/CL3.5.md` (`generate_is_bit_identical_to_frozen`; no report).
 - [ ] **CL3.6 One split type for 2D and 3D.** L3 gate review findings 1–3, 5, 7: one `Split`
   (generic over the dimension), one generator, label check and writer, and one catalogue set
   type, the 2D and 3D names kept as wrappers; `SidecarFacts` deleted; the 2D/`_nd` twins in
@@ -179,7 +182,9 @@ Follow-ups of the L3 gate (Q1), not part of its gate; they run after CL4.2:
   items. Edits 2D function bodies and revisits the L2 gate's Q2 (the 2D `label_check`
   body): the author's go first. *Done when:* CL3.5's oracle, `files_round_trip` and the
   whole datagen suite pass unedited (constraint 1). Near the three-module limit: split when
-  it starts if it exceeds it. *Needs:* CL3.5.
+  it starts if it exceeds it. CL3.5's oracle shares `draw_xi`, `forcing_coeffs`, `evaluate`,
+  `solution_coeffs` and `CollocationSolver::solve_full` with `generate()`: CL3.6 leaves them
+  untouched, or freezes them in the oracle first (CL3.5 plan review). *Needs:* CL3.5.
 
 ## L4: 3D Poisson training and evaluation
 

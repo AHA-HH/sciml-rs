@@ -401,3 +401,28 @@ template:
   the 2D `metrics::poisson` tests unedited but for their reference function, the whole
   2D suite; `train_poisson`, `predict_poisson` and the 2D record not edited.
 - Follow-ups: CL4.2's first commit (F3, roadmap).
+
+## 2026-11-27: CL3.5 Exact 2D generator oracle
+- Done: `pde/poisson/dataset.rs` tests (test-only, L3 gate finding 4): `generate_frozen`
+  and `label_check_frozen` (the bodies at 94ef52e, verbatim but for the wall time; the D2
+  oracle), `split_bit_difference` (every `Split` field but the wall time by its bits,
+  destructured exhaustively), and `generate_is_bit_identical_to_frozen` on two fixed splits
+  (n = 17, default K, check recorded; n = 65, K = 16, check enforced). *Needs* CL4.2 waived
+  by the author 2026-11-27 (its runs are on the VM; no shared files). Plan
+  `docs/laplace3d/tasks/CL3.5.md`.
+- Tests: the new test passes on `main`'s code. Failing control, in the test (one `u` entry
+  one ulp off, caught at flat index 433) and by hand (`generate()` temporarily moving
+  `u[[1, 8, 8]]` one ulp: "n = 17: u: flat index 433 differs: -1.6092992544957458e-2 vs
+  -1.609299254495746e-2", the edit reverted).
+- Checks: ran fmt, the three CI clippy jobs, `cargo clippy --all-targets`, datagen clippy,
+  `cargo test --features datagen` (664 passed), `cargo test` (576 passed), `cargo doc`, all
+  on the final code. Not run: metal (host f64 code only).
+- Decisions: none; the author's waiver of CL4.2 recorded on the roadmap line.
+- Review: plan review PASS (should-fix: the shared primitives, now a sentence in CL3.6;
+  advisory: the `catch_unwind` stderr, gone with F3). Code quality APPROVE with findings,
+  A−: F1 (exhaustive comparison), F2 (the label check frozen), F3 (the control through the
+  same comparison) fixed; F4 (a shared `to_bits` helper for the repo's ~15 ad hoc
+  comparisons) left for the objective's repo review; F5 moot after F1.
+- 2D: not touched (a test only); `files_round_trip` and the whole datagen suite unedited
+  and passing.
+- Follow-ups: CL3.6's roadmap line (the shared primitives).

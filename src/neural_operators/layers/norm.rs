@@ -1,7 +1,8 @@
 //! Adaptive instance normalisation, as `neuraloperator` 2.0.0's `AdaIN`
 //! (`layers/normalization_layers.py`; library CM1.3a). 2.0.0's other norms are Burn's own:
 //! its `InstanceNorm()` is Burn's `InstanceNorm` with `affine = false`, and the group norm its
-//! block builds, `nn.GroupNorm(1, C)`, is Burn's `GroupNorm` with one group.
+//! block builds, `nn.GroupNorm(1, C)`, is Burn's `GroupNorm` with one group, and its
+//! `BatchNorm` (torch's `BatchNorm{1,2,3}d`) is Burn's `BatchNorm` (library CM1.5c).
 
 // Burn's `#[derive(Config)]` writes `field: field` in the `new` it generates.
 #![allow(clippy::redundant_field_names)]
@@ -10,7 +11,10 @@ use burn::{
     Tensor,
     config::Config,
     module::Module,
-    nn::{GroupNorm, GroupNormConfig, InstanceNorm, InstanceNormConfig, Linear, LinearConfig},
+    nn::{
+        BatchNorm, BatchNormConfig, GroupNorm, GroupNormConfig, InstanceNorm, InstanceNormConfig,
+        Linear, LinearConfig,
+    },
     tensor::{Device, activation::gelu},
 };
 
@@ -85,7 +89,6 @@ impl AdaIn {
 }
 
 /// Which norm a block uses, as 2.0.0's `FNOBlocks(norm=…)`; [`NormKind::init`] builds it.
-/// 2.0.0's `"batch_norm"` is left out (stateful running statistics).
 #[derive(Config, Debug)]
 pub enum NormKind {
     /// `"instance_norm"`: 2.0.0's `InstanceNorm()`, without affine.
@@ -98,6 +101,9 @@ pub enum NormKind {
         /// Length of the conditioning embedding.
         embed_dim: usize,
     },
+    /// `"batch_norm"`: torch's `BatchNorm{1,2,3}d` (2.0.0's `BatchNorm`), affine, eps 1e-5,
+    /// momentum 0.1, with running statistics (library CM1.5c).
+    Batch,
 }
 
 /// A norm on channels-first `[B, C, s_1..s_D]` tensors of any rank, built by
@@ -110,6 +116,16 @@ pub enum Norm {
     Group(GroupNorm),
     /// The crate's [`AdaIn`], boxed: its MLP makes it far larger than the other variants.
     AdaIn(Box<AdaIn>),
+    /// Burn's `BatchNorm`: the batch statistics on an autodiff device unless the layer is
+    /// frozen (training, updating the running ones), the running statistics otherwise
+    /// (torch's eval mode). Burn updates
+    /// the running variance with the biased batch variance, torch with the unbiased one.
+    /// Parity is shown in eval only (library CM1.5c). The trainers do not account for it yet:
+    /// Gauss–Newton's JVP (no autodiff: running statistics) and VJP (autodiff: batch
+    /// statistics) would differentiate different maps, L-BFGS's and Gauss–Newton's repeated
+    /// evaluations update the running statistics each time, and the data-parallel trainer
+    /// does not reduce them across devices.
+    Batch(BatchNorm),
 }
 
 impl NormKind {
@@ -125,6 +141,8 @@ impl NormKind {
             NormKind::AdaIn { embed_dim } => Norm::AdaIn(Box::new(
                 AdaInConfig::new(*embed_dim, channels).init(device),
             )),
+            // Burn's defaults are torch's: γ = 1, β = 0, mean 0, variance 1.
+            NormKind::Batch => Norm::Batch(BatchNormConfig::new(channels).init(device)),
         }
     }
 }
@@ -143,6 +161,7 @@ impl Norm {
         match self {
             Norm::Instance(norm) => norm.forward(x),
             Norm::Group(norm) => norm.forward(x),
+            Norm::Batch(norm) => norm.forward(x),
             Norm::AdaIn(norm) => norm.forward(
                 x,
                 embedding.expect("an AdaIN norm needs an embedding").clone(),
@@ -154,8 +173,8 @@ impl Norm {
 #[cfg(test)]
 mod tests {
     use burn::{
-        module::Param,
-        tensor::{Distribution, Tolerance},
+        module::{Param, RunningState},
+        tensor::{Distribution, TensorData, Tolerance},
     };
 
     use super::*;
@@ -219,6 +238,46 @@ mod tests {
             panic!("not an instance norm")
         };
         assert!(instance.gamma.is_none());
+    }
+
+    /// On a device without autodiff the batch norm uses its running statistics, per
+    /// channel: (x − mean) / √(var + ε) · γ + β, whatever the batch.
+    #[test]
+    fn batch_norm_uses_the_running_statistics_in_eval() {
+        let device = Device::default();
+        let Norm::Batch(mut batch) = NormKind::Batch.init(2, &device) else {
+            panic!("not a batch norm")
+        };
+        assert_eq!(
+            batch.gamma.val().into_data(),
+            TensorData::from([1.0f32, 1.0])
+        );
+        assert_eq!(
+            batch.beta.val().into_data(),
+            TensorData::from([0.0f32, 0.0])
+        );
+        let initial = |state: &RunningState<Tensor<1>>| state.value().into_data();
+        assert_eq!(
+            initial(&batch.running_mean),
+            TensorData::from([0.0f32, 0.0])
+        );
+        assert_eq!(initial(&batch.running_var), TensorData::from([1.0f32, 1.0]));
+        batch.gamma = Param::from_tensor(Tensor::from_data([2.0, -1.0], &device));
+        batch.beta = Param::from_tensor(Tensor::from_data([0.5, 3.0], &device));
+        batch.running_mean = RunningState::new(Tensor::from_data([1.0, -2.0], &device));
+        batch.running_var = RunningState::new(Tensor::from_data([4.0, 0.25], &device));
+        let x = Tensor::<3>::from_data([[[1.0, 3.0], [-4.0, 0.0]]], &device);
+        let y = Norm::Batch(batch).forward(x, None);
+        let n = |x: f64, mean: f64, var: f64| (x - mean) / (var + 1e-5).sqrt();
+        let expected = Tensor::<3>::from_data(
+            [[
+                [0.5 + 2.0 * n(1.0, 1.0, 4.0), 0.5 + 2.0 * n(3.0, 1.0, 4.0)],
+                [3.0 - n(-4.0, -2.0, 0.25), 3.0 - n(0.0, -2.0, 0.25)],
+            ]],
+            &device,
+        );
+        y.into_data()
+            .assert_approx_eq::<f32>(&expected.into_data(), Tolerance::default());
     }
 
     #[test]
