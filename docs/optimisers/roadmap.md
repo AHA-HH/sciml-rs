@@ -29,7 +29,9 @@ directory; its leftovers are CO0.5. CO2.1 done 2026-11-27: the L-BFGS arm
 (`OPTIMIZER=lbfgs` in `train_poisson`), resumed bit for bit on flex; next in O2 CO2.2
 (the pilot, on the VM; its grid now names `max_eval`), and `training/` free again. CO1.5
 done 2026-11-27: `trainer.rs`'s tests in `training/trainer/tests.rs`, the same 26 by name;
-`training/` free for CM0.6 and CO3.3 (and the optional CO1.6).
+`training/` free for CM0.6 and CO3.3 (and the optional CO1.6). CO0.3 done 2026-11-27: Adam's
+3.6× is host time issuing tensor work in Burn 0.23 (forward, backward and the update alike;
+TF32 not the cause); a fix would be a later task.
 
 ## How to read this file
 
@@ -91,13 +93,15 @@ set; D1 put to the author; where a Gauss–Newton step's time goes.
   second on Burn 0.23 against Phase 10's. *Done when:* the profile table and a short list of
   where passes could be saved (for later work; nothing changed here). *Needs:* –.
   *Machines:* the VM.
-- [ ] **CO0.3 Cost profile of an Adam step.** Time per phase of one Adam step at batch 20
+- [x] **CO0.3 Cost profile of an Adam step.** Time per phase of one Adam step at batch 20
   (forward, backward, the optimiser update, the loader, the per-epoch evaluation and
   checkpoint) on Burn 0.23 against the fork, to explain why CO0.1's Adam epoch took about
   3.6× the fork's time (3,067 s for 500 epochs against 859.4 s) while a GN200 step slowed
   about 24 %. *Done when:* the profile table and where the extra time goes (nothing changed
   here; a fix, if any, is a later task, since it would move the equal-time budget).
-  *Needs:* –. *Machines:* the VM.
+  *Needs:* –. *Machines:* the VM. Done 2026-11-27: `docs/optimisers/results/CO0.3.md`
+  (host-bound on both Burns, as far as a profile without device data shows; forward,
+  backward, update and evaluation 3.0–4.1× slower on Burn 0.23; TF32 not the cause; candidate fixes listed there, none taken).
 - [x] **CO0.4 Run provenance: the commit at the start, one directory per run.** Two
   faults CO0.1 hit. (1) `train_poisson` and `train_burgers` call `git_commit()` (`git
   rev-parse HEAD` in the source checkout) when they write `costs.json` at the end of a run,
