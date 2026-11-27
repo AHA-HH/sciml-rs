@@ -257,7 +257,10 @@ results written.
   Burgers at equal time if D14 is. *Done when:* `docs/optimisers/results/CO4.1.md` with
   error 4 against time and passes per arm, and the equal-time verdict with its spread; with
   D13, whether weight decay's effect splits by whether the arm reaches the penalised
-  minimiser (full-batch GN and L-BFGS) or is stochastic first-order (Adam, SOAP). *Needs:* CO0.1, CO2.2, CO3.3, D1, D5, D6, D13, D14
+  minimiser (full-batch GN and L-BFGS) or is stochastic first-order (Adam, SOAP); per run a
+  stability table as CO0.1's: NaN and inf (non-finite trial losses) reported separately,
+  and a step counted wild at |ρ| > 1e3, non-finite ρ included (the author, 2026-11-27,
+  CO0.1 audit #179). *Needs:* CO0.1, CO2.2, CO3.3, D1, D5, D6, D13, D14
   (CO1.3 if D14 is taken). *Machines:* the VM.
 
 ## O5: The 3D arms
