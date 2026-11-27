@@ -565,3 +565,38 @@ template:
 - Matrix: `FNO` (CM1.5a–c), centred `SpectralConv`, `FNOBlocks` rows updated.
 - Follow-ups: CM1.5b (padding, resampling), CM1.5c (batch norm; `fno_skip=None` on the
   author's answer), CM1.5d's line (F4, F6, F7 with the earlier tidies).
+
+## 2026-11-27: CM0.6 Tidy after the generic stack
+- Done: the CM0.3 review's F1–F4. The FNO wrappers are retired and the generic names are
+  the API: `train_fno` → `train::<FNO<R>, R, RM1, _>`, `build_training_components` →
+  `build_components::<FNO<R>, …>`, `RunDir::load_fno` → `load_model::<FNO<R>>`,
+  `RunDir::checkpoint::<R>` → `checkpoint_of::<FNO<R>>`, `Checkpoint<R>` →
+  `OperatorCheckpoint<FNO<R>>` (retired, not deprecated: clippy's `-D warnings` would make
+  every deprecated call an error anyway). `EpochObserver<'a, M>` (no dead `R`);
+  `FnoResidual` → `GridResidual`; the four `#[cfg(test)]` import shims moved into their test
+  modules (the author's answer of 2026-11-25). `NpzFileReader::names()`, and the parity
+  harness reads the names from it (CM0.5's F1). Callers moved in `src/`, `examples/`,
+  `tests/`, `spikes/fno3d_cost` and `spikes/linalg`; root `CLAUDE.md`'s Layout updated. F5
+  (the trainer's test module) was done by optimisers CO1.5 (#176); its review findings on
+  that file are optional task CO1.6.
+- Tests: `tests/fno_bit_identity.rs` on the generic names (all on `main` since CO2.1) and a
+  fourth case, `lbfgs_epoch` (one L-BFGS epoch of a tiny FNO, checkpoint, reload, predict).
+  Existing tests changed only in renamed calls, moved imports and comments.
+- Checks: ran `cargo fmt --check`, clippy (default, `--examples`, `--all-targets`,
+  `--features datagen --all-targets`), `cargo check -p fno3d-cost-spike -p linalg-spike
+  --all-targets`, `cargo test` (556 passed), `cargo test --features datagen` (643 passed),
+  `cargo doc --no-deps` (no warnings); `fno_bit_identity` in release on an export of `main`
+  b2aa523 and on the branch: `forward` (65,536 bytes), `phase5_epoch` (28,481,592),
+  `gauss_newton_epoch` (22,476), `lbfgs_epoch` (17,112) `cmp` identical. Not run:
+  `--features metal` (names only, nothing backend-specific).
+- Decisions: none. Questions for the author in the PR: `Operator::NAME` (CM0.4's F3); the
+  `M = FNO<R>` default on `TrainingComponents` (review F1).
+- Review: plan review PASS (advisories: the historical `spikes/linalg/REPORT.md` and two test names keep `train_fno`/`load_fno`, left); code quality APPROVE with findings: F3 (doc wraps) and
+  F5 (one import) fixed; F1 a question; F2 (the session tuple spelt three times in
+  `examples/train`, pre-existing) and F4 (two test names keep the old names; `super::train`
+  where a local shadows it) left, in the PR.
+- FNO: unchanged bit for bit (the four dumps above against `main`).
+- Matrix: `Trainer` row names `train`.
+- Follow-ups: CO1.6 (optional; its line in `docs/optimisers/roadmap.md`) also takes the
+  old F6 in `trainer/tests.rs` (the training config passed as the data config at four
+  sites) and the test name `train_fno_none_matches_identity_path`.
