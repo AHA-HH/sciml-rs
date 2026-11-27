@@ -63,7 +63,7 @@ fn objective<const R: usize, const RM1: usize, M: GridOperator<R>>(
 
 /// One epoch of L-BFGS: one `LBFGS::step` (up to `max_iter` inner iterations) on the one
 /// batch `loader` yields, the full training set (D4: the curvature pairs assume the same
-/// function at every evaluation), with the closure [`objective`] at `arm.weight_decay`
+/// function at every evaluation), with the closure Φ + ½μ‖θ‖² at μ = `arm.weight_decay`
 /// and `arm.learning_rate`. Its row goes to `on_step`; the closure evaluations are its
 /// passes, one forward and one backward each (D7).
 ///
