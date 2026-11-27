@@ -17,6 +17,7 @@ use sciml_rs::neural_operators::{
         loaders::darcy::{DarcyConfig, load_darcy_test},
         transforms::normalizers::FlatDecoder,
     },
+    models::fno::FNO,
     runs::RunDir,
     training::step::evaluate,
 };
@@ -33,7 +34,7 @@ fn main() {
 
     // Architecture from config, weights from the burnpack record
     let model = run
-        .load_fno::<4>(&device)
+        .load_model::<FNO<4>>(&device)
         .unwrap_or_else(|e| panic!("load the model: {e}"));
 
     // Same test split the run was evaluated on

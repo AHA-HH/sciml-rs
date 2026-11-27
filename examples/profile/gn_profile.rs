@@ -42,12 +42,13 @@ use sciml_rs::neural_operators::{
         loaders::poisson::{PoissonConfig, load_poisson_uniform},
         transforms::normalizers::FlatDecoder,
     },
+    models::fno::FNO,
     optim::gauss_newton::{
         CgConfig, CgStop, GaussNewton, GaussNewtonConfig, GaussNewtonState, GnStep, LeastSquares,
         ParamVec, Preconditioner, adjoint_error, cg, hutchinson_diagonal, jvp, params, vjp,
     },
     runs::RunDir,
-    training::{config::OptimizerConfig, gn::FnoResidual},
+    training::{config::OptimizerConfig, gn::GridResidual},
     utils::backend::{backend_features, git_commit},
 };
 
@@ -218,7 +219,7 @@ fn main() {
         panic!("{}: not a Gauss–Newton run", dir.display());
     };
     let ck = run
-        .checkpoint::<4>(&device)
+        .checkpoint_of::<FNO<4>>(&device)
         .unwrap_or_else(|e| panic!("checkpoint: {e}"))
         .unwrap_or_else(|| panic!("{}: no checkpoint.bin", dir.display()));
     let state = ck.gn.expect("the checkpoint has no Gauss–Newton state");
@@ -236,7 +237,7 @@ fn main() {
     )
     .unwrap_or_else(|e| panic!("load stage {}: {e}", data_cfg.n));
     let decoder = FlatDecoder::new(&normalizers.y, &device);
-    let problem = FnoResidual::<4, 3>::new(Some(&decoder));
+    let problem = GridResidual::<4, 3>::new(Some(&decoder));
     let batches: Vec<Batch<4, 3>> =
         device_loader::<4, 3, f32>(&train, &device, train_cfg.batch_size, None)
             .iter()

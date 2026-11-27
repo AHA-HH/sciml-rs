@@ -24,7 +24,6 @@ use burn::{
     tensor::TensorData,
 };
 use ndarray::{ArrayD, Axis, Slice, concatenate};
-use ndarray_npy::NpzReader;
 use sciml_rs::neural_operators::data::io::readers::npz::NpzFileReader;
 
 /// D3's bound in f32: relative max error ≤ 1e-5 (roadmap, signed off 2026-11-25).
@@ -158,12 +157,8 @@ impl Fixture {
             panic!("fixture {name}: name must end in _f32 or _f64");
         };
         let reader = NpzFileReader::new(path).unwrap_or_else(|e| panic!("fixture {name}: {e}"));
-        // NpzFileReader keeps its names private; the index is cheap to read twice.
-        let params = std::fs::File::open(path)
-            .map_err(|e| e.to_string())
-            .and_then(|f| NpzReader::new(f).map_err(|e| e.to_string()))
-            .and_then(|mut npz| npz.names().map_err(|e| e.to_string()))
-            .unwrap_or_else(|e| panic!("fixture {name}: {e}"))
+        let params = reader
+            .names()
             .iter()
             .filter_map(|n| n.strip_prefix(PARAM_PREFIX).map(str::to_owned))
             .collect();

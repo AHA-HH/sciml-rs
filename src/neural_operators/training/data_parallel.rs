@@ -53,10 +53,6 @@ use crate::neural_operators::{
     },
 };
 
-// for the tests' `use super::*`, written when the epoch took the FNO
-#[cfg(test)]
-use {crate::neural_operators::models::fno::FNO, burn::module::Module};
-
 /// A device beyond the first in a data-parallel run, with its copy of the training split.
 pub struct Replica<const R: usize, const RM1: usize> {
     /// The replica's (autodiff) device.
@@ -68,7 +64,7 @@ pub struct Replica<const R: usize, const RM1: usize> {
 /// One [`Replica`] per device of `devices` (the devices after the first): each uploads
 /// `train_data` once (inputs `[n, ...spatial, 1]`, targets `[n, ...spatial]`) and
 /// batches it with `train_cfg`'s batch size and seed, as
-/// [`build_training_components`](super::trainer::build_training_components) does on the
+/// [`build_components`](super::trainer::build_components) does on the
 /// first device.
 ///
 /// # Panics
@@ -311,7 +307,9 @@ pub(crate) fn train_epoch_parallel<const R: usize, const RM1: usize, M: GridOper
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::neural_operators::models::fno::FNO;
     use crate::neural_operators::training::fixtures::{tiny_dataset, tiny_model_cfg};
+    use burn::module::Module;
 
     #[test]
     fn shards_cover_the_batch_in_order() {

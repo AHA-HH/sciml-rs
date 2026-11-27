@@ -28,7 +28,7 @@ use sciml_rs::neural_operators::{
             burgers::{BurgersConfig, load_burgers_uniform},
         },
     },
-    models::fno::FNOConfig,
+    models::fno::{FNO, FNOConfig},
     runs::RunDir,
     training::step::evaluate,
 };
@@ -58,7 +58,7 @@ fn main() {
 
     // Architecture from the saved config, weights from the saved record.
     let model = run
-        .load_fno::<3>(&device)
+        .load_model::<FNO<3>>(&device)
         .unwrap_or_else(|e| panic!("load the model: {e}"));
     let model_cfg: FNOConfig = run
         .model_config()

@@ -22,9 +22,12 @@ D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outpu
 unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). CM1.5
 split 2026-11-26 into CM1.5a–d; CM1.5a done 2026-11-26 (2.0.0's whole `FNO` within D3; FNO
 outputs unchanged bit for bit). CM3.6 split 2026-11-27 into CM3.6a–b; CM3.6a done 2026-11-27
-(the Tensor GaLore projector for real tensors, not wired into training). CM3.6b done
-2026-11-27 (complex tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to
-phase where 2.0.0's factors are ill-conditioned). Next CM0.6, CM1.5b, CM1.5c, CM1.5d.
+(the Tensor GaLore projector for real tensors, not wired into training). CM0.6 done
+2026-11-27 (one name per concept: the FNO wrappers retired; FNO outputs, Adam, Gauss–Newton
+and L-BFGS, unchanged bit for bit); CM0.7 added (retire `Operator::NAME`, the author's
+decision of 2026-11-27). CM3.6b done 2026-11-27 (complex tensors: host Jacobi SVD, gesdd's
+phase and tensorly's rule; parity up to phase where 2.0.0's factors are ill-conditioned).
+Next CM0.7, CM1.5b, CM1.5c, CM1.5d, CM3.6c.
 
 ## How to read this file
 
@@ -102,7 +105,7 @@ the feature matrix is verified.
   build the grid as 2.0.0 does (f32, then cast) before a non-power-of-two f64 fixture
   (CM1.1); a shared `flex_f64` helper with `tests/gauss_newton_f64.rs` and a generated map
   per block (CM1.5).
-- [ ] **CM0.6 Tidy after the generic stack.** The CM0.3 code-quality review's findings
+- [x] **CM0.6 Tidy after the generic stack.** The CM0.3 code-quality review's findings
   (`docs/operators/progress.md`, CM0.3): one name per concept for the FNO wrappers
   (`train_fno`, `build_training_components`, `load_fno`, `checkpoint`, `Checkpoint`) and
   their generic twins (keep, deprecate or retire); `FnoResidual` renamed for any operator;
@@ -111,7 +114,23 @@ the feature matrix is verified.
   the same bit-identity check as CM0.3 passes against `main`. *Needs:* CM0.3, and the
   author's answer on whether moving a test module's imports edits a test (CM0.3 PR):
   answered 2026-11-25, it does not; moving the `#[cfg(test)]` imports into their test
-  modules is allowed.
+  modules is allowed. Done 2026-11-27: plan `docs/operators/tasks/CM0.6.md`; the FNO
+  wrappers retired for the generic names (`train`, `build_components`,
+  `RunDir::load_model`, `RunDir::checkpoint_of`, `OperatorCheckpoint<M>`),
+  `EpochObserver<'a, M>`, `GridResidual`, the four test imports in their modules,
+  `NpzFileReader::names()` (CM0.5's follow-up); `tests/fno_bit_identity.rs` gains an
+  L-BFGS epoch, its four dumps identical to `main`. The test module split was done by
+  optimisers CO1.5 (#176, `training/trainer/tests.rs`); CO1.5's review findings on that
+  file are the optional task CO1.6, not CM0.6's. The PR's two questions, answered by the
+  author 2026-11-27: `Operator::NAME` (CM0.4's F3) is retired, in CM0.7;
+  `TrainingComponents`' `M = FNO<R>` default (CM0.6's review F1) is dropped with CO1.6's
+  move of `train_built` (`docs/optimisers/roadmap.md`).
+- [ ] **CM0.7 Retire `Operator::NAME`.** CM0.4's code-quality F3: `NAME` is always its
+  config's `OperatorConfig::KIND`, a second name for one concept. The author's decision of
+  2026-11-27 (CM0.6, #180): retire it in favour of `OperatorConfig::KIND`, as a follow-up.
+  *Done when:* `Operator` has no `NAME`; its readers use `<M::Config as
+  OperatorConfig>::KIND`; root `CLAUDE.md` and `feature-matrix.md` say so; the CM0.3
+  bit-identity check passes against `main`. *Needs:* CM0.6.
 
 ## M1: The FNO family
 
@@ -313,6 +332,12 @@ The order of M2 and M3 is set at the M1 gate (D6).
     for the spectral weights. *Done when:* against complex fixtures. *Needs:* CM3.6a. Done
     2026-11-27: `docs/operators/tasks/CM3.6b.md` (entry for entry where every unfolding is
     wide; up to phase where one is tall, 2.0.0's phases being ill-conditioned there).
+  - [ ] **CM3.6c Periodic factor refresh (opt-in).** 2.0.0 computes GaLore's Tucker
+    factors once and never refreshes them, though its design intends a refresh every k
+    steps; an option for that refresh, off by default, so the default stays 2.0.0's
+    behaviour and its parity (the author, 2026-11-27, CM3.6a PR question). *Done when:*
+    a test that the factors change every k steps when on and never when off, and the
+    CM3.6a parity tests unchanged. *Needs:* CM3.6a.
 
 ## M4: Beyond 2.0.0
 
