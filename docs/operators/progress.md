@@ -603,3 +603,34 @@ template:
 - Matrix: `TensorGaLoreProjector` partial (real tensors; CM3.6b).
 - Follow-ups: CM3.6b (roadmap line); the refresh question; the wiring (an AdamW arm, after
   CO1.5).
+
+## 2026-11-27: CM3.6b Tensor GaLore projector, complex tensors
+- Done: `optim/galore.rs` takes complex gradients: `ComplexTensor<D>` (`re`, `im`), and the
+  projector and `tucker_factors` generic over a sealed `GaLoreTensor<D>` (real `Tensor<D>`,
+  factors `Tensor<2>`; `ComplexTensor<D>`, factors `ComplexTensor<2>`), so the HOOI exists
+  once; `TensorGaLoreConfig::init::<D, T>()`. Complex: conjugate-transpose mode products,
+  √Σ|x|² norms, a host one-sided Jacobi SVD in f64 (Burn's QR `svd` of the real embedding
+  stalls in f64 on the paired singular values), each column turned to LAPACK `gesdd`'s phase
+  (first entry of v real when m ≥ n, of u when m < n), then tensorly's `svd_flip` with
+  `torch.sgn` (which doubles the phase rather than removing it). 2.0.0 fails on `cdouble`;
+  here f64 complex works. Fixtures `galore_complex_{f32,f64}` (f64 from tensorly's `tucker`
+  with 2.0.0's transforms); the real fixtures unchanged.
+- Found: where a sweep's unfolding is tall, 2.0.0's complex factors are ill-conditioned (the
+  phase turns every sweep; a 1e-7 change of the gradient moves them by O(1), in complex128
+  too). The `matrix` case is compared up to phase (subspaces, `back`, `low2` taken back).
+- Tests: parity f32 against 2.0.0: `tensor4` 1.3e-6, `fraction` 7.0e-6, `matrix` (up to
+  phase) 2.9e-7; f64 against tensorly: 3.5e-15, 2.0e-14, 3.4e-15 (D3). Control: another
+  gradient's factors fail. 8 new unit tests: the Jacobi SVD (orthonormal, spans, repeated
+  singular values), the phase invariant phase(u_max) = 2 phase(w), orthonormal factors, round
+  trip, an exact complex Tucker tensor, a real tensor taken as complex gives the real factors.
+  CM3.6a's real parity unchanged (3.6e-7, 6.9e-7, 5.0e-6; f64 ≤ 3.3e-15).
+- Checks: see the PR (fmt, clippy ×4 incl. datagen, `cargo test`, `cargo test --features
+  datagen`, `cargo doc`, `generate_galore.py --check`, `generate.py`/`generate_losses.py
+  --check`). Not run: `--features metal` (the SVD and phases run on the host).
+- Decisions: none. Question for sign-off: accept parity up to phase where 2.0.0's complex
+  factors are ill-conditioned (tall unfoldings)?
+- Review: see the PR.
+- FNO: not touched (`optim/galore.rs` and tests only).
+- Matrix: `TensorGaLoreProjector` have.
+- Follow-ups: CM3.6c (the refresh, #178); the wiring (an AdamW arm) may warn on tall
+  unfoldings.

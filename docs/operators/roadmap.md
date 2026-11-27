@@ -22,8 +22,9 @@ D6). CM1.4 done 2026-11-26 (embeddings, lifting and projection ratios; FNO outpu
 unchanged bit for bit). CM1.6c done 2026-11-26 (Fourier and point-cloud derivatives). CM1.5
 split 2026-11-26 into CM1.5a–d; CM1.5a done 2026-11-26 (2.0.0's whole `FNO` within D3; FNO
 outputs unchanged bit for bit). CM3.6 split 2026-11-27 into CM3.6a–b; CM3.6a done 2026-11-27
-(the Tensor GaLore projector for real tensors, not wired into training). Next CM0.6, CM1.5b,
-CM1.5c, CM1.5d, CM3.6b.
+(the Tensor GaLore projector for real tensors, not wired into training). CM3.6b done
+2026-11-27 (complex tensors: host Jacobi SVD, gesdd's phase and tensorly's rule; parity up to
+phase where 2.0.0's factors are ill-conditioned). Next CM0.6, CM1.5b, CM1.5c, CM1.5d.
 
 ## How to read this file
 
@@ -308,8 +309,10 @@ The order of M2 and M3 is set at the M1 gate (D6).
   - [x] **CM3.6a Real tensors.** The projector, tensorly's HOOI Tucker factors and rank
     rules. *Done when:* factors, `project` and `project_back` against fixtures. *Needs:*
     CM0.3. Done 2026-11-27: `docs/operators/tasks/CM3.6a.md`.
-  - [ ] **CM3.6b Complex tensors.** 2.0.0's complex Tucker (complex SVD, phase sign rule)
-    for the spectral weights. *Done when:* against complex fixtures. *Needs:* CM3.6a.
+  - [x] **CM3.6b Complex tensors.** 2.0.0's complex Tucker (complex SVD, phase sign rule)
+    for the spectral weights. *Done when:* against complex fixtures. *Needs:* CM3.6a. Done
+    2026-11-27: `docs/operators/tasks/CM3.6b.md` (entry for entry where every unfolding is
+    wide; up to phase where one is tall, 2.0.0's phases being ill-conditioned there).
 
 ## M4: Beyond 2.0.0
 
