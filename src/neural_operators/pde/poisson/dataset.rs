@@ -547,6 +547,119 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// The D2 oracle (3D CL3.5): [`generate`]'s body as it was at 94ef52e, verbatim but for
+    /// the wall time. Do not edit.
+    fn generate_frozen(spec: &SplitSpec) -> Result<Split, LabelCheckError> {
+        let n = spec.n;
+        assert!(spec.count > 0, "generate: count must be > 0");
+        assert!(n >= 3, "generate: n must be >= 3, got {n}");
+        let k = spec.truncation();
+        let x = nodes(n);
+        let solver = CollocationSolver::new(n, n);
+        let transfers = Transfers::new(n);
+
+        let mut f = Array3::zeros((spec.count, n, n));
+        let mut u = Array3::zeros((spec.count, n, n));
+        let mut label = Vec::with_capacity(spec.count);
+        let mut err2 = Vec::with_capacity(spec.count);
+        for (i, (mut f_i, mut u_i)) in f
+            .axis_iter_mut(Axis(0))
+            .zip(u.axis_iter_mut(Axis(0)))
+            .enumerate()
+        {
+            let seed = spec
+                .base_seed
+                .checked_add(i as u64)
+                .expect("generate: base_seed + i overflows u64");
+            let c = forcing_coeffs(draw_xi(seed).view(), k);
+            f_i.assign(&evaluate(c.view(), x.view(), x.view()));
+            u_i.assign(&solver.solve_full(f_i.view()));
+            let u_series = evaluate(solution_coeffs(c.view()).view(), x.view(), x.view());
+            label.push(label_check(u_i.view(), u_series.view(), i, seed)?);
+            let round_trip = transfers.to_cheb(transfers.to_uniform(u_i.view()).view());
+            err2.push(cc_rel_l2_error(round_trip.view(), u_i.view()));
+        }
+
+        Ok(Split {
+            spec: spec.clone(),
+            k,
+            f,
+            u,
+            x,
+            label_check: ErrorStats::of(&label),
+            label_check_enforced: n >= LABEL_CHECK_MIN_N,
+            error2: ErrorStats::of(&err2),
+            wall_time: Duration::ZERO,
+        })
+    }
+
+    /// Panics unless `a` and `b` have the same shape and the same bits (−0.0 ≠ +0.0).
+    fn assert_bits_eq<D: ndarray::Dimension>(
+        name: &str,
+        a: &ndarray::Array<f64, D>,
+        b: &ndarray::Array<f64, D>,
+    ) {
+        assert_eq!(a.shape(), b.shape(), "{name}: shapes differ");
+        if let Some((i, (x, y))) = a
+            .iter()
+            .zip(b)
+            .enumerate()
+            .find(|(_, (x, y))| x.to_bits() != y.to_bits())
+        {
+            panic!("{name}: flat index {i} differs: {x:e} vs {y:e}");
+        }
+    }
+
+    /// Constraint 1 (D2, L3 gate finding 4): `generate` returns the frozen body's arrays and
+    /// statistics bit for bit, with the label check recorded (n = 17) and enforced
+    /// (n = 65, explicit K).
+    #[test]
+    fn generate_is_bit_identical_to_frozen() {
+        let specs = [
+            SplitSpec {
+                n: 17,
+                k: None,
+                base_seed: 40,
+                count: 3,
+            },
+            SplitSpec {
+                n: 65,
+                k: Some(16),
+                base_seed: 7,
+                count: 2,
+            },
+        ];
+        for spec in &specs {
+            let new = generate(spec).unwrap();
+            let old = generate_frozen(spec).unwrap();
+            let n = spec.n;
+            assert_eq!(new.spec, old.spec, "n = {n}");
+            assert_eq!(new.k, old.k, "n = {n}");
+            assert_eq!(
+                new.label_check_enforced, old.label_check_enforced,
+                "n = {n}"
+            );
+            assert_bits_eq(&format!("f, n = {n}"), &new.f, &old.f);
+            assert_bits_eq(&format!("u, n = {n}"), &new.u, &old.u);
+            assert_bits_eq(&format!("x, n = {n}"), &new.x, &old.x);
+            for (name, a, b) in [
+                ("label check", &new.label_check, &old.label_check),
+                ("error 2", &new.error2, &old.error2),
+            ] {
+                let bits = |s: &ErrorStats| [s.max.to_bits(), s.mean.to_bits()];
+                assert_eq!(bits(a), bits(b), "{name}, n = {n}");
+            }
+        }
+
+        // Control: one label entry one ulp off fails the comparison.
+        let old = generate_frozen(&specs[0]).unwrap();
+        let mut moved = old.u.clone();
+        moved[[1, 8, 8]] = moved[[1, 8, 8]].next_up();
+        let caught =
+            std::panic::catch_unwind(|| assert_bits_eq("u, one ulp", &moved, &old.u)).is_err();
+        assert!(caught, "a one-ulp change to a label must fail the oracle");
+    }
+
     #[test]
     fn stages_use_the_default_truncation() {
         use crate::neural_operators::data::catalogue::STAGES;
