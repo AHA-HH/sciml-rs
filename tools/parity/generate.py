@@ -118,7 +118,7 @@ class FNOOutputShape(FNO):
         return super().forward(x, output_shape=self.output_shape)
 
 
-def blocks(n_modes,channels=4, n_layers=2, **kwargs):
+def blocks(n_modes, channels=4, n_layers=2, **kwargs):
     """`FNOBlocks(channels, channels, n_modes, n_layers, **kwargs)`, 2.0.0's defaults otherwise."""
     return FNOBlocksRun(in_channels=channels, out_channels=channels, n_modes=n_modes, n_layers=n_layers, **kwargs)
 

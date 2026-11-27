@@ -78,6 +78,7 @@ fn fourier<const R: usize>(x: Tensor<R>, shape: [usize; R]) -> Tensor<R> {
     let mut out_re = Tensor::<R>::zeros(spec, &device);
     let mut out_im = Tensor::<R>::zeros(spec, &device);
     // One corner per sign pattern of the non-last axes; the last (rfft) axis is non-negative.
+    // Not `SpectralConv`'s corners: 2.0.0 splits m modes as m / 2 low and ⌈m / 2⌉ high here.
     for corner in 0..1usize << (R - 3) {
         let mut src: [Range<usize>; R] = core::array::from_fn(|i| 0..old[i]);
         let mut dst = src.clone();

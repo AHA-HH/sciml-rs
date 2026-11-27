@@ -87,3 +87,29 @@ fn output_shape_with_domain_padding_panics() {
         .init(&device);
     fno.forward_with_output_shape(random_input::<4>(&[8, 6], 1, &device), &[8, 6]);
 }
+
+#[test]
+#[should_panic(expected = "padding with resolution_scaling_factor")]
+fn padding_with_scaling_panics() {
+    config()
+        .with_padding(Some(2))
+        .with_resolution_scaling_factor(Some(vec![vec![2.0; 2]; 2]))
+        .init::<4>(&Device::default());
+}
+
+#[test]
+#[should_panic(expected = "at most one scaled layer")]
+fn domain_padding_with_two_scaled_layers_panics() {
+    config()
+        .with_domain_padding(Some(vec![0.1; 2]))
+        .with_resolution_scaling_factor(Some(vec![vec![2.0; 2]; 2]))
+        .init::<4>(&Device::default());
+}
+
+#[test]
+#[should_panic(expected = "domain padding or padding")]
+fn output_shape_with_padding_panics() {
+    let device = Device::default();
+    let fno: FNO<4> = config().with_padding(Some(2)).init(&device);
+    fno.forward_with_output_shape(random_input::<4>(&[8, 6], 1, &device), &[8, 6]);
+}

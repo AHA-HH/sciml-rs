@@ -58,10 +58,12 @@ unchanged bit for bit.
 - `models/fno/mod.rs`: `FNOConfig::domain_padding: Option<Vec<f64>>` (a fraction per
   spatial axis, symmetric), `FNOConfig::resolution_scaling_factor: Option<Vec<Vec<f64>>>`
   (per layer, per axis); `FNO::forward_with_output_shape(x, out)`. `None` is today's model.
-  The crop with both options removes `round(p · Πₗ rₗ)` per side (2.0.0's rule where 2.0.0
-  runs it, the product where 2.0.0 raises). `init` panics on both paddings set, or on a
-  wrong length; `forward_with_output_shape` panics with domain padding (2.0.0 raises
-  `KeyError` unless the shape is the padded one's).
+  With both options the crop removes `round(p · r)` per side, `r` the one scaled layer's
+  factor (2.0.0's rule; more than one scaled layer panics, as 2.0.0 raises). `init` panics on
+  both paddings set, on CONVENTIONS §3's `padding` with scaling (its crop restores the
+  unscaled extents; code-quality review F1), or on a wrong length;
+  `forward_with_output_shape` panics with either padding (2.0.0 raises `KeyError` unless the
+  shape is the padded one's).
 - No new boolean option (the author's rule of 2026-11-27 needs none here). Conventions:
   none changed; CONVENTIONS §3's `padding` stays as it is, beside the new option.
 

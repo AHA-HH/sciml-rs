@@ -134,9 +134,9 @@ pub struct FNOConfig {
     /// 2.0.0's `resolution_scaling_factor`, one factor per spatial axis for each layer
     /// (`n_layers` × `D`): layer `l` maps extent `s` to `round(s · r)` (half to even), its
     /// convolution by [`SpectralConv::forward_to`], its skips by
-    /// [`resample`]. With [`FNOConfig::domain_padding`], `round(p · Πₗ rₗ)` cells are cropped
-    /// per side of an axis padded by `p` (2.0.0's rule where it runs, one scaled layer).
-    /// `None` is every factor 1.
+    /// [`resample`]. With [`FNOConfig::domain_padding`], at most one layer may scale (as in
+    /// 2.0.0), and `round(p · r)` cells are cropped per side of an axis padded by `p`; not with
+    /// [`FNOConfig::padding`]. `None` is every factor 1.
     pub resolution_scaling_factor: Option<Vec<Vec<f64>>>,
 }
 
@@ -258,7 +258,9 @@ impl FNOConfig {
     /// [`FNOConfig::max_modes`] has a count below `modes`' or not `R - 2` entries
     /// ([`SpectralConv::with_modes`]), if [`FNOConfig::domain_padding`] has not `R - 2`
     /// entries or is set with [`FNOConfig::padding`], or if
-    /// [`FNOConfig::resolution_scaling_factor`] is not `n_layers` × `(R - 2)` positive factors.
+    /// [`FNOConfig::resolution_scaling_factor`] is not `n_layers` × `(R - 2)` positive factors,
+    /// is set with [`FNOConfig::padding`], or scales more than one layer with
+    /// [`FNOConfig::domain_padding`].
     /// Modes that do not fit the grid panic later, in [`FNO::forward`].
     pub fn init<const R: usize>(&self, device: &Device) -> FNO<R> {
         assert_eq!(
@@ -298,6 +300,20 @@ impl FNOConfig {
                 "resolution_scaling_factor needs {} layers of {} positive factors",
                 self.n_layers,
                 R - 2
+            );
+            // CONVENTIONS §3's crop restores the unscaled extents.
+            assert!(
+                self.padding.unwrap_or(0) == 0,
+                "padding with resolution_scaling_factor is not supported (domain_padding is)"
+            );
+            // 2.0.0 crops by one layer's factor (its unpad lookup fails otherwise).
+            let scaled = factors
+                .iter()
+                .filter(|f| f.iter().any(|&r| r != 1.0))
+                .count();
+            assert!(
+                self.domain_padding.is_none() || scaled <= 1,
+                "domain_padding with resolution_scaling_factor needs at most one scaled layer"
             );
         }
         let coord_channels = coord_channels(self.positional_embedding.as_ref(), R - 2);
@@ -495,11 +511,12 @@ impl<const R: usize> FNO<R> {
     ///
     /// # Panics
     /// As [`FNO::forward`]; if `output_shape` has not `R - 2` positive entries, or with
-    /// [`FNOConfig::domain_padding`] (2.0.0 finds no crop for a shape it did not compute).
+    /// [`FNOConfig::domain_padding`] (2.0.0 finds no crop for a shape it did not compute) or
+    /// [`FNOConfig::padding`] (its crop restores the input's extents).
     pub fn forward_with_output_shape(&self, x: Tensor<R>, output_shape: &[usize]) -> Tensor<R> {
         assert!(
-            self.domain_padding.is_empty(),
-            "an output shape with domain padding is not supported"
+            self.domain_padding.is_empty() && self.padding == 0,
+            "an output shape with domain padding or padding is not supported"
         );
         self.forward_full(x, None, Some(output_shape))
     }
@@ -569,6 +586,7 @@ impl<const R: usize> FNO<R> {
                 if i < 2 {
                     return 0..dims[i];
                 }
+                // At most one layer scales with domain padding (`init`): its factor.
                 let scale: f64 = self.scaling.iter().map(|r| r[i - 2]).product();
                 let crop = (pads[i - 2] as f64 * scale).round_ties_even() as usize;
                 crop..dims[i] - crop

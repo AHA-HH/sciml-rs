@@ -560,12 +560,8 @@ impl<const R: usize> SpectralConv<R> {
             return Self::ifft_ctensor(out_ft_re, out_ft_im, &orig_dims);
         }
         let out_dims: [usize; R] = with_bc(batch, out_ch, out);
-        for axis in 2..R {
-            let len = if axis == R - 1 {
-                out_dims[axis] / 2 + 1
-            } else {
-                out_dims[axis]
-            };
+        for (axis, &n) in out_dims.iter().enumerate().skip(2) {
+            let len = if axis == R - 1 { n / 2 + 1 } else { n };
             out_ft_re = resize_end(out_ft_re, axis, len);
             out_ft_im = resize_end(out_ft_im, axis, len);
         }
