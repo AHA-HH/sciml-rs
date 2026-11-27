@@ -4,6 +4,8 @@
 //! separable weights, and modes below `max_n_modes`. The f64 fixtures are
 //! `tests/parity_spectral_conv_f64.rs`.
 
+#[path = "parity_common/biased_conv.rs"]
+mod biased_conv;
 #[path = "parity_common/centred_conv.rs"]
 mod centred_conv;
 mod parity_common;
@@ -53,8 +55,8 @@ fn centred_layout_needs_conversion() {
             .map(|r| a.slice_axis(Axis(2), Slice::from(r)).to_owned())
             .to_vec()
     };
-    let (out, reference) = output::<4>(&CASE_2D, F32, halves, &Device::default());
-    let err = rel_max_error(out, &reference);
+    let (out, mut fixture) = output::<4>(&CASE_2D, F32, halves, &Device::default());
+    let err = rel_max_error(out, &fixture.output());
     println!("spectral_conv2d_f32, centred halves unconverted: relative max error {err:.3e}");
     assert!(
         err > F32.d3(),
@@ -77,13 +79,13 @@ pub const CASE_2D_ODD_EXTENT: Case = Case {
 /// with `fftshift` with 2.0.0; see the plan). Recorded, so the limit is a test, not prose.
 #[test]
 fn odd_extent_is_not_representable() {
-    let (out, reference) = output::<4>(
+    let (out, mut fixture) = output::<4>(
         &CASE_2D_ODD_EXTENT,
         F32,
         |a| centred_to_corners(a, 2),
         &Device::default(),
     );
-    let err = rel_max_error(out, &reference);
+    let err = rel_max_error(out, &fixture.output());
     println!("spectral_conv2d_odd_extent_f32: relative max error {err:.3e}");
     assert!(
         err > F32.d3(),

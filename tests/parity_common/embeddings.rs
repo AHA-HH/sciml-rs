@@ -28,7 +28,7 @@ fn fno<const R: usize>(stem: &str, config: FNOConfig, p: Precision, device: &Dev
     let config = config.with_n_layers(0);
     let mut fno = config.init::<R>(device);
     let map = lift_project(&config, "");
-    load_into(&mut fno, &mut fixture, &map);
+    load_into(&mut fno, &mut fixture, &map, &[]);
     let y = fno.forward(to_channels_last(fixture.input::<R>(device)));
     check_d3(to_channels_first(y), &mut fixture)
 }

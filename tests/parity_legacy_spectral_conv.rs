@@ -2,6 +2,8 @@
 //! `SpectralConv<R>`, 1D to 3D, in f32 (D3 as amended 2026-11-25). The f64 fixtures are
 //! `tests/parity_legacy_spectral_conv_f64.rs`.
 
+#[path = "parity_common/biased_conv.rs"]
+mod biased_conv;
 #[path = "parity_common/legacy_conv.rs"]
 mod legacy_conv;
 mod parity_common;
@@ -35,8 +37,8 @@ fn legacy_3d_corner_order_matters() {
         map[k].1 = map[k + 2].1;
         map[k + 2].1 = to;
     }
-    let (out, reference) = output::<5>(&CASE_3D, F32, &map, &Device::default());
-    let err = rel_max_error(out, &reference);
+    let (out, mut fixture) = output::<5>(&CASE_3D, F32, &map, &Device::default());
+    let err = rel_max_error(out, &fixture.output());
     println!("legacy_spectral_conv3d_f32, corners unpermuted: relative max error {err:.3e}");
     assert!(
         err > F32.d3(),
