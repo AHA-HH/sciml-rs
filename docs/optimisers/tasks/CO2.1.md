@@ -95,8 +95,54 @@ None (CO2.2 pilots the settings on the VM).
 - The training loader shuffles the one batch each epoch, so Φ's sum order changes and its
   value moves at f32 round-off between epochs; deterministic, so resume stays exact.
 
+## Outcome (2026-11-27)
+
+All on the Mac (M2 Pro), flex, release builds; scratch run directories, not kept.
+
+- **Tests:** `training::lbfgs::tests` (converges under strong Wolfe, Φ below 0.1× its start in
+  five steps; `max_iter` + 1 evaluations per step without a line search, and Burn's
+  `max_eval` cap; Φ + ½μ‖θ‖² against the `ParamVec` norm; mini-batches refused),
+  `training::trainer::tests::{lbfgs_smoke_run_resumes_exactly, lbfgs_with_replicas_panics}`,
+  `runs::lbfgs_steps::tests::rows_sum_and_truncate`,
+  `training::config::tests::lbfgs_arm_round_trips`. The same eight pass with `--features
+  metal`.
+- **Smoke run:** `OPTIMIZER=lbfgs EPOCHS=3 train_poisson -- 4 65 16 42 20 0` (s = 16 rather
+  than the plan's 64, to keep flex's evaluation short): Φ 0.541 → 0.119 → 0.030 → 0.019,
+  train L² 1.007 → 0.235, test L² 0.532 → 0.310; `costs.json` 3 steps, 69 backward and 72
+  forward passes (69 closure evaluations and 3 metrics forwards). Reproduced exactly at
+  `bc1b290`.
+- **Resume:** `OPTIMIZER=lbfgs EPOCHS=27 LBFGS_MAX_ITER=3 LBFGS_MAX_EVAL=10`, the same
+  arguments, uninterrupted against killed (`kill -9`) after its epoch-25 checkpoint and
+  resumed with `--resume`: `metrics.csv` and `lbfgs_steps.csv` equal but for the times, the
+  weights' tensor data equal (only the 2,408-byte `param_id` header differs), `costs.json`
+  equal but for the times and `resumes` (1). Φ was still falling over the resumed epochs
+  (0.01139 → 0.01015).
+- **A stall found:** the first resume attempt, at `LBFGS_MAX_ITER=2`, stalled for good at
+  epoch 4 (Φ 0.343 at every later step). Burn's default `max_eval`, ⌊1.25 `max_iter`⌋ = 2,
+  leaves the strong Wolfe search one evaluation; when it fails it returns t = 0, the
+  curvature pair is zero and never stored, and every later step repeats the same search.
+  At `max_iter` 1 the default leaves it none. `LBFGS_MAX_EVAL` (and the literal) were added;
+  the CO2.2 line now asks for `max_eval` with each cell.
+- **Constraint 1:** `train_poisson` Adam (`EPOCHS=2 … -- 4 65 64 42 20 0`) and Gauss–Newton
+  (`OPTIMIZER=gauss-newton GN_BATCH_SIZE=10 GN_CG_MAX_ITERS=5 TIME_BUDGET_S=0.001`, the same
+  arguments, one epoch of two steps) at `655fabc` and at `94d4736` and `bc1b290`:
+  `metrics.csv` and `gn_steps.csv` equal but for the times; configs and normalisers
+  byte-identical; `costs.json` equal but for times and the commit; the weights' tensor data
+  equal; `checkpoint.bin` decoded blob by blob: state, weights, scheduler equal, Adam's
+  record equal as a multiset of (state, shape, data) (its layout follows Burn's random
+  `ParamId`s), the Gauss–Newton state equal with its `ParamId`s zeroed. The existing suite
+  passes unedited (no removed or changed line in a test module).
+- **Checks:** `/verify`: fmt, the three clippy runs, `cargo test`, `cargo doc` (no
+  warnings), datagen clippy and tests pass at `bc1b290`; `cargo test --features metal --test
+  gpu_parity` passed (9) at `9b5f68b`, before the review fixes, which touch no tensor op.
+
 ## Pending runs
 None.
 
 ## Open questions
-None yet.
+1. `max_eval` for CO2.2 (D5): Burn's default stalls strong Wolfe at `max_iter` 1 and 2.
+   Proposed: the pilot sets it per cell, e.g. 25 at `max_iter` 20 (the default) and 10 at
+   `max_iter` 1.
+2. "Updates" (inner iterations) are not counted: Burn keeps the count private. Proposed:
+   CO2.2 reports steps, passes and time, and asks for the count only if the comparison needs
+   it (an upstream accessor, or a copy of `LBFGS::step`).
