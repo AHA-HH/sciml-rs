@@ -132,7 +132,7 @@ pub fn run_up_to_phase<const D: usize>(fixture: &str, case: &str, device: &Devic
     let low2 = projector.project(grad2, config.update_proj_gap);
     let ours2 = projector.project_back(low2);
     let theirs2 = ComplexTensor::<D>::load(&mut fx, &key("low2"), device)
-        .from_low_rank(&theirs)
+        .to_full_rank(&theirs)
         .scaled(config.scale);
     worst = worst.max(close(ours2, theirs2, tol, "low2 back"));
     println!("{fixture} {case} (up to phase): relative max error {worst:.3e}");

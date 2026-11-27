@@ -12,8 +12,9 @@ use super::ComplexTensor;
 /// times sgn of its entry of largest modulus; the first on a tie). Computed on the host in
 /// f64 by [`jacobi_left_vectors`]; returned in `b`'s precision. `r` ≤ min(m, n).
 ///
-/// A reference entry of zero leaves the phase undefined (NaN), as it leaves LAPACK's
-/// arbitrary.
+/// # Panics
+/// If a reference entry is zero (e.g. the first column of a tall `matrix` is zero): the phase
+/// is then undefined (LAPACK's arbitrary).
 pub(super) fn complex_leading_vectors(matrix: ComplexTensor<2>, r: usize) -> ComplexTensor<2> {
     let (b, c) = (matrix.re, matrix.im);
     let [m, n] = b.dims();
@@ -37,6 +38,10 @@ pub(super) fn complex_leading_vectors(matrix: ComplexTensor<2>, r: usize) -> Com
         } else {
             col[0]
         };
+        assert!(
+            w.norm_sq() > 0.0,
+            "complex SVD: zero phase reference entry, the phase is undefined"
+        );
         let phase = w.conj().unit();
         col.iter_mut().for_each(|x| *x = *x * phase);
         // svd_flip with torch.sgn: times u_max / |u_max|.

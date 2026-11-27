@@ -221,6 +221,10 @@ impl Fixture {
     ///
     /// # Panics
     /// As [`take`], or if the parts are not of rank `R`.
+    #[allow(
+        dead_code,
+        reason = "every parity binary includes this harness; only the GaLore ones read complex arrays"
+    )]
     pub fn complex_tensor<const R: usize>(
         &mut self,
         key: &str,

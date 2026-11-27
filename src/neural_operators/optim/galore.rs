@@ -228,7 +228,7 @@ pub trait GaLoreTensor<const D: usize>: sealed::Sealed + Clone + std::fmt::Debug
 
     /// `self` (`[r_0, .., r_{D−1}]`) multiplied along every mode k by Fₖ, giving
     /// `[I_0, .., I_{D−1}]`: tensorly's `multi_mode_dot(y, factors)`.
-    fn from_low_rank(self, factors: &[Self::Factor; D]) -> Self {
+    fn to_full_rank(self, factors: &[Self::Factor; D]) -> Self {
         mode_products(self, factors, None, false)
     }
 }
@@ -362,7 +362,7 @@ impl<const D: usize, T: GaLoreTensor<D>> TensorGaLoreProjector<D, T> {
     /// Before the first [`project`](Self::project), or if `low`'s shape is not the ranks.
     pub fn project_back(&self, low: T) -> T {
         let factors = self.factors.as_ref().expect("project_back before project");
-        low.from_low_rank(factors).scaled(self.config.scale)
+        low.to_full_rank(factors).scaled(self.config.scale)
     }
 
     /// The factors Fₖ, `[I_k, r_k]` each, once [`project`](Self::project) has made them.
@@ -380,7 +380,8 @@ impl<const D: usize, T: GaLoreTensor<D>> TensorGaLoreProjector<D, T> {
 /// # Panics
 /// If a rank rₖ is 0, above Iₖ, or above ∏_{j≠k} rⱼ (the columns of a sweep's unfolding;
 /// tensorly falls back to a full-matrix SVD there, e.g. ranks [3, 1]), `x` requires
-/// gradients, or an SVD does not converge.
+/// gradients, an SVD does not converge, or (complex) a singular vector's phase reference
+/// entry is zero.
 pub fn tucker_factors<const D: usize, T: GaLoreTensor<D>>(
     x: T,
     ranks: [usize; D],

@@ -90,7 +90,7 @@ fn full_rank_round_trip_is_scale_times_identity() {
 fn exact_tucker_tensor_is_reproduced() {
     let core = draw([2, 3, 2], 3);
     let a = [draw([5, 2], 4), draw([6, 3], 5), draw([4, 2], 6)];
-    let x = core.from_low_rank(&a);
+    let x = core.to_full_rank(&a);
     let mut p = TensorGaLoreConfig::new(GaLoreRank::PerMode(vec![2, 3, 2])).init::<3, Tensor<3>>();
     let low = p.project(x.clone(), 0);
     assert_eq!(low.dims(), [2, 3, 2]);
@@ -251,7 +251,7 @@ fn complex_exact_tucker_tensor_is_reproduced() {
         complex_draw([6, 3], 44),
         complex_draw([4, 2], 45),
     ];
-    let x = core.from_low_rank(&a);
+    let x = core.to_full_rank(&a);
     let mut p =
         TensorGaLoreConfig::new(GaLoreRank::PerMode(vec![2, 3, 2])).init::<3, ComplexTensor<3>>();
     let low = p.project(x.clone(), 0);
