@@ -221,7 +221,11 @@ mod tests {
     use crate::CONVENTION_VERSION;
     use crate::neural_operators::chebyshev::TRANSFER_DEGREE;
     use crate::neural_operators::data::io::readers::npz::NpzFileReader;
-    use crate::neural_operators::data::loaders::poisson::SidecarRecord;
+    use crate::neural_operators::data::loaders::base_dataset::DatasetConfig;
+    use crate::neural_operators::data::loaders::poisson::{
+        PoissonConfig, PoissonField, SidecarRecord, load_poisson3d_cheb_field,
+        load_poisson3d_uniform,
+    };
     use crate::neural_operators::pde::poisson::grf::{K_MAX, TAU, k_default};
     use ndarray::{Array3, s};
 
@@ -365,6 +369,45 @@ mod tests {
         assert_eq!(record.git_commit, "abc123");
         assert_eq!(record.crate_version, env!("CARGO_PKG_VERSION"));
         assert!(record.wall_time_s > 0.0);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn split_3d_loads_back() {
+        let dir = std::env::temp_dir().join(format!(
+            "sciml_rs_split_3d_loads_back_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let train = generate_3d(&spec(9, 50, 3)).unwrap();
+        let test = generate_3d(&spec(9, 60, 2)).unwrap();
+        let (train_path, _) = write_split_3d(&dir, "train", &train, "abc123").unwrap();
+        let (test_path, _) = write_split_3d(&dir, "test", &test, "abc123").unwrap();
+
+        for (path, split) in [(&train_path, &train), (&test_path, &test)] {
+            let u = load_poisson3d_cheb_field(path, PoissonField::U, 9, split.spec.count).unwrap();
+            assert_eq!(u, split.u, "{}", path.display());
+        }
+
+        let config = PoissonConfig::new(
+            DatasetConfig {
+                n_train: 3,
+                n_test: 2,
+            },
+            9,
+        );
+        let (train_data, test_data, _) =
+            load_poisson3d_uniform::<f64>(&train_path, &test_path, &config).unwrap();
+        let t = Transfers::new(9);
+        for (data, split) in [(&train_data, &train), (&test_data, &test)] {
+            let count = split.spec.count;
+            assert_eq!(data.inputs().shape(), [count, 8, 8, 8, 1]);
+            assert_eq!(
+                data.targets(),
+                &t.to_uniform_all_nd(split.u.view().into_dyn()),
+                "targets in physical units, T_cu along every axis"
+            );
+        }
         fs::remove_dir_all(&dir).unwrap();
     }
 }

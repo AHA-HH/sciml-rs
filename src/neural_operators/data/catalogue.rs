@@ -133,6 +133,34 @@ pub fn stage(n: usize) -> Result<PoissonSet, NoStage> {
     STAGES.into_iter().find(|set| set.n == n).ok_or(NoStage(n))
 }
 
+/// The error of [`set_3d`]: no 3D set has this n.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoSet3d(pub usize);
+
+impl fmt::Display for NoSet3d {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ns: Vec<usize> = GENERATED_3D.iter().map(|set| set.n).collect();
+        write!(
+            f,
+            "no 3D Poisson set with n = {}; expected one of {ns:?}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for NoSet3d {}
+
+/// The 3D set in [`GENERATED_3D`] with `n` CGL nodes per axis: [`stage`] for 3D.
+///
+/// # Errors
+/// [`NoSet3d`], whose message names the sets' n, if there is none.
+pub fn set_3d(n: usize) -> Result<Poisson3dSet, NoSet3d> {
+    GENERATED_3D
+        .into_iter()
+        .find(|set| set.n == n)
+        .ok_or(NoSet3d(n))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +199,14 @@ mod tests {
         }
         let msg = stage(33).unwrap_err().to_string();
         assert!(msg.contains("[65, 129, 257]"), "{msg}");
+    }
+
+    #[test]
+    fn set_3d_finds_each_set_and_rejects_other_n() {
+        for set in GENERATED_3D {
+            assert_eq!(set_3d(set.n).unwrap(), set);
+        }
+        let msg = set_3d(129).unwrap_err().to_string();
+        assert!(msg.contains("n = 129") && msg.contains("[33, 65]"), "{msg}");
     }
 }

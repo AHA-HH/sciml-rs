@@ -7,7 +7,7 @@
 //! error 3 cross-check compares two backends' round-off).
 //!
 //! `predict_poisson` for 3D: loads the model (`FNO<5>`), both normalizers and the dataset
-//! config from the run directory, whose n picks the 3D set (`catalogue::GENERATED_3D`);
+//! config from the run directory, whose n picks the 3D set (`catalogue::set_3d`);
 //! the test inputs come from `load_poisson3d_uniform_test`, encoded with the run's x
 //! normalizer, the raw CGL solutions from `load_poisson3d_cheb_field`; predictions are
 //! decoded with the y normalizer and copied to the host as f64. `poisson_errors_nd` gives
@@ -21,11 +21,11 @@ use std::path::Path;
 use std::time::Instant;
 
 use burn::{config::Config, tensor::Device};
-use ndarray::Axis;
+use ndarray::{Axis, Ix4};
 use sciml_rs::neural_operators::{
     chebyshev::Transfers,
     data::{
-        catalogue::GENERATED_3D,
+        catalogue::set_3d,
         loaders::poisson::{
             PoissonConfig, PoissonField, SidecarRecord, load_poisson3d_cheb_field,
             load_poisson3d_uniform_test,
@@ -57,10 +57,7 @@ fn main() {
         .data_config::<PoissonConfig>()
         .unwrap_or_else(|e| panic!("load dataset config: {e}"));
     let n = dataset_cfg.n;
-    let set = GENERATED_3D
-        .into_iter()
-        .find(|set| set.n == n)
-        .unwrap_or_else(|| panic!("no 3D Poisson set with n = {n}"));
+    let set = set_3d(n).unwrap_or_else(|e| panic!("{e}"));
     let n_test = dataset_cfg.base.n_test;
 
     let normalizers = run
@@ -85,7 +82,11 @@ fn main() {
     let inference_time_s = start.elapsed().as_secs_f64();
     println!("inference on {n_test} test samples (warm): {inference_time_s:.3} s");
     // Decode to physical scale in f64; the test targets were never encoded
-    let pred = normalizers.y.decode(pred.into_dyn());
+    let pred = normalizers
+        .y
+        .decode(pred.into_dyn())
+        .into_dimensionality::<Ix4>()
+        .expect("predictions are [N, s, s, s]");
     assert_eq!(pred.len_of(Axis(0)), n_test);
 
     let transfers = Transfers::with_s(n, dataset_cfg.s());

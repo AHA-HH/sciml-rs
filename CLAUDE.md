@@ -252,7 +252,8 @@ Slash commands in `.claude/skills/` for the objectives with a roadmap (`laplace3
 - `data/catalogue` (ungated, loads nothing) names the dataset files: `BurgersFiles`,
   `DarcyFiles`, and `PoissonSet { n, k }` for a Poisson dataset's split files
   (`poisson_n{n}_K{K}_{split}`); `STAGES` / `stage(n)` are the training stages and
-  `GENERATED` the sets `generate_poisson` writes. The loaders' callers and the generator
+  `GENERATED` the sets `generate_poisson` writes; in 3D `Poisson3dSet`, `GENERATED_3D`
+  and `set_3d(n)` (3D CL4.2). The loaders' callers and the generator
   take file names from here, not literals.
 - `data/loaders/poisson/` is ungated: `mod.rs` (`PoissonConfig` with the learning grid `s`,
   unset meaning n − 1, and since Phase 5 T4 K, d and the split files with their sidecar

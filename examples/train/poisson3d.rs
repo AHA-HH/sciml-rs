@@ -26,7 +26,7 @@ use burn::{config::Config, module::Module, tensor::Device};
 use sciml_rs::neural_operators::{
     chebyshev::TRANSFER_DEGREE,
     data::{
-        catalogue::{GENERATED_3D, Poisson3dSet},
+        catalogue::{Poisson3dSet, set_3d},
         dataset::OperatorDataset,
         loaders::{
             base_dataset::DatasetConfig,
@@ -88,19 +88,6 @@ fn datasets() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("datasets/poisson")
 }
 
-/// The 3D set with `n` CGL nodes per axis.
-///
-/// # Panics
-/// If `GENERATED_3D` has none.
-fn set(n: usize) -> Poisson3dSet {
-    GENERATED_3D
-        .into_iter()
-        .find(|set| set.n == n)
-        .unwrap_or_else(|| {
-            panic!("no 3D Poisson set with n = {n}; expected one of {GENERATED_3D:?}")
-        })
-}
-
 /// The sidecar of one split of `set`.
 ///
 /// # Panics
@@ -116,7 +103,7 @@ fn sidecar(set: &Poisson3dSet, split: &str) -> SidecarRecord {
 fn new_run(device: &Device) -> (RunDir, FNOConfig, TrainingConfig, PoissonConfig) {
     let padding = arg(1, "padding", PADDING);
     let n = arg(2, "n", DEFAULT_N);
-    let set = set(n);
+    let set = set_3d(n).unwrap_or_else(|e| panic!("{e}"));
     let s = arg(3, "s", n - 1);
     let default_seed = TrainingConfig::new().seed;
     let seed = arg(4, "seed", default_seed);
@@ -236,7 +223,7 @@ fn main() {
             (run, model_cfg, train_cfg, dataset_cfg, None)
         }
     };
-    let set = set(dataset_cfg.n);
+    let set = set_3d(dataset_cfg.n).unwrap_or_else(|e| panic!("{e}"));
 
     let train_path = datasets().join(set.npz("train"));
     let test_path = datasets().join(set.npz("test"));
