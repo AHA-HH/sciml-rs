@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # optimisers CO0.1: the reference arms on Burn 0.23 (docs/optimisers/tasks/CO0.1.md).
 # Runs the given run specs one after another on one GPU, stage 3, s = 64, p = 0, N = 1000:
+#   lbfgs:<seed>:<history>:<max_iter>:<max_eval>:<budget_s>  L-BFGS (optimisers CO2.2's
+#                                 pilot): full batch, strong Wolfe, lr 1, mu 0 (the
+#                                 literals), stopped by the budget (EPOCHS lifted as cap)
 #   adam:<seed>                   Adam, 500 epochs (Phase 5 settings)
 #   adam:<seed>:<epochs>          Adam, that many epochs (the long budget)
 #   gn:<seed>:<cap>:<budget_s>    GN200-D at mu = 0, CG cap <cap>, stopped by the budget
@@ -53,7 +56,12 @@ for spec in "$@"; do
     continue
   fi
   IFS=: read -r arm seed a b extra <<< "$spec"
+  IFS=: read -r _ _ _ _ c d more <<< "$spec"   # lbfgs's two further fields
   case $arm in
+    lbfgs) [ -n "$d" ] && [ -z "$more" ] || { echo "FAILED $spec: lbfgs takes <seed>:<history>:<max_iter>:<max_eval>:<budget_s>" | tee -a "$PROGRESS"; continue; }
+           # EPOCHS: a cap above any reachable count (the trainer sizes a Vec by it)
+           vars=(OPTIMIZER=lbfgs LBFGS_HISTORY="$a" LBFGS_MAX_ITER="$b" LBFGS_MAX_EVAL="$c"
+                 TIME_BUDGET_S="$d" EPOCHS=20000) ;;
     adam) [ -z "$b$extra" ] || { echo "FAILED $spec: adam takes <seed>[:<epochs>]" | tee -a "$PROGRESS"; continue; }
           vars=(${a:+EPOCHS=$a}) ;;
     gn) [ -n "$b" ] && [ -z "$extra" ] || { echo "FAILED $spec: gn takes <seed>:<cap>:<budget_s>" | tee -a "$PROGRESS"; continue; }
@@ -69,6 +77,7 @@ for spec in "$@"; do
   smi=$!
   start=$(date +%s)
   env -u OPTIMIZER -u EPOCHS -u TIME_BUDGET_S -u WEIGHT_DECAY -u TRAIN_DEVICES \
+    -u LBFGS_HISTORY -u LBFGS_MAX_ITER -u LBFGS_MAX_EVAL -u LBFGS_WEIGHT_DECAY \
     -u GN_BATCH_SIZE -u GN_PRECONDITIONER -u GN_WEIGHT_DECAY -u GN_CG_MAX_ITERS \
     -u MLFLOW_EXPERIMENT_NAME ${vars[@]+"${vars[@]}"} CUDA_VISIBLE_DEVICES="$GPU" \
     "$BIN" 0 129 64 "$seed" > "$log" 2>&1
