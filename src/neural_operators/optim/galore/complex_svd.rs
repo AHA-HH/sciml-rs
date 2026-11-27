@@ -44,7 +44,7 @@ pub(super) fn complex_leading_vectors(matrix: ComplexTensor<2>, r: usize) -> Com
             "complex SVD: zero phase reference entry, the phase is undefined"
         );
         let phase = w.conj() / w.norm();
-        col.iter_mut().for_each(|x| *x = *x * phase);
+        col.iter_mut().for_each(|x| *x *= phase);
         // svd_flip with torch.sgn: times u_max / |u_max|.
         let largest = col.iter().enumerate().fold(0, |best, (i, x)| {
             if x.norm_sqr() > col[best].norm_sqr() {
@@ -54,7 +54,7 @@ pub(super) fn complex_leading_vectors(matrix: ComplexTensor<2>, r: usize) -> Com
             }
         });
         let sgn = col[largest] / col[largest].norm();
-        col.iter_mut().for_each(|x| *x = *x * sgn);
+        col.iter_mut().for_each(|x| *x *= sgn);
     }
     let part = |f: fn(&Cx) -> f64| {
         let values: Vec<f64> = (0..m)
