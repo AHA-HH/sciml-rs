@@ -54,7 +54,7 @@ pub(crate) fn fft_ctensor<const R: usize>(x: Tensor<R>) -> (Tensor<R>, Tensor<R>
 }
 
 /// Inverse of [`fft_ctensor`], applying the axes in the reverse order,
-/// each complex inverse on the last axis as there. `re`, `im`: the spectrum of a
+/// each complex inverse on the last axis as there. `re`, `im`: the spectrum of an
 /// `orig_dims` (`[B, C, s..]`) field, as [`fft_ctensor`] returns it; returns `[B, C, s..]`.
 pub(crate) fn ifft_ctensor<const R: usize>(
     mut re: Tensor<R>,
@@ -76,13 +76,10 @@ pub(crate) fn ifft_ctensor<const R: usize>(
 }
 
 /// [`ifft_ctensor`] to `out_dims` (`[B, C, out..]`) of a spectrum transformed at `in_dims`
-/// (`[B, C, s..]`) and already resized to `out_dims`'s spectral extents, scaled by
-/// `N_out / N_in` (products of the spatial extents): 2.0.0's `norm="forward"` amplitude, an
-/// extension of CONVENTIONS §4's backward norm (library CM1.5b). The resize itself is the
-/// caller's: [`SpectralConv::forward_to`] trims or pads at the end of each axis, `resample`
-/// keeps each axis's lowest modes.
-///
-/// [`SpectralConv::forward_to`]: crate::neural_operators::layers::spectral_convolution::SpectralConv::forward_to
+/// (`[B, C, s..]`), scaled by `N_out / N_in` (products of the spatial extents): 2.0.0's
+/// `norm="forward"` amplitude, an extension of CONVENTIONS §4's backward norm (library
+/// CM1.5b). `re`, `im` must already have `out_dims`'s spectral extents (`out_last / 2 + 1` on
+/// the last axis); how the spectrum is resized there is the caller's.
 pub(crate) fn ifft_ctensor_to<const R: usize>(
     re: Tensor<R>,
     im: Tensor<R>,
@@ -145,7 +142,7 @@ mod tests {
         roundtrip_check(vec![1.0, 2.0, 3.0, 4.0], vec![0.1, 0.2, 0.3, 0.4]);
     }
 
-    fn round_trip_check<const R: usize>(shape: [usize; R]) {
+    fn fftn_round_trip_check<const R: usize>(shape: [usize; R]) {
         let device = Device::default();
         let x = Tensor::<R>::random(shape, Distribution::Normal(0.0, 1.0), &device);
         let orig_dims = x.dims();
@@ -167,17 +164,17 @@ mod tests {
 
     #[test]
     fn fft_round_trip_1d() {
-        round_trip_check::<3>([2, 4, 16]);
+        fftn_round_trip_check::<3>([2, 4, 16]);
     }
 
     #[test]
     fn fft_round_trip_2d() {
-        round_trip_check::<4>([2, 4, 16, 16]);
+        fftn_round_trip_check::<4>([2, 4, 16, 16]);
     }
 
     #[test]
     fn fft_round_trip_3d() {
-        round_trip_check::<5>([2, 4, 8, 8, 8]);
+        fftn_round_trip_check::<5>([2, 4, 8, 8, 8]);
     }
 
     /// Unscaled forward DFT of `x` (row-major, `shape`) over every axis from 2
